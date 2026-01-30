@@ -1,0 +1,6 @@
+# Elan/Lean cache
+.elan/
+
+# Build artifacts
+build_output.log
+elan-init.sh

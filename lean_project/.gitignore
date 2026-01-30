@@ -1,0 +1,5 @@
+build_output.log
+lake-log.txt
+.lake/build/
+build_output_verbose.log
+run_output.log

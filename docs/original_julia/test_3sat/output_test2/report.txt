@@ -1,0 +1,5 @@
+Num. Instance: 31
+Num. Valid: 31
+Ratio: 100.0
+- - -
+Num. UNSAT instances: 5

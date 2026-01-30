@@ -1,0 +1,16 @@
+name = "abs-sat"
+version = "0.1.0"
+
+[leanOptions]
+warningAsError = true
+
+[dependencies]
+std = { git = "https://github.com/leanprover/std4" }
+
+[[lean_lib]]
+name = "AbsSat"
+root = "AbsSat"
+
+[[lean_exe]]
+name = "runTests"
+root = "Main"

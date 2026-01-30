@@ -1,0 +1,4 @@
+c This is a sample CNF file.
+p cnf 3 2
+1 -2 3 0
+-1 2 -3 0

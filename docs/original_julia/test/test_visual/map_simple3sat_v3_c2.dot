@@ -1,0 +1,184 @@
+digraph G {
+     compound=true 
+subgraph cluster_line_0 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k0_1 [label=<1=1<BR /> ID: k0.1 <BR />Requires: [] <BR />>]k0_0 [label=<1=0<BR /> ID: k0.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 0 " 
+ }
+subgraph cluster_line_1 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k1_1 [label=<!1=1<BR /> ID: k1.1 <BR />Requires: [k0.0,] <BR />>]k1_0 [label=<!1=0<BR /> ID: k1.0 <BR />Requires: [k0.1,] <BR />>]
+     fontsize="12" 
+     label = "Line 1 " 
+ }
+subgraph cluster_line_2 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k2_1 [label=<2=1<BR /> ID: k2.1 <BR />Requires: [] <BR />>]k2_0 [label=<2=0<BR /> ID: k2.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 2 " 
+ }
+subgraph cluster_line_3 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k3_0 [label=<!2=0<BR /> ID: k3.0 <BR />Requires: [k2.1,] <BR />>]k3_1 [label=<!2=1<BR /> ID: k3.1 <BR />Requires: [k2.0,] <BR />>]
+     fontsize="12" 
+     label = "Line 3 " 
+ }
+subgraph cluster_line_4 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k4_0 [label=<3=0<BR /> ID: k4.0 <BR />Requires: [] <BR />>]k4_1 [label=<3=1<BR /> ID: k4.1 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 4 " 
+ }
+subgraph cluster_line_5 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k5_0 [label=<!3=0<BR /> ID: k5.0 <BR />Requires: [k4.1,] <BR />>]k5_1 [label=<!3=1<BR /> ID: k5.1 <BR />Requires: [k4.0,] <BR />>]
+     fontsize="12" 
+     label = "Line 5 " 
+ }
+subgraph cluster_line_6 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k6_0 [label=<4=0<BR /> ID: k6.0 <BR />Requires: [] <BR />>]k6_1 [label=<4=1<BR /> ID: k6.1 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 6 " 
+ }
+subgraph cluster_line_7 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k7_1 [label=<!4=1<BR /> ID: k7.1 <BR />Requires: [k6.0,] <BR />>]k7_0 [label=<!4=0<BR /> ID: k7.0 <BR />Requires: [k6.1,] <BR />>]
+     fontsize="12" 
+     label = "Line 7 " 
+ }
+subgraph cluster_line_8 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k8_0 [label=<FusionNode<BR /> ID: k8.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 8 " 
+ }
+subgraph cluster_line_9 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k9_4 [label=<or0=100<BR /> ID: k9.4 <BR />Requires: [k5.0,k0.1,k6.0,] <BR />>]k9_5 [label=<or0=101<BR /> ID: k9.5 <BR />Requires: [k5.0,k0.1,k6.1,] <BR />>]k9_1 [label=<or0=001<BR /> ID: k9.1 <BR />Requires: [k5.0,k6.1,k0.0,] <BR />>]k9_6 [label=<or0=110<BR /> ID: k9.6 <BR />Requires: [k0.1,k5.1,k6.0,] <BR />>]k9_7 [label=<or0=111<BR /> ID: k9.7 <BR />Requires: [k0.1,k5.1,k6.1,] <BR />>]k9_3 [label=<or0=011<BR /> ID: k9.3 <BR />Requires: [k6.1,k5.1,k0.0,] <BR />>]k9_2 [label=<or0=010<BR /> ID: k9.2 <BR />Requires: [k6.0,k5.1,k0.0,] <BR />>]
+     fontsize="12" 
+     label = "Line 9 " 
+ }
+subgraph cluster_line_10 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k10_1 [label=<or1=001<BR /> ID: k10.1 <BR />Requires: [k4.0,k1.1,k2.0,] <BR />>]k10_6 [label=<or1=110<BR /> ID: k10.6 <BR />Requires: [k2.1,k4.1,k1.0,] <BR />>]k10_4 [label=<or1=100<BR /> ID: k10.4 <BR />Requires: [k4.0,k2.1,k1.0,] <BR />>]k10_2 [label=<or1=010<BR /> ID: k10.2 <BR />Requires: [k4.1,k2.0,k1.0,] <BR />>]k10_3 [label=<or1=011<BR /> ID: k10.3 <BR />Requires: [k4.1,k1.1,k2.0,] <BR />>]k10_5 [label=<or1=101<BR /> ID: k10.5 <BR />Requires: [k4.0,k2.1,k1.1,] <BR />>]k10_7 [label=<or1=111<BR /> ID: k10.7 <BR />Requires: [k2.1,k4.1,k1.1,] <BR />>]
+     fontsize="12" 
+     label = "Line 10 " 
+ }
+subgraph cluster_line_11 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k11_0 [label=<FusionNode<BR /> ID: k11.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 11 " 
+ }
+k0_1 -> k1_0 
+k0_0 -> k1_1 
+k1_1 -> k2_1 
+k1_1 -> k2_0 
+k1_0 -> k2_1 
+k1_0 -> k2_0 
+k2_1 -> k3_0 
+k2_0 -> k3_1 
+k3_0 -> k4_0 
+k3_0 -> k4_1 
+k3_1 -> k4_0 
+k3_1 -> k4_1 
+k4_0 -> k5_1 
+k4_1 -> k5_0 
+k5_0 -> k6_0 
+k5_0 -> k6_1 
+k5_1 -> k6_0 
+k5_1 -> k6_1 
+k6_0 -> k7_1 
+k6_1 -> k7_0 
+k7_1 -> k8_0 
+k7_0 -> k8_0 
+k8_0 -> k9_4 
+k8_0 -> k9_5 
+k8_0 -> k9_1 
+k8_0 -> k9_6 
+k8_0 -> k9_7 
+k8_0 -> k9_3 
+k8_0 -> k9_2 
+k9_4 -> k10_1 
+k9_4 -> k10_6 
+k9_4 -> k10_4 
+k9_4 -> k10_2 
+k9_4 -> k10_3 
+k9_4 -> k10_5 
+k9_4 -> k10_7 
+k9_5 -> k10_1 
+k9_5 -> k10_6 
+k9_5 -> k10_4 
+k9_5 -> k10_2 
+k9_5 -> k10_3 
+k9_5 -> k10_5 
+k9_5 -> k10_7 
+k9_1 -> k10_1 
+k9_1 -> k10_6 
+k9_1 -> k10_4 
+k9_1 -> k10_2 
+k9_1 -> k10_3 
+k9_1 -> k10_5 
+k9_1 -> k10_7 
+k9_6 -> k10_1 
+k9_6 -> k10_6 
+k9_6 -> k10_4 
+k9_6 -> k10_2 
+k9_6 -> k10_3 
+k9_6 -> k10_5 
+k9_6 -> k10_7 
+k9_7 -> k10_1 
+k9_7 -> k10_6 
+k9_7 -> k10_4 
+k9_7 -> k10_2 
+k9_7 -> k10_3 
+k9_7 -> k10_5 
+k9_7 -> k10_7 
+k9_3 -> k10_1 
+k9_3 -> k10_6 
+k9_3 -> k10_4 
+k9_3 -> k10_2 
+k9_3 -> k10_3 
+k9_3 -> k10_5 
+k9_3 -> k10_7 
+k9_2 -> k10_1 
+k9_2 -> k10_6 
+k9_2 -> k10_4 
+k9_2 -> k10_2 
+k9_2 -> k10_3 
+k9_2 -> k10_5 
+k9_2 -> k10_7 
+k10_1 -> k11_0 
+k10_6 -> k11_0 
+k10_4 -> k11_0 
+k10_2 -> k11_0 
+k10_3 -> k11_0 
+k10_5 -> k11_0 
+k10_7 -> k11_0 
+}

@@ -1,0 +1,41 @@
+digraph G {
+     compound=true 
+subgraph cluster_line_0 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k0_0__root [label=<x=0<BR /> ID: k0.0__root <BR />>]k0_1__root [label=<x=1<BR /> ID: k0.1__root <BR />>]
+     fontsize="12" 
+     label = "Line 0 " 
+ }
+subgraph cluster_line_1 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k1_0__k0_1 [label=<!x=0<BR /> ID: k1.0__k0.1 <BR />>]k1_1__k0_0 [label=<!x=1<BR /> ID: k1.1__k0.0 <BR />>]
+     fontsize="12" 
+     label = "Line 1 " 
+ }
+subgraph cluster_line_2 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k2_0__k1_0 [label=<y=0<BR /> ID: k2.0__k1.0 <BR />>]k2_0__k1_1 [label=<y=0<BR /> ID: k2.0__k1.1 <BR />>]
+     fontsize="12" 
+     label = "Line 2 " 
+ }
+subgraph cluster_line_3 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k3_1__k2_0 [label=<!y=1<BR /> ID: k3.1__k2.0 <BR />>]
+     fontsize="12" 
+     label = "Line 3 " 
+ }
+k0_0__root -> k1_1__k0_0 
+k0_1__root -> k1_0__k0_1 
+k1_0__k0_1 -> k2_0__k1_0 
+k1_1__k0_0 -> k2_0__k1_1 
+k2_0__k1_0 -> k3_1__k2_0 
+k2_0__k1_1 -> k3_1__k2_0 
+}

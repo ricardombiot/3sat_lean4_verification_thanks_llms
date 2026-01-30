@@ -1,0 +1,4 @@
+c This is a malformed CNF file.
+1 -2 3 0
+p cnf 3 2
+-1 2 -3 0
