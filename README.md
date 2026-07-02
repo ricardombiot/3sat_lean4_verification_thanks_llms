@@ -25,4 +25,4 @@ This project is a testament to modern human-AI collaboration:
 - **Author**: Original theory, Julia implementation, and conceptual design.
 - **Deepseek**: Technical planning and structural design of the Lean 4 migration.
 - **Gemini (Jules/Antigravity)**: Implementation of Lean 4 code, formal verification, and complexity analysis.
-
+- **Claude (Sonnet 5)**: Review and propose important improves.
