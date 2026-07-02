@@ -7,9 +7,9 @@ The AbsSat algorithm explores the hypothesis that 3-SAT can be solved in polynom
 
 ## What's Inside?
 *   **Lean 4 Implementation**: Pure functional model and imperative machine implementation of the AbsSat algorithm.
-*   **Formal Proofs**: Soundness and Completeness theorems verified in Lean 4.
+*   **Formal Proofs**: Soundness and Completeness theorems verified in Lean 4, depending on no project-specific axioms — only the `WellFormedGMap` well-formedness hypothesis on the input graph.
 *   **Complexity Analysis**: Detailed proofs of the $O(S^4)$ time complexity and structural boundedness.
-*   **Human-AI Documentation**: A series of documents detailing the collaborative process between the author and various LLMs (Gemini, Deepseek).
+*   **Human-AI Documentation**: A series of documents detailing the collaborative process between the author and various LLMs (Gemini, Deepseek, Claude).
 
 ## Getting Started
 Please refer to [README_VERIFICATION.md](./lean_project/README_VERIFICATION.md) for a detailed index of all verification and analysis documents.

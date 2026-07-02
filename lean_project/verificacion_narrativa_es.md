@@ -54,18 +54,18 @@ Aquí es donde brilla el enfoque de "exploración exhaustiva".
 *   $S$ es un camino válido que cruza todo el mapa.
 *   Cuando la máquina está en la capa 1, mira *todas* las posibilidades. Como $S$ pasa por la capa 1, la máquina encontrará ese primer paso.
 *   Cuando la máquina está en la capa 2, mira *todas* las extensiones posibles. Como $S$ es válida, su paso por la capa 2 es una extensión válida. La máquina la encontrará.
-*   **Axioma Clave**: La máquina nunca "poda" una rama válida arbitrariamente. Solo elimina lo que es lógicamente imposible.
+*   **Hecho Clave (ya demostrado, no asumido)**: La máquina nunca "poda" una rama válida arbitrariamente. Solo elimina lo que es lógicamente imposible, porque `evolve_path_nodes` filtra (se queda con todo nodo que cumple los requisitos) en vez de elegir uno solo.
 *   Por tanto, el camino $S$ sobrevivirá paso a paso hasta el final.
 
 ---
 
-## 4. Los Axiomas: Los Cimientos
+## 4. Los Cimientos: De Axiomas a Teoremas
 
-En nuestra verificación, usamos "Axiomas Estructurales". En lugar de probar desde cero cómo funcionan las listas en la memoria del ordenador, asumimos verdades lógicas básicas sobre la estructura del problema:
+Al principio, usamos "Axiomas Estructurales" para avanzar rápido: en lugar de probar desde cero cómo funcionan las listas en la memoria del ordenador, asumíamos verdades lógicas básicas sobre la estructura del problema, como:
 1.  **Monotonicidad**: Saber más cosas (tener un camino más largo) nunca hace que sepas menos cosas.
 2.  **Preservación**: Si algo era verdad ayer, y hoy no ha cambiado nada relacionado, sigue siendo verdad.
 
-Estos axiomas nos permiten enfocar la prueba en la lógica del algoritmo (grafos, satisfacción) en lugar de perdernos en detalles de programación.
+Con el tiempo, todos esos axiomas se **demostraron formalmente** en vez de asumirse. La única pieza que queda como *hipótesis* (no como axioma sin probar) es que el grafo de entrada esté "bien formado" (`WellFormedGMap`): que los ids de los nodos sean únicos en todo el mapa y que cada nodo declare honestamente en qué capa vive. Es una propiedad de cómo se construye el grafo real, no un salto de fe en la demostración — y es justo lo que permite convertir la preservación de requisitos en un teorema real en vez de una suposición.
 
 ---
 

@@ -26,15 +26,16 @@ A `PureGMap` is **Solvable** if there exists a path $p$ such that `is_valid_solu
 
 This predicate is independent of the solver algorithm; it is a property of the graph itself.
 
-## 3. Axiomatic Foundation (`Axioms.lean`)
+## 3. Structural Foundation (`Axioms.lean`)
 
-To facilitate the formal proofs and abstract away low-level list manipulation details, we defined a set of structural axioms in `Axioms.lean`. These axioms capture the intended behavior of the data structures:
+`Axioms.lean` originally held a set of structural facts as unproven axioms while the model was being fleshed out. All of them have since been **proved as theorems** — the file name is now historical, not a description of its contents:
 
 *   **Monotonicity**: Adding a node to a path strictly increases the set of covered layers (`coverage_monotonicity`).
 *   **Preservation**: Extending a valid path preserves the satisfaction of previous requirements (`requirements_preservation`).
 *   **Construction**: The `run_step` function generates exactly those paths that are valid extensions of the input paths (`run_step_semantics`).
+*   **Exhaustiveness**: `evolve_path_nodes` never drops a satisfying candidate (`run_layers_mem_complete`, `run_pure_complete`) — this is what makes Completeness provable rather than assumed.
 
-The proofs for Soundness and Completeness rely on these axioms.
+The only remaining hypothesis is **`WellFormedGMap`** (`Problem.lean`): node ids are globally unique across the map, and every node's `.layer` field honestly matches the index of the layer list it belongs to. This is a property of how the real `GraphMap` is constructed, not an unproven claim about the proof machinery — `requirements_preservation` and `combine_requirements` are derived from it, not assumed directly.
 
 ## 4. Correctness Theorems
 
@@ -45,18 +46,18 @@ We defined and **formally proved** two fundamental theorems that, together, guar
 $$ \forall p, \ p \in \text{run\_pure}(G) \implies \text{is\_valid\_solution}(G, p) $$
 
 **Proof Strategy:**
-We proved this by structural induction on the layers of the graph. We used the `valid_for_layers` invariant, showing that if the paths at step $k$ are valid for layers $0..k$, then the paths generated at step $k+1$ (by extending with valid nodes) are valid for layers $0..k+1$. The proof relies on the monotonicity axioms to ensure that extension does not invalidate previous correctness.
+We proved this by structural induction on the layers of the graph, requiring only `WellFormedGMap G`. We used the `valid_for_layers` invariant — which also tracks `path_confined_to`, the fact that every visited id traces back to an already-processed layer — showing that if the paths at step $k$ are valid for layers $0..k$, then the paths generated at step $k+1$ (by extending with valid nodes) are valid for layers $0..k+1$. The proof relies on the (now proved) monotonicity theorems to ensure that extension does not invalidate previous correctness.
 
 ### B. Completeness (`Completeness.lean`)
 **Theorem:** *If a solution exists, the machine will find it.*
 $$ \text{Solvable}(G) \implies \exists p, \ p \in \text{run\_pure}(G) $$
 
 **Proof Strategy:**
-We proved this using the `valid_prefix_maintained` axiom. This ensures that if a valid solution exists for the full graph, the prefix of that solution corresponding to the currently processed layers is always present in the set of active paths tracked by the machine. Since the machine never discards a valid extension, the full solution allows survives to the end.
+`Solvable` is witnessed by an explicit sequence of per-layer choices (`ChoicesValid`) whose requirements are satisfiable from only the *earlier* choices — the natural notion of solvability for a causally-ordered, layer-by-layer algorithm like this one. `run_pure_complete` proves by induction that this witness is always reachable, because `evolve_path_nodes` filters (keeps every satisfying node) rather than picking just one. No axiom is needed: the old `valid_prefix_maintained` axiom has been replaced by this real proof.
 
 ## 5. Conclusion
 
-By proving that the algorithm **never drops a valid path** (Completeness) and **never accepts an invalid path** (Soundness), under the assumption of the structural axioms, we have formally affirmed that the `SatMachine` is a correct solver for the Boolean Satisfiability problem mapped to this Graph structure.
+By proving that the algorithm **never drops a valid path** (Completeness) and **never accepts an invalid path** (Soundness), we have formally affirmed that the `SatMachine` is a correct solver for the Boolean Satisfiability problem mapped to this Graph structure. Both theorems depend on no axioms of this project's own making — `#print axioms soundness_theorem` / `completeness_theorem` show only Lean's core `propext`, `Classical.choice`, `Quot.sound` — modulo the `WellFormedGMap` hypothesis on the input graph.
 
 Code: `AbsSat.SatMachine.Model`
-Status: **Verified** (compiles with `lake build`, no `sorry`).
+Status: **Verified** (compiles with `lake build`, no `sorry`, no project-specific axioms).
