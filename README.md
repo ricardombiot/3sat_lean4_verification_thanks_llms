@@ -11,6 +11,9 @@ The AbsSat algorithm explores the hypothesis that 3-SAT can be solved in polynom
 *   **Complexity Analysis**: Detailed proofs of the $O(S^4)$ time complexity and structural boundedness.
 *   **Human-AI Documentation**: A series of documents detailing the collaborative process between the author and various LLMs (Gemini, Deepseek, Claude).
 
+## The Book
+The original theory behind `AbsSat` — "P vs. NP - En busca del algoritmo 'imposible' para 3SAT" — is written up in full (Spanish) in [book/book_3sat_es.pdf](./book/book_3sat_es.pdf). Start there for the conceptual background before diving into the Lean 4 formalization.
+
 ## Getting Started
 Please refer to [README_VERIFICATION.md](./lean_project/README_VERIFICATION.md) for a detailed index of all verification and analysis documents.
 
