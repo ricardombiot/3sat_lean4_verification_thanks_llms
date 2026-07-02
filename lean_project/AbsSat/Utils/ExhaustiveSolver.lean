@@ -15,7 +15,7 @@ inductive ParsingState where
   | readingOrs
 
 def readOr (line : String) : Option (Array Int) :=
-  let parts := line.trim.splitOn " " |> List.filter (·.length > 0)
+  let parts := line.trimAscii.toString.splitOn " " |> List.filter (·.length > 0)
   if parts.length != 4 then
     none
   else
@@ -36,7 +36,7 @@ def readCnfFile! (solver : ExhaustiveSolver) : IO Bool := do
   let lines ← IO.FS.lines path
   let mut state := ParsingState.waitingConf
   for line in lines do
-    let line := line.trim
+    let line := line.trimAscii.toString
     if !line.isEmpty && line.front != 'c' then
       match state with
       | .waitingConf =>
@@ -134,7 +134,7 @@ def registerAsSolution! (solver : ExhaustiveSolver) : IO Unit := do
   let currentCase ← solver.currentCase.get
   let nLiterals ← solver.nLiterals.get
   let caseBits := caseToBits currentCase
-  let solutionString := caseBits.take nLiterals
+  let solutionString := caseBits.take nLiterals |>.toString
   let solution := solutionString.toList.map (· == '1') |> Array.mk
   solver.listSolutions.modify (·.push solution)
 

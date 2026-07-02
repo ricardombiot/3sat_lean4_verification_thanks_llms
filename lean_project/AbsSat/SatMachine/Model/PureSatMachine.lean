@@ -21,6 +21,15 @@ structure PurePath where
   visited_nodes : List Nat
   deriving Repr, BEq, Inhabited
 
+-- LawfulBEq for PurePath: the derived BEq compares visited_nodes structurally,
+-- and List Nat already has LawfulBEq, so equality follows by field extensionality.
+-- h : a == b is definitionally a.visited_nodes == b.visited_nodes for the derived instance.
+instance : LawfulBEq PurePath :=
+  { eq_of_beq := fun {a b} h => by
+      have heq : a.visited_nodes = b.visited_nodes := LawfulBEq.eq_of_beq h
+      exact congrArg PurePath.mk heq,
+    rfl := fun {a} => beq_self_eq_true a.visited_nodes }
+
 -- Helpers
 def list_bind {α β} (l : List α) (f : α → List β) : List β :=
   match l with

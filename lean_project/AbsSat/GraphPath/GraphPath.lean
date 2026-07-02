@@ -265,11 +265,11 @@ section Examples
 
   def check_do_join_merges_data : IO Unit := do
      -- Setup path1
-     let path1 ← new
+     let path1 ← GPath.new
      add_node! path1 { step := 0, index := 1 } "root1"
 
      -- Setup path2 (clone of path1 + new node)
-     let path2 ← clone path1
+     let path2 ← GPath.clone path1
      add_node! path2 { step := 0, index := 2 } "root2"
 
      -- Verify initial state
@@ -277,10 +277,11 @@ section Examples
      let line1_opt := lines1_ref.get? 0
      if let some line1 := line1_opt then
        let count1 ← line1.count.get
-       if count1 != 1 then IO.println s!"Error: Initial count is {count1}, expected 1"
+       if count1 != 1 then IO.println s!"Error: Initial count is {count1}, expected 1" else pure ()
 
      -- Perform Join
-     is_valid_join path1 path2 >>= fun valid => if !valid then IO.println "Join invalid!"
+     let valid ← is_valid_join path1 path2
+     if !valid then IO.println "Join invalid!" else pure ()
 
      do_join! path1 path2
 

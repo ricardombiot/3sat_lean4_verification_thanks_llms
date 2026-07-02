@@ -22,7 +22,7 @@ theorem completeness_theorem (gmap : PureGMap) :
     -- We need to show `run_layers (gmap.layers.take (gmap.layers.length))` is `run_pure gmap`.
     -- Since take length = all, it matches.
     -- Assuming structural equality or trivial lemma.
-    have h_eq : gmap.layers.take (gmap.layers.length) = gmap.layers := List.take_length gmap.layers
+    have h_eq : gmap.layers.take (gmap.layers.length) = gmap.layers := List.take_length
     rw [h_eq] at h_in
     unfold run_pure
     exact h_in

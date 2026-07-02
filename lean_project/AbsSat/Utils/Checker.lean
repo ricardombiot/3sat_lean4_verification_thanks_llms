@@ -29,7 +29,7 @@ def test' (solution : Array Bool) (lines : List String) : Bool :=
     match lines' with
     | [] => true
     | line :: rest =>
-      let trimmedLine := line.trim
+      let trimmedLine := line.trimAscii.toString
       if trimmedLine.isEmpty || trimmedLine.startsWith "c" then
         go rest stage
       else
