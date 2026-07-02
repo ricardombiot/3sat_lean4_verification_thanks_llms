@@ -15,6 +15,24 @@ private theorem list_contains_mono {α} [BEq α] (l : List α) (y x : α) :
   simp only [list_contains, List.any_cons, Bool.or_eq_true]
   exact Or.inr h
 
+-- Bool/Prop bridge for `list_contains` over `List Nat` (used throughout below
+-- to avoid manual boolean case analysis).
+private theorem list_contains_iff_mem (l : List Nat) (x : Nat) :
+    list_contains l x = true ↔ x ∈ l := by
+  simp [list_contains]
+
+private theorem list_contains_eq_false_iff (l : List Nat) (x : Nat) :
+    list_contains l x = false ↔ x ∉ l := by
+  constructor
+  · intro h hmem
+    have := (list_contains_iff_mem l x).mpr hmem
+    rw [h] at this
+    exact absurd this (by decide)
+  · intro h
+    cases hc : list_contains l x with
+    | false => rfl
+    | true => exact absurd ((list_contains_iff_mem l x).mp hc) h
+
 -- Monotonicity of layer_covered: extending visited_nodes cannot lose coverage.
 private theorem layer_covered_mono (nodes : List PureNode) (p : PurePath) (n : PureNode) :
     layer_covered nodes p = true →
@@ -33,7 +51,7 @@ private theorem satisfies_requirements_mono (path : PurePath) (n_new : PureNode)
   exact ⟨id, List.mem_cons_of_mem _ hid_in, hid_eq⟩
 
 -- Membership characterization of list_bind.
-private theorem mem_list_bind {α β} (l : List α) (f : α → List β) (x : β) :
+theorem mem_list_bind {α β} (l : List α) (f : α → List β) (x : β) :
     x ∈ list_bind l f ↔ ∃ a ∈ l, x ∈ f a := by
   induction l with
   | nil => simp [list_bind]
@@ -49,7 +67,7 @@ private theorem mem_list_bind {α β} (l : List α) (f : α → List β) (x : β
       · exact Or.inr ⟨b, hb_rest, hb_mem⟩
 
 -- Membership characterization of evolve_path_nodes.
-private theorem mem_evolve_path_nodes (nodes : List PureNode) (path : PurePath) (p_next : PurePath) :
+theorem mem_evolve_path_nodes (nodes : List PureNode) (path : PurePath) (p_next : PurePath) :
     p_next ∈ evolve_path_nodes nodes path ↔
     ∃ n ∈ nodes, satisfies_requirements path n.requirements = true ∧
       p_next = { visited_nodes := n.id :: path.visited_nodes } := by
@@ -59,6 +77,21 @@ private theorem mem_evolve_path_nodes (nodes : List PureNode) (path : PurePath) 
     exact ⟨n, hn_in, hn_sat, rfl⟩
   · rintro ⟨n, hn_in, hn_sat, rfl⟩
     exact ⟨n, ⟨hn_in, hn_sat⟩, rfl⟩
+
+-- Folding `List.append` over layers is the same as flattening them.
+private theorem foldl_append_eq_flatten (l : List (List PureNode)) (init : List PureNode) :
+    List.foldl List.append init l = init ++ l.flatten := by
+  induction l generalizing init with
+  | nil => simp
+  | cons a rest ih =>
+    simp only [List.foldl_cons, List.flatten_cons]
+    rw [ih]
+    simp [List.append_assoc]
+
+private theorem mem_requirements_nodes {n' : PureNode} {layers : List (List PureNode)} :
+    n' ∈ List.foldl List.append [] layers ↔ ∃ layer ∈ layers, n' ∈ layer := by
+  rw [foldl_append_eq_flatten]
+  simp [List.mem_flatten]
 
 -- ============================================================
 -- THEOREMS (previously axioms — now formally proved)
@@ -138,56 +171,196 @@ theorem run_step_semantics (layer : List PureNode) (paths : List PurePath) (p_ne
   exact ⟨p_orig, h_orig, n, hn_in, hn_sat, hn_eq⟩
 
 -- ============================================================
--- REMAINING AXIOMS (genuine proof gaps — documented below)
+-- WELL-FORMEDNESS-DEPENDENT THEOREMS
 -- ============================================================
 
 /--
-  Axiom: Requirements Preservation
-  Adding n to the path preserves requirement satisfaction for all past-layer nodes.
-
-  STATUS: Kept as axiom. This holds when node IDs are globally unique across
-  all layers (i.e., no two nodes in different layers share an ID). Under that
-  assumption, visiting n cannot "activate" an unchecked node in past layers,
-  so all_requirements_met for past is monotone with respect to path extension.
-
-  The pure model does not enforce unique IDs. To convert this to a theorem,
-  add a well-formedness predicate: WellFormedGMap (no duplicate node IDs).
+  Theorem: Id Disjointness Across the Past/Current Boundary
+  In a well-formed GMap, a node consumed in `past` and a node from the
+  layer immediately following `past` can never share an id. This is the
+  structural fact that eliminates `requirements_preservation` and
+  `combine_requirements` as axioms.
 -/
-axiom requirements_preservation (past : List (List PureNode)) (p : PurePath) (n : PureNode) :
-  all_requirements_met { layers := past } p = true →
-  all_requirements_met { layers := past } { visited_nodes := n.id :: p.visited_nodes } = true
+theorem id_disjoint_past_current (gmap : PureGMap) (hwf : WellFormedGMap gmap)
+    (past rest : List (List PureNode)) (layer : List PureNode)
+    (hdecomp : past ++ layer :: rest = gmap.layers)
+    (layer' : List PureNode) (hlayer' : layer' ∈ past)
+    (n1 : PureNode) (hn1 : n1 ∈ layer')
+    (n2 : PureNode) (hn2 : n2 ∈ layer) :
+    n1.id ≠ n2.id := by
+  intro heq
+  have hn1_all : n1 ∈ gmap.all_nodes :=
+    mem_all_nodes (hdecomp ▸ List.mem_append_left _ hlayer') hn1
+  have hn2_all : n2 ∈ gmap.all_nodes :=
+    mem_all_nodes (hdecomp ▸ List.mem_append_right _ List.mem_cons_self) hn2
+  have heqn : n1 = n2 := hwf.unique_ids n1 hn1_all n2 hn2_all heq
+  have hlabel : LayersLabeledFrom (past ++ layer :: rest) 0 := hdecomp ▸ hwf.layers_labeled
+  have h1 : n1.layer < 0 + past.length :=
+    past_nodes_below past (layer :: rest) 0 hlabel layer' hlayer' n1 hn1
+  have hlabel_drop : LayersLabeledFrom (layer :: rest) (0 + past.length) :=
+    layers_labeled_drop past (layer :: rest) 0 hlabel
+  have h2 : n2.layer = 0 + past.length := hlabel_drop.1 n2 hn2
+  rw [heqn] at h1
+  omega
 
 /--
-  Axiom: Combine Requirements
-  If all requirements for past layers are met, and node n's requirements
-  are met, then all requirements for past ++ [layer] are met.
-
-  STATUS: Kept as axiom. The statement has a gap: it guarantees requirements
-  for n but not for other nodes in `layer` that might coincidentally appear in
-  the path. The axiom is sound in practice because the algorithm adds exactly
-  ONE node per layer per path step (so n is the only node from `layer` visited).
-  To convert to a theorem, the path must carry an invariant that at most one
-  node per layer is visited, and that node is always the explicitly added one.
+  Theorem: Requirements Preservation
+  Adding n (from the layer immediately after `past`) to the path preserves
+  requirement satisfaction for all nodes already consumed in `past`: by
+  well-formedness, n's id cannot collide with any id visible in `past`, so
+  the `if` guard in `all_requirements_met` is unaffected for those nodes.
 -/
-axiom combine_requirements (past : List (List PureNode)) (layer : List PureNode) (p : PurePath) (n : PureNode) :
-  all_requirements_met { layers := past } p = true →
-  satisfies_requirements p n.requirements = true →
-  all_requirements_met { layers := past ++ [layer] } p = true
+theorem requirements_preservation (gmap : PureGMap) (hwf : WellFormedGMap gmap)
+    (past rest : List (List PureNode)) (layer : List PureNode)
+    (hdecomp : past ++ layer :: rest = gmap.layers)
+    (p : PurePath) (n : PureNode) (hn : n ∈ layer) :
+    all_requirements_met { layers := past } p = true →
+    all_requirements_met { layers := past } { visited_nodes := n.id :: p.visited_nodes } = true := by
+  intro h
+  unfold all_requirements_met at h ⊢
+  simp only [List.all_eq_true] at h ⊢
+  intro n' hn'_mem
+  rcases mem_requirements_nodes.mp hn'_mem with ⟨layer', hlayer'_in, hn'_in_layer'⟩
+  by_cases hcontains : n'.id ∈ p.visited_nodes
+  · -- n' was already visited in p: monotonicity carries the old satisfaction forward.
+    have hc : list_contains p.visited_nodes n'.id = true := (list_contains_iff_mem _ _).mpr hcontains
+    have hsat := h n' hn'_mem
+    simp only [hc, if_true] at hsat
+    have hsat' := satisfies_requirements_mono p n n'.requirements hsat
+    have hc' : list_contains (n.id :: p.visited_nodes) n'.id = true :=
+      list_contains_mono p.visited_nodes n.id n'.id hc
+    simp only [hc', if_true]
+    exact hsat'
+  · -- n' was not visited in p, and by well-formedness it cannot suddenly equal n's id either.
+    have hne : n'.id ≠ n.id :=
+      id_disjoint_past_current gmap hwf past rest layer hdecomp layer' hlayer'_in n' hn'_in_layer' n hn
+    have hc : list_contains (n.id :: p.visited_nodes) n'.id = false := by
+      rw [list_contains_eq_false_iff]
+      intro hmem
+      rcases List.mem_cons.mp hmem with heq | hmem'
+      · exact hne heq
+      · exact hcontains hmem'
+    simp [hc]
 
 /--
-  Axiom: Valid Prefix Existence (Core Completeness Claim)
-  If a valid solution exists, then at every prefix depth k the algorithm
-  generates at least one partial path consistent with that solution.
-
-  STATUS: This is the fundamental completeness axiom — the claim that
-  evolve_path_nodes is exhaustive (generates ALL valid extensions, not just some).
-  This follows from the definition: evolve_path_nodes uses List.filter which
-  keeps every node whose requirements are satisfied. A formal proof requires
-  induction on k with a careful characterization of what "prefix of a valid
-  path" means in the pure model. This is the most important remaining proof gap.
+  Theorem: Combine Requirements
+  If all requirements for `past` are met, and node n's own requirements are
+  met by `p`, then all requirements for `past ++ [layer]` are met by the
+  extended path. The remaining gap in the old axiom — other nodes of
+  `layer` whose id might coincidentally already be visited — is closed by
+  `path_confined_to`: any id visited so far traces back to `past`, so by
+  well-formedness it can never coincide with a *different* node of `layer`.
 -/
-axiom valid_prefix_maintained (gmap : PureGMap) (p_sol : PurePath) :
-  is_valid_solution gmap p_sol = true →
-  ∀ k, ∃ p_partial, list_contains (run_layers (gmap.layers.take k) [{visited_nodes := []}]) p_partial = true
+theorem combine_requirements (gmap : PureGMap) (hwf : WellFormedGMap gmap)
+    (past rest : List (List PureNode)) (layer : List PureNode)
+    (hdecomp : past ++ layer :: rest = gmap.layers)
+    (p : PurePath) (n : PureNode) (hn : n ∈ layer)
+    (hconf : path_confined_to past p)
+    (h_past : all_requirements_met { layers := past } p = true)
+    (h_n : satisfies_requirements p n.requirements = true) :
+    all_requirements_met { layers := past ++ [layer] } { visited_nodes := n.id :: p.visited_nodes } = true := by
+  have h_past' := requirements_preservation gmap hwf past rest layer hdecomp p n hn h_past
+  have h_n' := new_node_requirements_met p n h_n
+  unfold all_requirements_met at h_past' ⊢
+  simp only [List.all_eq_true] at h_past' ⊢
+  intro m hm_mem
+  have hm_mem' : m ∈ List.foldl List.append [] past ∨ m ∈ layer := by
+    have := mem_requirements_nodes.mp hm_mem
+    rcases this with ⟨layer'', hlayer''_in, hm_in⟩
+    rcases List.mem_append.mp hlayer''_in with h | h
+    · exact Or.inl (mem_requirements_nodes.mpr ⟨layer'', h, hm_in⟩)
+    · right; rw [List.mem_singleton.mp h] at hm_in; exact hm_in
+  rcases hm_mem' with hm_past | hm_layer
+  · exact h_past' m hm_past
+  · by_cases heq : m.id = n.id
+    · have hm_all : m ∈ gmap.all_nodes :=
+        mem_all_nodes (hdecomp ▸ List.mem_append_right _ List.mem_cons_self) hm_layer
+      have hn_all : n ∈ gmap.all_nodes :=
+        mem_all_nodes (hdecomp ▸ List.mem_append_right _ List.mem_cons_self) hn
+      have hmn : m = n := hwf.unique_ids m hm_all n hn_all heq
+      subst hmn
+      have hc : list_contains (m.id :: p.visited_nodes) m.id = true := by
+        rw [list_contains_iff_mem]; exact List.mem_cons_self
+      simp only [hc, if_true]
+      exact h_n'
+    · have hnot : m.id ∉ p.visited_nodes := by
+        intro hmem
+        obtain ⟨layer', hlayer'_in, n'', hn''_in, hn''_eq⟩ := hconf m.id hmem
+        exact (id_disjoint_past_current gmap hwf past rest layer hdecomp layer' hlayer'_in n'' hn''_in m hm_layer) hn''_eq
+      have hc : list_contains (n.id :: p.visited_nodes) m.id = false := by
+        rw [list_contains_eq_false_iff]
+        intro hmem
+        rcases List.mem_cons.mp hmem with h | h
+        · exact heq h
+        · exact hnot h
+      simp [hc]
+
+-- ============================================================
+-- COMPLETENESS: evolve_path_nodes IS EXHAUSTIVE
+-- ============================================================
+
+-- `evolve_path_nodes`/`run_step_nodes` never drop a candidate: extending
+-- any single path already present in `paths` survives into the batched
+-- result over the whole list. This is what makes the algorithm exhaustive
+-- rather than merely "some" valid extensions.
+theorem mem_run_step_nodes_of_mem (nodes : List PureNode) (paths : List PurePath)
+    (p : PurePath) (hp : p ∈ paths) (p' : PurePath) (hp' : p' ∈ evolve_path_nodes nodes p) :
+    p' ∈ run_step_nodes nodes paths := by
+  unfold run_step_nodes
+  rw [mem_list_bind]
+  exact ⟨p, hp, hp'⟩
+
+/--
+  Theorem: `run_layers` Completeness
+  If `prefix_path` is one of the currently tracked `paths`, and there is a
+  valid choice sequence for the remaining `layers` starting from
+  `prefix_path`, then the corresponding solution path is reachable in
+  `run_layers layers paths` — no candidate is ever lost, because
+  `evolve_path_nodes` keeps every node whose requirements are satisfied
+  (it filters, it never picks just one).
+-/
+theorem run_layers_mem_complete (layers : List (List PureNode)) (paths : List PurePath)
+    (prefix_path : PurePath) (hmem : prefix_path ∈ paths) (choices : List PureNode) :
+    ChoicesValid layers choices prefix_path →
+    fold_choices choices prefix_path ∈ run_layers layers paths := by
+  induction layers generalizing choices prefix_path paths with
+  | nil =>
+    intro h
+    cases choices with
+    | nil => simpa [fold_choices, run_layers] using hmem
+    | cons c cs => cases h
+  | cons layer rest ih =>
+    intro h
+    cases choices with
+    | nil => cases h
+    | cons c cs =>
+      obtain ⟨hc_in, hc_sat, hc_rest⟩ := h
+      have hc_evolve : { visited_nodes := c.id :: prefix_path.visited_nodes } ∈ evolve_path_nodes layer prefix_path :=
+        (mem_evolve_path_nodes layer prefix_path _).mpr ⟨c, hc_in, hc_sat, rfl⟩
+      have hc_next : { visited_nodes := c.id :: prefix_path.visited_nodes } ∈ run_step_nodes layer paths :=
+        mem_run_step_nodes_of_mem layer paths prefix_path hmem _ hc_evolve
+      have hnonempty : (run_step_nodes layer paths).isEmpty = false := by
+        cases hcase : (run_step_nodes layer paths).isEmpty with
+        | false => rfl
+        | true =>
+          rw [List.isEmpty_iff] at hcase
+          rw [hcase] at hc_next
+          simp at hc_next
+      simp only [run_layers, hnonempty, Bool.false_eq_true, if_false]
+      have := ih (run_step_nodes layer paths) { visited_nodes := c.id :: prefix_path.visited_nodes } hc_next cs hc_rest
+      simpa [fold_choices] using this
+
+/--
+  Theorem: `run_pure` Completeness (was axiom `valid_prefix_maintained`)
+  Any valid choice sequence over `gmap.layers` produces a path that
+  `run_pure` actually finds.
+-/
+theorem run_pure_complete (gmap : PureGMap) (choices : List PureNode) :
+    ChoicesValid gmap.layers choices { visited_nodes := [] } →
+    fold_choices choices { visited_nodes := [] } ∈ run_pure gmap := by
+  intro h
+  unfold run_pure
+  exact run_layers_mem_complete gmap.layers [{ visited_nodes := [] }] { visited_nodes := [] }
+    (by simp) choices h
 
 end AbsSat.SatMachine.Model

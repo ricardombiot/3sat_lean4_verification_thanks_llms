@@ -14,3 +14,9 @@ import AbsSat.Utils.Alias
 import AbsSat.Db.Path.Cols.PathColNodes
 import AbsSat.Db.Path.Docs.PathDocNode
 import AbsSat.Db.Path.Docs.PathDocOwners
+
+-- Pure-model formal verification (soundness + completeness of the
+-- abstract 3SAT machine). Imported here so the proofs are checked as
+-- part of the default build, not just on demand.
+import AbsSat.SatMachine.Model.Soundness
+import AbsSat.SatMachine.Model.Completeness

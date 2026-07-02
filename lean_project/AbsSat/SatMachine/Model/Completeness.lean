@@ -1,30 +1,24 @@
 import AbsSat.SatMachine.Model.Problem
 import AbsSat.SatMachine.Model.Axioms
+import AbsSat.SatMachine.Model.Soundness
 
 namespace AbsSat.SatMachine.Model
 
 open AbsSat.SatMachine.Model
 
--- Completeness Theorem
--- If a valid solution exists, the machine finds it.
-
+/--
+  Completeness Theorem: if a valid solution exists (witnessed by a
+  layer-respecting sequence of choices, see `Solvable`), the machine finds
+  it. This no longer relies on any axiom: `run_pure_complete` is proved by
+  induction in Axioms.lean directly from the fact that `evolve_path_nodes`
+  is exhaustive (it filters, it never picks just one).
+-/
 theorem completeness_theorem (gmap : PureGMap) :
   Solvable gmap -> ∃ p, list_contains (run_pure gmap) p = true := by
   intro h
   cases h with
-  | exists_path p_sol h_valid =>
-    -- We use the axiom `valid_prefix_maintained`.
-    -- run_pure gmap is equivalent to run_layers (gmap.layers.take (gmap.layers.length)) ...
-    -- We instantiate the axiom for k = gmap.layers.length
-    have h_prefix := valid_prefix_maintained gmap p_sol h_valid (gmap.layers.length)
-    rcases h_prefix with ⟨p_final, h_in⟩
-    exists p_final
-    -- We need to show `run_layers (gmap.layers.take (gmap.layers.length))` is `run_pure gmap`.
-    -- Since take length = all, it matches.
-    -- Assuming structural equality or trivial lemma.
-    have h_eq : gmap.layers.take (gmap.layers.length) = gmap.layers := List.take_length
-    rw [h_eq] at h_in
-    unfold run_pure
-    exact h_in
+  | exists_choices choices h_valid =>
+    exact ⟨fold_choices choices { visited_nodes := [] },
+      (list_contains_iff_mem _ _).mpr (run_pure_complete gmap choices h_valid)⟩
 
 end AbsSat.SatMachine.Model
