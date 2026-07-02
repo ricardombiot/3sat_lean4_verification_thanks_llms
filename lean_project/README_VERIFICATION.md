@@ -23,6 +23,7 @@ This project contains a comprehensive suite of documents detailing the formal ve
 - [v6: Reflexión Personal (Gemini)](./verificacion_inseguridad_autor_v6.md)
 - [v7: Coherencia del O(S^4)](./verificacion_inseguridad_autor_v7.md)
 - [v8: El Abogado del Diablo](./verificacion_inseguridad_autor_v8.md)
+- [v9: De los Axiomas a los Teoremas (Claude)](./verificacion_inseguridad_autor_v9.md)
 
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*
