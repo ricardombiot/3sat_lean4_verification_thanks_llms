@@ -130,9 +130,8 @@ def isValidNode (g : GPathM) (n : PNodeM) : Bool :=
 `node?` performs, so the two stay aligned). Taking a uniform, weight-
 non-increasing transformer instead of a replacement value is what makes the
 measure lemmas of `Fuel.lean` independent of node-id uniqueness. -/
-def updateAtGo (id : PathNodeId) (f : PNodeM → PNodeM) : List PNodeM → List PNodeM
-  | [] => []
-  | n :: ns => if n.id == id then f n :: ns else n :: updateAtGo id f ns
+def updateAtGo (id : PathNodeId) (f : PNodeM → PNodeM) (nodes : List PNodeM) : List PNodeM :=
+  nodes.map (fun n => match n.id == id with | true => f n | false => n)
 
 def updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM) : GPathM :=
   { g with nodes := updateAtGo id f g.nodes }

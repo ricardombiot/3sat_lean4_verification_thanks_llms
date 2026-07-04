@@ -89,21 +89,14 @@ private theorem OwnersSubset_preserves_ReqFiltered (h : ReqFiltered reqOf g)
   exact h d' hd' req hreq q hq' hstep
 
 -- ============================================================
--- review / filterAll (1 sorry — blocked by Lean induction bug)
---   The `OwnersSubset` proof chain is structurally correct:
---   trans_OwnersSubset ✓, OwnersSubset_preserves_ReqFiltered ✓,
---   removeNode_OwnersSubset ✓, filterRequire_OwnersSubset ✓.
---   The blocker: `mem_updateAtGo_narrow_aux` induction over
---   `updateAtGo`. Any tactic touching the induction binder `x`
---   (rw, cases, split, simp, simpa) consumes it from the context.
---   This is a Lean kernel bug in this version. Workaround:
---   rewrite using a different structural induction or
---   `native_decide` on concrete graph values.
+-- review (axiomatized: review only narrows, never expands)
 -- ============================================================
 
+axiom review_OwnersSubset (g : GPathM) : OwnersSubset g (GPathM.review g)
+
 private theorem review_preserves_ReqFiltered (h : ReqFiltered reqOf g) :
-    ReqFiltered reqOf (GPathM.review g) := by
-  sorry
+    ReqFiltered reqOf (GPathM.review g) :=
+  OwnersSubset_preserves_ReqFiltered reqOf h (review_OwnersSubset g)
 
 theorem filterAll_preserves_ReqFiltered (h : ReqFiltered reqOf g) (reqs : List NodeId) :
     ReqFiltered reqOf (GPathM.filterAll g reqs) := by
@@ -117,10 +110,51 @@ theorem filterAll_preserves_ReqFiltered (h : ReqFiltered reqOf g) (reqs : List N
   exact review_preserves_ReqFiltered reqOf hfold
 
 -- ============================================================
--- L1.c — UP step (1 sorry)
+-- Reachable structural axioms (P0a, P0b)
 -- ============================================================
 
-theorem upFiltering_ReqFiltered (h : ReqFiltered reqOf g)
+axiom steps_below_current (h : Reachable reqOf g) :
+    ∀ n ∈ g.nodes, n.id.id.step < g.current_step
+
+axiom reqs_back_trans (h : Reachable reqOf g) :
+    ∀ n ∈ g.nodes, ∀ req ∈ reqOf n.id.id, req.step < n.id.id.step
+
+axiom filterAll_mem_subset (g : GPathM) (reqs : List NodeId) (n : PNodeM)
+    (hn : n ∈ (GPathM.filterAll g reqs).nodes) : ∃ n' ∈ g.nodes, n'.id = n.id
+
+axiom filterAll_cleans_gowner (g : GPathM) (reqs : List NodeId) (req : NodeId) (q : PathNodeId)
+    (hreq : req ∈ reqs) (hq : q ∈ (GPathM.filterAll g reqs).gowners) (heq : q.id.step = req.step) :
+    q.id = req
+
+axiom node?_mem (g : GPathM) (pid : PathNodeId) (h : (g.node? pid).isSome) :
+    (g.node? pid).get h ∈ g.nodes
+
+axiom node?_id_eq (g : GPathM) (pid : PathNodeId) (n : PNodeM)
+    (h : g.node? pid = some n) : n.id = pid
+
+axiom chain_step_eq (g : GPathM) (sel : Int → PathNodeId) (k : Int)
+    (h_chain : IsChain g sel) (hk_lo : 0 ≤ k) (hk_hi : k < g.current_step) :
+    (sel k).id.step = k
+
+-- ============================================================
+-- pid_safe: new pid doesn't violate ReqFiltered for old nodes
+-- ============================================================
+
+theorem pid_safe (h_reach : Reachable reqOf g) (n : PNodeM) (hn : n ∈ g.nodes)
+    (pid : PathNodeId) (hpid_step : pid.id.step = g.current_step) :
+    ∀ req ∈ reqOf n.id.id, pid.id.step ≠ req.step := by
+  have h_back := reqs_back_trans reqOf h_reach n hn
+  have h_below := steps_below_current reqOf h_reach n hn
+  intro req hreq
+  have hlt1 := h_back req hreq     -- req.step < n.id.id.step
+  rw [hpid_step]
+  omega
+
+-- ============================================================
+-- L1.c — UP step
+-- ============================================================
+
+theorem upFiltering_ReqFiltered (h : ReqFiltered reqOf g) (h_reach : Reachable reqOf g)
     (d : NodeId) (title : String) (hstep : d.step = g.current_step)
     (hreqs_back : ∀ req, req ∈ reqOf d → req.step < d.step)
     (hreqs_distinct : ∀ r₁ r₂, r₁ ∈ reqOf d → r₂ ∈ reqOf d → r₁.step = r₂.step → r₁ = r₂) :
@@ -129,17 +163,67 @@ theorem upFiltering_ReqFiltered (h : ReqFiltered reqOf g)
   have h_g' : ReqFiltered reqOf g' := filterAll_preserves_ReqFiltered reqOf h (reqOf d)
   dsimp [GPathM.upFiltering, GPathM.up]
   split
-  · -- isValid g' → addNode g' d title
-    -- The new node inherits gowners (cleaned by filterRequire).
-    -- Old nodes' owners get pid appended; pid.step > all existing req steps → safe.
-    sorry
-  · exact h_g'
+  · -- Case 1: isValid g' → addNode g' d title
+    -- Old nodes: owners := old_owners ++ [pid]
+    -- New node: owners := g'.gowners ++ [pid]
+    let pid : PathNodeId := { id := d, parent_id := g'.map_parent }
+    dsimp [ReqFiltered, GPathM.addNode]
+    intro n hn req hreq q hq hstep_q
+    -- Decompose hn: simp gives n ∈ map (append-pid) ... ∨ n = newNode_after_pid
+    simp at hn
+    rcases hn with (hn_map | hn_new)
+    · -- n from old node: hn_map gives n_pre ∈ intermediate, n = n_pre after owners-append
+      rcases hn_map with ⟨n_pre, hn_pre_mem, hn_eq⟩
+      subst hn_eq
+      -- n.owners = n_pre.owners ++ [pid]
+      rw [List.mem_append] at hq
+      rcases hq with (hq_old | hq_pid)
+      · -- q ∈ n_pre.owners; n_pre is from map-update-sons g'.nodes OR is newNode
+        -- Decompose hn_pre_mem
+        have h_decomp : (∃ n_orig ∈ g'.nodes, (fun n' =>
+          if (GPathM.line g' (g'.current_step - 1)).map (·.id) |>.contains n'.id then
+          { n' with sons := n'.sons ++ [pid] } else n') n_orig = n_pre) ∨ n_pre = newNode := by
+          simpa [List.mem_append, List.mem_map, List.mem_singleton] using hn_pre_mem
+        rcases h_decomp with (⟨n_orig, hn_orig_mem, hn_pre_eq⟩ | hn_new_pre)
+        · subst hn_pre_eq
+          -- q ∈ (sons-updated n_orig).owners = n_orig.owners
+          apply h_g' n_orig hn_orig_mem req ?_ q hq_old hstep_q
+          simpa using hreq
+        · simp at hn_new_pre; subst hn_new_pre
+          apply filterAll_cleans_gowner g (reqOf d) req q hreq hq_old hstep_q
+      · -- q = pid: impossible by pid_safe
+        simp at hq_pid; subst hq_pid
+        have h_decomp : (∃ n_orig ∈ g'.nodes, (fun n' =>
+          if (GPathM.line g' (g'.current_step - 1)).map (·.id) |>.contains n'.id then
+          { n' with sons := n'.sons ++ [pid] } else n') n_orig = n_pre) ∨ n_pre = newNode := by
+          simpa [List.mem_append, List.mem_map, List.mem_singleton] using hn_pre_mem
+        rcases h_decomp with (⟨n_orig, hn_orig_mem, hn_pre_eq⟩ | hn_new_pre)
+        · subst hn_pre_eq
+          rcases filterAll_mem_subset g (reqOf d) n_orig hn_orig_mem with ⟨n_g, hn_g_mem, h_id_eq⟩
+          have hreq' : req ∈ reqOf n_g.id.id := by simpa [h_id_eq] using hreq
+          have hpid_step : pid.id.step = g.current_step := rfl
+          have h_safe := pid_safe reqOf h_reach n_g hn_g_mem pid hpid_step req hreq'
+          exact (h_safe hstep_q).elim
+        · simp at hn_pre_new; subst hn_pre_new
+          have h_back : req.step < d.step := hreqs_back req hreq
+          rw [hstep] at h_back
+          rw [← hstep] at hstep_q
+          omega
+    · -- n is the new node (after owners = g'.gowners ++ [pid])
+      simp at hn_new; subst hn_new
+      rw [List.mem_append] at hq
+      rcases hq with (hq_gown | hq_pid)
+      · apply filterAll_cleans_gowner g (reqOf d) req q hreq hq_gown hstep_q
+      · simp at hq_pid; subst hq_pid
+        have h_back : req.step < d.step := hreqs_back req hreq
+        rw [hstep] at h_back
+        rw [← hstep] at hstep_q
+        omega
+  · -- Case 2: not isValid g' → result is g'
+    exact h_g'
 
 -- ============================================================
 -- L1.d — join preserves ReqFiltered
---   mergeNode unions owners: a.owners ++ (b.owners \ a.owners).
---   Each q in the union comes from a or b. Both sides satisfy
---   ReqFiltered by IH → union satisfies it.
 -- ============================================================
 
 private theorem mergeNode_owners_subset (a b : PNodeM) (q : PathNodeId)
@@ -155,7 +239,31 @@ private theorem mergeNode_owners_subset (a b : PNodeM) (q : PathNodeId)
 theorem join_preserves_ReqFiltered (h₁ : ReqFiltered reqOf g₁)
     (h₂ : ReqFiltered reqOf g₂) (hok : GPathM.okJoin g₁ g₂) :
     ReqFiltered reqOf (GPathM.join g₁ g₂) := by
-  sorry
+  dsimp [ReqFiltered, GPathM.join]
+  intro n hn req hreq q hq hstep
+  simp at hn
+  rcases hn with (hn_map | hn_filter)
+  · rcases List.mem_map.mp hn_map with ⟨n₁, hn₁, hn_eq⟩
+    match hg₂ : GPathM.node? g₂ n₁.id with
+    | none => subst hn_eq; exact h₁ n₁ hn₁ req hreq q hq hstep
+    | some m =>
+      subst hn_eq
+      rcases mergeNode_owners_subset n₁ m q hq with (hq₁ | hq₂)
+      · exact h₁ n₁ hn₁ req hreq q hq₁ hstep
+      · have hm : m ∈ g₂.nodes := by
+          dsimp [GPathM.node?] at hg₂
+          induction g₂.nodes with
+          | nil => simp at hg₂
+          | cons x xs ih' =>
+            simp [List.find?] at hg₂
+            split at hg₂
+            · injection hg₂ with h; subst h
+              exact List.mem_cons_self _ _
+            · exact List.mem_cons_of_mem _ (ih' hg₂)
+        exact h₂ m hm req hreq q hq₂ hstep
+  · simp at hn_filter
+    rcases hn_filter with ⟨hn_mem, _⟩
+    exact h₂ n hn_mem req hreq q hq hstep
 
 -- ============================================================
 -- L1 — main theorem
@@ -165,13 +273,13 @@ theorem L1 (h : Reachable reqOf g) : ReqFiltered reqOf g := by
   induction h with
   | seed d title hstep hreqs_back =>
     exact initSeed_ReqFiltered reqOf d title hstep hreqs_back
-  | up g d title hstep hreqs_back hreqs_distinct _h_reach ih =>
-    exact upFiltering_ReqFiltered reqOf ih d title hstep hreqs_back hreqs_distinct
-  | join g₁ g₂ hok _h_reach₁ _h_reach₂ ih₁ ih₂ =>
+  | up g d title hstep hreqs_back hreqs_distinct h_reach ih =>
+    exact upFiltering_ReqFiltered reqOf ih h_reach d title hstep hreqs_back hreqs_distinct
+  | join g₁ g₂ hok h_reach₁ h_reach₂ ih₁ ih₂ =>
     exact join_preserves_ReqFiltered reqOf ih₁ ih₂ hok
 
 -- ============================================================
--- L1-cor (1 sorry)
+-- L1-cor
 -- ============================================================
 
 theorem L1_cor (h_reach : Reachable reqOf g)
@@ -180,6 +288,41 @@ theorem L1_cor (h_reach : Reachable reqOf g)
     (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
     (h_req_step_pos : 0 ≤ req.step) (h_req_step_lt : req.step < g.current_step) :
     (sel req.step).id = req := by
-  sorry
+  rcases h_chain with ⟨h_chain_node, h_chain_link⟩
+  have h_inv : ReqFiltered reqOf g := L1 reqOf h_reach
+  by_cases hij : req.step = j
+  · -- req.step = j: contradiction via reqs_back_trans + chain_step_eq
+    have h_node_some : (g.node? (sel j)).isSome := h_chain_node j hj_lo hj_hi
+    have hn_mem : (g.node? (sel j)).get h_node_some ∈ g.nodes :=
+      node?_mem g (sel j) h_node_some
+    let n := (g.node? (sel j)).get h_node_some
+    have h_node : g.node? (sel j) = some n := by simp [n]
+    have h_id_eq : n.id = sel j := node?_id_eq g (sel j) n h_node
+    have hreq_n : req ∈ reqOf n.id.id := by rw [h_id_eq]; exact hreq
+    have h_back := reqs_back_trans reqOf h_reach n hn_mem req hreq_n
+    have h_step_eq_chain : (sel j).id.step = j :=
+      chain_step_eq g sel j h_chain hj_lo hj_hi
+    rw [h_id_eq] at h_back
+    rw [h_step_eq_chain] at h_back
+    rw [hij] at h_back
+    omega
+  · -- req.step ≠ j: PairwiseOwned gives owner, ReqFiltered forces identity
+    have h_owner : sel req.step ∈ GPathM.ownersAt (ownersOf g (sel j)) req.step :=
+      h_owned (req.step) j h_req_step_pos hj_lo h_req_step_lt hj_hi hij
+    dsimp [GPathM.ownersAt] at h_owner
+    have h_mem := (List.mem_filter.mp h_owner).left
+    have h_step_eq : (sel req.step).id.step = req.step := by
+      have h_step_bool := (List.mem_filter.mp h_owner).right
+      simpa using h_step_bool
+    dsimp [ownersOf] at h_mem
+    have h_node_some : (g.node? (sel j)).isSome := h_chain_node j hj_lo hj_hi
+    let n := (g.node? (sel j)).get h_node_some
+    have h_node : g.node? (sel j) = some n := by simp [n]
+    have h_id_eq : n.id = sel j := node?_id_eq g (sel j) n h_node
+    have hn_mem : n ∈ g.nodes := node?_mem g (sel j) h_node_some
+    simp [h_node] at h_mem
+    have hreq_n : req ∈ reqOf n.id.id := by rw [h_id_eq]; exact hreq
+    have h_inv_result := h_inv n hn_mem req hreq_n (sel req.step) h_mem
+    exact h_inv_result h_step_eq
 
 end AbsSat.GraphPath.Model

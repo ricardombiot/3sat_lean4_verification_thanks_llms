@@ -62,7 +62,7 @@ theorem intersectOwners_length_le (a b : List PathNodeId) :
 
 /-- Shrinking a node's owners cannot raise its weight. -/
 private theorem weight_intersect_le (b : List PathNodeId) (n : PNodeM) :
-    PNodeM.weight { n with owners := intersectOwners n.owners b } ≤ n.weight := by
+    PNodeM.weight { n with owners := intersectOwners n.owners b } ≤ PNodeM.weight n := by
   simp only [PNodeM.weight]
   have h := intersectOwners_length_le n.owners b
   omega
@@ -71,26 +71,27 @@ private theorem weight_unlink_le (id : PathNodeId) (n : PNodeM) :
     PNodeM.weight
       { n with
         parents := n.parents.filter (fun p => p != id),
-        sons := n.sons.filter (fun s => s != id) } ≤ n.weight := by
+        sons := n.sons.filter (fun s => s != id) } ≤ PNodeM.weight n := by
   simp only [PNodeM.weight]
   have h1 := List.length_filter_le (fun p => p != id) n.parents
   have h2 := List.length_filter_le (fun s => s != id) n.sons
   omega
 
 private theorem measure_updateAtGo_le (id : PathNodeId) (f : PNodeM → PNodeM)
-    (hf : ∀ n, PNodeM.weight (f n) ≤ n.weight) :
+    (hf : ∀ n, PNodeM.weight (f n) ≤ PNodeM.weight n) :
     ∀ ns : List PNodeM,
       ((updateAtGo id f ns).map PNodeM.weight).sum ≤ (ns.map PNodeM.weight).sum := by
   intro ns
+  rw [updateAtGo, List.map_map]
   induction ns with
-  | nil => simp [updateAtGo]
+  | nil => simp
   | cons n rest ih =>
-    simp only [updateAtGo]
-    split
-    · simp only [List.map_cons, List.sum_cons]
-      exact Nat.add_le_add (hf n) (Nat.le_refl _)
-    · simp only [List.map_cons, List.sum_cons]
-      exact Nat.add_le_add_left ih _
+    simp [List.map_cons, List.sum_cons]
+    have h_wt : PNodeM.weight (match n.id == id with | true => f n | false => n) ≤ PNodeM.weight n := by
+      cases n.id == id
+      · exact Nat.le_refl _
+      · exact hf n
+    exact Nat.add_le_add h_wt ih
 
 theorem measure_updateAt_le (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
     (hf : ∀ n, PNodeM.weight (f n) ≤ n.weight) :
