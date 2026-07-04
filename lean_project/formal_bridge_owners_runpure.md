@@ -1,6 +1,8 @@
 # El puente formal: lectura vía Owners ≡ caminos de `run_pure`
 
 **Estado: propuesta de diseño (no formalizado aún).**
+El plan de ejecución de la primera etapa (espejo puro `GPathM` + Lema L1) está en
+[`docs/plans/espejo_gpathm_lema_L1.md`](../docs/plans/espejo_gpathm_lema_L1.md).
 Este documento revisa el algoritmo formal completo y plantea cómo demostrar en Lean 4 el
 eslabón que hoy falta: que la representación comprimida basada en Owners (el grafo
 ejecutable) denota *exactamente* el conjunto de caminos que el modelo puro verificado
