@@ -41,7 +41,7 @@ structure PNodeM where
   parents : List PathNodeId
   sons    : List PathNodeId
   owners  : List PathNodeId
-  deriving Repr, BEq
+  deriving Repr, DecidableEq
 
 def PNodeM.weight (n : PNodeM) : Nat :=
   1 + n.parents.length + n.sons.length + n.owners.length

@@ -26,3 +26,6 @@ import AbsSat.SatMachine.Model.Completeness
 -- operations, and the review-loop fuel lemmas). Same rationale.
 import AbsSat.GraphPath.Model.GPathM
 import AbsSat.GraphPath.Model.Fuel
+import AbsSat.GraphPath.Model.Reachable
+import AbsSat.GraphPath.Model.Denot
+import AbsSat.GraphPath.Model.OwnersInvariants

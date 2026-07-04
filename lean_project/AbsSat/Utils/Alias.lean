@@ -5,7 +5,7 @@ namespace AbsSat.Utils.Alias
 structure NodeId where
   step  : Int
   index : Int
-  deriving BEq, Hashable, Repr
+  deriving DecidableEq, Hashable, Repr
 
 def as_key (node_id : NodeId) : String :=
   s!"k{node_id.step}.{node_id.index}"
@@ -18,7 +18,7 @@ abbrev SetNodesId := Std.HashSet NodeId
 structure PathNodeId where
   id        : NodeId
   parent_id : Option NodeId
-  deriving BEq, Hashable, Repr
+  deriving DecidableEq, Hashable, Repr
 
 instance : ToString NodeId where
   toString := as_key
