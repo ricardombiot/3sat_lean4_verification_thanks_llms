@@ -7,6 +7,7 @@ This project contains a comprehensive suite of documents detailing the formal ve
 - [formal_verification_join.md](./formal_verification_join.md): Mathematical proof of the soundness and completeness of the `Join` operation.
 - [formal_compression_strategy.md](./formal_compression_strategy.md): Analysis of the compression strategy and the Structural Boundedness Theorem.
 - [formal_bridge_owners_runpure.md](./formal_bridge_owners_runpure.md): Design proposal (Spanish) for the missing bridge theorem — reading via Owners ≡ paths of `run_pure` — with the full correctness chain, lemma decomposition, and attack order.
+- [../docs/summary_formalization.md](../docs/summary_formalization.md): **Phase F5 complete** — formal verification of the `ReqFiltered` invariant for `GPathM` and Lemma L1 (0 `sorry`, 9 axioms). Architecture, proof strategy, axiom justification, and theorem catalog.
 
 ## Complexity and Performance
 - [complexity.md](./complexity.md): Detailed asymptotic analysis of time and space complexity ($O(S^4)$).
