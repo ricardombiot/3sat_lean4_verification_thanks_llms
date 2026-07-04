@@ -22,7 +22,8 @@ def ownersOf (g : GPathM) (pid : PathNodeId) : List PathNodeId :=
   | none => []
 
 def IsChain (g : GPathM) (sel : Int → PathNodeId) : Prop :=
-  (∀ k, 0 ≤ k → k < g.current_step → (g.node? (sel k)).isSome) ∧
+  (∀ k, 0 ≤ k → k < g.current_step →
+    (g.node? (sel k)).isSome ∧ (sel k).id.step = k) ∧
   (∀ k, 0 ≤ k → k + 1 < g.current_step →
     sel k ∈ ((g.node? (sel (k + 1))).map PNodeM.parents).getD [])
 

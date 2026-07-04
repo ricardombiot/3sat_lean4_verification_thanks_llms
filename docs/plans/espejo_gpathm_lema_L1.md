@@ -10,6 +10,20 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-07-05 — F3, F4 y F5 completadas: L1 y L1-cor demostrados sin axiomas.**
+
+- La primera versión de F5 (DeepSeek, commits `dcb8569`..`5a5e4e7`) llegó a L1 vía
+  9 axiomas; la auditoría del 2026-07-04 encontró **dos falsos** (A8 hacía el
+  desarrollo inconsistente — se derivó `False` en Lean; A9 tenía `g'` libre sin
+  conexión con `g`). Reparación: `IsChain` fija `(sel k).id.step = k` (como
+  especificaba F4), el lema de `addNode` se enuncia sobre `filterAll g (reqOf d)` y
+  se demuestra, y A1–A7 se sustituyen por pruebas vía la relación `Pruned`
+  (`Model/Pruned.lean`, §7.2 del plan). Detalles: `docs/summary_formalization.md`.
+- **DoD F5 cumplido:** `#print axioms` de `L1` y `L1_cor` = `[propext, Quot.sound]`,
+  fijado con guards `#guard_msgs` que rompen el build si reaparece un axioma.
+- L1-cor quedó en la forma autocontenida prevista (el empalme con `ChoicesValid`
+  y P3 siguen diferidos a la fase de pegamento L7).
+
 **2026-07-04 — F1, F2 (a+b) y F6 completadas.**
 
 - **F1 ✅** `Model/GPathM.lean`: estructuras y operaciones, con tests embebidos que

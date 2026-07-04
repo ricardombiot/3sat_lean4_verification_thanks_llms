@@ -2,21 +2,25 @@
 
 **Project**: 3-SAT verification via Lean 4 — Phase F5
 **Authors**: DeepSeek Pro V4 + Claude, supervised by Ricardo M. Biot
-**Date**: July 2026 (audited and corrected 2026-07-04, see §4.0)
+**Date**: July 2026 (audited 2026-07-04; repaired 2026-07-05, see §4.0)
 **Lean version**: `leanprover/lean4:stable` (v4.31.0)
 **Dependencies**: Std4
 
 ---
 
-> ⚠️ **Audit status (2026-07-04): the axiomatized version of this phase is
-> logically unsound.** Axiom A8 (`chain_step_eq`) is *false* for the current
-> definition of `IsChain`, and `False` has been derived from it inside Lean
-> (see §4.0). Axiom A9 (`addNode_preserves_ReqFiltered`) is also false as
-> stated. Until both are repaired and the remaining axioms are replaced by
-> proofs, **no theorem in this phase that depends on them carries evidential
-> weight** — `#print axioms` shows `L1` depends on A1/A6/A7/A9 and `L1_cor`
-> additionally on A2/A3/A8. The proof *architecture* (§3) is sound and two of
-> the four L1 cases are genuinely proved; the repair route is concrete (§6.1).
+> ✅ **Repair executed (2026-07-05): this phase is now axiom-free.** The
+> 2026-07-04 audit found the original axiomatized version logically unsound:
+> axiom A8 (`chain_step_eq`) was *false* for the then-current `IsChain`
+> (`False` was derived from it inside Lean) and A9
+> (`addNode_preserves_ReqFiltered`) was false as stated (§4.0 documents both
+> countermodels). The repair plan of §6.1 was then executed in full:
+> `IsChain` pins the selected step, A9 was restated over
+> `filterAll g (reqOf d)` and proved, and A1–A7 were replaced by proofs via
+> the `Pruned` relation (`Pruned.lean`). **`#print axioms` now reports
+> `[propext, Quot.sound]` — Lean's built-ins only — for both `L1` and
+> `L1_cor`, and `#guard_msgs` pins in `OwnersInvariants.lean` fail the build
+> if any project axiom ever reappears.** The three-band differential harness
+> (oracle / executable / mirror) stays green.
 
 ---
 
@@ -42,22 +46,18 @@ A corollary, `L1_cor`, connects the invariant to the denotation of the graph —
 
 | Metric | Value |
 |--------|-------|
-| Modules | 6, plus 1 test |
-| Theorems stated and type-checked | 11 (T1–T9, L1, L1_cor) |
-| Proved without any axiom | 7 (T1, T2, T3, T4, T6, T9\*, and the F2 lemmas) |
-| Axioms | 9 — **2 of them false as stated (A8, A9)**, 7 true and provable |
-| `sorry` | 0 (but see §4.0: a false axiom is strictly worse than a `sorry`) |
-| Logical consistency | **Broken while A8 is in scope** (`False` derivable) |
+| Modules | 7 (`Pruned.lean` added by the repair), plus 1 test |
+| Theorems | 11+ (T1–T9, L1, L1_cor, plus the `Pruned` walk) |
+| Axioms | **0** — closure of `L1`/`L1_cor` is `[propext, Quot.sound]` |
+| `sorry` | 0 |
+| Axiom guards | `#guard_msgs` on `#print axioms L1` / `L1_cor` (build-failing) |
 | Build | Library + harnesses green; 3-band differential harness passing |
-
-\* T9 (`join_preserves_ReqFiltered`) uses only A6/A7, which are true and
-provable one-liners; its own case analysis is genuine.
 
 ### Context within the larger project
 
 This work implements Phase F5 of the [plan document](./plans/espejo_gpathm_lema_L1.md), which decomposes the bridge between the executable `GPath` and its pure mirror into six phases (F1–F6). Prior phases established the mirror data structures (F1), termination lemmas for the review loop (F2.a/F2.b), the `Reachable` inductive predicate (F3), and the chain denotation (F4). The current phase (F5) builds the invariant and the L1 induction skeleton. Phase F6 provides the differential harness validating the mirror against the executable and the brute-force oracle.
 
-Note that the plan's definition of done for F5 is explicit: *"L1 y L1-cor sin `sorry` ni axiomas; `#print axioms` limpio."* This phase does **not** yet meet that bar.
+The plan's definition of done for F5 is explicit: *"L1 y L1-cor sin `sorry` ni axiomas; `#print axioms` limpio."* As of 2026-07-05, **this bar is met**.
 
 ---
 
@@ -73,14 +73,14 @@ AbsSat/GraphPath/Model/GPathM.lean    ─── structures + core operations
          │                        │
          ▼                        ▼
 AbsSat/GraphPath/Model/          AbsSat/GraphPath/Model/
-  Reachable.lean                    Fuel.lean
-  (inductive predicate)          (measure + fuel lemmas, axiom-free)
+  Reachable.lean                    Fuel.lean, Pruned.lean
+  (inductive predicate)          (measure/fuel + narrowing lemmas)
          │
          ▼
 AbsSat/GraphPath/Model/Denot.lean    ─── chains, pairwise ownership
          │
          ▼
-AbsSat/GraphPath/Model/OwnersInvariants.lean    ─── invariant + L1 + L1_cor
+AbsSat/GraphPath/Model/OwnersInvariants.lean    ─── invariant + L1 + L1_cor + guards
 ```
 
 ### 2.2 Module catalog
@@ -90,9 +90,9 @@ AbsSat/GraphPath/Model/OwnersInvariants.lean    ─── invariant + L1 + L1_co
 | `Alias.lean` | Defines `NodeId` (`step : Int, index : Int`) and `PathNodeId` (`id : NodeId, parent_id : Option NodeId`). Derives `DecidableEq` for both, which also yields a **lawful** `==` via `instBEqOfDecidableEq` — enabling both `by_cases` on Prop equalities and `beq_iff_eq`. |
 | `GPathM.lean` | The pure mirror: `PNodeM` (id, title, parents, sons, owners), `GPathM` (nodes, global owners, current step, map parent), and all operations: `addNode`, `review` (fuel loop), `filterRequire`, `filterAll`, `upFiltering`, `initSeed`, `mergeNode`, `join`. |
 | `Reachable.lean` | Inductive predicate `Reachable reqOf : GPathM → Prop` with three constructors: `seed` (step 0, backward requirements), `up` (current step, backward/distinct requirements), `join` (with `okJoin`). |
-| `Denot.lean` | Definitions: `ownersOf`, `IsChain`, `PairwiseOwned`, `pathOf`, `denot`. **Known defect:** `IsChain` does not pin the step of the selected node — this is what makes A8 false (§4.0) and must be fixed by adding `(sel k).id.step = k`, as the plan's F4 sketch specified. |
+| `Denot.lean` | Definitions: `ownersOf`, `IsChain`, `PairwiseOwned`, `pathOf`, `denot`. `IsChain` pins `(sel k).id.step = k` (added by the 2026-07-05 repair — its absence is what made the original A8 axiom false, §4.0). |
 | `Fuel.lean` | Phase F2, **fully axiom-free**: `measure`, `measure_reviewPass_le` (F2.a — one pass never increases the measure) and `review_stable` (F2.b — fuel sufficiency). Its proofs unfold and reason about the same `|`-defined functions the F5 axioms claim are opaque — see §4.1. |
-| `OwnersInvariants.lean` | Phase F5: `ReqFiltered` invariant, `OwnersSubset` bridge, 9 axioms (see §4.3), `pid_safe`, L1, L1_cor. |
+| `OwnersInvariants.lean` | Phase F5: `ReqFiltered` invariant, `OwnersSubset` bridge, the reachable-structure lemmas, `addNode_ReqFiltered`, L1, L1_cor, and the build-failing `#guard_msgs` axiom guards. **Axiom-free.** |
 | `MirrorTest.lean` | Phase F6: drives the **full machine loop and an exponential reader on the pure mirror**, feeding the three-band differential harness (`lake exe diffTest`): brute-force oracle vs IO executable vs pure mirror, compared on both the SAT/UNSAT verdict and the complete solution set. Acceptance run: 2,000 random instances across two seeds (261 UNSAT), zero disagreements. |
 
 ### 2.3 Why a pure mirror?
@@ -179,6 +179,10 @@ theorem L1_cor (h_reach : Reachable reqOf g)
 
 ## 4. Proof Status and Axiom Audit
 
+*This section is the historical record of the 2026-07-04 audit. Everything it
+describes was repaired on 2026-07-05 (§6.1); none of the axioms below exist
+in the code anymore.*
+
 ### 4.0 Audit finding (2026-07-04): A8 makes the development inconsistent
 
 `IsChain` requires only `(g.node? (sel k)).isSome` plus parent links; **nothing pins `(sel k).id.step` to `k`**. Countermodel: a graph whose single node lives at step 5 with `current_step = 1`, and `sel := fun _ => that node`. `IsChain` holds (the link clause is vacuous), yet A8 concludes `5 = 0`. The derivation was carried out in Lean against this codebase:
@@ -211,7 +215,7 @@ theorem OwnersSubset_preserves_ReqFiltered (h : ReqFiltered reqOf g)
 
 This lemma (proved, no axioms) separates the structural property ("the operation only narrows owners or removes nodes") from the logical invariant. Once `OwnersSubset g g'` is established for an operation, invariant preservation follows automatically.
 
-### 4.3 The nine axioms, audited
+### 4.3 The nine axioms, audited (all replaced by proofs on 2026-07-05)
 
 | # | Axiom | Verdict | Notes |
 |---|-------|---------|-------|
@@ -240,7 +244,7 @@ This lemma (proved, no axioms) separates the structural property ("the operation
 
 ## 5. Theorem Catalog
 
-Axiom dependencies verified with `#print axioms` (2026-07-04):
+Axiom dependencies verified with `#print axioms` (2026-07-05, post-repair):
 
 | # | Theorem | Axioms in its closure | Evidential status |
 |---|---------|----------------------|-------------------|
@@ -248,27 +252,36 @@ Axiom dependencies verified with `#print axioms` (2026-07-04):
 | T2 | `filterRequire_preserves_ReqFiltered` | none | ✅ proved |
 | T3 | `filterRequire_cleans_gowner` | none | ✅ proved |
 | T4 | `OwnersSubset_preserves_ReqFiltered` | none | ✅ proved |
-| T5 | `filterAll_preserves_ReqFiltered` | A1 | conditional (A1 true, provable) |
+| T5 | `filterAll_preserves_ReqFiltered` | none | ✅ proved |
 | T6 | `mergeNode_owners_subset` | none | ✅ proved |
-| T7 | `pid_safe` | A2, A3 | conditional (both true, provable) |
-| T8 | `upFiltering_ReqFiltered` | A1, **A9** | ⛔ rests on a false axiom |
-| T9 | `join_preserves_ReqFiltered` | A6, A7 | conditional (both one-liners) |
-| **L1** | main theorem | A1, A6, A7, **A9** | ⛔ rests on a false axiom |
-| **L1_cor** | chain owner identity | A1, A2, A3, A6, A7, **A8**, **A9** | ⛔ inconsistent context |
+| T7 | `pid_safe` | none | ✅ proved |
+| T8 | `upFiltering_ReqFiltered` | none | ✅ proved |
+| T9 | `join_preserves_ReqFiltered` | none | ✅ proved |
+| **L1** | main theorem | none (`[propext, Quot.sound]`) | ✅ proved, guard-pinned |
+| **L1_cor** | chain owner identity | none (`[propext, Quot.sound]`) | ✅ proved, guard-pinned |
 
 ---
 
 ## 6. Repair Plan and Future Work
 
-### 6.1 Repairing the phase (priority order)
+### 6.1 Repairing the phase — ✅ executed 2026-07-05
 
-1. **Fix `IsChain`**: add `(sel k).id.step = k` to the first clause. A8 then becomes a one-line lemma (or disappears into the hypothesis). `L1_cor`'s existing proof text should survive nearly unchanged.
-2. **Restate and prove A9** over `g' = filterAll g (reqOf d)`, using A5 (cleaned gowners), `pid_safe`, and the `addNode` membership decomposition. The complete proof design is §7.2 (L1.c) of the plan.
-3. **Replace A1–A5 with proofs** via the plan's `Pruned` relation (gowners-subset + node-derivation + step equality), reusing the `simp only [f]` + `split` technique already validated in `Fuel.lean`.
-4. **Replace A6/A7** with their one-line proofs.
-5. **Guard the standard**: add a CI check that fails if `#print axioms L1` reports any project axiom, restoring the invariant the project already achieved once for the pure model ("De los Axiomas a los Teoremas", chronicle v9).
+1. ✅ `IsChain` pins `(sel k).id.step = k`; `chain_step_eq` is now a projection.
+2. ✅ The addNode lemma is stated over `g' = filterAll g (reqOf d)` and proved
+   (`addNode_ReqFiltered`), via `filterAll_cleans_gowner`, the reachable
+   structure lemmas, and the `mem_addNode` membership decomposition.
+3. ✅ A1–A5 replaced by proofs via `Pruned.lean` (gowners-subset +
+   node-derivation + step equality), with the `simp only [f]` + `split`
+   technique of `Fuel.lean`. A2/A3 fall out of one `Reachable` induction
+   (`reachable_structure`), reusing `mem_addNode`/`mem_join_nodes`.
+4. ✅ A6/A7 replaced by their one-line proofs
+   (`List.mem_of_find?_eq_some`, `List.find?_some` + `eq_of_beq`).
+5. ✅ `#guard_msgs` pins in `OwnersInvariants.lean` fail the build if
+   `#print axioms L1` / `L1_cor` ever report anything beyond
+   `[propext, Quot.sound]`.
 
-After step 5, the F5 definition of done — *L1 and L1_cor with no `sorry` and no axioms* — is met.
+The F5 definition of done — *L1 and L1_cor with no `sorry` and no axioms* —
+**is met**.
 
 ### 6.2 Connecting to the executable (Lemma L7)
 
