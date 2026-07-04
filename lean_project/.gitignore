@@ -3,3 +3,5 @@ lake-log.txt
 .lake/build/
 build_output_verbose.log
 run_output.log
+difftest_tmp.cnf
+difftest_failure_*.cnf

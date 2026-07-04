@@ -3,6 +3,7 @@ import AbsSat.SatMachine.SatMachine
 import AbsSat.GraphMap.ImportCnf
 import AbsSat.Utils.ExhaustiveSolver
 import AbsSat.GraphPath.Reader.PathExpReader
+import AbsSat.GraphPath.Model.MirrorTest
 import Std.Data.HashSet
 
 /-!
@@ -144,7 +145,15 @@ def run_case (cnf : String) (tmp_path : String) : IO CaseResult := do
              message := s!"VERDICT mismatch: machine={machine_sat} oracle={oracle_sat}" }
 
   if !machine_sat then
-    return { ok := true, message := "UNSAT agreed" }
+    match AbsSat.GraphPath.Model.MirrorTest.mirrorSolutions gmap with
+    | .error e =>
+      return { ok := false, message := s!"MIRROR reader error on UNSAT instance: {e}" }
+    | .ok mirror_solutions =>
+      if mirror_solutions.isEmpty then
+        return { ok := true, message := "UNSAT agreed (mirror agreed)" }
+      else
+        return { ok := false,
+                 message := s!"MIRROR claims SAT ({mirror_solutions.length} solutions) on UNSAT instance" }
 
   match ← machine_solution_keys machine with
   | .error e =>
@@ -152,12 +161,25 @@ def run_case (cnf : String) (tmp_path : String) : IO CaseResult := do
   | .ok machine_keys =>
     let missing := set_diff oracle_keys machine_keys
     let invented := set_diff machine_keys oracle_keys
-    if missing.isEmpty && invented.isEmpty then
-      return { ok := true,
-               message := s!"SAT agreed, {machine_keys.size} solutions" }
-    else
+    if !(missing.isEmpty && invented.isEmpty) then
       return { ok := false,
                message := s!"SOLUTION SET mismatch: missing={missing} invented={invented} (machine={machine_keys.size}, oracle={oracle_keys.size})" }
+
+    -- Third band: the pure mirror GPathM (machine loop + reader), which the
+    -- bridge proofs will reason about. It must agree with the oracle too.
+    match AbsSat.GraphPath.Model.MirrorTest.mirrorSolutions gmap with
+    | .error e =>
+      return { ok := false, message := s!"MIRROR reader error: {e}" }
+    | .ok mirror_solutions =>
+      let mirror_keys := keys_of mirror_solutions
+      let m_missing := set_diff oracle_keys mirror_keys
+      let m_invented := set_diff mirror_keys oracle_keys
+      if m_missing.isEmpty && m_invented.isEmpty then
+        return { ok := true,
+                 message := s!"SAT agreed, {machine_keys.size} solutions (mirror agreed)" }
+      else
+        return { ok := false,
+                 message := s!"MIRROR solution set mismatch: missing={m_missing} invented={m_invented} (mirror={mirror_keys.size}, oracle={oracle_keys.size})" }
 
 -- ============================================================
 -- Driver

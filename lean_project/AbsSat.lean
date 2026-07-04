@@ -21,3 +21,8 @@ import AbsSat.Db.Path.Docs.PathDocOwners
 -- part of the default build, not just on demand.
 import AbsSat.SatMachine.Model.Soundness
 import AbsSat.SatMachine.Model.Completeness
+
+-- Pure mirror of the Owners graph (bridge phases F1-F2: structures,
+-- operations, and the review-loop fuel lemmas). Same rationale.
+import AbsSat.GraphPath.Model.GPathM
+import AbsSat.GraphPath.Model.Fuel

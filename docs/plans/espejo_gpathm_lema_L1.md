@@ -6,6 +6,39 @@ primer lema del puente — **L1, soundness local de requisitos** — tal como se
 (§5-L1 y §6.1). Este plan cubre las etapas 0 y 1 del puente y deja enunciada (sin
 demostrar) la denotación que usarán L2–L8.
 
+---
+
+## Registro de ejecución
+
+**2026-07-04 — F1, F2 (a+b) y F6 completadas.**
+
+- **F1 ✅** `Model/GPathM.lean`: estructuras y operaciones, con tests embebidos que
+  reproducen las cadenas del libro, el join con sufijo compartido y el escenario L1.
+  *Desviación:* el `updateNode` esbozado en §2.2 (reemplazo de todas las coincidencias)
+  hace **falso** F2.a en presencia de ids duplicados (estados no alcanzables, pero el
+  lema cuantifica sobre todos); se sustituyó por `updateAt` — primera coincidencia +
+  transformador uniforme que no aumenta el peso — que además elimina la necesidad de
+  `LawfulBEq` en toda la fase F2.
+- **F2 (parcial) ✅** `Model/Fuel.lean`: F2.a (`measure_reviewPass_le`) y F2.b
+  (`review_stable`) demostrados sin `sorry`. **F2.c aplazado** deliberadamente: solo lo
+  consume L6, nada de F3–F5 depende de él, y exige la familia "filter de longitud
+  igual = identidad" enhebrada por todas las operaciones. Debe aterrizar antes de L6.
+- **F6 ✅** `Model/MirrorTest.lean` + `diffTest` a **tres bandas** (oráculo /
+  ejecutable IO / espejo puro): 2.000 casos de aceptación con dos semillas
+  (261 UNSAT), 0 desacuerdos; más tandas adicionales.
+- **Ajuste de alcance para F3/F5:** en lugar de parametrizar `Reachable` por
+  `PureGMap` (que usa ids `Nat`), se parametriza por una función abstracta
+  `reqOf : NodeId → List NodeId` — es lo único que L1 usa (determinismo de los
+  requisitos respecto al id de mapa), y difiere el mapeo `Nat ↔ NodeId` a la fase de
+  pegamento con E2 (L7). Por lo mismo, **P3 se difiere** a esa fase y el corolario
+  L1-cor se enuncia en forma autocontenida (sin `ChoicesValid`). Los constructores de
+  `Reachable` llevan las hipótesis estructurales del mapa real: pasos honestos
+  (`d.step = current_step` en `up`, `= 0` en `seed`) y requisitos estrictamente hacia
+  atrás (`req.step < current_step`); la fase L7 las descargará desde el driver.
+- **Nota técnica para F5:** `deriving BEq` no da `LawfulBEq`; se cambia `NodeId` /
+  `PathNodeId` a `deriving DecidableEq` en `Alias.lean` (el `==` pasa por
+  `instBEqOfDecidableEq`, que sí es lawful), validado por las tres bandas.
+
 **Estado previo del que parte** (2026-07-04):
 - Filtro de Owners del ejecutable corregido y `do_join!` cableado (commit `7092d75`).
 - Reader portado + arnés `diffTest`: 5.210 casos aleatorios, 0 desacuerdos (commit `1b70d2e`).
