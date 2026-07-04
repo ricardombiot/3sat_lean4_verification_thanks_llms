@@ -6,6 +6,7 @@ This project contains a comprehensive suite of documents detailing the formal ve
 - [formal_verification.md](./formal_verification.md): High-level overview of the formal verification goals and model.
 - [formal_verification_join.md](./formal_verification_join.md): Mathematical proof of the soundness and completeness of the `Join` operation.
 - [formal_compression_strategy.md](./formal_compression_strategy.md): Analysis of the compression strategy and the Structural Boundedness Theorem.
+- [formal_bridge_owners_runpure.md](./formal_bridge_owners_runpure.md): Design proposal (Spanish) for the missing bridge theorem — reading via Owners ≡ paths of `run_pure` — with the full correctness chain, lemma decomposition, and attack order.
 
 ## Complexity and Performance
 - [complexity.md](./complexity.md): Detailed asymptotic analysis of time and space complexity ($O(S^4)$).

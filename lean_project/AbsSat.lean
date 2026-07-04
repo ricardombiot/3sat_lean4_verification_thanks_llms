@@ -6,6 +6,7 @@ import AbsSat.GraphPath.GraphPath
 import AbsSat.GraphPath.GraphPathVisual
 import AbsSat.GraphPath.Reader.PathReader
 import AbsSat.GraphPath.Reader.PathExpReader
+import AbsSat.SatMachine.DiffTest
 import AbsSat.Utils.ExhaustiveSolver
 import AbsSat.Utils.Checker
 import AbsSat.Db.Machine.Cols.ColTimeline

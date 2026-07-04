@@ -14,3 +14,7 @@ root = "AbsSat"
 [[lean_exe]]
 name = "runTests"
 root = "Main"
+
+[[lean_exe]]
+name = "diffTest"
+root = "DiffMain"
