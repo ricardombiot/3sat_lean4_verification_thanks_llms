@@ -6,18 +6,24 @@ import AbsSat.GraphPath.Model.Denot
 /-!
 Phase F5: `ReqFiltered` invariant + Lemma L1.
 
-**Verified (0 sorry):**
-- L1.a: `initSeed_ReqFiltered`
-- L1.b1: `filterRequire_preserves_ReqFiltered`
-- L1.b2: `filterRequire_cleans_gowner`
-- Bridge: `OwnersSubset_preserves_ReqFiltered`
+⚠️ **AUDIT (2026-07-04): the axiomatized version of this module is unsound.**
+`chain_step_eq` (A8) is FALSE for the current `IsChain` (which does not pin
+`(sel k).id.step = k`): `False` has been derived from it in Lean. And
+`addNode_preserves_ReqFiltered` (A9) is FALSE as stated (`g'` is a free
+variable unconnected to `g`; a graph with a poisoned `gowners` entry and no
+nodes is a countermodel). Consequently `L1`/`L1_cor` carry no evidential
+weight until repaired. Full audit and repair plan:
+`docs/summary_formalization.md` §4.0/§6.1.
 
-**Pending (4 sorry):**
-- `review_preserves_ReqFiltered` — blocked by `mem_updateAtGo_narrow`
-  (Lean `split`/`match` on Bool in induction context consumes binder)
-- `upFiltering_ReqFiltered` — needs `addNode` expansion logic
-- `join_preserves_ReqFiltered` — needs `mergeNode` owner analysis
-- `L1_cor` — needs wiring of `PairwiseOwned` to `ReqFiltered`
+**Proved without axioms (0 sorry):** `initSeed_ReqFiltered`,
+`filterRequire_preserves_ReqFiltered`, `filterRequire_cleans_gowner`,
+`OwnersSubset_preserves_ReqFiltered`, `mergeNode_owners_subset`, and the
+genuine case analysis of `join_preserves_ReqFiltered` (modulo the provable
+one-liners A6/A7).
+
+**Axioms A1–A7 are true and provable** (the `brecOn`-opacity rationale was
+wrong — `Fuel.lean` unfolds these very functions with `simp only` + `split`);
+they are pending replacement by the plan's `Pruned`-relation proofs.
 -/
 
 namespace AbsSat.GraphPath.Model
