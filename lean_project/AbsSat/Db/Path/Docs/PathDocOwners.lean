@@ -50,18 +50,30 @@ def insert (owners : PathDocOwners) (id : PathNodeId) : PathDocOwners :=
   let maxStep := if step > owners.maxStep then step else owners.maxStep
   { owners with table := table, maxStep := maxStep }
 
+/--
+Mark `step` invalid (and record it in `emptySteps`) if its owners set has become empty.
+Mirrors Julia's `check_if_isempty!`, which is what lets a broken step actually
+invalidate the graph.
+-/
+def checkIfEmpty (owners : PathDocOwners) (step : Int) : PathDocOwners :=
+  match owners.table.get? step with
+  | some s =>
+    if s.isEmpty then
+      { owners with emptySteps := owners.emptySteps.insert step, valid := false }
+    else
+      owners
+  | none => owners
+
 def remove (owners : PathDocOwners) (id : PathNodeId) : PathDocOwners :=
   let step := id.id.step
-  let table := match owners.table.get? step with
-    | some s =>
-      let set := s.erase id
-      if set.isEmpty then
-        owners.table.erase step
-      else
-        owners.table.insert step set
-    | none => owners.table
-  -- Not recalculating maxStep for simplicity, assuming it doesn't break validity
-  { owners with table := table }
+  match owners.table.get? step with
+  | some s =>
+    let set := s.erase id
+    -- Keep the (possibly empty) key, matching Julia: emptiness is detected by
+    -- checkIfEmpty below, not by erasing the table entry.
+    let owners := { owners with table := owners.table.insert step set }
+    checkIfEmpty owners step
+  | none => owners
 
 def isOwner (owners : PathDocOwners) (nodeId : PathNodeId) : Bool :=
   match get owners nodeId.id.step with
@@ -93,27 +105,38 @@ def union (a b : PathDocOwners) : PathDocOwners :=
   let newMax := if a.maxStep > b.maxStep then a.maxStep else b.maxStep
   { new with table := mergedTable, maxStep := newMax }
 
+/--
+Intersect the owners set of `a` at a single `step` with `b`'s set at that same
+step (only when both have an entry there), then check whether that emptied it.
+-/
+def intersectStep (owners : PathDocOwners) (b : PathDocOwners) (step : Int) : PathDocOwners :=
+  match owners.table.get? step, b.table.get? step with
+  | some setA, some setB =>
+    let newSet : Std.HashSet PathNodeId :=
+      setA.fold (fun s item => if setB.contains item then s.insert item else s) {}
+    let owners := { owners with table := owners.table.insert step newSet }
+    checkIfEmpty owners step
+  | _, _ => owners
+
+partial def intersectFrom (owners : PathDocOwners) (b : PathDocOwners) (step : Int) : PathDocOwners :=
+  if step > owners.maxStep then
+    owners
+  else
+    intersectFrom (intersectStep owners b step) b (step + 1)
+
+/--
+Intersect `a` with `b`, in place semantics mirrored from Julia's `intersect!`:
+only `a` is updated. If `b` reaches further than `a` ever did, `a` is
+immediately invalid (it cannot possibly agree with owners at steps it never
+recorded). Otherwise every step `a` knows about gets intersected against `b`,
+and `checkIfEmpty` marks the graph invalid the moment any step is left without
+an owner.
+-/
 def intersect (a b : PathDocOwners) : PathDocOwners :=
-  -- Julia: intersect!(map_node.owners, gpath.owners)
-  -- Julia: intersect!(map_node.owners, gpath.owners)
-  -- If key is missing in B, it should be removed from A? Intersection logic implies AND.
-  -- "hago la union de los owners de mis padres y la intersectiono conmigo"
-  -- If parent has no owners at step X, and child has owners at step X, child should lose them?
-  -- Logic: Child only valid if owners are present in parents?
-
-  -- Assuming standard set intersection semantics on (Step -> Set NodeId).
-
-  let newTable := a.table.fold (fun t step setA =>
-    match b.table.get? step with
-    | some setB =>
-      let newSet : Std.HashSet PathNodeId := setA.fold (fun s item => if setB.contains item then s.insert item else s) {}
-      if newSet.isEmpty then t else t.insert step newSet
-    | none => t -- If step missing in B, intersection is empty for this step
-  ) {}
-
-  -- We also need to check maxStep.
-  let newMax := a.maxStep -- Approx
-  { new with table := newTable, maxStep := newMax, valid := a.valid && b.valid }
+  if b.maxStep > a.maxStep then
+    { a with valid := false }
+  else
+    intersectFrom a b 0
 
 
 instance : ToString PathDocOwners where

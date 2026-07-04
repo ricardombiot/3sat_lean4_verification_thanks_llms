@@ -47,3 +47,6 @@ def main : IO Unit := do
      IO.println "SatMachine successfully found a solution! ✅"
   else
      IO.println "SatMachine did NOT find a solution. ❌"
+
+  -- 5. Cross-validate against the brute-force oracle on SAT and UNSAT fixtures
+  AbsSat.SatMachine.Verification.cross_validation_tests

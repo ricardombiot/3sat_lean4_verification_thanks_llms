@@ -40,11 +40,13 @@ def impact! (step : ColTimelineStep) (gpath : GPath) : IO ColTimelineStep := do
         table := step.table.insert map_node_id gpath,
         counter_graphs := step.counter_graphs + 1
       }
-    | some _current_gpath =>
-      -- TODO: Call GraphPath.do_join! when available
-      -- let new_gpath := GraphPath.do_join! current_gpath gpath
-      -- { step with table := step.table.insert map_node_id new_gpath }
-      pure step
+    | some current_gpath =>
+      -- Two different histories converged on the same destination node
+      -- (a common son of distinct earlier choices): merge the incoming
+      -- gpath into the one already parked here instead of dropping it,
+      -- or a whole branch of otherwise-valid candidates silently vanishes.
+      AbsSat.GraphPath.do_join! current_gpath gpath
+      pure { step with table := step.table.insert map_node_id current_gpath }
   else
     pure step
 

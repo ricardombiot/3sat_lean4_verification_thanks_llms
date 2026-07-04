@@ -122,6 +122,34 @@ def union! (linesA linesB : PathColLines) : IO Unit := do
         pure newCol
     PathColNodes.union! colA colB
 
+/--
+If the line at `step` has been emptied out, mark the whole collection
+invalid. Mirrors Julia's `check_if_valid_line!`.
+-/
+def checkIfValidLine! (col_lines : PathColLines) (step : Int) : IO Unit := do
+  match ← getStep col_lines step with
+  | some line =>
+    let empty ← PathColNodes.isEmpty line
+    if empty then
+      col_lines.is_valid.set false
+  | none => pure ()
+
+/--
+Filter every line's nodes by an effectful predicate, physically removing the
+nodes it flags, then checking that line's validity before moving to the next
+one. Bails out as soon as a line has been emptied, mirroring Julia's
+`filter!`.
+-/
+def filter! (col_lines : PathColLines) (fn_filter : PathDocNode → IO Bool) : IO Unit := do
+  let table ← col_lines.table.get
+  for (step, col_nodes) in table.toList do
+    PathColNodes.filter! col_nodes fn_filter
+    checkIfValidLine! col_lines step
+
+    let stillValid ← col_lines.is_valid.get
+    if !stillValid then
+      break
+
 section Tests
 
 /--

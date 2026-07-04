@@ -1,6 +1,8 @@
 import AbsSat.SatMachine.SatMachine
 import AbsSat.GraphMap.GraphMap
+import AbsSat.GraphMap.ImportCnf
 import AbsSat.Utils.Alias
+import AbsSat.Utils.ExhaustiveSolver
 import AbsSat.Db.Map.Cols.MapColLines
 
 namespace AbsSat.SatMachine.Verification
@@ -74,5 +76,34 @@ def verification_tests : IO Unit := do
   assert! count == 2 -- s!"Expected 2 initial paths, got {count}"
 
   IO.println "Verification Theorems Passed! ✅"
+
+/--
+Cross-check `SatMachine`'s verdict on a CNF file against `ExhaustiveSolver`
+(the independently-implemented, brute-force oracle): both must agree on
+whether the instance is satisfiable. This is the regression test that would
+have caught the Owners filter never invalidating a broken graph, since that
+bug made `SatMachine` report SAT unconditionally.
+-/
+def cross_validate_cnf! (label : String) (path : String) : IO Unit := do
+  IO.println s!"Cross-validating {label} ({path})..."
+
+  let gmap ← AbsSat.GraphMap.ImportCnf.load_import! path
+  let machine ← AbsSat.SatMachine.new gmap
+  AbsSat.SatMachine.run! machine
+  let machine_result ← AbsSat.SatMachine.have_solution machine
+
+  let solver ← AbsSat.Utils.ExhaustiveSolver.new path
+  AbsSat.Utils.ExhaustiveSolver.run! solver
+  let solutions ← solver.listSolutions.get
+  let solver_result := !solutions.isEmpty
+
+  IO.println s!"  SatMachine={machine_result}, ExhaustiveSolver={solver_result}"
+  assert! machine_result == solver_result
+
+def cross_validation_tests : IO Unit := do
+  IO.println "\n--- Cross-validating SatMachine against ExhaustiveSolver ---"
+  cross_validate_cnf! "UNSAT (all 8 sign combinations over 3 vars)" "test_unsat.cnf"
+  cross_validate_cnf! "SAT (4 vars, overlapping clauses)" "test_sat_medium.cnf"
+  IO.println "Cross-validation Passed! ✅"
 
 end AbsSat.SatMachine.Verification

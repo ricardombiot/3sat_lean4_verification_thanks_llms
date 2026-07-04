@@ -1,0 +1,10 @@
+c UNSAT: all 8 sign combinations over 3 shared variables
+p cnf 3 8
+1 2 3 0
+1 2 -3 0
+1 -2 3 0
+1 -2 -3 0
+-1 2 3 0
+-1 2 -3 0
+-1 -2 3 0
+-1 -2 -3 0

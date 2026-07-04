@@ -65,7 +65,7 @@ def import! (gmap : GMap) (path_file : String) : IO GMap := do
   let mut stage := "waiting_conf"
 
   for line in lines do
-    let line := line.trim
+    let line := line.trimAscii.toString
     if line.isEmpty then continue
     let firstCheck := line.front
     if firstCheck != 'c' then

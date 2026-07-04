@@ -1,0 +1,7 @@
+c SAT: 4 variables, clauses share variables so filtering must interact
+c a satisfying assignment exists at 1=F,2=T,3=F,4=T
+p cnf 4 4
+1 2 3 0
+-1 -2 4 0
+2 -3 -4 0
+-2 3 4 0

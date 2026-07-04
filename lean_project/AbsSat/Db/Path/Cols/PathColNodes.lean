@@ -71,14 +71,18 @@ def removeNode! (col : PathColNodesLine) (id : PathNodeId) : IO Unit := do
   col.count.modify (· - 1)
 
 /--
-Filter nodes in place by a predicate.
+Filter nodes in place by an (effectful) predicate: a node is physically
+removed from the collection whenever `pred` returns `true` for it. The
+predicate runs in `IO` because, as in the Julia reference, it is expected to
+perform its own side effects (e.g. updating owners, unlinking parents/sons)
+before deciding whether the node should be dropped.
 -/
-def filter! (col : PathColNodesLine) (pred : PathDocNode → Bool) : IO Unit := do
+def filter! (col : PathColNodesLine) (pred : PathDocNode → IO Bool) : IO Unit := do
   let t ← col.table.get
   for item in t.toList do
     let id := item.fst
     let node := item.snd
-    if pred node then
+    if ← pred node then
       removeNode! col id
 
 /--

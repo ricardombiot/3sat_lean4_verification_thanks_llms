@@ -1,5 +1,6 @@
 import AbsSat.Utils.Alias
 import AbsSat.Db.Path.Cols.PathColLines
+import AbsSat.Db.Path.Cols.PathColNodes
 import AbsSat.Db.Path.Docs.PathDocOwners
 import AbsSat.Db.Path.Docs.PathDocNode
 import Std.Data.HashSet
@@ -130,15 +131,113 @@ def remove_if_invalid_node! (gpath : GPath) (path_node : PDocNode) : IO Bool := 
     pure false
 
 def clean_invalid_nodes! (gpath : GPath) : IO Unit := do
-  forEach gpath.table_lines (fun map_node => do
+  AbsSat.Db.Path.Cols.PathColLines.filter! gpath.table_lines (fun map_node => do
     let owners ← gpath.owners.get
     let updated_owners := AbsSat.Db.Path.Docs.PathDocOwners.intersect map_node.owners owners
     let map_node := putOwners map_node updated_owners
     pushNode! gpath.table_lines map_node
 
-    let _ ← remove_if_invalid_node! gpath map_node
-    pure ()
+    remove_if_invalid_node! gpath map_node
   )
+
+/--
+Union the owners tables of every node named by `ids` (looked up in the
+graph's current node collection). Returns `none` when `ids` is empty. Mirrors
+the `owners_union_parents`/`owners_union_sons` accumulation loops in Julia's
+`review_owners_parents_sons!`/`review_owners_sons_parents!`.
+-/
+def union_owners_of! (gpath : GPath) (ids : Std.HashSet PathNodeId) : IO (Option PDocOwners) := do
+  let mut acc? : Option PDocOwners := none
+  for neighbor_id in ids do
+    let neighbor? ← getNode gpath.table_lines neighbor_id
+    match neighbor? with
+    | some neighbor =>
+      acc? := some (match acc? with
+        | some acc => AbsSat.Db.Path.Docs.PathDocOwners.union acc neighbor.owners
+        | none => neighbor.owners)
+    | none => pure ()
+  pure acc?
+
+/--
+Enforce owners-coherence for a single line/step against a chosen set of
+neighbors (parents on the top-down pass, sons on the bottom-up pass): each
+still-valid node's owners are intersected with the union of its neighbors'
+owners, and the node is dropped if that leaves it invalid. Mirrors the shared
+body of Julia's `review_owners_parents_sons!`/`review_owners_sons_parents!`.
+-/
+def review_owners_line! (gpath : GPath) (neighbors : PDocNode → Std.HashSet PathNodeId) (step : Int) : IO Unit := do
+  let col_nodes? ← getStep gpath.table_lines step
+  match col_nodes? with
+  | some col_nodes =>
+    AbsSat.Db.Path.Cols.PathColNodes.filter! col_nodes (fun path_node => do
+      let node_is_valid ← is_valid_node gpath path_node
+      if node_is_valid then
+        let owners_union? ← union_owners_of! gpath (neighbors path_node)
+        match owners_union? with
+        | some owners_union =>
+          let updated_owners := AbsSat.Db.Path.Docs.PathDocOwners.intersect path_node.owners owners_union
+          let updated_node := putOwners path_node updated_owners
+          pushNode! gpath.table_lines updated_node
+          remove_if_invalid_node! gpath updated_node
+        | none =>
+          remove_if_invalid_node! gpath path_node
+      else
+        remove_if_invalid_node! gpath path_node
+    )
+    AbsSat.Db.Path.Cols.PathColLines.checkIfValidLine! gpath.table_lines step
+    check_if_graph_valid! gpath
+  | none => pure ()
+
+partial def review_owners_ascending! (gpath : GPath) (neighbors : PDocNode → Std.HashSet PathNodeId) (step upper : Int) : IO Unit := do
+  if step > upper then
+    pure ()
+  else
+    review_owners_line! gpath neighbors step
+    let valid ← gpath.is_valid.get
+    if valid then
+      review_owners_ascending! gpath neighbors (step + 1) upper
+
+partial def review_owners_descending! (gpath : GPath) (neighbors : PDocNode → Std.HashSet PathNodeId) (step lower : Int) : IO Unit := do
+  if step < lower then
+    pure ()
+  else
+    review_owners_line! gpath neighbors step
+    let valid ← gpath.is_valid.get
+    if valid then
+      review_owners_descending! gpath neighbors (step - 1) lower
+
+/--
+Top-down pass: intersect every node's owners with the union of its parents'
+owners, one step at a time from 1 to current_step-1. Mirrors Julia's
+`review_owners_parents_sons!`.
+-/
+def review_owners_parents_sons! (gpath : GPath) : IO Unit := do
+  let valid ← gpath.is_valid.get
+  let review ← gpath.review_owners.get
+  if valid && review then
+    let current_step ← gpath.current_step.get
+    review_owners_ascending! gpath (fun n => n.parents) 1 (current_step - 1)
+
+/--
+Bottom-up pass: intersect every node's owners with the union of its sons'
+owners, one step at a time from current_step-2 down to 1. Mirrors Julia's
+`review_owners_sons_parents!`.
+-/
+def review_owners_sons_parents! (gpath : GPath) : IO Unit := do
+  let valid ← gpath.is_valid.get
+  let review ← gpath.review_owners.get
+  if valid && review then
+    let current_step ← gpath.current_step.get
+    review_owners_descending! gpath (fun n => n.sons) (current_step - 2) 1
+
+/--
+Los owners deben ser coherentes con sus padres e hijos: run both the
+top-down and bottom-up coherence passes. Mirrors Julia's
+`review_owners_coherence_with_its_parents_sons!`.
+-/
+def review_owners_coherence_with_its_parents_sons! (gpath : GPath) : IO Unit := do
+  review_owners_parents_sons! gpath
+  review_owners_sons_parents! gpath
 
 partial def make_review_owners! (gpath : GPath) : IO Unit := do
   let valid ← gpath.is_valid.get
@@ -146,6 +245,7 @@ partial def make_review_owners! (gpath : GPath) : IO Unit := do
   if valid && review then
     gpath.review_owners.set false
     clean_invalid_nodes! gpath
+    review_owners_coherence_with_its_parents_sons! gpath
 
     let review_again ← gpath.review_owners.get
     if review_again then
