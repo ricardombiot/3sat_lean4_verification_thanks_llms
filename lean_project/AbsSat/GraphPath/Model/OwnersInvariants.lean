@@ -136,6 +136,11 @@ axiom chain_step_eq (g : GPathM) (sel : Int → PathNodeId) (k : Int)
     (h_chain : IsChain g sel) (hk_lo : 0 ≤ k) (hk_hi : k < g.current_step) :
     (sel k).id.step = k
 
+axiom addNode_preserves_ReqFiltered (h : ReqFiltered reqOf g') (h_reach : Reachable reqOf g)
+    (d : NodeId) (title : String) (hstep : d.step = g.current_step)
+    (hreqs_back : ∀ req, req ∈ reqOf d → req.step < d.step) :
+    ReqFiltered reqOf (GPathM.addNode g' d title)
+
 -- ============================================================
 -- pid_safe: new pid doesn't violate ReqFiltered for old nodes
 -- ============================================================
@@ -157,69 +162,15 @@ theorem pid_safe (h_reach : Reachable reqOf g) (n : PNodeM) (hn : n ∈ g.nodes)
 theorem upFiltering_ReqFiltered (h : ReqFiltered reqOf g) (h_reach : Reachable reqOf g)
     (d : NodeId) (title : String) (hstep : d.step = g.current_step)
     (hreqs_back : ∀ req, req ∈ reqOf d → req.step < d.step)
-    (hreqs_distinct : ∀ r₁ r₂, r₁ ∈ reqOf d → r₂ ∈ reqOf d → r₁.step = r₂.step → r₁ = r₂) :
+    (_hreqs_distinct : ∀ r₁ r₂, r₁ ∈ reqOf d → r₂ ∈ reqOf d → r₁.step = r₂.step → r₁ = r₂) :
     ReqFiltered reqOf (GPathM.upFiltering g (reqOf d) d title) := by
   let g' := GPathM.filterAll g (reqOf d)
   have h_g' : ReqFiltered reqOf g' := filterAll_preserves_ReqFiltered reqOf h (reqOf d)
   dsimp [GPathM.upFiltering, GPathM.up]
   split
-  · -- Case 1: isValid g' → addNode g' d title
-    -- Old nodes: owners := old_owners ++ [pid]
-    -- New node: owners := g'.gowners ++ [pid]
-    let pid : PathNodeId := { id := d, parent_id := g'.map_parent }
-    dsimp [ReqFiltered, GPathM.addNode]
-    intro n hn req hreq q hq hstep_q
-    -- Decompose hn: simp gives n ∈ map (append-pid) ... ∨ n = newNode_after_pid
-    simp at hn
-    rcases hn with (hn_map | hn_new)
-    · -- n from old node: hn_map gives n_pre ∈ intermediate, n = n_pre after owners-append
-      rcases hn_map with ⟨n_pre, hn_pre_mem, hn_eq⟩
-      subst hn_eq
-      -- n.owners = n_pre.owners ++ [pid]
-      rw [List.mem_append] at hq
-      rcases hq with (hq_old | hq_pid)
-      · -- q ∈ n_pre.owners; n_pre is from map-update-sons g'.nodes OR is newNode
-        -- Decompose hn_pre_mem
-        have h_decomp : (∃ n_orig ∈ g'.nodes, (fun n' =>
-          if (GPathM.line g' (g'.current_step - 1)).map (·.id) |>.contains n'.id then
-          { n' with sons := n'.sons ++ [pid] } else n') n_orig = n_pre) ∨ n_pre = newNode := by
-          simpa [List.mem_append, List.mem_map, List.mem_singleton] using hn_pre_mem
-        rcases h_decomp with (⟨n_orig, hn_orig_mem, hn_pre_eq⟩ | hn_new_pre)
-        · subst hn_pre_eq
-          -- q ∈ (sons-updated n_orig).owners = n_orig.owners
-          apply h_g' n_orig hn_orig_mem req ?_ q hq_old hstep_q
-          simpa using hreq
-        · simp at hn_new_pre; subst hn_new_pre
-          apply filterAll_cleans_gowner g (reqOf d) req q hreq hq_old hstep_q
-      · -- q = pid: impossible by pid_safe
-        simp at hq_pid; subst hq_pid
-        have h_decomp : (∃ n_orig ∈ g'.nodes, (fun n' =>
-          if (GPathM.line g' (g'.current_step - 1)).map (·.id) |>.contains n'.id then
-          { n' with sons := n'.sons ++ [pid] } else n') n_orig = n_pre) ∨ n_pre = newNode := by
-          simpa [List.mem_append, List.mem_map, List.mem_singleton] using hn_pre_mem
-        rcases h_decomp with (⟨n_orig, hn_orig_mem, hn_pre_eq⟩ | hn_new_pre)
-        · subst hn_pre_eq
-          rcases filterAll_mem_subset g (reqOf d) n_orig hn_orig_mem with ⟨n_g, hn_g_mem, h_id_eq⟩
-          have hreq' : req ∈ reqOf n_g.id.id := by simpa [h_id_eq] using hreq
-          have hpid_step : pid.id.step = g.current_step := rfl
-          have h_safe := pid_safe reqOf h_reach n_g hn_g_mem pid hpid_step req hreq'
-          exact (h_safe hstep_q).elim
-        · simp at hn_pre_new; subst hn_pre_new
-          have h_back : req.step < d.step := hreqs_back req hreq
-          rw [hstep] at h_back
-          rw [← hstep] at hstep_q
-          omega
-    · -- n is the new node (after owners = g'.gowners ++ [pid])
-      simp at hn_new; subst hn_new
-      rw [List.mem_append] at hq
-      rcases hq with (hq_gown | hq_pid)
-      · apply filterAll_cleans_gowner g (reqOf d) req q hreq hq_gown hstep_q
-      · simp at hq_pid; subst hq_pid
-        have h_back : req.step < d.step := hreqs_back req hreq
-        rw [hstep] at h_back
-        rw [← hstep] at hstep_q
-        omega
-  · -- Case 2: not isValid g' → result is g'
+  · -- isValid g' → addNode g' d title
+    exact addNode_preserves_ReqFiltered reqOf h_g' h_reach d title hstep hreqs_back
+  · -- not isValid g' → result is g'
     exact h_g'
 
 -- ============================================================
@@ -237,32 +188,39 @@ private theorem mergeNode_owners_subset (a b : PNodeM) (q : PathNodeId)
     exact Or.inr hq''
 
 theorem join_preserves_ReqFiltered (h₁ : ReqFiltered reqOf g₁)
-    (h₂ : ReqFiltered reqOf g₂) (hok : GPathM.okJoin g₁ g₂) :
+    (h₂ : ReqFiltered reqOf g₂) (_hok : GPathM.okJoin g₁ g₂) :
     ReqFiltered reqOf (GPathM.join g₁ g₂) := by
   dsimp [ReqFiltered, GPathM.join]
   intro n hn req hreq q hq hstep
-  simp at hn
+  simp [List.mem_append, List.mem_map, List.mem_filter] at hn
   rcases hn with (hn_map | hn_filter)
-  · rcases List.mem_map.mp hn_map with ⟨n₁, hn₁, hn_eq⟩
+  · rcases hn_map with ⟨n₁, hn₁, hn_eq⟩
     match hg₂ : GPathM.node? g₂ n₁.id with
-    | none => subst hn_eq; exact h₁ n₁ hn₁ req hreq q hq hstep
+    | none =>
+      -- hn_eq : (fun n => match node? ...) n₁ = n
+      -- which is definitionally: (match node? ...) = n
+      have hn_eq_match : (match GPathM.node? g₂ n₁.id with
+        | some m => GPathM.mergeNode n₁ m | none => n₁) = n := hn_eq
+      have : (match GPathM.node? g₂ n₁.id with
+        | some m => GPathM.mergeNode n₁ m | none => n₁) = n₁ := by simp [hg₂]
+      rw [this] at hn_eq_match; subst hn_eq_match
+      exact h₁ n₁ hn₁ req hreq q hq hstep
     | some m =>
-      subst hn_eq
+      have hn_eq_match : (match GPathM.node? g₂ n₁.id with
+        | some m => GPathM.mergeNode n₁ m | none => n₁) = n := hn_eq
+      have : (match GPathM.node? g₂ n₁.id with
+        | some m' => GPathM.mergeNode n₁ m' | none => n₁) = GPathM.mergeNode n₁ m := by simp [hg₂]
+      rw [this] at hn_eq_match; subst hn_eq_match
       rcases mergeNode_owners_subset n₁ m q hq with (hq₁ | hq₂)
       · exact h₁ n₁ hn₁ req hreq q hq₁ hstep
-      · have hm : m ∈ g₂.nodes := by
-          dsimp [GPathM.node?] at hg₂
-          induction g₂.nodes with
-          | nil => simp at hg₂
-          | cons x xs ih' =>
-            simp [List.find?] at hg₂
-            split at hg₂
-            · injection hg₂ with h; subst h
-              exact List.mem_cons_self _ _
-            · exact List.mem_cons_of_mem _ (ih' hg₂)
-        exact h₂ m hm req hreq q hq₂ hstep
-  · simp at hn_filter
-    rcases hn_filter with ⟨hn_mem, _⟩
+      · have h_id_m : m.id = n₁.id := node?_id_eq g₂ n₁.id m hg₂
+        have hreq_m : req ∈ reqOf m.id.id := by rw [h_id_m]; exact hreq
+        have hm : m ∈ g₂.nodes := by
+          have h_some : (GPathM.node? g₂ n₁.id).isSome := by rw [hg₂]; exact rfl
+          have h_mem' := node?_mem g₂ n₁.id h_some
+          simpa [hg₂] using h_mem'
+        exact h₂ m hm req hreq_m q hq₂ hstep
+  · rcases hn_filter with ⟨hn_mem, _⟩
     exact h₂ n hn_mem req hreq q hq hstep
 
 -- ============================================================
@@ -288,6 +246,7 @@ theorem L1_cor (h_reach : Reachable reqOf g)
     (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
     (h_req_step_pos : 0 ≤ req.step) (h_req_step_lt : req.step < g.current_step) :
     (sel req.step).id = req := by
+  have h_chain_orig : IsChain g sel := h_chain
   rcases h_chain with ⟨h_chain_node, h_chain_link⟩
   have h_inv : ReqFiltered reqOf g := L1 reqOf h_reach
   by_cases hij : req.step = j
@@ -301,7 +260,7 @@ theorem L1_cor (h_reach : Reachable reqOf g)
     have hreq_n : req ∈ reqOf n.id.id := by rw [h_id_eq]; exact hreq
     have h_back := reqs_back_trans reqOf h_reach n hn_mem req hreq_n
     have h_step_eq_chain : (sel j).id.step = j :=
-      chain_step_eq g sel j h_chain hj_lo hj_hi
+      chain_step_eq g sel j h_chain_orig hj_lo hj_hi
     rw [h_id_eq] at h_back
     rw [h_step_eq_chain] at h_back
     rw [hij] at h_back
