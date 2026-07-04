@@ -29,3 +29,4 @@ This project is a testament to modern human-AI collaboration:
 - **Deepseek**: Technical planning and structural design of the Lean 4 migration.
 - **Gemini (Jules/Antigravity)**: Implementation of Lean 4 code, formal verification, and complexity analysis.
 - **Claude (Sonnet 5 & Fable 5)**: Review and propose important improves.
+- **Fable 5 & DeepSeek Pro V4**: Formal Verification of the GPathM Owners Invariant in Lean 4
