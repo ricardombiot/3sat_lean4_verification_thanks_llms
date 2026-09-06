@@ -22,10 +22,9 @@ The bridge document therefore predicts the proof must come from the specific
 steps per clause case).
 
 **Where the induction breaks.** `Reachable` has three constructors. The `seed`
-case is proved below. The `join` case is monotone — `join` only adds nodes,
-parents and owners, and `g₁`'s nodes keep their position, so `node?` still
-finds them; a chain of either side stays a chain of the join. It needs the
-growth counterpart of `Pruned`, which does not exist yet.
+case is proved below and the `join` case in `Join.lean` (`Supported_join`),
+via the `Grown` relation — join only adds nodes, parents and owners, and
+`g₁`'s nodes keep their position, so `node?` still finds them.
 
 The `up` case is the whole difficulty, and it does not reduce: a node
 surviving `upFiltering` was kept because its owners still have an entry at

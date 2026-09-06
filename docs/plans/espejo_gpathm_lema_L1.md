@@ -10,6 +10,26 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-06 (d) — L4, dirección monótona; y con ella el caso `join` de L6.**
+
+- **`Model/Join.lean`.** Se introduce `Grown`, la contrapartida de crecimiento de
+  `Pruned`, enunciada **directamente sobre `node?`** en vez de sobre pertenencia a la
+  lista. Eso es lo que permite transferir `IsChain` y `PairwiseOwned` hacia delante
+  **sin hipótesis de unicidad de ids** — al contrario que la transferencia hacia atrás
+  de `Filter.lean`, que necesita `NodupIds` justo porque podar puede borrar el primer
+  nodo con un id y dejar a `node?` apuntando a otro. El crecimiento no puede hacer eso:
+  `join_node?_left` demuestra que el nodo fusionado queda en el mismo índice.
+- **Demostrado (L4-⊇):** `denot_join_union` — `denot g₁ ∪ denot g₂ ⊆ denot (join g₁ g₂)`.
+- **Demostrado de propina (L6, caso `join`):** `Supported_join`. Con el caso semilla ya
+  hecho, **dos de los tres constructores de `Reachable` están cerrados para L6**; el
+  caso `up` es toda la dificultad restante.
+- **No demostrado, y a propósito (L4-⊆):** una cadena co-poseída del grafo unido puede
+  mezclar aristas de ambas ramas por nodos compartidos. La recomendación del propio doc
+  del puente (§5-L4) es **no** enunciar L4 como igualdad exacta por gpath sino en forma
+  relajada (soundness respecto a `ChoicesValid` + completitud de la unión), porque es lo
+  único que el puente necesita y evita pelear con mezclas benignas. El contenido de esa
+  forma relajada vive del lado de `run_pure` (E2), al que este módulo no llega.
+
 **2026-09-06 (c) — L6: enunciado formal, caso semilla, y un falsador ejecutable.**
 
 - **L6 NO está demostrado.** Lo que hay: `Model/L6.lean` enuncia `Supported` (todo nodo
