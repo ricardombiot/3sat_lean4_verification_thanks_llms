@@ -30,3 +30,5 @@ import AbsSat.GraphPath.Model.Reachable
 import AbsSat.GraphPath.Model.Denot
 import AbsSat.GraphPath.Model.OwnersInvariants
 import AbsSat.GraphPath.Model.Filter
+import AbsSat.GraphPath.Model.L6
+import AbsSat.GraphPath.Model.L6Search

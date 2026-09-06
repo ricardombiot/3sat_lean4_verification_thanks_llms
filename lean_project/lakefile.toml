@@ -18,3 +18,7 @@ root = "Main"
 [[lean_exe]]
 name = "diffTest"
 root = "DiffMain"
+
+[[lean_exe]]
+name = "l6search"
+root = "L6SearchMain"

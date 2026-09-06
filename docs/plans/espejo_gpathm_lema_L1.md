@@ -10,6 +10,29 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-06 (c) — L6: enunciado formal, caso semilla, y un falsador ejecutable.**
+
+- **L6 NO está demostrado.** Lo que hay: `Model/L6.lean` enuncia `Supported` (todo nodo
+  que la máquina puede consultar está en alguna cadena co-poseída completa) y
+  `Inhabited` (un grafo válido denota algo), y demuestra el **caso semilla**.
+- **Dónde se rompe la inducción.** El caso `join` es monótono (`join` solo añade nodos,
+  padres y owners, y los nodos de `g₁` conservan su posición, así que `node?` los sigue
+  encontrando): necesita la contrapartida "de crecimiento" de `Pruned`, que aún no
+  existe. El caso `up` **es toda la dificultad y no se reduce**: en una línea,
+  `L6-up ≡ L2-⊇ ≡ "filtrar nunca mata una cadena que pasa por un nodo superviviente"`.
+- **Hallazgo empírico que va en contra de lo que este plan esperaba.** `Model/L6Search.lean`
+  + `lake exe l6search [steps] [width] [trials]` construye estados con
+  `initSeed`/`upFiltering`/`join` sobre mapas sintéticos cuyos requisitos son
+  arbitrarios salvo por las hipótesis del propio `Reachable` (hacia atrás y distintos
+  por paso), **sin ninguna estructura 3SAT**, y enumera todas las selecciones
+  candidatas. Sobre 310 mapas, con estados de hasta **81 selecciones**, no encontró
+  ningún estado válido sin cadena.
+  Si L6 necesitara la estructura del mapa 3SAT — como este plan y el doc del puente
+  predicen— una búsqueda sobre requisitos arbitrarios debería haberlo roto. O bien la
+  propia construcción de la máquina (los owners nacen como "todos poseen a todos" y solo
+  se podan coherentemente) fuerza la propiedad de Helly por sí sola, o el falsador aún
+  no es lo bastante adversario. Conviene saberlo antes de invertir en la demostración.
+
 **2026-09-06 (b) — L2, dirección de soundness, y una corrección al plan del puente.**
 
 - **Corrección:** el doc del puente descompone L2 en "`filter_require` (poda owners del
