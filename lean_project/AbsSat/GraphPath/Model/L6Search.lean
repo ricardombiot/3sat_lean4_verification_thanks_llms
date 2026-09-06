@@ -90,6 +90,29 @@ def runMap (m : SynMap) : Line :=
         let d : NodeId := { step := 0, index := (i : Int) }
         insertG line d (initSeed d "n")) [])
 
+/-- Every line the machine holds, not just the last: `runMap` keeps only the
+final step, but a support failure at any intermediate step is just as much a
+counterexample. -/
+def runMapAll (m : SynMap) : List Line :=
+  (List.range (m.steps - 1)).foldl
+    (fun (acc : List Line) k =>
+      match acc.getLast? with
+      | some line => acc ++ [advance m (k + 1) line]
+      | none => acc)
+    [((List.range m.width).foldl (fun line (i : Nat) =>
+        let d : NodeId := { step := 0, index := (i : Int) }
+        insertG line d (initSeed d "n")) [])]
+
+/-- Valid states with no complete co-owned chain, over every step. -/
+def badStatesAll (m : SynMap) : Nat :=
+  (runMapAll m).foldl (fun acc line =>
+    acc + (line.filterMap (fun kv =>
+      if isValid kv.2 && !hasChain kv.2 then some kv.2 else none)).length) 0
+
+/-- Total states inspected by `badStatesAll`. -/
+def statesAll (m : SynMap) : Nat :=
+  (runMapAll m).foldl (fun acc line => acc + line.length) 0
+
 /-- A witness of L6 failing: valid but with no complete co-owned chain. -/
 def badStates (m : SynMap) : List GPathM :=
   (runMap m).filterMap (fun kv => if isValid kv.2 && !hasChain kv.2 then some kv.2 else none)
@@ -137,8 +160,8 @@ def diag2 (steps width trials : Nat) : Nat × Nat × Nat × Nat × Nat :=
     let sels := states.map (fun g => (selections g).length)
     let mx := sels.foldl Nat.max 0
     let rich := (sels.filter (· ≥ 8)).length
-    let bad := (badStates m).length
-    (acc.1 + states.length, Nat.max acc.2.1 mx, acc.2.2.1 + rich,
+    let bad := badStatesAll m
+    (acc.1 + statesAll m, Nat.max acc.2.1 mx, acc.2.2.1 + rich,
      acc.2.2.2.1 + sels.foldl (· + ·) 0, acc.2.2.2.2 + bad))
     (0, 0, 0, 0, 0)
 end L6Search

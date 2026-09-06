@@ -10,6 +10,48 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-06 (f) — el caso `up` de L6, reducido a un solo enunciado (`Model/L6Up.lean`).**
+
+`upFiltering g reqs d title` es `up (filterAll g reqs) d title`: un fold de `filterRequire`,
+luego `review`, luego `addNode`. Se demuestran el primero y el tercero.
+
+- **`filterRequire`: gratis.** Solo reescribe `gowners`, y `Supported` nunca lo lee —
+  `Supported_filterRequire` es `Iff.rfl`.
+- **`addNode`: demostrado** (`SupportedG_addNode`), por una construcción explícita de
+  extensión de cadena (`ChainG_addNode`): se toma la cadena del grafo base y se
+  selecciona el nodo nuevo en el paso nuevo. Por debajo no se movió nada; en el paso
+  nuevo el único nodo está forzado.
+- **`review`: NO demostrado. Es todo L6.**
+
+**Por qué `SupportedG` y no `Supported`.** `addNode` da al nodo nuevo exactamente
+`gowners` como owners. Para que el nodo nuevo *co-posea* una cadena existente, esa cadena
+tiene que vivir dentro de `gowners`. `ChainG` lleva esa condición, y `SupportedG` e
+`InhabitedG` son las dos formas en que debe viajar: un nodo necesita una cadena que pase
+por él, y el nodo nuevo necesita *alguna* cadena a la que engancharse. `InhabitedG` es la
+segunda mitad de L6 (`valid ⇒ denot ≠ ∅`), así que **las dos mitades de L6 se alimentan
+mutuamente**, no son objetivos independientes.
+
+Esa condición **no** se preserva bajo `filterRequire` por separado —podar `gowners` puede
+tirar un nodo de la cadena—, que es exactamente por lo que la inducción hay que correrla
+sobre el compuesto `upFiltering` entero y no paso a paso, y por lo que todo aterriza en
+`review`.
+
+**El hueco que queda, enunciado una sola vez:**
+
+    SupportedG g → SupportedG (review g)        (con InhabitedG al lado)
+
+Es la misma frase que la dirección ⊇ de L2 y que la dirección ⊇ de L3. **Los tres cabos
+abiertos del puente son este único enunciado.**
+
+- **Sonda empírica reforzada:** `lake exe l6search` inspecciona ahora **todos** los
+  estados que la máquina sostiene en cada paso, no solo el último: 1.680 estados sobre
+  150 mapas sintéticos con requisitos arbitrarios y sin estructura 3SAT. Todos los
+  válidos tenían cadena completa co-poseída.
+- **Gotcha de Lean encontrado por el camino:** sobre `Int`, `beq_self_eq_true` y
+  `ne_of_beq_false` arrastran `Classical.choice` en la toolchain v4.33.1; `beq_iff_eq.mpr
+  rfl` y `eq_of_beq` no. `by_cases` también. Todo el fichero está en `[propext,
+  Quot.sound]` por evitarlos.
+
 **2026-09-06 (e) — L3, dirección de soundness (`Model/Up.lean`).**
 
 - **Demostrado (L3-⊆):** `denot_upFiltering` y `denot_upFiltering_base` — todo camino que
