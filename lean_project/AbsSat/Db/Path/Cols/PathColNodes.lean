@@ -17,7 +17,6 @@ structure PathColNodesLine where
   step     : Int
   table    : IO.Ref Table
   nodeIds  : IO.Ref (Std.HashSet PathNodeId)
-  count    : IO.Ref Int
   isValid  : IO.Ref Bool
 
 /--
@@ -26,9 +25,8 @@ Create a new empty PathColNodesLine for the given step.
 def new (step : Int) : IO PathColNodesLine := do
   let table   ← IO.mkRef ({} : Table)
   let nodeIds ← IO.mkRef ({} : Std.HashSet PathNodeId)
-  let count   ← IO.mkRef 0
   let isValid ← IO.mkRef true
-  pure { step, table, nodeIds, count, isValid }
+  pure { step, table, nodeIds, isValid }
 
 /--
 Create a deep copy of the PathColNodesLine.
@@ -36,7 +34,6 @@ Create a deep copy of the PathColNodesLine.
 def clone (col : PathColNodesLine) : IO PathColNodesLine := do
   let tableVal   ← col.table.get
   let nodeIdsVal ← col.nodeIds.get
-  let countVal   ← col.count.get
   let isValidVal ← col.isValid.get
 
   -- Create new Refs with copied values
@@ -49,10 +46,9 @@ def clone (col : PathColNodesLine) : IO PathColNodesLine := do
 
   let newTable   ← IO.mkRef tableVal
   let newNodeIds ← IO.mkRef nodeIdsVal
-  let newCount   ← IO.mkRef countVal
   let newIsValid ← IO.mkRef isValidVal
 
-  pure { step := col.step, table := newTable, nodeIds := newNodeIds, count := newCount, isValid := newIsValid }
+  pure { step := col.step, table := newTable, nodeIds := newNodeIds, isValid := newIsValid }
 
 /--
 Iterate over all nodes in the collection.
@@ -68,7 +64,6 @@ Remove a node by id.
 def removeNode! (col : PathColNodesLine) (id : PathNodeId) : IO Unit := do
   col.table.modify fun t => t.erase id
   col.nodeIds.modify fun s => s.erase id
-  col.count.modify (· - 1)
 
 /--
 Filter nodes in place by an (effectful) predicate: a node is physically
@@ -98,15 +93,30 @@ Push a node into the collection.
 def pushNode! (col : PathColNodesLine) (node : PathDocNode) : IO Unit := do
   col.table.modify fun t => t.insert node.id node
   col.nodeIds.modify fun s => s.insert node.id
-  col.count.modify (· + 1)
 
+
+/--
+Number of nodes currently held by the collection.
+
+Derived from `table` rather than kept in a counter `IO.Ref`: `pushNode!` is
+routinely called to *overwrite* an id already present (see
+`all_previous_nodes_are_owners_of_me!` and `link_with_parents!` in
+`GraphPath`), so an incrementing counter drifts above the live population and
+never returns to zero. `isEmpty` — and therefore
+`PathColLines.checkIfValidLine!`, which invalidates a graph whose line has
+been emptied out — depended on that counter, so the drift silently disabled
+the check.
+-/
+def count (col : PathColNodesLine) : IO Nat := do
+  let t ← col.table.get
+  pure t.size
 
 /--
 Check if collection is empty.
 -/
 def isEmpty (col : PathColNodesLine) : IO Bool := do
-  let c ← col.count.get
-  pure (c = 0)
+  let t ← col.table.get
+  pure t.isEmpty
 
 def union! (colA colB : PathColNodesLine) : IO Unit := do
   let tB ← colB.table.get
@@ -124,8 +134,8 @@ section Tests
   def check_new_initial_state_is_correct (step : Nat) : IO Bool := do
     let col ← new step
     let table ← col.table.get
-    let count ← col.count.get
-    pure $ col.step == step ∧ table.isEmpty ∧ count == 0
+    let n ← count col
+    pure $ col.step == step ∧ table.isEmpty ∧ n == 0
 
   def check_new_is_valid_by_default (step : Nat) : IO Bool := do
     let col ← new step
@@ -143,8 +153,8 @@ section Tests
     let docNode2 := PathDocNode.new nodeId2 "modified"
     pushNode! clonedCol docNode2
 
-    let count1 ← col.count.get
-    let count2 ← clonedCol.count.get
+    let count1 ← count col
+    let count2 ← count clonedCol
 
     -- Original should have 1, Clone should have 2
     pure (count1 == 1 ∧ count2 == 2)

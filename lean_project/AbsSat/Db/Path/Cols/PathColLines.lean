@@ -183,8 +183,8 @@ def check_clone_independence : IO Unit := do
   let line1 := table1.getD 1 (← PathColNodes.new 0) -- Should exist
   let line2 := table2.getD 1 (← PathColNodes.new 0) -- Should exist
 
-  let count1 ← line1.count.get
-  let count2 ← line2.count.get
+  let count1 ← PathColNodes.count line1
+  let count2 ← PathColNodes.count line2
 
   assert! (count1 == 1)
   assert! (count2 == 2)

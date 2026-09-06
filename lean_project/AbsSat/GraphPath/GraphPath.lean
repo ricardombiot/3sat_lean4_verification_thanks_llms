@@ -372,30 +372,28 @@ section Examples
      let path2 ← GPath.clone path1
      add_node! path2 { step := 0, index := 2 } "root2"
 
-     -- Verify initial state
+     -- Verify initial state: `clone` is a deep copy, so adding a node to
+     -- path2 must leave path1 holding exactly its own root.
      let lines1_ref ← path1.table_lines.table.get
-     let line1_opt := lines1_ref.get? 0
-     if let some line1 := line1_opt then
-       let count1 ← line1.count.get
-       if count1 != 1 then IO.println s!"Error: Initial count is {count1}, expected 1" else pure ()
+     let some line1 := lines1_ref.get? 0
+       | throw (IO.userError "Line 0 missing before join")
+     let count1 ← AbsSat.Db.Path.Cols.PathColNodes.count line1
+     assert! (count1 == 1)
 
      -- Perform Join
      let valid ← is_valid_join path1 path2
-     if !valid then IO.println "Join invalid!" else pure ()
+     assert! valid
 
      do_join! path1 path2
 
-     -- Verify Merge
+     -- Verify Merge: path1 now holds both roots, merged by PathNodeId.
      let lines1_final_ref ← path1.table_lines.table.get
-     let line1_final_opt := lines1_final_ref.get? 0
-     if let some line1_final := line1_final_opt then
-       let count1_final ← line1_final.count.get
-       if count1_final != 2 then
-         IO.println s!"Error: Final count is {count1_final}, expected 2"
-       else
-         IO.println "check_do_join_merges_data passed!"
-     else
-         IO.println "Error: Line 0 missing after join"
+     let some line1_final := lines1_final_ref.get? 0
+       | throw (IO.userError "Line 0 missing after join")
+     let count1_final ← AbsSat.Db.Path.Cols.PathColNodes.count line1_final
+     assert! (count1_final == 2)
+
+     IO.println "check_do_join_merges_data passed!"
 
   def run_tests : IO Unit := do
     check_do_join_merges_data
