@@ -291,7 +291,12 @@ The `Reachable` predicate carries hypotheses (`hstep`, `hreqs_back`, `hreqs_dist
 
 The `Denot.lean` module defines `IsChain`, `PairwiseOwned`, `pathOf`, and `denot` but provides only definitions. The remaining bridge phases (L2–L6 of `formal_bridge_owners_runpure.md`) must prove that these denotations are sound and complete with respect to the machine.
 
-F2.c — pass idempotence at the review fixpoint, which L6 consumes — **was closed on 2026-09-06** (`reviewPass_review` / `review_idempotent` in `Fuel.lean`, axiom closure `[propext, Quot.sound]`, `#guard_msgs`-pinned). Two things to keep in mind when L6 picks it up: it carries an `isValid (review g)` hypothesis (an invalid graph is an exit of the loop but need not be a fixpoint of the pass, since `reviewPass` runs `cleanInvalid` unconditionally), and the stronger per-node phrasing in §4 of the plan document — every surviving node passes `is_valid_node`, with owners contained in the union of its parents' and its sons' — is a corollary that is **not** proved yet.
+F2.c — which L6 consumes — **was closed on 2026-09-06**, in both of its phrasings, axiom closure `[propext, Quot.sound]` and `#guard_msgs`-pinned in `Fuel.lean`:
+
+* **fixpoint form**: `reviewPass_review` (`reviewPass (review g) = review g`) and `review_idempotent`;
+* **per-node form** (§4 of the plan document): `review_node_valid` — every node the machine can look up passes `is_valid_node` — plus `review_owners_coherent_parents` / `review_owners_coherent_sons`.
+
+Three things to carry into L6. All of these results take an `isValid (review g)` hypothesis, and it is not removable: an invalid graph is an *exit* of the loop but need not be a fixpoint of the pass, because `reviewPass` runs `cleanInvalid` unconditionally and can still prune. The per-node results are stated over `node?` rather than `∈ nodes`, because `node?` returns the first match and nothing in this model forces node ids to be unique — a shadowed duplicate is a node the machine itself cannot reach. And "owners contained in the union of the neighbours' owners" is formalised as `intersectOwners d.owners (unionOwnersOf g d.parents) = d.owners`, the algorithm's own notion of containment (an owner at a step where the union has no entry is left untouched), not plain set inclusion.
 
 ### 6.4 The differential harness (F6)
 

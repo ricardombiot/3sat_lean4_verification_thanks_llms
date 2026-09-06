@@ -27,11 +27,26 @@ demostrar) la denotación que usarán L2–L8.
   salida del bucle pero no tiene por qué ser punto fijo de la pasada.
 - Cierre de axiomas `[propext, Quot.sound]` para las tres (F2.a, F2.b, F2.c), fijado
   con `#guard_msgs` en `Fuel.lean`. 0 `sorry`.
-- **Lo que sigue abierto de F2.c:** el enunciado del §4 de este plan es más fuerte
-  (todo nodo superviviente pasa `is_valid_node` y sus owners están contenidos en la
-  unión de los de padres e hijos). Eso es un corolario del punto fijo, pero **no está
-  demostrado**: hay que derivar de `cleanInvalid (review g) = review g` que ningún
-  nodo superviviente puede ser inválido. Debe aterrizar antes de L6.
+- **Enunciado por nodo del §4, también cerrado** (misma fecha): `review_node_valid`,
+  `review_owners_coherent_parents` y `review_owners_coherent_sons`. La derivación pasa
+  por reforzar los lemas de punto fijo a "cada paso del recorrido fue *él mismo* la
+  identidad, y sobre el grafo original" (`cleanInvalidGo_steps_eq_self`,
+  `reviewSteps_lines_eq_self`, `reviewLine_nodes_eq_self`): si cada paso visitado es la
+  identidad, ese nodo tomó por fuerza la rama válida, y `updateAt_pointwise` lee del
+  `updateAt` fijo que la intersección de owners no tocó nada.
+- **Dos precisiones sobre el §4, que el enunciado informal no distinguía:**
+  1. Se enuncia sobre `node?`, no sobre `∈ nodes`. `node?` devuelve la *primera*
+     coincidencia y nada en el modelo obliga a que los ids de nodo sean únicos, así que
+     un duplicado ensombrecido es un nodo que la propia máquina no puede alcanzar
+     (todas las búsquedas, aquí y en el ejecutable, pasan por `node?`). Certificarlo
+     exigiría una hipótesis de unicidad que el modelo no tiene.
+  2. "Owners contenidos en la unión de los de padres e hijos" se formaliza como
+     `intersectOwners d.owners (unionOwnersOf g d.parents) = d.owners`, que es la noción
+     de contención del propio algoritmo: un owner en un paso donde la unión no tiene
+     ninguna entrada se deja intacto; donde sí la tiene, solo sobreviven sus miembros.
+     No es contención de conjuntos sin más.
+  3. La coherencia con los hijos vale en el rango `1..current_step-2`, no
+     `1..current_step-1`: es el rango que recorre la pasada ascendente.
 
 **2026-07-05 — F3, F4 y F5 completadas: L1 y L1-cor demostrados sin axiomas.**
 
@@ -206,9 +221,11 @@ Lemas:
   pasa `is_valid_node` y sus owners están contenidos en la unión de los de sus padres
   y en la de sus hijos (la postcondición que L6 explotará más adelante).
 
-**Hecho (DoD F2):** F2.a y F2.b demostrados sin `sorry`; `review` es `def` total.
-F2.c demostrado en su forma de punto fijo (`reviewPass (review g) = review g`,
-bajo `isValid (review g)`); la caracterización por nodo de arriba queda pendiente.
+**Hecho (DoD F2):** F2.a–F2.c demostrados sin `sorry` ni axiomas de proyecto;
+`review` es `def` total. F2.c en sus dos formas: punto fijo
+(`reviewPass (review g) = review g`) y caracterización por nodo
+(`review_node_valid`, `review_owners_coherent_parents/_sons`), ambas bajo
+`isValid (review g)` y enunciadas sobre `node?`.
 
 ## 4. Fase F6 (en paralelo desde F1) — `MirrorTest.lean`: el espejo no miente
 

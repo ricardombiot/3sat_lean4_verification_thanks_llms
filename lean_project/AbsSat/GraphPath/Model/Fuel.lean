@@ -18,8 +18,14 @@ Phase F2 of `docs/plans/espejo_gpathm_lema_L1.md`: the review loop is honest.
   not merely measure-preserving. This is the "equal-length filter is the
   identity" family threaded through every sub-operation: each one only ever
   filters, so preserving the measure forces every filter to have kept its
-  whole input and makes every `removeNode` branch unreachable. Only lemma L6
-  of the bridge consumes it.
+  whole input and makes every `removeNode` branch unreachable.
+* **F2.c, per-node** (`review_node_valid`, `review_owners_coherent_parents`,
+  `review_owners_coherent_sons`): the postcondition L6 will actually pull on —
+  after `review`, every node the machine can look up passes `is_valid_node`,
+  and its owners are already coherent with the union of its parents' and of
+  its sons' owners. Read off the fixpoint by noting that every step of the
+  walk was itself the identity, so each visited node must have taken the
+  valid branch.
 
 All three are axiom-free; the `#guard_msgs` pins at the end of this file fail
 the build if any project axiom ever enters the closure of F2.a/F2.b/F2.c.
@@ -614,6 +620,240 @@ theorem review_idempotent (g : GPathM) (h : isValid (review g) = true) :
   rw [if_pos h, hfix, if_neg (by omega)]
 
 -- ============================================================
+-- F2.c, per-node form: supporting lemmas
+-- ============================================================
+
+private theorem map_eq_self_pointwise {α : Type} (l : List α) (f : α → α)
+    (h : l.map f = l) : ∀ a ∈ l, f a = a := by
+  induction l with
+  | nil => intro a ha; exact absurd ha List.not_mem_nil
+  | cons a as ih =>
+    simp only [List.map_cons, List.cons.injEq] at h
+    intro x hx
+    rcases List.mem_cons.mp hx with rfl | hx'
+    · exact h.1
+    · exact ih h.2 x hx'
+
+/-- A fixpoint `updateAt` left every node carrying `id` untouched. -/
+private theorem updateAt_pointwise (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (h : updateAt g id f = g) (d : PNodeM) (hd : d ∈ g.nodes) (hd_id : d.id = id) :
+    f d = d := by
+  have hmap : updateAtGo id f g.nodes = g.nodes := congrArg GPathM.nodes h
+  rw [updateAtGo] at hmap
+  have hpt := map_eq_self_pointwise g.nodes _ hmap d hd
+  have hbeq : (d.id == id) = true := by rw [hd_id]; exact beq_self_eq_true id
+  simpa [hbeq] using hpt
+
+/-- At the fixpoint the surviving branch is the *valid* one: the owners
+intersection was the identity, and the node passed `isValidNode`. -/
+theorem intersectOrDrop_valid_branch (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : measure (intersectOrDrop g id b d) = measure g) :
+    updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g ∧
+      isValidNode g { d with owners := intersectOwners d.owners b } = true := by
+  have hle_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      ≤ PNodeM.weight n := weight_intersect_le b
+  have hid_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      = PNodeM.weight n → { n with owners := intersectOwners n.owners b } = n :=
+    fun n => intersect_eq_self_of_weight b n
+  have hupd_le : measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
+    measure_updateAt_le g id _ hle_f
+  obtain ⟨n, hn, hn_id⟩ :
+      ∃ n ∈ (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })).nodes, n.id = id := by
+    obtain ⟨n, hn, hn_id⟩ :=
+      exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+        (fun _ => rfl) d hd_mem
+    exact ⟨n, hn, by rw [hn_id]; exact hd_id⟩
+  have hlt := measure_removeNode_lt _ id n hn hn_id
+  unfold intersectOrDrop at h
+  split at h
+  · next hv =>
+    have hupd : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ hle_f hid_f h
+    exact ⟨hupd, by rw [← hupd]; exact hv⟩
+  · exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt hupd_le))
+
+/-- Every step of a fixpoint `cleanInvalidGo` walk was itself the identity,
+and on the *original* graph — the intermediate states never moved. -/
+theorem cleanInvalidGo_steps_eq_self (ids : List PathNodeId) :
+    ∀ g : GPathM, measure (cleanInvalidGo g ids) = measure g →
+      ∀ id ∈ ids, cleanStep g id = g := by
+  induction ids with
+  | nil => intro g _ id hid; exact absurd hid List.not_mem_nil
+  | cons id rest ih =>
+    intro g heq id' hid'
+    rw [cleanInvalidGo_cons] at heq
+    have h₁ := measure_cleanStep_le g id
+    have h₂ := measure_cleanInvalidGo_le rest (cleanStep g id)
+    have hfix : cleanStep g id = g := cleanStep_eq_self g id (by omega)
+    rw [hfix] at heq
+    rcases List.mem_cons.mp hid' with rfl | hid''
+    · exact hfix
+    · exact ih g heq id' hid''
+
+private theorem foldl_steps_eq_self {β : Type} (f : GPathM → β → GPathM)
+    (hle : ∀ g b, measure (f g b) ≤ measure g)
+    (hid : ∀ g b, measure (f g b) = measure g → f g b = g) :
+    ∀ (l : List β) (g : GPathM), measure (l.foldl f g) = measure g →
+      ∀ b ∈ l, f g b = g := by
+  intro l
+  induction l with
+  | nil => intro g _ b hb; exact absurd hb List.not_mem_nil
+  | cons b bs ih =>
+    intro g heq b' hb'
+    simp only [List.foldl_cons] at heq
+    have h₁ := hle g b
+    have h₂ := measure_foldl_le f hle bs (f g b)
+    have hfix : f g b = g := hid g b (by omega)
+    rw [hfix] at heq
+    rcases List.mem_cons.mp hb' with rfl | hb''
+    · exact hfix
+    · exact ih g heq b' hb''
+
+theorem reviewLine_nodes_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (k : Int)
+    (h : measure (reviewLine g nb k) = measure g) :
+    ∀ id ∈ ((g.line k).map (·.id)), reviewNode g nb id = g :=
+  foldl_steps_eq_self (fun g id => reviewNode g nb id)
+    (fun g id => measure_reviewNode_le nb id g)
+    (fun g id => reviewNode_eq_self g nb id) _ g h
+
+theorem reviewSteps_lines_eq_self (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, isValid g = true → measure (reviewSteps g nb ks) = measure g →
+      ∀ k ∈ ks, reviewLine g nb k = g := by
+  induction ks with
+  | nil => intro g _ _ k hk; exact absurd hk List.not_mem_nil
+  | cons k ks ih =>
+    intro g hvalid heq k' hk'
+    simp only [reviewSteps] at heq
+    rw [if_pos hvalid] at heq
+    have h₁ := measure_reviewLine_le nb k g
+    have h₂ := measure_reviewSteps_le nb ks (reviewLine g nb k)
+    have hfix : reviewLine g nb k = g := reviewLine_eq_self g nb k (by omega)
+    rw [hfix] at heq
+    rcases List.mem_cons.mp hk' with rfl | hk''
+    · exact hfix
+    · exact ih g hvalid heq k' hk''
+
+/-- At the fixpoint, a node reached by `cleanInvalidGo` passed `isValidNode`. -/
+theorem cleanStep_node_valid (g : GPathM) (id : PathNodeId) (d : PNodeM)
+    (hd : g.node? id = some d) (h : measure (cleanStep g id) = measure g) :
+    isValidNode g d = true := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  have hstep : measure (intersectOrDrop g id g.gowners d) = measure g := by
+    simpa [cleanStep, hd] using h
+  obtain ⟨hupd, hvalid⟩ := intersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
+  have hfix : { d with owners := intersectOwners d.owners g.gowners } = d :=
+    updateAt_pointwise g id _ hupd d hd_mem hd_id
+  rwa [hfix] at hvalid
+
+/-- At the fixpoint, a node reached by a coherence pass had its owners already
+consistent with the union of its neighbours' owners: the intersection against
+that union was the identity. -/
+theorem reviewNode_owners_fixed (g : GPathM) (nb : PNodeM → List PathNodeId)
+    (id : PathNodeId) (d : PNodeM) (hd : g.node? id = some d)
+    (h : measure (reviewNode g nb id) = measure g) :
+    intersectOwners d.owners (unionOwnersOf g (nb d)) = d.owners := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  have hshape : reviewNode g nb id =
+      if isValidNode g d then intersectOrDrop g id (unionOwnersOf g (nb d)) d
+      else removeNode g id := by
+    simp [reviewNode, hd, intersectOrDrop]
+  rw [hshape] at h
+  split at h
+  · next hv =>
+    obtain ⟨hupd, _⟩ :=
+      intersectOrDrop_valid_branch g id (unionOwnersOf g (nb d)) d hd_mem hd_id h
+    have hfix : { d with owners := intersectOwners d.owners (unionOwnersOf g (nb d)) } = d :=
+      updateAt_pointwise g id _ hupd d hd_mem hd_id
+    exact congrArg PNodeM.owners hfix
+  · next hv =>
+    have hlt := measure_removeNode_lt g id d hd_mem hd_id
+    exact absurd h (Nat.ne_of_lt hlt)
+
+/-- The three stages of a fixpoint pass are each the identity. -/
+theorem reviewPass_stages_eq_self (g : GPathM) (h : measure (reviewPass g) = measure g) :
+    cleanInvalid g = g ∧ reviewParents g = g ∧ reviewSons g = g := by
+  have h₁ := measure_cleanInvalid_le g
+  have h₂ := measure_reviewParents_le (cleanInvalid g)
+  have h₃ := measure_reviewSons_le (reviewParents (cleanInvalid g))
+  simp only [reviewPass] at h
+  have hclean : cleanInvalid g = g := cleanInvalid_eq_self g (by omega)
+  rw [hclean] at h h₂ h₃
+  have h₃' := measure_reviewSons_le (reviewParents g)
+  have hpar : reviewParents g = g := reviewParents_eq_self g (by omega)
+  rw [hpar] at h
+  exact ⟨hclean, hpar, reviewSons_eq_self g h⟩
+
+-- ============================================================
+-- F2.c, per-node form (the plan's §4 postcondition)
+-- ============================================================
+
+/-- **F2.c (per-node), part 1** — after `review`, every node the machine can
+still look up passes `is_valid_node`.
+
+Stated over `node?` rather than over `∈ nodes` on purpose: `node?` takes the
+*first* match, and nothing in this model forces node ids to be unique, so a
+shadowed duplicate is a node the machine itself can never reach. Every lookup
+in `GPathM` (and in the executable) goes through `node?`. -/
+theorem review_node_valid (g : GPathM) (h : isValid (review g) = true)
+    (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
+    isValidNode (review g) d = true := by
+  have hfix : reviewPass (review g) = review g := reviewPass_review g h
+  obtain ⟨hclean, _, _⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
+  have hd_mem : d ∈ (review g).nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq _ id d hd
+  have hid_mem : id ∈ (review g).nodes.map (·.id) := by
+    have hmem := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hd_mem
+    rwa [hd_id] at hmem
+  have hgo : cleanInvalidGo (review g) ((review g).nodes.map (·.id)) = review g := hclean
+  have hstep : cleanStep (review g) id = review g :=
+    cleanInvalidGo_steps_eq_self _ (review g) (by rw [hgo]) id hid_mem
+  exact cleanStep_node_valid (review g) id d hd (by rw [hstep])
+
+/-- **F2.c (per-node), part 2a** — after `review`, a node's owners are already
+coherent with the union of its *parents'* owners: intersecting against that
+union changes nothing.
+
+"Coherent" is `intersectOwners`' own notion, which is what the algorithm
+means by it: an owner at a step where the union has no entry at all is left
+untouched; where the union does have entries, only its members survive. -/
+theorem review_owners_coherent_parents (g : GPathM) (h : isValid (review g) = true)
+    (k : Int) (hk : k ∈ intRange 1 ((review g).current_step - 1))
+    (id : PathNodeId) (hid : id ∈ (((review g).line k).map (·.id)))
+    (d : PNodeM) (hd : (review g).node? id = some d) :
+    intersectOwners d.owners (unionOwnersOf (review g) d.parents) = d.owners := by
+  have hfix : reviewPass (review g) = review g := reviewPass_review g h
+  obtain ⟨_, hpar, _⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
+  have hsteps : reviewSteps (review g) (·.parents)
+      (intRange 1 ((review g).current_step - 1)) = review g := hpar
+  have hline : reviewLine (review g) (·.parents) k = review g :=
+    reviewSteps_lines_eq_self _ _ (review g) h (by rw [hsteps]) k hk
+  have hnode : reviewNode (review g) (·.parents) id = review g :=
+    reviewLine_nodes_eq_self (review g) _ k (by rw [hline]) id hid
+  exact reviewNode_owners_fixed (review g) _ id d hd (by rw [hnode])
+
+/-- **F2.c (per-node), part 2b** — the same for the *sons'* owners. Note the
+narrower step range: the bottom-up pass walks `1 .. current_step - 2`. -/
+theorem review_owners_coherent_sons (g : GPathM) (h : isValid (review g) = true)
+    (k : Int) (hk : k ∈ intRange 1 ((review g).current_step - 2))
+    (id : PathNodeId) (hid : id ∈ (((review g).line k).map (·.id)))
+    (d : PNodeM) (hd : (review g).node? id = some d) :
+    intersectOwners d.owners (unionOwnersOf (review g) d.sons) = d.owners := by
+  have hfix : reviewPass (review g) = review g := reviewPass_review g h
+  obtain ⟨_, _, hsons⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
+  have hsteps : reviewSteps (review g) (·.sons)
+      (intRange 1 ((review g).current_step - 2)).reverse = review g := hsons
+  have hline : reviewLine (review g) (·.sons) k = review g :=
+    reviewSteps_lines_eq_self _ _ (review g) h (by rw [hsteps]) k (List.mem_reverse.mpr hk)
+  have hnode : reviewNode (review g) (·.sons) id = review g :=
+    reviewLine_nodes_eq_self (review g) _ k (by rw [hline]) id hid
+  exact reviewNode_owners_fixed (review g) _ id d hd (by rw [hnode])
+
+-- ============================================================
 -- Axiom guards: the build fails if any project axiom ever enters
 -- the closure of the three F2 results (only Lean's built-in
 -- propext/Quot.sound are allowed).
@@ -634,6 +874,18 @@ theorem review_idempotent (g : GPathM) (h : isValid (review g) = true) :
 /-- info: 'AbsSat.GraphPath.Model.GPathM.review_idempotent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms review_idempotent
+
+/-- info: 'AbsSat.GraphPath.Model.GPathM.review_node_valid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms review_node_valid
+
+/-- info: 'AbsSat.GraphPath.Model.GPathM.review_owners_coherent_parents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms review_owners_coherent_parents
+
+/-- info: 'AbsSat.GraphPath.Model.GPathM.review_owners_coherent_sons' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms review_owners_coherent_sons
 
 end GPathM
 
