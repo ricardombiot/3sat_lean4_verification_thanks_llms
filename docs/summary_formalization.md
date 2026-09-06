@@ -289,7 +289,9 @@ The `Reachable` predicate carries hypotheses (`hstep`, `hreqs_back`, `hreqs_dist
 
 ### 6.3 Completing the denotation lemmas (L2–L6)
 
-The `Denot.lean` module defines `IsChain`, `PairwiseOwned`, `pathOf`, and `denot` but provides only definitions. The remaining bridge phases (L2–L6 of `formal_bridge_owners_runpure.md`) must prove that these denotations are sound and complete with respect to the machine. L6 additionally needs F2.c (pass idempotence at the review fixpoint), which was deliberately deferred.
+The `Denot.lean` module defines `IsChain`, `PairwiseOwned`, `pathOf`, and `denot` but provides only definitions. The remaining bridge phases (L2–L6 of `formal_bridge_owners_runpure.md`) must prove that these denotations are sound and complete with respect to the machine.
+
+F2.c — pass idempotence at the review fixpoint, which L6 consumes — **was closed on 2026-09-06** (`reviewPass_review` / `review_idempotent` in `Fuel.lean`, axiom closure `[propext, Quot.sound]`, `#guard_msgs`-pinned). Two things to keep in mind when L6 picks it up: it carries an `isValid (review g)` hypothesis (an invalid graph is an exit of the loop but need not be a fixpoint of the pass, since `reviewPass` runs `cleanInvalid` unconditionally), and the stronger per-node phrasing in §4 of the plan document — every surviving node passes `is_valid_node`, with owners contained in the union of its parents' and its sons' — is a corollary that is **not** proved yet.
 
 ### 6.4 The differential harness (F6)
 

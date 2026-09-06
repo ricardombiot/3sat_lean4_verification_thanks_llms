@@ -10,6 +10,29 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-06 — F2.c: la pasada es la identidad en el punto fijo.**
+
+- La familia "filter de longitud igual = identidad" está enhebrada por todas las
+  operaciones de la revisión (`Model/Fuel.lean`): `updateAt_eq_self`,
+  `intersectOrDrop_eq_self`, `cleanInvalid_eq_self`, `reviewNode_eq_self`,
+  `reviewLine_eq_self`, `reviewSteps_eq_self` y, arriba del todo,
+  `reviewPass_eq_self`. La pieza que hace desaparecer las ramas de borrado es
+  `measure_removeNode_lt`: quitar un nodo que *está* en el grafo baja la medida
+  estrictamente, así que en el punto fijo esas ramas son inalcanzables.
+- **Resultado (`reviewPass_review`):** `reviewPass (review g) = review g`, más el
+  corolario `review_idempotent` (`review (review g) = review g`).
+- **La hipótesis `isValid (review g)` no es un artefacto.** Cuando el grafo ya es
+  inválido el bucle sale *sin* ejecutar una pasada, mientras que `reviewPass` corre
+  `cleanInvalid` incondicionalmente y todavía puede podar. Un grafo inválido es una
+  salida del bucle pero no tiene por qué ser punto fijo de la pasada.
+- Cierre de axiomas `[propext, Quot.sound]` para las tres (F2.a, F2.b, F2.c), fijado
+  con `#guard_msgs` en `Fuel.lean`. 0 `sorry`.
+- **Lo que sigue abierto de F2.c:** el enunciado del §4 de este plan es más fuerte
+  (todo nodo superviviente pasa `is_valid_node` y sus owners están contenidos en la
+  unión de los de padres e hijos). Eso es un corolario del punto fijo, pero **no está
+  demostrado**: hay que derivar de `cleanInvalid (review g) = review g` que ningún
+  nodo superviviente puede ser inválido. Debe aterrizar antes de L6.
+
 **2026-07-05 — F3, F4 y F5 completadas: L1 y L1-cor demostrados sin axiomas.**
 
 - La primera versión de F5 (DeepSeek, commits `dcb8569`..`5a5e4e7`) llegó a L1 vía
@@ -37,6 +60,7 @@ demostrar) la denotación que usarán L2–L8.
   (`review_stable`) demostrados sin `sorry`. **F2.c aplazado** deliberadamente: solo lo
   consume L6, nada de F3–F5 depende de él, y exige la familia "filter de longitud
   igual = identidad" enhebrada por todas las operaciones. Debe aterrizar antes de L6.
+  *(Cerrado parcialmente el 2026-09-06 — véase la entrada de esa fecha.)*
 - **F6 ✅** `Model/MirrorTest.lean` + `diffTest` a **tres bandas** (oráculo /
   ejecutable IO / espejo puro): 2.000 casos de aceptación con dos semillas
   (261 UNSAT), 0 desacuerdos; más tandas adicionales.
@@ -182,7 +206,9 @@ Lemas:
   pasa `is_valid_node` y sus owners están contenidos en la unión de los de sus padres
   y en la de sus hijos (la postcondición que L6 explotará más adelante).
 
-**Hecho (DoD F2):** F2.a–F2.c demostrados sin `sorry`; `review` es `def` total.
+**Hecho (DoD F2):** F2.a y F2.b demostrados sin `sorry`; `review` es `def` total.
+F2.c demostrado en su forma de punto fijo (`reviewPass (review g) = review g`,
+bajo `isValid (review g)`); la caracterización por nodo de arriba queda pendiente.
 
 ## 4. Fase F6 (en paralelo desde F1) — `MirrorTest.lean`: el espejo no miente
 
