@@ -10,6 +10,27 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-06 (e) — L3, dirección de soundness (`Model/Up.lean`).**
+
+- **Demostrado (L3-⊆):** `denot_upFiltering` y `denot_upFiltering_base` — todo camino que
+  denota el grafo extendido es `d` seguido de un camino que denotaba el grafo base.
+- **El argumento es estructural, no analítico:** `up` añade **exactamente un** nodo, así
+  que la línea superior tiene un solo nodo y toda cadena está obligada a seleccionarlo
+  ahí (`chain_top_is_new`); por debajo de ese paso el grafo extendido tiene exactamente
+  los nodos de `g`, con los padres intactos y los owners crecidos en el único id nuevo
+  (`addNode_node?_below`), así que el resto de la cadena se restringe a una cadena de `g`.
+  `pathOf` se construye sobre el rango de pasos **invertido**, que es por lo que el nodo
+  nuevo acaba en la **cabeza** del camino.
+- La otra mitad de la ⊆ —"satisface `requires d`"— es `Filter.chain_selects_req`, ya
+  demostrada. Las dos juntas son el contenido de soundness de L3.
+- **Corrección al enunciar `addNode`:** el nodo nuevo **no** pasa por la pasada de sons;
+  se añade *después* de ella y solo recibe el owner. El primer intento de
+  `addNode_nodes` lo enunciaba mal y no compilaba.
+- **No demostrado (L3-⊇):** que una cadena de `g` que satisface los requisitos sobreviva
+  al filtro y se extienda. Necesita dos cosas que este módulo no tiene: que filtrar no
+  mate la cadena, que es **L6**; y que todo nodo de la cadena sea owner global, para que
+  el nodo nuevo (cuyos owners son exactamente `gowners`) lo co-posea.
+
 **2026-09-06 (d) — L4, dirección monótona; y con ella el caso `join` de L6.**
 
 - **`Model/Join.lean`.** Se introduce `Grown`, la contrapartida de crecimiento de

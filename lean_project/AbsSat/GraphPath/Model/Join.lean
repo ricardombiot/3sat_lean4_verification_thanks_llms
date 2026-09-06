@@ -181,7 +181,7 @@ theorem join_node?_right (g₁ g₂ : GPathM) (pid : PathNodeId) (m : PNodeM)
         intro x hx hxid
         exact (List.find?_eq_none.mp hnone x hx) (by simp [hxid])
 
-private theorem node?_isSome_of_mem (g : GPathM) (n : PNodeM) (hn : n ∈ g.nodes) :
+theorem node?_isSome_of_mem (g : GPathM) (n : PNodeM) (hn : n ∈ g.nodes) :
     (g.node? n.id).isSome := by
   simp only [node?]
   cases h : g.nodes.find? (fun m => m.id == n.id) with

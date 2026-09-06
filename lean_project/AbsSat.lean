@@ -32,4 +32,5 @@ import AbsSat.GraphPath.Model.OwnersInvariants
 import AbsSat.GraphPath.Model.Filter
 import AbsSat.GraphPath.Model.L6
 import AbsSat.GraphPath.Model.Join
+import AbsSat.GraphPath.Model.Up
 import AbsSat.GraphPath.Model.L6Search
