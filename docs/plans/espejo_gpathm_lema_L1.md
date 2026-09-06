@@ -26,13 +26,20 @@ demostrar) la denotación que usarán L2–L8.
   owners de cada nodo (F2.c, `review_owners_within_gowners`), `isValid` garantiza que
   ese paso tiene entrada global (`hasStepEntry_of_isValid`), y la co-propiedad par a par
   traslada eso de los nodos a la selección de la cadena. Cierre `[propext, Quot.sound]`.
-- **No demostrado, y por qué:**
-  1. `denot (review h) ⊆ denot h`: transferir `IsChain` a través de la revisión exige
-     que los enlaces a padres solo se encojan, y la relación `Pruned` hoy solo registra
-     ids y owners. Añadir un campo `parents_sub` cambia la firma de `pruned_updateAt` y
-     repercute en `OwnersInvariants`; es trabajo acotado, no una dificultad.
-  2. **La dirección ⊇** (ninguna cadena que pasa por `req` se pierde al filtrar) es
-     exactamente **L6**. Sigue intacta.
+- **Dirección de estrechamiento, también cerrada** (misma fecha): `Pruned` pasa a
+  registrar el encogimiento de los enlaces a padres además del de ids y owners
+  (`nodes_derived` lleva ahora un cuarto conyunto; `pruned_updateAt` gana una hipótesis
+  `hpar`). Con eso, `denot_of_pruned` transfiere `IsChain` y `PairwiseOwned` hacia
+  atrás, y salen `denot_review_subset` y `denot_filterAll_subset`: **todo camino que
+  denota el grafo revisado ya lo denotaba antes**. Estrechar puede perder cadenas,
+  nunca inventarlas.
+- **La transferencia exige `NodupIds`, y la hipótesis es real, no burocrática:** `node?`
+  devuelve el *primer* nodo con un id dado, así que si los ids se repiten, la poda puede
+  borrar el primero y dejar a `node?` apuntando a otro nodo cuyos padres y owners no
+  guardan relación con los del original. El modelo puro ya asume ids únicos
+  (`WellFormedGMap`); esto es la misma hipótesis, hecha explícita a nivel de espejo.
+- **Lo que sigue abierto: la dirección ⊇** (ninguna cadena que pasa por `req` se pierde
+  al filtrar) es exactamente **L6**. Sigue intacta.
 
 **2026-09-06 — F2.c: la pasada es la identidad en el punto fijo.**
 

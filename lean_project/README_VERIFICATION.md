@@ -10,7 +10,7 @@ This project contains a comprehensive suite of documents detailing the formal ve
 - [../docs/summary_formalization.md](../docs/summary_formalization.md): **Phase F5 complete and axiom-free** — formal verification of the `ReqFiltered` invariant for `GPathM` and Lemma L1 (0 `sorry`, 0 project axioms; the closure of `L1`/`L1_cor` is `[propext, Quot.sound]`, pinned by build-failing `#guard_msgs`). Architecture, proof strategy, the 2026-07-04 audit that found axioms A8/A9 false, the 2026-07-05 repair, and the theorem catalog.
 
 ### Bridge phases (executable ↔ pure mirror)
-Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above). Phase F2 — including F2.c in both its fixpoint and per-node forms — lives in `AbsSat/GraphPath/Model/Fuel.lean`. The soundness direction of bridge lemma L2 lives in `AbsSat/GraphPath/Model/Filter.lean`; its ⊇ direction is lemma L6, still open. Execution log: [../docs/plans/espejo_gpathm_lema_L1.md](../docs/plans/espejo_gpathm_lema_L1.md).
+Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above). Phase F2 — including F2.c in both its fixpoint and per-node forms — lives in `AbsSat/GraphPath/Model/Fuel.lean`. Bridge lemma L2's soundness and narrowing directions live in `AbsSat/GraphPath/Model/Filter.lean`; its ⊇ direction is lemma L6, still open. Execution log: [../docs/plans/espejo_gpathm_lema_L1.md](../docs/plans/espejo_gpathm_lema_L1.md).
 
 ## Complexity and Performance
 - [complexity.md](./complexity.md): Detailed asymptotic analysis of time and space complexity ($O(S^4)$).

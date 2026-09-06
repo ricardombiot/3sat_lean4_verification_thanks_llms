@@ -5,7 +5,8 @@ import AbsSat.GraphPath.Model.GPathM
 The `Pruned` relation: `Pruned g g'` says `g'` was obtained from `g` by
 operations that only *narrow* — the current step is unchanged, the global
 owners of `g'` are a subset of `g`'s, and every node of `g'` descends from a
-node of `g` with the same id and a subset of its owners.
+node of `g` with the same id, a subset of its owners and a subset of its
+parent links.
 
 Every review/filter operation of `GPathM` lands in this relation, and the
 relation is reflexive and transitive, so the whole review loop does too.
@@ -24,23 +25,25 @@ open AbsSat.Utils.Alias
 structure Pruned (g g' : GPathM) : Prop where
   step_eq : g'.current_step = g.current_step
   gowners_sub : ∀ q ∈ g'.gowners, q ∈ g.gowners
-  nodes_derived : ∀ n' ∈ g'.nodes, ∃ n ∈ g.nodes, n'.id = n.id ∧ ∀ q ∈ n'.owners, q ∈ n.owners
+  nodes_derived : ∀ n' ∈ g'.nodes, ∃ n ∈ g.nodes, n'.id = n.id ∧
+    (∀ q ∈ n'.owners, q ∈ n.owners) ∧ (∀ p ∈ n'.parents, p ∈ n.parents)
 
 namespace Pruned
 
 protected theorem refl (g : GPathM) : Pruned g g where
   step_eq := rfl
   gowners_sub _ hq := hq
-  nodes_derived n hn := ⟨n, hn, rfl, fun _ hq => hq⟩
+  nodes_derived n hn := ⟨n, hn, rfl, fun _ hq => hq, fun _ hp => hp⟩
 
 protected theorem trans {g₁ g₂ g₃ : GPathM} (h₁₂ : Pruned g₁ g₂) (h₂₃ : Pruned g₂ g₃) :
     Pruned g₁ g₃ where
   step_eq := h₂₃.step_eq.trans h₁₂.step_eq
   gowners_sub q hq := h₁₂.gowners_sub q (h₂₃.gowners_sub q hq)
   nodes_derived n₃ hn₃ := by
-    obtain ⟨n₂, hn₂, hid₂, hown₂⟩ := h₂₃.nodes_derived n₃ hn₃
-    obtain ⟨n₁, hn₁, hid₁, hown₁⟩ := h₁₂.nodes_derived n₂ hn₂
-    exact ⟨n₁, hn₁, hid₂.trans hid₁, fun q hq => hown₁ q (hown₂ q hq)⟩
+    obtain ⟨n₂, hn₂, hid₂, hown₂, hpar₂⟩ := h₂₃.nodes_derived n₃ hn₃
+    obtain ⟨n₁, hn₁, hid₁, hown₁, hpar₁⟩ := h₁₂.nodes_derived n₂ hn₂
+    exact ⟨n₁, hn₁, hid₂.trans hid₁, fun q hq => hown₁ q (hown₂ q hq),
+      fun p hp => hpar₁ p (hpar₂ p hp)⟩
 
 end Pruned
 
@@ -54,16 +57,19 @@ namespace GPathM
 node alone or applies `f`, so id preservation and owner narrowing lift. -/
 private theorem updateAtGo_point (id : PathNodeId) (f : PNodeM → PNodeM)
     (hid : ∀ n, (f n).id = n.id)
-    (hown : ∀ n, ∀ q ∈ (f n).owners, q ∈ n.owners) (n : PNodeM) :
+    (hown : ∀ n, ∀ q ∈ (f n).owners, q ∈ n.owners)
+    (hpar : ∀ n, ∀ p ∈ (f n).parents, p ∈ n.parents) (n : PNodeM) :
     (match n.id == id with | true => f n | false => n).id = n.id ∧
-    ∀ q ∈ (match n.id == id with | true => f n | false => n).owners, q ∈ n.owners := by
+    (∀ q ∈ (match n.id == id with | true => f n | false => n).owners, q ∈ n.owners) ∧
+    (∀ p ∈ (match n.id == id with | true => f n | false => n).parents, p ∈ n.parents) := by
   cases n.id == id
-  · exact ⟨rfl, fun _ hq => hq⟩
-  · exact ⟨hid n, hown n⟩
+  · exact ⟨rfl, fun _ hq => hq, fun _ hp => hp⟩
+  · exact ⟨hid n, hown n, hpar n⟩
 
 theorem pruned_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
     (hid : ∀ n, (f n).id = n.id)
-    (hown : ∀ n, ∀ q ∈ (f n).owners, q ∈ n.owners) :
+    (hown : ∀ n, ∀ q ∈ (f n).owners, q ∈ n.owners)
+    (hpar : ∀ n, ∀ p ∈ (f n).parents, p ∈ n.parents) :
     Pruned g (updateAt g id f) where
   step_eq := rfl
   gowners_sub _ hq := hq
@@ -71,8 +77,8 @@ theorem pruned_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
     simp only [updateAt, updateAtGo] at hn'
     rcases List.mem_map.mp hn' with ⟨n, hn, hEq⟩
     subst hEq
-    obtain ⟨h1, h2⟩ := updateAtGo_point id f hid hown n
-    exact ⟨n, hn, h1, h2⟩
+    obtain ⟨h1, h2, h3⟩ := updateAtGo_point id f hid hown hpar n
+    exact ⟨n, hn, h1, h2, h3⟩
 
 theorem pruned_removeNode (g : GPathM) (id : PathNodeId) :
     Pruned g (removeNode g id) where
@@ -82,13 +88,14 @@ theorem pruned_removeNode (g : GPathM) (id : PathNodeId) :
     dsimp only [removeNode] at hn'
     rcases List.mem_map.mp hn' with ⟨n, hn, hEq⟩
     subst hEq
-    exact ⟨n, (List.mem_filter.mp hn).1, rfl, fun _ hq => hq⟩
+    exact ⟨n, (List.mem_filter.mp hn).1, rfl, fun _ hq => hq,
+      fun _ hp => (List.mem_filter.mp hp).1⟩
 
 theorem pruned_filterRequire (g : GPathM) (req : NodeId) :
     Pruned g (filterRequire g req) where
   step_eq := rfl
   gowners_sub _ hq := (List.mem_filter.mp hq).1
-  nodes_derived n hn := ⟨n, hn, rfl, fun _ hq => hq⟩
+  nodes_derived n hn := ⟨n, hn, rfl, fun _ hq => hq, fun _ hp => hp⟩
 
 theorem pruned_foldl {β : Type} (f : GPathM → β → GPathM)
     (h : ∀ g b, Pruned g (f g b)) :
@@ -119,7 +126,7 @@ theorem pruned_cleanInvalidGo (ids : List PathNodeId) :
       have h₁ : Pruned g (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
         pruned_updateAt g id _ (fun _ => rfl)
-          (fun _ q hq => (List.mem_filter.mp hq).1)
+          (fun _ q hq => (List.mem_filter.mp hq).1) (fun _ _ hp => hp)
       split
       · exact h₁
       · exact Pruned.trans h₁ (pruned_removeNode _ id)
@@ -137,7 +144,7 @@ theorem pruned_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId)
     · have h₁ : Pruned g (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         pruned_updateAt g id _ (fun _ => rfl)
-          (fun _ q hq => (List.mem_filter.mp hq).1)
+          (fun _ q hq => (List.mem_filter.mp hq).1) (fun _ _ hp => hp)
       split
       · exact h₁
       · exact Pruned.trans h₁ (pruned_removeNode _ id)

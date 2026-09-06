@@ -27,16 +27,23 @@ filter pins `req` in the global owners, `review` pushes the global owners into
 every node's owners (F2.c, `review_owners_within_gowners`), and pairwise
 ownership carries that from the nodes to the chain's own selection.
 
-**What is not proved here**, and why:
+Also proved: the **narrowing direction**, `denot_review_subset` /
+`denot_filterAll_subset` — every path the reviewed graph denotes was already
+denoted before the review. Narrowing can only lose chains, never invent them.
+`Pruned` now carries parent narrowing alongside id and owner narrowing, which
+is what lets `IsChain` transfer backwards.
 
-* `denot (review h) ⊆ denot h` — transferring `IsChain` across the review
-  needs the parent links to shrink, and the `Pruned` relation currently tracks
-  only ids and owners. Adding a `parents_sub` field to `Pruned` would change
-  `pruned_updateAt`'s signature and ripple into `OwnersInvariants`; it is a
-  self-contained piece of work, not a difficulty.
-* The **⊇ direction** — no chain that goes through `req` is lost by the
-  filter. That is exactly lemma **L6** ("no zombies"), the make-or-break of
-  the whole bridge, and it is not attacked here.
+That transfer needs `NodupIds`, and the hypothesis is real rather than
+bureaucratic: `node?` returns the *first* node with a given id, so if ids
+repeat, pruning can delete the first one and leave `node?` pointing at a
+different node whose parents and owners have no relation to the original's.
+The pure model already assumes unique ids (`WellFormedGMap`), so this is the
+same assumption, made explicit at the mirror level.
+
+**What is not proved here** is the **⊇ direction** — no chain that goes
+through `req` is lost by the filter. That is exactly lemma **L6** ("no
+zombies"), the make-or-break of the whole bridge, and it is not attacked
+here.
 -/
 
 namespace AbsSat.GraphPath.Model
@@ -156,6 +163,106 @@ theorem chain_selects_req (g : GPathM) (req : NodeId)
   chain_selects_pinned (filterRequire g req) req
     (filterRequire_gowners_pinned g req) hvalid sel hchain howned hlo hhi j hj_lo hj_hi hne
 
+/-- Node ids are unique. `node?` returns the *first* match, so without this a
+node can be shadowed and `node?` will not find it. -/
+def NodupIds (g : GPathM) : Prop := (g.nodes.map (·.id)).Nodup
+
+private theorem find?_id_of_mem (l : List PNodeM) (hnd : (l.map (·.id)).Nodup)
+    (n : PNodeM) (hn : n ∈ l) : l.find? (fun m => m.id == n.id) = some n := by
+  induction l with
+  | nil => exact absurd hn List.not_mem_nil
+  | cons a as ih =>
+    simp only [List.map_cons, List.nodup_cons] at hnd
+    obtain ⟨hnotin, hnd'⟩ := hnd
+    rcases List.mem_cons.mp hn with rfl | hn'
+    · simp
+    · have hne : (a.id == n.id) = false := by
+        cases hb : (a.id == n.id) with
+        | false => rfl
+        | true =>
+          have heq : a.id = n.id := eq_of_beq hb
+          have hmem : a.id ∈ as.map (fun m : PNodeM => m.id) := by
+            rw [heq]; exact List.mem_map_of_mem hn'
+          exact absurd hmem hnotin
+      have hskip : List.find? (fun m => m.id == n.id) (a :: as)
+          = List.find? (fun m => m.id == n.id) as := by
+        simp [hne]
+      rw [hskip]
+      exact ih hnd' hn'
+
+theorem node?_of_mem {g : GPathM} (hnd : NodupIds g) (n : PNodeM) (hn : n ∈ g.nodes) :
+    g.node? n.id = some n :=
+  find?_id_of_mem g.nodes hnd n hn
+
+-- ============================================================
+-- Transferring the denotation back across a narrowing
+-- ============================================================
+
+theorem IsChain_of_pruned {g g' : GPathM} (hpr : Pruned g g') (hnd : NodupIds g)
+    (sel : Int → PathNodeId) (h : IsChain g' sel) : IsChain g sel := by
+  have hnode : ∀ pid n', g'.node? pid = some n' →
+      ∃ n, g.node? pid = some n ∧ (∀ q ∈ n'.owners, q ∈ n.owners)
+        ∧ (∀ q ∈ n'.parents, q ∈ n.parents) := by
+    intro pid n' hn'
+    have hn'_mem : n' ∈ g'.nodes := List.mem_of_find?_eq_some hn'
+    have hn'_id : n'.id = pid := node?_id_eq g' pid n' hn'
+    obtain ⟨n, hn, hid, hown, hpar⟩ := hpr.nodes_derived n' hn'_mem
+    have hnid : n.id = pid := by rw [← hid]; exact hn'_id
+    exact ⟨n, by rw [← hnid]; exact node?_of_mem hnd n hn, hown, hpar⟩
+  constructor
+  · intro k hlo hhi
+    obtain ⟨hsome, hstep⟩ := h.1 k hlo (by rw [hpr.step_eq]; exact hhi)
+    obtain ⟨n', hn'⟩ := Option.isSome_iff_exists.mp hsome
+    obtain ⟨n, hn, _, _⟩ := hnode _ _ hn'
+    exact ⟨by rw [hn]; rfl, hstep⟩
+  · intro k hlo hhi
+    have hlink := h.2 k hlo (by rw [hpr.step_eq]; exact hhi)
+    cases hn' : g'.node? (sel (k + 1)) with
+    | none => rw [hn'] at hlink; exact absurd hlink List.not_mem_nil
+    | some n' =>
+      obtain ⟨n, hn, _, hpar⟩ := hnode _ _ hn'
+      rw [hn' ] at hlink
+      rw [hn]
+      exact hpar _ hlink
+
+theorem PairwiseOwned_of_pruned {g g' : GPathM} (hpr : Pruned g g') (hnd : NodupIds g)
+    (sel : Int → PathNodeId) (h : PairwiseOwned g' sel) : PairwiseOwned g sel := by
+  intro i j hi hj hi' hj' hne
+  have hmem := h i j hi hj (by rw [hpr.step_eq]; exact hi') (by rw [hpr.step_eq]; exact hj') hne
+  simp only [ownersAt, List.mem_filter] at hmem ⊢
+  obtain ⟨hown, hstep⟩ := hmem
+  refine ⟨?_, hstep⟩
+  simp only [ownersOf] at hown ⊢
+  cases hn' : g'.node? (sel j) with
+  | none => rw [hn'] at hown; exact absurd hown List.not_mem_nil
+  | some n' =>
+    rw [hn'] at hown
+    have hn'_mem : n' ∈ g'.nodes := List.mem_of_find?_eq_some hn'
+    have hn'_id : n'.id = sel j := node?_id_eq g' (sel j) n' hn'
+    obtain ⟨n, hn, hid, hsub, _⟩ := hpr.nodes_derived n' hn'_mem
+    have hnid : n.id = sel j := by rw [← hid]; exact hn'_id
+    rw [show g.node? (sel j) = some n by rw [← hnid]; exact node?_of_mem hnd n hn]
+    exact hsub _ hown
+
+/-- **L2, the narrowing direction**: every path the reviewed graph denotes was
+already denoted before the review. Narrowing can only lose chains, never
+invent them. -/
+theorem denot_of_pruned {g g' : GPathM} (hpr : Pruned g g') (hnd : NodupIds g)
+    (p : List NodeId) (h : denot g' p) : denot g p := by
+  obtain ⟨sel, hchain, howned, hpath⟩ := h
+  refine ⟨sel, IsChain_of_pruned hpr hnd sel hchain,
+    PairwiseOwned_of_pruned hpr hnd sel howned, ?_⟩
+  rw [hpath]
+  simp only [pathOf, hpr.step_eq]
+
+theorem denot_review_subset (g : GPathM) (hnd : NodupIds g) (p : List NodeId)
+    (h : denot (review g) p) : denot g p :=
+  denot_of_pruned (pruned_review g) hnd p h
+
+theorem denot_filterAll_subset (g : GPathM) (hnd : NodupIds g) (reqs : List NodeId)
+    (p : List NodeId) (h : denot (filterAll g reqs) p) : denot g p :=
+  denot_of_pruned (pruned_filterAll g reqs) hnd p h
+
 -- ============================================================
 -- Axiom guards
 -- ============================================================
@@ -167,5 +274,13 @@ theorem chain_selects_req (g : GPathM) (req : NodeId)
 /-- info: 'AbsSat.GraphPath.Model.denot_filterRequire' does not depend on any axioms -/
 #guard_msgs in
 #print axioms denot_filterRequire
+
+/-- info: 'AbsSat.GraphPath.Model.denot_review_subset' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms denot_review_subset
+
+/-- info: 'AbsSat.GraphPath.Model.denot_filterAll_subset' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms denot_filterAll_subset
 
 end AbsSat.GraphPath.Model

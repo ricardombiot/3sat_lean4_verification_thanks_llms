@@ -113,7 +113,7 @@ private theorem OwnersSubset_preserves_ReqFiltered (h : ReqFiltered reqOf g)
 
 theorem review_OwnersSubset (g : GPathM) : OwnersSubset g (GPathM.review g) := by
   intro d hd
-  obtain ⟨n, hn, hid, hown⟩ := (pruned_review g).nodes_derived d hd
+  obtain ⟨n, hn, hid, hown, _⟩ := (pruned_review g).nodes_derived d hd
   exact ⟨n, hn, hid.symm, hown⟩
 
 private theorem review_preserves_ReqFiltered (h : ReqFiltered reqOf g) :
@@ -137,7 +137,7 @@ theorem filterAll_preserves_ReqFiltered (h : ReqFiltered reqOf g) (reqs : List N
 
 theorem filterAll_mem_subset (g : GPathM) (reqs : List NodeId) (n : PNodeM)
     (hn : n ∈ (GPathM.filterAll g reqs).nodes) : ∃ n' ∈ g.nodes, n'.id = n.id := by
-  obtain ⟨n', hn', hid, _⟩ := (pruned_filterAll g reqs).nodes_derived n hn
+  obtain ⟨n', hn', hid, _, _⟩ := (pruned_filterAll g reqs).nodes_derived n hn
   exact ⟨n', hn', hid.symm⟩
 
 private theorem foldl_filterRequire_cleans (g : GPathM) (reqs : List NodeId) :
@@ -236,7 +236,7 @@ private def NodeStructure (g : GPathM) : Prop :=
 private theorem structure_pruned {g g' : GPathM} (hpr : Pruned g g')
     (h : NodeStructure reqOf g) : NodeStructure reqOf g' := by
   intro n' hn'
-  obtain ⟨n, hn, hid, _⟩ := hpr.nodes_derived n' hn'
+  obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'
   obtain ⟨h1, h2⟩ := h n hn
   rw [hid, hpr.step_eq]
   exact ⟨h1, h2⟩
@@ -357,7 +357,7 @@ private theorem addNode_ReqFiltered {g : GPathM} (h_reach : Reachable reqOf g)
     · exact hRF m hm req hreqm q hq hstepq
     · have hq' := List.mem_singleton.mp hq
       exfalso
-      obtain ⟨n₀, hn₀, hid₀, _⟩ := hpr.nodes_derived m hm
+      obtain ⟨n₀, hn₀, hid₀, _, _⟩ := hpr.nodes_derived m hm
       have hreq₀ : req ∈ reqOf n₀.id.id := by rw [← hid₀]; exact hreqm
       obtain ⟨h2, hback⟩ := reachable_structure reqOf h_reach n₀ hn₀
       have h1 : req.step < n₀.id.id.step := hback req hreq₀
