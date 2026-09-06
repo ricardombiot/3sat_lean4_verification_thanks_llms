@@ -749,6 +749,20 @@ theorem cleanStep_node_valid (g : GPathM) (id : PathNodeId) (d : PNodeM)
     updateAt_pointwise g id _ hupd d hd_mem hd_id
   rwa [hfix] at hvalid
 
+/-- At the fixpoint, a node reached by `cleanInvalidGo` had its owners already
+contained in the global owners: intersecting against them was the identity. -/
+theorem cleanStep_owners_fixed (g : GPathM) (id : PathNodeId) (d : PNodeM)
+    (hd : g.node? id = some d) (h : measure (cleanStep g id) = measure g) :
+    intersectOwners d.owners g.gowners = d.owners := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  have hstep : measure (intersectOrDrop g id g.gowners d) = measure g := by
+    simpa [cleanStep, hd] using h
+  obtain ⟨hupd, _⟩ := intersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
+  have hfix : { d with owners := intersectOwners d.owners g.gowners } = d :=
+    updateAt_pointwise g id _ hupd d hd_mem hd_id
+  exact congrArg PNodeM.owners hfix
+
 /-- At the fixpoint, a node reached by a coherence pass had its owners already
 consistent with the union of its neighbours' owners: the intersection against
 that union was the identity. -/
@@ -792,6 +806,21 @@ theorem reviewPass_stages_eq_self (g : GPathM) (h : measure (reviewPass g) = mea
 -- F2.c, per-node form (the plan's §4 postcondition)
 -- ============================================================
 
+/-- The `cleanInvalid` step for any node `review` still exposes was itself the
+identity — the shared first half of the per-node results below. -/
+theorem review_cleanStep_fixed (g : GPathM) (h : isValid (review g) = true)
+    (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
+    cleanStep (review g) id = review g := by
+  have hfix : reviewPass (review g) = review g := reviewPass_review g h
+  obtain ⟨hclean, _, _⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
+  have hd_mem : d ∈ (review g).nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq _ id d hd
+  have hid_mem : id ∈ (review g).nodes.map (·.id) := by
+    have hmem := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hd_mem
+    rwa [hd_id] at hmem
+  have hgo : cleanInvalidGo (review g) ((review g).nodes.map (·.id)) = review g := hclean
+  exact cleanInvalidGo_steps_eq_self _ (review g) (by rw [hgo]) id hid_mem
+
 /-- **F2.c (per-node), part 1** — after `review`, every node the machine can
 still look up passes `is_valid_node`.
 
@@ -801,18 +830,18 @@ shadowed duplicate is a node the machine itself can never reach. Every lookup
 in `GPathM` (and in the executable) goes through `node?`. -/
 theorem review_node_valid (g : GPathM) (h : isValid (review g) = true)
     (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
-    isValidNode (review g) d = true := by
-  have hfix : reviewPass (review g) = review g := reviewPass_review g h
-  obtain ⟨hclean, _, _⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
-  have hd_mem : d ∈ (review g).nodes := List.mem_of_find?_eq_some hd
-  have hd_id : d.id = id := node?_id_eq _ id d hd
-  have hid_mem : id ∈ (review g).nodes.map (·.id) := by
-    have hmem := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hd_mem
-    rwa [hd_id] at hmem
-  have hgo : cleanInvalidGo (review g) ((review g).nodes.map (·.id)) = review g := hclean
-  have hstep : cleanStep (review g) id = review g :=
-    cleanInvalidGo_steps_eq_self _ (review g) (by rw [hgo]) id hid_mem
-  exact cleanStep_node_valid (review g) id d hd (by rw [hstep])
+    isValidNode (review g) d = true :=
+  cleanStep_node_valid (review g) id d hd (by rw [review_cleanStep_fixed g h id d hd])
+
+/-- **F2.c (per-node), part 3** — after `review`, a node's owners are already
+contained in the *global* owners, in `intersectOwners`' sense. Together with
+`isValid` (which guarantees the global owners do mention every step below
+`current_step`) this upgrades to plain membership: see
+`Filter.lean`'s `owners_mem_gowners`. -/
+theorem review_owners_within_gowners (g : GPathM) (h : isValid (review g) = true)
+    (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
+    intersectOwners d.owners (review g).gowners = d.owners :=
+  cleanStep_owners_fixed (review g) id d hd (by rw [review_cleanStep_fixed g h id d hd])
 
 /-- **F2.c (per-node), part 2a** — after `review`, a node's owners are already
 coherent with the union of its *parents'* owners: intersecting against that
@@ -878,6 +907,10 @@ theorem review_owners_coherent_sons (g : GPathM) (h : isValid (review g) = true)
 /-- info: 'AbsSat.GraphPath.Model.GPathM.review_node_valid' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms review_node_valid
+
+/-- info: 'AbsSat.GraphPath.Model.GPathM.review_owners_within_gowners' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms review_owners_within_gowners
 
 /-- info: 'AbsSat.GraphPath.Model.GPathM.review_owners_coherent_parents' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

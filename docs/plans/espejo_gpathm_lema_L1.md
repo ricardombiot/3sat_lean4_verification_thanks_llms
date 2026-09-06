@@ -10,6 +10,30 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-06 (b) — L2, dirección de soundness, y una corrección al plan del puente.**
+
+- **Corrección:** el doc del puente descompone L2 en "`filter_require` (poda owners del
+  paso — directo) + `make_review_owners` (la clausura)". En `GPathM` el primer sumando
+  **no aporta nada**: `denot` se define a partir de `nodes` y `current_step`, y
+  `filterRequire` solo reescribe `gowners`, así que es denotacionalmente inerte — y lo
+  es *definicionalmente*: `denot_filterRequire` es `Iff.rfl`. Todo el contenido de L2
+  vive en `review`, que es donde `cleanInvalid` lleva por primera vez los owners
+  globales fijados a las listas de owners de cada nodo.
+- **Demostrado (`Model/Filter.lean`):** `chain_selects_req` — en un grafo filtrado
+  válido, **toda** cadena co-poseída selecciona exactamente `req` en el paso de `req`.
+  La ruta es la del libro: el filtro fija `req` en los owners globales
+  (`filterRequire_gowners_pinned`), `review` empuja los owners globales dentro de los
+  owners de cada nodo (F2.c, `review_owners_within_gowners`), `isValid` garantiza que
+  ese paso tiene entrada global (`hasStepEntry_of_isValid`), y la co-propiedad par a par
+  traslada eso de los nodos a la selección de la cadena. Cierre `[propext, Quot.sound]`.
+- **No demostrado, y por qué:**
+  1. `denot (review h) ⊆ denot h`: transferir `IsChain` a través de la revisión exige
+     que los enlaces a padres solo se encojan, y la relación `Pruned` hoy solo registra
+     ids y owners. Añadir un campo `parents_sub` cambia la firma de `pruned_updateAt` y
+     repercute en `OwnersInvariants`; es trabajo acotado, no una dificultad.
+  2. **La dirección ⊇** (ninguna cadena que pasa por `req` se pierde al filtrar) es
+     exactamente **L6**. Sigue intacta.
+
 **2026-09-06 — F2.c: la pasada es la identidad en el punto fijo.**
 
 - La familia "filter de longitud igual = identidad" está enhebrada por todas las
