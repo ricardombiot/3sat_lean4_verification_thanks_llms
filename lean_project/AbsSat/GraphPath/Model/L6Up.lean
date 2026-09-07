@@ -48,7 +48,7 @@ open GPathM
 
 /-- Decidable case split on `Int` equality. `by_cases` routes through
 `Classical.choice`, which would widen every axiom closure in this file. -/
-private theorem int_eq_or_ne (a b : Int) : a = b ∨ a ≠ b := by
+theorem int_eq_or_ne (a b : Int) : a = b ∨ a ≠ b := by
   cases h : (a == b) with
   | true => exact Or.inl (eq_of_beq h)
   | false =>

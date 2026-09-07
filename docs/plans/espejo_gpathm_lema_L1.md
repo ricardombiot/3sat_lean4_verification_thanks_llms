@@ -10,6 +10,47 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-07 — `review`: el mecanismo, identificado y formalizado (`Model/Review.lean`).**
+
+**L6 sigue sin demostrar.** Lo que hay es el *porqué* una pasada de revisión no puede
+cortar una cadena, con las dos piezas locales demostradas.
+
+Una pasada solo puede dañar una cadena de dos maneras: podando owners
+(`intersectOwners`) o tirando nodos que dejan de pasar `isValidNode`. La cadena está
+protegida contra ambas, por razones distintas:
+
+- **Contra la poda global.** `cleanInvalid` interseca los owners de cada nodo contra
+  `gowners`. Un owner que *es él mismo* owner global siempre sobrevive a esa intersección
+  (`mem_intersectOwners_of_mem`). **Ésa es la razón de ser de la condición `gowners` de
+  `ChainG`**: no era contabilidad, es lo que impide que el filtro global corte la cadena.
+- **Contra ser tirado.** `isValidNode` pide owners que cubran todos los pasos, más padres
+  y hijos en los casos no frontera. Una cadena aporta las tres: sus propios nodos están
+  dentro de los owners y cubren todos los pasos (`owners_ok_of_chain`), el predecesor es
+  padre y el sucesor es hijo. De ahí `isValidNode_of_chain`: **un nodo por el que pasa
+  una cadena sólida nunca falla la validez**, así que ninguna pasada puede quitarlo.
+
+Los rangos de las pasadas tampoco son arbitrarios: `reviewParents` recorre `1..cs-1` y
+`reviewSons` recorre `1..cs-2`, que es exactamente lo que deja fuera a los nodos frontera
+—el que no tiene padre y el que no tiene hijo— de las pasadas que si no los rechazarían.
+
+**`ChainSound`.** `ChainG` no basta porque `isValidNode` mira padres, hijos y el flag de
+raíz. `ChainSound` añade las tres que cierran el hueco: cada nodo de la cadena se posee a
+sí mismo, el enlace de hijos refleja el de padres, y solo el nodo del paso 0 es raíz. Las
+tres las establece `addNode`.
+
+**Lo que sigue faltando** (y es bookkeeping, no el problema de Helly):
+1. La inducción sobre el recorrido de `cleanInvalidGo` — el grafo muta mientras se
+   recorre, así que "este nodo nunca se tira" hay que enhebrarlo por un fold cuyo estado
+   cambia debajo.
+2. Para las pasadas de coherencia: `sel i ∈ unionOwnersOf g (padres de sel j)`. El
+   argumento está resuelto pero no formalizado: sale de la co-propiedad de `i` y `j-1`
+   cuando `i ≠ j-1`, y de la auto-posesión cuando `i = j-1`.
+3. Que los campos extra de `ChainSound` sobrevivan a una pasada.
+
+**Gotcha de Lean:** `omega` demostrando una **conjunción** arrastra `Classical.choice`;
+partida en dos lemas, no. Sumado a los ya anotados (`beq_self_eq_true`,
+`ne_of_beq_false`, `by_cases`, `simp only` sobre defs con `let`).
+
 **2026-09-06 (f) — el caso `up` de L6, reducido a un solo enunciado (`Model/L6Up.lean`).**
 
 `upFiltering g reqs d title` es `up (filterAll g reqs) d title`: un fold de `filterRequire`,
