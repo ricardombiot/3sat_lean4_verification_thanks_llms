@@ -48,10 +48,9 @@ is `none`).
 
 ## What is still missing
 
-1. The induction over `cleanInvalidGo`'s walk. The graph mutates as the walk
-   proceeds, so "this node is never dropped" has to be threaded through a fold
-   whose state changes under it — the same shape as `Fuel.lean`'s F2.c walk,
-   but over a non-fixpoint application.
+1. ~~The induction over `cleanInvalidGo`'s walk.~~ **Done** in
+   `CleanInvalid.lean` (`ChainSound_cleanInvalid`): the first of the three
+   stages of a pass preserves a sound chain.
 2. For the coherence passes: `sel i ∈ unionOwnersOf g (parents of sel j)`.
    The argument is worked out but not formalised — it follows from pairwise
    ownership of `i` and `j-1` when `i ≠ j-1`, and from self-ownership when

@@ -114,7 +114,7 @@ theorem denot_of_grown {g g' : GPathM} (hgr : Grown g g') (p : List NodeId)
 -- `join` only grows
 -- ============================================================
 
-private theorem find?_congr {α : Type} (l : List α) (p q : α → Bool)
+theorem find?_congr {α : Type} (l : List α) (p q : α → Bool)
     (h : ∀ a ∈ l, p a = q a) : l.find? p = l.find? q := by
   induction l with
   | nil => rfl

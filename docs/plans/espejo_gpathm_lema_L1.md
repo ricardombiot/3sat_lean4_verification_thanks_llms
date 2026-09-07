@@ -10,6 +10,36 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-07 (b) — `cleanInvalid` preserva una cadena sólida (`Model/CleanInvalid.lean`).**
+
+**Obligación 1 de `Review.lean`, cerrada.** `ChainSound_cleanInvalid`: la primera de las
+tres etapas de una pasada de revisión no puede cortar una cadena sólida.
+
+El recorrido es un fold cuyo grafo muta debajo, así que el argumento se enhebra paso a
+paso con `cleanInvalidGo_cons` (de `Fuel.lean`) y `ChainSound_cleanStep`. Cada paso hace
+una de dos cosas, y la cadena está a salvo de ambas:
+
+- **el nodo se queda**, y la intersección de owners no pudo tocar la cadena: todo nodo de
+  la cadena es owner global (tercer campo de `ChainG`), y un owner global siempre
+  sobrevive a una intersección contra `gowners`;
+- **el nodo se tira**, y entonces no podía ser un nodo de la cadena: `isValidNode_of_chain`
+  dice que un nodo de cadena sólida siempre pasa la validez, así que esa rama es
+  inalcanzable para él. Quitar un nodo que no es de la cadena es inocuo — `removeNode` no
+  toca owners, y los filtros de padres, hijos y `gowners` solo descartan el id quitado,
+  que la cadena no usa.
+
+**El segundo punto es el que hay que recordar:** el recorrido no puede cortar la cadena
+*porque la cadena se protege sola* — la validez es exactamente lo que ella aporta.
+
+Precio mecánico: dos lemas de `node?` (`updateAt_node?`, `removeNode_node?`), porque
+`node?` es búsqueda de primera coincidencia y hay que seguir al nodo a través de una
+actualización y de la eliminación de *otro* nodo.
+
+**Siguen abiertas las obligaciones 2 y 3:** las dos pasadas de coherencia
+(`reviewParents`, `reviewSons`) y la preservación de los campos extra de `ChainSound` a
+través de ellas. Podan contra los owners de los vecinos, no contra `gowners`, así que
+necesitan el argumento esbozado en `Review.lean`.
+
 **2026-09-07 — `review`: el mecanismo, identificado y formalizado (`Model/Review.lean`).**
 
 **L6 sigue sin demostrar.** Lo que hay es el *porqué* una pasada de revisión no puede
