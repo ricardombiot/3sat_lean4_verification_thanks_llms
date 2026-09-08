@@ -10,6 +10,39 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (d) — La construcción del mapa da el mecanismo de "sin zombis" (v12).**
+
+Leyendo `GraphMap.lean` / `ImportCnf.lean`: **cada requisito fija exactamente un nodo en
+exactamente un paso, y no dice nada sobre los pasos que no menciona.** Sin excepciones —
+el bloque negativo tiene un requisito, los nodos de cláusula tres (en pasos distintos),
+los de fusión ninguno. Los enlaces padre/hijo cumplen lo mismo (todos los del paso
+anterior, o exactamente uno en el bloque negativo).
+
+Es decir: el mapa genera una red de restricciones **0/1/all** (implicacionales), clase
+para la que **la consistencia de arcos decide la satisfacibilidad** (Cooper, Cohen y
+Jeavons, 1994). Eso es exactamente "sin zombis". La estructura del mapa sí hace falta —
+como predecía el doc del puente— pero la propiedad relevante no es "ser 3SAT", es la
+forma de los requisitos.
+
+Y `intersectOwners` **es el propagador exacto de esa clase**: "todo" donde la restricción
+no habla del paso, "solo esos" donde sí. No es una comodidad de implementación.
+
+Además: la cláusula no se comprueba, se codifica **por ausencia** — el caso `"000"` no
+tiene nodo.
+
+**Estrategia concreta para la mitad abierta:** (1) formalizar que `ImportCnf` genera solo
+restricciones 0/1/all; (2) que el punto fijo de `review` alcanza AC (F2.c da coherencia
+con vecinos; falta ver que eso es AC); (3) aplicar CCJ.
+
+**Dos defectos encontrados en la importación:**
+- Literal repetido con la misma polaridad (`x ∨ x ∨ y`) genera **dos requisitos en el
+  mismo paso** con índices distintos, lo que **viola `hreqs_distinct`** de `Reachable`.
+  La máquina se comporta bien (el grafo se invalida) pero ese nodo cae fuera de todo lo
+  demostrado. `ImportCnf` no normaliza ni rechaza. Con `x ∨ ¬x ∨ y` no pasa: pasos
+  distintos.
+- `cnf_or!` toma los tres primeros literales y descarta el resto en silencio; con menos
+  de tres, salta la línea sin avisar.
+
 **2026-09-08 (c) — `join` en moneda `ChainSound`, y una corrección de alcance importante.**
 
 - `Grown` pasa a registrar hijos y owners globales, además de owners y padres. Con eso
