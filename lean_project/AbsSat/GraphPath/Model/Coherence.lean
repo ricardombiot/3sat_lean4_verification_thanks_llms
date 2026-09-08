@@ -2,10 +2,13 @@
 import AbsSat.GraphPath.Model.CleanInvalid
 
 /-!
-**Obligations 2 and 3 of `Review.lean`, discharged**, and with them the
-statement the whole bridge was blocked on:
+**Obligations 2 and 3 of `Review.lean`, discharged**:
 
     SupportedS_review : SupportedS g → SupportedS (review g)
+
+This is a *preservation* statement — a chain that exists survives. It is not
+all of L6, which also asks that no node outlive its chains; see
+`JoinSound.lean` for where that gap sits.
 
 `reviewPass = reviewSons ∘ reviewParents ∘ cleanInvalid`. `CleanInvalid.lean`
 did the first stage; this module does the other two, then composes them and

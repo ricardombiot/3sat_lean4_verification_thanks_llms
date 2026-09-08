@@ -10,6 +10,35 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (c) — `join` en moneda `ChainSound`, y una corrección de alcance importante.**
+
+- `Grown` pasa a registrar hijos y owners globales, además de owners y padres. Con eso
+  `ChainSound_of_grown` lleva una cadena de cualquiera de las dos ramas al grafo unido, y
+  sale `SupportedS_join`.
+- **Los cuatro lemas de preservación están completos:** `ChainSound_initSeed`,
+  `ChainSound_upFiltering`, `ChainSound_join_left/_right`, `ChainSound_review`. Juntos
+  dicen: **una cadena que satisface los requisitos sobrevive a todo lo que hace la
+  máquina.**
+
+**Corrección de alcance (importante, y va contra lo que dejé escrito ayer).** L6 dice
+*todo nodo superviviente está en alguna cadena*. Los lemas de arriba dicen *una cadena
+buena sobrevive*. **No son lo mismo.** Tres de los cuatro constructores cierran la
+diferencia solos —la semilla construye la cadena, el `join` la toma de un lado, `addNode`
+la extiende, y ninguno quita nada—, pero `filterAll` no:
+
+    SupportedS g → SupportedS (filterAll g reqs)          -- NO demostrado
+
+De `SupportedS g` un nodo superviviente tiene *alguna* cadena, pero no tiene por qué
+satisfacer los requisitos, y `ChainSound_filterAll` solo rescata las que sí. Cerrarlo
+pide el recíproco de todo lo demostrado hasta ahora: que `review` **elimine** todo nodo
+cuyo soporte haya muerto — que no deje zombis. Ése es el significado original del nombre
+de L6, y es exactamente la propiedad que `lake exe l6search` no ha conseguido romper.
+
+He corregido los docstrings de `Review.lean` y `Coherence.lean`, que daban a entender que
+la preservación cerraba L6. **La mitad "una cadena no se puede cortar" está hecha, y no
+necesitó la estructura 3SAT. La mitad "un nodo no puede sobrevivir a sus cadenas" no está
+ni empezada.**
+
 **2026-09-08 (b) — `addNode`, y la forma correcta del caso `up` (`Model/AddNode.lean`).**
 
 - **`MachineOk`.** El campo `root_shape` de `ChainSound` dice que solo el nodo del paso 0

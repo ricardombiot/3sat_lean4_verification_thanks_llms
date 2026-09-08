@@ -45,23 +45,27 @@ machine and the denotation both use — so it transfers `IsChain` and
 `PairwiseOwned` forwards without any id-uniqueness hypothesis. -/
 structure Grown (g g' : GPathM) : Prop where
   step_eq : g'.current_step = g.current_step
+  gowners_grown : ∀ q ∈ g.gowners, q ∈ g'.gowners
   node?_grown : ∀ pid n, g.node? pid = some n →
     ∃ n', g'.node? pid = some n' ∧ (∀ q ∈ n.owners, q ∈ n'.owners)
-      ∧ (∀ p ∈ n.parents, p ∈ n'.parents)
+      ∧ (∀ p ∈ n.parents, p ∈ n'.parents) ∧ (∀ s ∈ n.sons, s ∈ n'.sons)
 
 namespace Grown
 
 protected theorem refl (g : GPathM) : Grown g g where
   step_eq := rfl
-  node?_grown _ n hn := ⟨n, hn, fun _ hq => hq, fun _ hp => hp⟩
+  gowners_grown _ hq := hq
+  node?_grown _ n hn := ⟨n, hn, fun _ hq => hq, fun _ hp => hp, fun _ hs => hs⟩
 
 protected theorem trans {g₁ g₂ g₃ : GPathM} (h₁₂ : Grown g₁ g₂) (h₂₃ : Grown g₂ g₃) :
     Grown g₁ g₃ where
   step_eq := h₂₃.step_eq.trans h₁₂.step_eq
+  gowners_grown q hq := h₂₃.gowners_grown q (h₁₂.gowners_grown q hq)
   node?_grown pid n hn := by
-    obtain ⟨n₂, h₂, ho₂, hp₂⟩ := h₁₂.node?_grown pid n hn
-    obtain ⟨n₃, h₃, ho₃, hp₃⟩ := h₂₃.node?_grown pid n₂ h₂
-    exact ⟨n₃, h₃, fun q hq => ho₃ q (ho₂ q hq), fun p hp => hp₃ p (hp₂ p hp)⟩
+    obtain ⟨n₂, h₂, ho₂, hp₂, hs₂⟩ := h₁₂.node?_grown pid n hn
+    obtain ⟨n₃, h₃, ho₃, hp₃, hs₃⟩ := h₂₃.node?_grown pid n₂ h₂
+    exact ⟨n₃, h₃, fun q hq => ho₃ q (ho₂ q hq), fun p hp => hp₃ p (hp₂ p hp),
+      fun s hs => hs₃ s (hs₂ s hs)⟩
 
 end Grown
 
@@ -75,14 +79,14 @@ theorem IsChain_of_grown {g g' : GPathM} (hgr : Grown g g')
   · intro k hlo hhi
     obtain ⟨hsome, hstep⟩ := h.1 k hlo (by rw [← hgr.step_eq]; exact hhi)
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
-    obtain ⟨n', hn', _, _⟩ := hgr.node?_grown _ _ hn
+    obtain ⟨n', hn', _, _, _⟩ := hgr.node?_grown _ _ hn
     exact ⟨by rw [hn']; rfl, hstep⟩
   · intro k hlo hhi
     have hlink := h.2 k hlo (by rw [← hgr.step_eq]; exact hhi)
     cases hn : g.node? (sel (k + 1)) with
     | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
     | some n =>
-      obtain ⟨n', hn', _, hpar⟩ := hgr.node?_grown _ _ hn
+      obtain ⟨n', hn', _, hpar, _⟩ := hgr.node?_grown _ _ hn
       rw [hn] at hlink
       rw [hn']
       exact hpar _ hlink
@@ -99,7 +103,7 @@ theorem PairwiseOwned_of_grown {g g' : GPathM} (hgr : Grown g g')
   | none => rw [hn] at hown; exact absurd hown List.not_mem_nil
   | some n =>
     rw [hn] at hown
-    obtain ⟨n', hn', hsub, _⟩ := hgr.node?_grown _ _ hn
+    obtain ⟨n', hn', hsub, _, _⟩ := hgr.node?_grown _ _ hn
     rw [hn']
     exact hsub _ hown
 
@@ -147,11 +151,11 @@ theorem join_node?_left (g₁ g₂ : GPathM) (pid : PathNodeId) (n : PNodeM)
 theorem join_node?_right (g₁ g₂ : GPathM) (pid : PathNodeId) (m : PNodeM)
     (hm : g₂.node? pid = some m) :
     ∃ n', (join g₁ g₂).node? pid = some n' ∧ (∀ q ∈ m.owners, q ∈ n'.owners)
-      ∧ (∀ p ∈ m.parents, p ∈ n'.parents) := by
+      ∧ (∀ p ∈ m.parents, p ∈ n'.parents) ∧ (∀ s ∈ m.sons, s ∈ n'.sons) := by
   cases hn : g₁.node? pid with
   | some n =>
     have hnid : n.id = pid := node?_id_eq g₁ pid n hn
-    refine ⟨joinMap g₂ n, join_node?_left g₁ g₂ pid n hn, ?_, ?_⟩
+    refine ⟨joinMap g₂ n, join_node?_left g₁ g₂ pid n hn, ?_, ?_, ?_⟩
     · simp only [joinMap, hnid, hm, mergeNode]
       intro q hq
       cases hc : n.owners.contains q with
@@ -162,8 +166,13 @@ theorem join_node?_right (g₁ g₂ : GPathM) (pid : PathNodeId) (m : PNodeM)
       cases hc : n.parents.contains q with
       | true => exact List.mem_append_left _ (List.mem_of_elem_eq_true hc)
       | false => exact List.mem_append_right _ (List.mem_filter.mpr ⟨hq, by simp only [hc]; rfl⟩)
+    · simp only [joinMap, hnid, hm, mergeNode]
+      intro q hq
+      cases hc : n.sons.contains q with
+      | true => exact List.mem_append_left _ (List.mem_of_elem_eq_true hc)
+      | false => exact List.mem_append_right _ (List.mem_filter.mpr ⟨hq, by simp only [hc]; rfl⟩)
   | none =>
-    refine ⟨m, ?_, fun _ hq => hq, fun _ hp => hp⟩
+    refine ⟨m, ?_, fun _ hq => hq, fun _ hp => hp, fun _ hs => hs⟩
     have hnone : g₁.nodes.find? (fun x : PNodeM => x.id == pid) = none := hn
     have hp : (fun x : PNodeM => (joinMap g₂ x).id == pid) = (fun x : PNodeM => x.id == pid) := by
       funext x; rw [joinMap_id]
@@ -190,8 +199,9 @@ theorem node?_isSome_of_mem (g : GPathM) (n : PNodeM) (hn : n ∈ g.nodes) :
 
 theorem grown_join_left (g₁ g₂ : GPathM) : Grown g₁ (join g₁ g₂) where
   step_eq := rfl
+  gowners_grown _ hq := List.mem_append_left _ hq
   node?_grown pid n hn := by
-    refine ⟨joinMap g₂ n, join_node?_left g₁ g₂ pid n hn, ?_, ?_⟩ <;>
+    refine ⟨joinMap g₂ n, join_node?_left g₁ g₂ pid n hn, ?_, ?_, ?_⟩ <;>
       · simp only [joinMap]
         cases g₂.node? n.id
         · exact fun _ hq => hq
@@ -205,6 +215,11 @@ theorem grown_join_right (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) :
       exact hok.1.1.1
     show g₁.current_step = g₂.current_step
     exact eq_of_beq this
+  gowners_grown q hq := by
+    show q ∈ g₁.gowners ++ g₂.gowners.filter (fun x => !g₁.gowners.contains x)
+    cases hc : g₁.gowners.contains q with
+    | true => exact List.mem_append_left _ (List.mem_of_elem_eq_true hc)
+    | false => exact List.mem_append_right _ (List.mem_filter.mpr ⟨hq, by simp only [hc]; rfl⟩)
   node?_grown := join_node?_right g₁ g₂
 
 -- ============================================================

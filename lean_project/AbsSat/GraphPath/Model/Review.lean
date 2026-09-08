@@ -56,11 +56,11 @@ is `none`).
 3. ~~That `ChainSound`'s own extra fields survive a pass.~~ **Done** — it is
    `ChainSound` that is threaded throughout, fields included.
 
-All three are discharged, and with them `SupportedS_review` — the statement
-this module was written around. What is left is not about `review` at all: it
-is upgrading `L6Up.lean`'s `ChainG_addNode` to a `ChainSound_addNode`, which
-needs one structural fact (`g.map_parent ≠ none` when `current_step > 0`) that
-the development does not yet carry. See `Coherence.lean`'s docstring.
+All three are discharged, and with them `SupportedS_review`. Note what that
+is: **a preservation statement** — a chain that exists survives a pass. L6 also
+asks the converse, that no node outlive its chains, and that half has not been
+attacked. `JoinSound.lean` sets out exactly where the remaining gap sits
+(`SupportedS g → SupportedS (filterAll g reqs)`).
 
 None of this turned out to be the Helly problem the bridge document feared.
 -/
