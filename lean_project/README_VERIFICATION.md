@@ -29,6 +29,7 @@ Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above).
 - [v7: Coherencia del O(S^4)](./verificacion_inseguridad_autor_v7.md)
 - [v8: El Abogado del Diablo](./verificacion_inseguridad_autor_v8.md)
 - [v9: De los Axiomas a los Teoremas (Claude)](./verificacion_inseguridad_autor_v9.md)
+- [v10: Lo que las pruebas dicen sobre el algoritmo (Claude)](./verificacion_inseguridad_autor_v10.md) — por qué L6 nunca fue un problema de consistencia global, qué son realmente los `owners`, y por qué los rangos de las pasadas de coherencia cargan con la demostración.
 
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*
