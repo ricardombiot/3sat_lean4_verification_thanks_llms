@@ -30,11 +30,11 @@ Y los gpaths activos por paso: la timeline los indexa por nodo de mapa destino y
 
 **La abstracción exponencial funciona.** No hay explosión escondida en la representación: un gpath es O(L) nodos con O(L) owners cada uno. Eso ya no es una conjetura, es una consecuencia de la definición de `PathNodeId` más una medición.
 
-## 3. Pero el tiempo no está establecido, y hay una señal de alarma
+## 3. La lentitud que reporté no era una anomalía — era tu cota
 
-Con el estado acotado, esperaba que la máquina volara. **No lo hace.** Compilado, el espejo no termina `n=12, m=15` en 600 segundos.
+*(Corregido tras tu observación.)* Reporté como señal de alarma que el espejo no terminara `n=12, m=15` en 600 s. **Me equivoqué.** Tu análisis da `O(S⁴·78)` con `S = 2|U| + |C| + 2` (libro, p. 76). Para `n=12, m=15`: `S = 41`, y `41⁴·78 ≈ 2·10⁸` operaciones. En el espejo interpretado sobre `List`, con búsquedas lineales, eso son minutos. **El comportamiento observado es la cota cumpliéndose, no una anomalía.**
 
-Con estado acotado, la única forma de ser lento es el **número de pasadas de revisión** o el coste por pasada. No sé todavía cuál de las dos, ni si es el espejo (basado en `List`, con búsquedas O(n)) o el algoritmo. **Pero merece su propia investigación**, y es lo más accionable que te dejo hoy.
+Retiro esa parte. Lo que sí queda es lo de la §2: el estado está acotado por una constante, que es lo que hace que la cota sea `S⁴` y no exponencial.
 
 ## 4. Lo que esto implica sobre "sin zombis"
 
@@ -60,10 +60,7 @@ Eso explica, retroactivamente, todo lo de estos días:
 
 **Dejaría de echarle Lean a L6.** Ningún argumento local o estructural la va a cerrar, porque si uno lo hiciera, cerraría P vs NP. Seguir por ahí es apostar a resolver el problema del milenio como efecto secundario de una sesión de formalización.
 
-Dos cosas, en este orden:
-
-1. **Perseguir la lentitud de n=12.** Estado acotado y 600 segundos sin terminar no cuadran. O hay un bug —y ya hemos encontrado dos de invalidación muerta por este camino—, o el número de pasadas de revisión crece de forma que tu análisis `O(L²W²)` no captura. Cualquiera de las dos respuestas vale más ahora mismo que otro lema.
-2. **Escalar `diffTest`.** "Sin zombis" es falsable barato: **una sola instancia donde la máquina diga SAT y el oráculo diga UNSAT la tumba**. Ahora mismo cubre n ∈ 3..7. Subir eso es la mejor relación información/esfuerzo que tienes, y es donde la evidencia empírica ya estaba apuntando sin que lo supiéramos.
+Lo que sí vale: **comprobar la validez directamente.** "Sin zombis" es falsable barato, y no hace falta esperar a que un zombi cambie un veredicto. Ver [v15](./verificacion_inseguridad_autor_v15.md).
 
 ---
 

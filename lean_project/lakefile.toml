@@ -26,3 +26,7 @@ root = "L6SearchMain"
 [[lean_exe]]
 name = "width"
 root = "WidthMain"
+
+[[lean_exe]]
+name = "validate"
+root = "ValidateMain"

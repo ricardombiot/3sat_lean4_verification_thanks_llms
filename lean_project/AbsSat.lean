@@ -44,4 +44,5 @@ import AbsSat.GraphPath.Model.ArcConsistency
 import AbsSat.GraphPath.Model.ZeroOneAll
 import AbsSat.GraphPath.Model.Link
 import AbsSat.GraphPath.Model.WidthProbe
+import AbsSat.GraphPath.Model.Validate
 import AbsSat.GraphPath.Model.L6Search

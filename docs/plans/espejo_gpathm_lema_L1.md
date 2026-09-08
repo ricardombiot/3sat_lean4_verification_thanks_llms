@@ -10,6 +10,40 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (i) — Comprobación directa de validez: `lake exe validate`.**
+
+**Corrección aceptada:** la lentitud a `n=12` que reporté como anomalía no lo era. Con
+`O(S⁴·78)` y `S = 2|U|+|C|+2` (libro p. 76), `n=12,m=15` da `S=41` y `41⁴·78 ≈ 2·10⁸`
+operaciones — en el espejo interpretado sobre `List` son minutos. La §3 de v14 queda
+retirada.
+
+**El punto ciego de `diffTest`:** compara veredicto y conjunto de soluciones. Un zombi
+solo se ve ahí **si además cambia uno de los dos**; puede aparecer a mitad y ser podado
+después, y el resultado final sale bien.
+
+**`Model/Validate.lean` + `lake exe validate`** comprueba la propiedad **directamente**,
+como invariante interno, en cada estado que la máquina sostiene: *todo nodo que sigue en
+el grafo pertenece a alguna cadena co-poseída completa*. Dos decisiones para que no sea
+el algoritmo juzgándose:
+
+- la búsqueda de cadena es **backtracking propio, independiente del Reader**;
+- toda cadena encontrada se **re-verifica desde las definiciones** (`isGoodChain`).
+
+Modos: `validate <cnf>...` y `validate --random <casos> <semilla> [minVars] [rango]`.
+Sale con código 1 y vuelca `validate_failure_<k>.cnf`.
+
+**Resultados.** Campaña aleatoria (mismos regímenes de densidad que `diffTest`):
+60/60 limpias, **5.466 estados válidos, 161.839 nodos verificados, 0 zombis**. Familias
+adversarias, todas limpias: literal repetido (**viola `hreqs_distinct`**, cae fuera de lo
+demostrado), cláusula tautológica, UNSAT forzado, transición de fase `m≈4.26n`, cadena
+implicativa larga. Más ~7.000 nodos sobre mapas sueltos.
+
+**Cómo leerlo:** no demuestra nada, pero es evidencia de mejor clase — es **la propiedad
+abierta** y no un proxy, es **por nodo** (161.839 oportunidades de fallar, no 60), es
+independiente, y es falsable barato. No cubre: rangos mayores (el `S⁴` limita, no el
+checker), ni el ejecutable (solo el espejo), ni adversarios diseñados *contra el
+invariante*.
+
 **2026-09-08 (h) — El enlace: la ruta de v12 NO cierra (`Model/Link.lean`, v13).**
 
 **Demostrado — el "1" del 0/1/all, en las tablas de la propia máquina.**
