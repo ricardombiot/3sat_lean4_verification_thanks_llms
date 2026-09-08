@@ -41,4 +41,5 @@ import AbsSat.GraphPath.Model.Coherence
 import AbsSat.GraphPath.Model.AddNode
 import AbsSat.GraphPath.Model.JoinSound
 import AbsSat.GraphPath.Model.ArcConsistency
+import AbsSat.GraphPath.Model.ZeroOneAll
 import AbsSat.GraphPath.Model.L6Search

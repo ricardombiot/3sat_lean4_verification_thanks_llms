@@ -37,7 +37,11 @@ Traducido a restricciones: para cualquier nodo `d` y cualquier paso `j`, el conj
 
 Esa clase de red de restricciones tiene nombre: **"0/1/all"**, también llamadas implicacionales. Y tiene un resultado clásico asociado (Cooper, Cohen y Jeavons, 1994):
 
-> **En una red 0/1/all, la consistencia de arcos decide la satisfacibilidad.** Si la red es arco-consistente y no vacía, hay solución.
+> **En una red 0/1/all, la consistencia local decide la satisfacibilidad.**
+
+> **⚠️ Precisión (2026-09-08, ver `Model/ZeroOneAll.lean`).** Escribí aquí "consistencia de arcos". Es impreciso: las restricciones 0/1/all son cerradas bajo el discriminador dual, una polimorfía **de mayoría**, y los lenguajes cerrados bajo mayoría tienen **anchura estricta 2** — de modo que lo que garantiza solución global es la consistencia **por pares** (una tabla de pares permitidos), no la de arcos sobre dominios sueltos.
+>
+> **La corrección va a tu favor:** `owners` no es un dominio, es una tabla **por nodo y por paso** — exactamente una estructura de 2-consistencia. Tu máquina lleva manteniendo el invariante fuerte desde el principio, que es el que necesita. `PairwiseOwned` está bien llamado.
 
 **Eso es exactamente "sin zombis".** El enunciado que en v11 te dije que era el problema de Helly y que no tenía razón que lo sostuviera, la tiene: la tiene porque tu mapa vive en la clase donde el Helly no muerde.
 

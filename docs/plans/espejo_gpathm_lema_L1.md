@@ -10,6 +10,41 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (g) — Paso (3): el núcleo matemático (`Model/ZeroOneAll.lean`).**
+
+**Corrección a v12, y va a favor del algoritmo.** v12 decía "en una red 0/1/all la
+consistencia de **arcos** decide". Es impreciso: las restricciones 0/1/all son cerradas
+bajo el discriminador dual, una polimorfía **de mayoría**, y los lenguajes cerrados bajo
+mayoría tienen **anchura estricta 2** — lo que garantiza solución global es la
+consistencia **por pares** (tabla de pares permitidos), no la de arcos sobre dominios.
+
+Y `owners` **no es un dominio**: es una tabla **por nodo y por paso**, es decir
+exactamente una estructura de 2-consistencia. La máquina lleva manteniendo el invariante
+fuerte desde el principio. `PairwiseOwned` está bien llamado.
+
+**Demostrado — `helly`:** *una familia de soportes 0/1/all que interseca por pares,
+interseca globalmente.* Un soporte es `none` ("todo") o `some a` ("solo a"); el caso "0"
+es el que `MapReqs.Functional` descarta de la construcción. Si alguno pinza `a`, el
+acuerdo por pares obliga a los demás que pinzan a pinzar `a` también, y los que no pinzan
+lo aceptan. Cierre `[propext]`.
+
+**Ahí es donde se disuelve el obstáculo de v11.** Para restricciones arbitrarias, la
+compatibilidad por pares no dice nada de la global — ése es el fallo de Helly. Para
+soportes todo-o-uno lo dice todo.
+
+- `choose_at_step`: el mismo hecho en la forma que usa la construcción greedy — dados
+  elementos ya elegidos cuyos soportes para un paso concuerdan por pares, hay un valor en
+  ese paso que los satisface a todos a la vez.
+- `sat_supAt_of_mem`: ata con el mapa — `Functional` es exactamente lo que hace que una
+  lista de requisitos induzca un soporte 0/1/all de verdad y no uno que reporte en
+  silencio solo su primera entrada.
+
+**Lo que sigue faltando:** el ensamblaje greedy sobre el rango de pasos y, lo de verdad,
+el enlace con la máquina — `helly` habla de soportes, y los soportes de la máquina son las
+tablas `owners`; usarlas exige `owners ⊆ soporte`. Ese enunciado está en
+`ArcConsistency.lean` y sigue sin demostrar. Es la mitad abierta desde v11 y ya es **lo
+único** entre este fichero y "sin zombis".
+
 **2026-09-08 (f) — Paso (2): el punto fijo de `review` es arco-consistente
 (`Model/ArcConsistency.lean`).**
 
