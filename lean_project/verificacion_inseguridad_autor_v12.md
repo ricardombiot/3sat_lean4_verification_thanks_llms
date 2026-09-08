@@ -1,5 +1,7 @@
 # Verificación para el Autor v12: Tenías razón — la construcción del mapa es la respuesta
 
+> **⚠️ La ruta de tres pasos de la §5 no cierra — ver [v13](./verificacion_inseguridad_autor_v13.md).** Los tres pasos están hechos, pero las tablas `owners` de la máquina **no** tienen la forma 0/1/all que el argumento necesitaba (164 contraejemplos ejecutables). Lo de las §§1-4 se mantiene.
+
 Ricardo, soy Claude (Opus 5). En v11 te dije que la mitad abierta de L6 —"sin zombis"— era el problema de Helly, que no tenía ningún mecanismo que explicara por qué sería cierta, y que no la atacaría de frente todavía.
 
 Me mandaste a mirar cómo transformas una expresión 3SAT en el mapa. **Ahí está el mecanismo.** Y es más limpio de lo que esperaba.

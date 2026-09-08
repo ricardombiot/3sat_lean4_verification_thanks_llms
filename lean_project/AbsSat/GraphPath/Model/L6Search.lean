@@ -90,6 +90,46 @@ def runMap (m : SynMap) : Line :=
         let d : NodeId := { step := 0, index := (i : Int) }
         insertG line d (initSeed d "n")) [])
 
+-- ============================================================
+-- Probe: are the owners tables 0/1/all at the map level?
+-- ============================================================
+
+/-- Map nodes a node's owners still allow at step `j`. -/
+def mapIdsAt (n : PNodeM) (j : Int) : List NodeId :=
+  (n.owners.filter (fun q => q.id.step == j)).map (·.id)
+
+/-- `true` when the projection is a single map node, or contains every map node
+still available at that step — the 0/1/all shape the CCJ argument needs. -/
+def allOrOneAt (g : GPathM) (n : PNodeM) (j : Int) : Bool :=
+  match mapIdsAt n j with
+  | [] => false                       -- empty: an arc-consistency failure, not 0/1/all
+  | m :: ms =>
+    ms.all (fun m' => m' == m)
+      || ((g.line j).map (fun d => d.id.id)).all (fun a => (m :: ms).contains a)
+
+/-- Nodes/steps of `g` where the 0/1/all shape fails. -/
+def allOrOneViolations (g : GPathM) : Nat :=
+  (g.nodes.foldl (fun acc n =>
+    acc + ((intRange 0 (g.current_step - 1)).filter
+      (fun j => !allOrOneAt g n j)).length) 0)
+
+/-- Split the failures: `(empty projection, proper-subset-of-2-or-more)`. The
+first is an arc-consistency failure; only the second refutes the 0/1/all
+shape. -/
+def allOrOneSplit (g : GPathM) : Nat × Nat :=
+  g.nodes.foldl (fun acc n =>
+    (intRange 0 (g.current_step - 1)).foldl (fun (a : Nat × Nat) j =>
+      match mapIdsAt n j with
+      | [] => (a.1 + 1, a.2)
+      | m :: ms =>
+        if ms.all (fun m' => m' == m)
+            || ((g.line j).map (fun d => d.id.id)).all (fun x => (m :: ms).contains x)
+        then a else (a.1, a.2 + 1)) acc) (0, 0)
+
+/-- The same, but only over graphs the machine would keep (`isValid`). -/
+def allOrOneSplitValid (g : GPathM) : Nat × Nat :=
+  if isValid g then allOrOneSplit g else (0, 0)
+
 /-- Every line the machine holds, not just the last: `runMap` keeps only the
 final step, but a support failure at any intermediate step is just as much a
 counterexample. -/
@@ -108,6 +148,13 @@ def badStatesAll (m : SynMap) : Nat :=
   (runMapAll m).foldl (fun acc line =>
     acc + (line.filterMap (fun kv =>
       if isValid kv.2 && !hasChain kv.2 then some kv.2 else none)).length) 0
+
+/-- 0/1/all violations over every state at every step. -/
+def allOrOneAll (m : SynMap) : Nat × Nat :=
+  (runMapAll m).foldl (fun acc line =>
+    line.foldl (fun (a : Nat × Nat) kv =>
+      let s := allOrOneSplitValid kv.2
+      (a.1 + s.1, a.2 + s.2)) acc) (0, 0)
 
 /-- Total states inspected by `badStatesAll`. -/
 def statesAll (m : SynMap) : Nat :=
@@ -162,7 +209,7 @@ def diag2 (steps width trials : Nat) : Nat × Nat × Nat × Nat × Nat :=
     let rich := (sels.filter (· ≥ 8)).length
     let bad := badStatesAll m
     (acc.1 + statesAll m, Nat.max acc.2.1 mx, acc.2.2.1 + rich,
-     acc.2.2.2.1 + sels.foldl (· + ·) 0, acc.2.2.2.2 + bad))
+     acc.2.2.2.1 + (allOrOneAll m).1 * 1000 + (allOrOneAll m).2, acc.2.2.2.2 + bad))
     (0, 0, 0, 0, 0)
 end L6Search
 

@@ -10,6 +10,36 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (h) — El enlace: la ruta de v12 NO cierra (`Model/Link.lean`, v13).**
+
+**Demostrado — el "1" del 0/1/all, en las tablas de la propia máquina.**
+`owners_pinned_at_required_step`: en un paso que uno de sus requisitos nombra, los owners
+de un nodo proyectan **exactamente** a ese requisito. Es L1 leído a nivel de **mapa** —que
+es donde vive la red de restricciones; `owners` son `PathNodeId` y varios comparten id de
+mapa—. Con `owners_nonempty_at_step` es un singleton de verdad, no posiblemente vacío.
+
+**Refutado — el "todo".** La otra mitad sería que en un paso que ningún requisito nombra,
+los owners proyecten a **todos** los nodos de mapa disponibles. `lake exe l6search` reporta
+**164 pares (nodo, paso) en grafos válidos** cuya proyección es un subconjunto propio de
+≥2 nodos de mapa. Testigo: proyección `{(2,0),(2,1)}` contra dominio `{(2,0),(2,1),(2,2)}`.
+
+**Mecanismo, y no es un fallo:** la pasada de coherencia interseca contra la **unión** de
+los owners de los vecinos (`unionOwnersOf`), y la unión de dos singletons tiene dos
+elementos. Las tablas **agregan sobre vecinos**: son arco-consistencia por los enlaces
+padre/hijo, no las filas de la red.
+
+**Consecuencia.** Las restricciones crudas del mapa sí son 0/1/all (`MapReqs`, se
+mantiene) y los soportes todo-o-uno sí tienen Helly (`ZeroOneAll`, se mantiene). Lo que no
+se sostiene es el paso que los conecta: **las tablas de la máquina no son esos soportes.**
+El hueco no era `owners ⊆ soporte`: es que 0/1/all es cerrado bajo mayoría → **anchura
+estricta 2** → pide **consistencia de caminos**, y la máquina mantiene algo más débil.
+
+**La pregunta abierta ya no es "¿vale CCJ?"** sino **"¿basta esa propagación más débil
+para este mapa concreto?"**. Dos vías: (a) reforzar la propagación a consistencia de
+caminos —cambia el algoritmo y probablemente su coste—; (b) demostrar que para *este* mapa
+la débil basta, usando estructura que CCJ no ve (requisitos hacia atrás, bloque negativo
+biyectivo, 7 nodos con 3 requisitos por cláusula). La (b) preserva la apuesta.
+
 **2026-09-08 (g) — Paso (3): el núcleo matemático (`Model/ZeroOneAll.lean`).**
 
 **Corrección a v12, y va a favor del algoritmo.** v12 decía "en una red 0/1/all la

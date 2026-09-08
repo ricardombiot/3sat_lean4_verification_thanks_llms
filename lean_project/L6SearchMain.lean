@@ -14,9 +14,9 @@ def main (args : List String) : IO UInt32 := do
   let width := (args[1]?.bind (·.toNat?)).getD 3
   let trials := (args[2]?.bind (·.toNat?)).getD 150
   IO.println s!"--- L6 falsifier: steps={steps} width={width} maps={trials} ---"
-  let (states, richest, rich, sels, bad) := L6Search.diag2 steps width trials
+  let (states, richest, rich, aoo, bad) := L6Search.diag2 steps width trials
   IO.println s!"states={states}  richest selection space={richest}  \
-states with >=8 selections={rich}  selections enumerated={sels}"
+states with >=8 selections={rich}  0/1-all: empty*1000+proper={aoo}"
   if bad == 0 then
     IO.println "No counterexample: every valid state had a complete co-owned chain. ✅"
     pure 0

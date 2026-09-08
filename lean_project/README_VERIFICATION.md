@@ -31,7 +31,8 @@ Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above).
 - [v9: De los Axiomas a los Teoremas (Claude)](./verificacion_inseguridad_autor_v9.md)
 - [v10: Lo que las pruebas dicen sobre el algoritmo (Claude)](./verificacion_inseguridad_autor_v10.md) — qué son realmente los `owners`, las tres invariantes de una cadena y por qué los rangos de las pasadas de coherencia cargan con la demostración. **Su §1 está corregida por v11.**
 - [v11: Dónde está de verdad el problema de Helly (Claude)](./verificacion_inseguridad_autor_v11.md) — corrige v10: L6 son dos enunciados (preservación y "sin zombis"), solo el segundo necesita la estructura 3SAT, y es el que sostiene la soundness de los veredictos.
-- [v12: La construcción del mapa es la respuesta (Claude)](./verificacion_inseguridad_autor_v12.md) — cada requisito pinza un nodo y calla sobre lo demás: el mapa genera una red de restricciones **0/1/all**, clase en la que la consistencia de arcos decide. Mecanismo para la mitad abierta de L6, más dos defectos de `ImportCnf`.
+- [v12: La construcción del mapa es la respuesta (Claude)](./verificacion_inseguridad_autor_v12.md) — cada requisito pinza un nodo y calla sobre lo demás: el mapa genera una red de restricciones **0/1/all**, clase en la que la consistencia de arcos decide. Mecanismo para la mitad abierta de L6, más dos defectos de `ImportCnf`. **Su ruta de tres pasos está corregida por v13.**
+- [v13: La ruta de v12 no cierra (Claude)](./verificacion_inseguridad_autor_v13.md) — los tres pasos hechos, pero las tablas `owners` agregan sobre los vecinos y no heredan la forma 0/1/all; 164 contraejemplos. Qué sí quedó demostrado y qué diana queda.
 
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*
