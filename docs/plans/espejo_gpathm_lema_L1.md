@@ -10,6 +10,48 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 — `review` preserva el soporte total (`Model/Coherence.lean`).**
+
+**Obligaciones 2 y 3 de `Review.lean`, cerradas**, y con ellas el enunciado en el que
+estaba bloqueado todo el puente:
+
+    SupportedS_review : SupportedS g → SupportedS (review g)
+
+`reviewPass = reviewSons ∘ reviewParents ∘ cleanInvalid`. `CleanInvalid.lean` hizo la
+primera etapa; este módulo hace las otras dos, las compone y corre la inducción sobre el
+fuel para llegar a `review`.
+
+**El argumento de coherencia.** `cleanInvalid` poda contra `gowners` y la cadena
+sobrevive porque todo nodo suyo es owner global. Las pasadas de coherencia podan contra
+`unionOwnersOf g (nb d)` —la unión de los owners de los *vecinos*—, así que hace falta
+otro argumento, y es `chain_mem_unionOwnersOf`:
+
+> si **algún** nodo de la cadena `sel w` está entre los vecinos, entonces **todos** los
+> nodos de la cadena están en la unión de owners de los vecinos — por co-propiedad
+> cuando `i ≠ w`, y por auto-posesión cuando `i = w`.
+
+Así que cada pasada solo necesita **un** nodo de la cadena entre los vecinos, y la cadena
+lo aporta: en la pasada descendente el predecesor `sel (k-1)` es padre (el enlace de
+`IsChain`), en la ascendente el sucesor `sel (k+1)` es hijo (`son_link` de `ChainSound`).
+Aquí es donde los dos campos de enlace de `ChainSound` se ganan el sitio, y donde lo hace
+la auto-posesión: sin ella falla el caso `i = w` y **la cadena se podaría a sí misma**.
+
+Los rangos hacen el resto. `reviewParents` recorre `1..cs-1`, exactamente donde existe
+predecesor; `reviewSons` recorre `1..cs-2`, exactamente donde existe sucesor. Ninguna
+pasada visita nunca un nodo que no pueda justificar.
+
+**Lo que todavía no da.** `SupportedG_upFiltering` de `L6Up.lean` está enunciado sobre
+`SupportedG`/`InhabitedG`, cuyos testigos son `ChainG`, no `ChainSound`. Para enchufarle
+`SupportedS_review` hay que subir `ChainG_addNode` a `ChainSound_addNode`, es decir
+demostrar que `addNode` establece los tres campos extra. Dos son inmediatos (el nodo
+nuevo se posee a sí mismo; los padres lo ganan como hijo). El tercero, `root_shape`,
+necesita un hecho estructural que el desarrollo aún no lleva: `g.map_parent ≠ none`
+cuando `current_step > 0`, porque el `parent_id` del nodo nuevo es exactamente
+`g.map_parent`. Todo `up` lo establece, así que vale para grafos alcanzables; solo hay
+que enunciarlo y enhebrarlo.
+
+**Nada de esto resultó ser el problema de Helly que temía el doc del puente.**
+
 **2026-09-07 (b) — `cleanInvalid` preserva una cadena sólida (`Model/CleanInvalid.lean`).**
 
 **Obligación 1 de `Review.lean`, cerrada.** `ChainSound_cleanInvalid`: la primera de las

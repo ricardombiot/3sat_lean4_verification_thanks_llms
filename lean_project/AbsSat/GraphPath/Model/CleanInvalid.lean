@@ -88,41 +88,55 @@ theorem removeNode_node? (g : GPathM) (id pid : PathNodeId) (n : PNodeM)
 -- The global-owners intersection preserves a sound chain
 -- ============================================================
 
-def gowMap (g : GPathM) (n : PNodeM) : PNodeM :=
-  { n with owners := intersectOwners n.owners g.gowners }
+/-- Intersect a node's owners against an arbitrary list. Both `cleanInvalid`
+(against `gowners`) and the coherence passes (against the neighbours' owners
+union) are instances. -/
+def uniMap (B : List PathNodeId) (n : PNodeM) : PNodeM :=
+  { n with owners := intersectOwners n.owners B }
+
+theorem uniMap_id (B : List PathNodeId) (n : PNodeM) : (uniMap B n).id = n.id := rfl
+
+abbrev gowMap (g : GPathM) : PNodeM → PNodeM := uniMap g.gowners
 
 theorem gowMap_id (g : GPathM) (n : PNodeM) : (gowMap g n).id = n.id := rfl
 
-/-- The step transformer `cleanInvalid` applies, seen pointwise. -/
-def gowStep (g : GPathM) (id : PathNodeId) (n : PNodeM) : PNodeM :=
-  match n.id == id with | true => gowMap g n | false => n
+/-- The step transformer, seen pointwise: only the node carrying `id` moves. -/
+def uniStep (B : List PathNodeId) (id : PathNodeId) (n : PNodeM) : PNodeM :=
+  match n.id == id with | true => uniMap B n | false => n
 
-theorem gowStep_parents (g : GPathM) (id : PathNodeId) (n : PNodeM) :
-    (gowStep g id n).parents = n.parents := by
-  simp only [gowStep]; cases n.id == id <;> rfl
+theorem uniStep_parents (B : List PathNodeId) (id : PathNodeId) (n : PNodeM) :
+    (uniStep B id n).parents = n.parents := by
+  simp only [uniStep]; cases n.id == id <;> rfl
 
-theorem gowStep_sons (g : GPathM) (id : PathNodeId) (n : PNodeM) :
-    (gowStep g id n).sons = n.sons := by
-  simp only [gowStep]; cases n.id == id <;> rfl
+theorem uniStep_sons (B : List PathNodeId) (id : PathNodeId) (n : PNodeM) :
+    (uniStep B id n).sons = n.sons := by
+  simp only [uniStep]; cases n.id == id <;> rfl
 
-/-- **The heart of it.** An owner that is also a global owner survives the
-step, whichever branch it takes. -/
-theorem mem_gowStep_owners (g : GPathM) (id : PathNodeId) (n : PNodeM) (q : PathNodeId)
-    (hq : q ∈ n.owners) (hg : q ∈ g.gowners) : q ∈ (gowStep g id n).owners := by
-  simp only [gowStep]
-  cases n.id == id
+/-- **The heart of it.** An owner that also belongs to the list being
+intersected against survives the step, whichever branch it takes. -/
+theorem mem_uniStep_owners (B : List PathNodeId) (id : PathNodeId) (n : PNodeM)
+    (q : PathNodeId) (hq : q ∈ n.owners) (hB : n.id = id → q ∈ B) :
+    q ∈ (uniStep B id n).owners := by
+  simp only [uniStep]
+  split
+  · next hb => exact mem_intersectOwners_of_mem _ _ q hq (hB (eq_of_beq hb))
   · exact hq
-  · exact mem_intersectOwners_of_mem _ _ q hq hg
 
-theorem ChainSound_updateAt (g : GPathM) (id : PathNodeId) (sel : Int → PathNodeId)
-    (h : ChainSound g sel) : ChainSound (updateAt g id (gowMap g)) sel := by
+/-- A sound chain survives an owners intersection at a single node, provided
+that — when the touched node *is* on the chain — the whole chain lies inside
+the list being intersected against. -/
+theorem ChainSound_updateAt_gen (g : GPathM) (id : PathNodeId) (B : List PathNodeId)
+    (sel : Int → PathNodeId) (h : ChainSound g sel)
+    (hB : ∀ j, 0 ≤ j → j < g.current_step → sel j = id →
+      ∀ i, 0 ≤ i → i < g.current_step → sel i ∈ B) :
+    ChainSound (updateAt g id (uniMap B)) sel := by
   obtain ⟨⟨hchain, howned, hgow⟩, hself, hson, hroot⟩ := h
-  have hstep : (updateAt g id (gowMap g)).current_step = g.current_step := rfl
-  have hgowners : (updateAt g id (gowMap g)).gowners = g.gowners := rfl
+  have hstep : (updateAt g id (uniMap B)).current_step = g.current_step := rfl
+  have hgowners : (updateAt g id (uniMap B)).gowners = g.gowners := rfl
   have hnode : ∀ pid n, g.node? pid = some n →
-      (updateAt g id (gowMap g)).node? pid = some (gowStep g id n) := by
+      (updateAt g id (uniMap B)).node? pid = some (uniStep B id n) := by
     intro pid n hn
-    exact updateAt_node? g id (gowMap g) (gowMap_id g) pid n hn
+    exact updateAt_node? g id (uniMap B) (uniMap_id B) pid n hn
   refine ⟨⟨⟨?_, ?_⟩, ?_, ?_⟩, ?_, ?_, ?_⟩
   · intro k hlo hhi
     rw [hstep] at hhi
@@ -137,7 +151,7 @@ theorem ChainSound_updateAt (g : GPathM) (id : PathNodeId) (sel : Int → PathNo
     | some n =>
       rw [hn] at hlink
       rw [hnode _ n hn]
-      simpa [gowStep_parents] using hlink
+      simpa [uniStep_parents] using hlink
   · intro i j hi hj hi' hj' hne
     rw [hstep] at hi' hj'
     have hmem := howned i j hi hj hi' hj' hne
@@ -149,7 +163,8 @@ theorem ChainSound_updateAt (g : GPathM) (id : PathNodeId) (sel : Int → PathNo
     | some n =>
       rw [hn] at hown
       rw [hnode _ n hn]
-      exact mem_gowStep_owners g id n _ hown (hgow i hi hi')
+      refine mem_uniStep_owners B id n _ hown (fun hnid => ?_)
+      exact hB j hj hj' ((node?_id_eq g (sel j) n hn).symm.trans hnid) i hi hi'
   · intro k hlo hhi
     rw [hstep] at hhi
     rw [hgowners]
@@ -163,7 +178,8 @@ theorem ChainSound_updateAt (g : GPathM) (id : PathNodeId) (sel : Int → PathNo
     | some n =>
       rw [hn] at hs
       rw [hnode _ n hn]
-      exact mem_gowStep_owners g id n _ hs (hgow k hlo hhi)
+      refine mem_uniStep_owners B id n _ hs (fun hnid => ?_)
+      exact hB k hlo hhi ((node?_id_eq g (sel k) n hn).symm.trans hnid) k hlo hhi
   · intro k hlo hhi
     rw [hstep] at hhi
     have hs := hson k hlo hhi
@@ -173,8 +189,14 @@ theorem ChainSound_updateAt (g : GPathM) (id : PathNodeId) (sel : Int → PathNo
     | some n =>
       rw [hn] at hs
       rw [hnode _ n hn]
-      simpa [gowStep_sons] using hs
+      simpa [uniStep_sons] using hs
   · exact ⟨hroot.1, fun k hk hk' => hroot.2 k hk (by rw [hstep] at hk'; exact hk')⟩
+
+/-- The `cleanInvalid` instance: the chain is inside `gowners` by `ChainG`. -/
+theorem ChainSound_updateAt (g : GPathM) (id : PathNodeId) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) : ChainSound (updateAt g id (gowMap g)) sel :=
+  ChainSound_updateAt_gen g id g.gowners sel h
+    (fun _ _ _ _ i hi hi' => h.chain.2.2 i hi hi')
 
 -- ============================================================
 -- Removing a non-chain node preserves a sound chain

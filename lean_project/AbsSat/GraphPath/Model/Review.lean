@@ -51,16 +51,18 @@ is `none`).
 1. ~~The induction over `cleanInvalidGo`'s walk.~~ **Done** in
    `CleanInvalid.lean` (`ChainSound_cleanInvalid`): the first of the three
    stages of a pass preserves a sound chain.
-2. For the coherence passes: `sel i ∈ unionOwnersOf g (parents of sel j)`.
-   The argument is worked out but not formalised — it follows from pairwise
-   ownership of `i` and `j-1` when `i ≠ j-1`, and from self-ownership when
-   `i = j-1`, using that `sel (j-1)` is a parent of `sel j`.
-3. That `ChainSound`'s own extra fields survive a pass.
+2. ~~The coherence passes.~~ **Done** in `Coherence.lean`
+   (`chain_mem_unionOwnersOf`, `ChainSound_reviewPass`).
+3. ~~That `ChainSound`'s own extra fields survive a pass.~~ **Done** — it is
+   `ChainSound` that is threaded throughout, fields included.
 
-None of these is the Helly problem the bridge document feared; they are
-bookkeeping over a mutating fold. Whether that means L6 is true at this level
-of generality — the falsifier has not broken it over 1,680 states with
-arbitrary requirements — is still open.
+All three are discharged, and with them `SupportedS_review` — the statement
+this module was written around. What is left is not about `review` at all: it
+is upgrading `L6Up.lean`'s `ChainG_addNode` to a `ChainSound_addNode`, which
+needs one structural fact (`g.map_parent ≠ none` when `current_step > 0`) that
+the development does not yet carry. See `Coherence.lean`'s docstring.
+
+None of this turned out to be the Helly problem the bridge document feared.
 -/
 
 namespace AbsSat.GraphPath.Model
