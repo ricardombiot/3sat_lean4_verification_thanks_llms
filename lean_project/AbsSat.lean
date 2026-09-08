@@ -11,6 +11,7 @@ import AbsSat.Utils.ExhaustiveSolver
 import AbsSat.Utils.Checker
 import AbsSat.Db.Machine.Cols.ColTimeline
 import AbsSat.Db.Map.Cols.MapColVars
+import AbsSat.GraphMap.MapReqs
 import AbsSat.Utils.Alias
 import AbsSat.Db.Path.Cols.PathColNodes
 import AbsSat.Db.Path.Docs.PathDocNode

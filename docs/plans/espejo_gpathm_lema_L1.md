@@ -10,6 +10,40 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (e) — Formalizado: la construcción del mapa solo genera 0/1/all
+(`AbsSat/GraphMap/MapReqs.lean`).**
+
+`Functional rs` := **como mucho un requisito por paso**. Es decir: para cualquier nodo y
+cualquier paso, los nodos compatibles de ese paso son *todos* (sin requisito) o
+*exactamente uno* (con requisito). Eso es 0/1/all. **Y es, literalmente, la hipótesis
+`hreqs_distinct` de `Reachable.up`** — así que demostrarlo del mapa es descargar esa
+hipótesis desde el lado del mapa, parte de lo que debe la fase L7.
+
+**No hizo falta espejo puro.** `MapDocNode` y `MapColLines` ya son puros; el único `IO`
+de la construcción es `register_var!`, que escribe la tabla de nombres de variable y no
+toca ningún nodo. Y `add_require!` se llama en **exactamente cinco sitios** en todo el
+código —dos en `add_var!`, tres en `add_gate_case!`—, uno a uno con el Julia original:
+
+    GraphMap.lean:81,87        graph_map.jl:86,91
+    GraphMap.lean:143,144,145  graph_map.jl:156,157,158
+
+Así que `addVar_negBlock_ok` y `addGateCase_ok` **cubren todos los conjuntos de requisitos
+que la construcción puede producir**. Nada más añade requisitos: `link_nodes!` solo toca
+padres e hijos (`add_parent_requires`, `add_son_requires`).
+
+**La hipótesis de la cláusula es real, no burocrática.** `addGateCase_ok` pide los tres
+pasos de literal distintos dos a dos. Dos literales caen en el mismo paso si y solo si
+son la misma variable con la misma polaridad, así que la hipótesis es *no repetir literal
+dentro de una cláusula*. `ImportCnf` ni normaliza ni rechaza, y
+`repeated_literal_not_functional` exhibe el fallo.
+
+**Cierre de axiomas.** Este módulo es el primero que razona sobre pertenencia en
+`Std.HashSet`, y `Std.HashSet.mem_insert` es él mismo `[propext, Classical.choice,
+Quot.sound]` en Std. Es dependencia de Std, no axioma de proyecto — y **retro-justifica
+la decisión §6.1 del plan** de construir el espejo `GPathM` sobre `List` y no sobre
+`HashMap`: esa elección es lo que mantiene los cierres del espejo en `[propext,
+Quot.sound]`.
+
 **2026-09-08 (d) — La construcción del mapa da el mecanismo de "sin zombis" (v12).**
 
 Leyendo `GraphMap.lean` / `ImportCnf.lean`: **cada requisito fija exactamente un nodo en
