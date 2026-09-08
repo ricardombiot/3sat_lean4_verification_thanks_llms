@@ -22,3 +22,7 @@ root = "DiffMain"
 [[lean_exe]]
 name = "l6search"
 root = "L6SearchMain"
+
+[[lean_exe]]
+name = "width"
+root = "WidthMain"
