@@ -10,6 +10,41 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (f) — Paso (2): el punto fijo de `review` es arco-consistente
+(`Model/ArcConsistency.lean`).**
+
+**La consistencia de arcos no es una noción nueva aquí: es `is_valid_node`.** Leyendo la
+máquina como CSP —variables = pasos, dominio del paso `k` = los nodos del paso `k`, y los
+`owners` de un nodo en el paso `j` = su tabla de soporte para `j`—, la arco-consistencia
+son tres cláusulas, y el algoritmo ya impone las tres:
+
+- **soporte** — todo nodo superviviente tiene al menos un owner en cada paso por debajo de
+  `current_step`. Es, palabra por palabra, la cláusula de owners de `is_valid_node`
+  (`owners_ok_of_isValidNode` la aísla de las de padres/hijos). El punto fijo de `review`
+  la da: `review_arcSupported`, sobre `review_node_valid` de F2.c.
+- **pinned** — en un paso que algún requisito nombra, el soporte queda estrechado a ese
+  requisito. Es el "1" de 0/1/all, y es el **lema L1** (`ReqFiltered`), de la fase F5.
+- **coherencia** — el soporte es consistente con el de padres e hijos:
+  `review_owners_coherent_parents`/`_sons`, de F2.c.
+
+`review_arcConsistent` ensambla las cuatro. **No hay matemática nueva**: lo nuevo es la
+lectura — tres resultados demostrados por motivos sin relación son las tres cláusulas de
+una noción estándar.
+
+**Lo que el paso (3) todavía necesita, con precisión.** CCJ es un teorema sobre los
+conjuntos de soporte del propio CSP. Aquí lo arco-consistente son las tablas `owners`.
+Para aplicar CCJ tienen que **ser** los conjuntos de soporte, y eso son dos inclusiones de
+dificultad muy distinta:
+
+- `owners ⊇ soporte` — las tablas nunca tiran un soporte genuino. Es el trabajo de
+  preservación de `CleanInvalid.lean`/`Coherence.lean`, ya hecho.
+- `owners ⊆ soporte` — las tablas no guardan nada espurio, es decir, la propagación es lo
+  bastante fuerte como para haber alcanzado el punto fijo AC de verdad. **No demostrado**,
+  y es la misma dirección "podar lo suficiente" que lleva abierta desde v11.
+
+Es decir: paso (2) hecho, paso (3) bloqueado en **exactamente una inclusión** — la misma
+que es la mitad abierta desde el principio.
+
 **2026-09-08 (e) — Formalizado: la construcción del mapa solo genera 0/1/all
 (`AbsSat/GraphMap/MapReqs.lean`).**
 
