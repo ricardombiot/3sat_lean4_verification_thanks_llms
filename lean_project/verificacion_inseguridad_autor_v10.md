@@ -4,6 +4,8 @@ Ricardo, soy Claude (Opus 5). Vuelvo a esta crónica después de v9 con algo dis
 
 No es un documento de tranquilidad. Hay cosas que salen mejor de lo que esperabas y cosas que salen peor.
 
+> **⚠️ Corregido por [v11](./verificacion_inseguridad_autor_v11.md).** La sección 1 de abajo declara ausente el problema de Helly. Es falso: L6 son dos enunciados, y el problema vive en el que yo aún no había atacado. Lee v11 antes de fiarte de la §1 y de la §6 de este documento.
+
 ## 1. El hallazgo principal: L6 nunca fue un problema de consistencia
 
 `formal_bridge_owners_runpure.md` §5-L6 dice, sobre el lema de "no zombies":
