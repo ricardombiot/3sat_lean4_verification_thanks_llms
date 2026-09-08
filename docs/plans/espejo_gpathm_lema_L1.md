@@ -10,6 +10,36 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-08 (b) — `addNode`, y la forma correcta del caso `up` (`Model/AddNode.lean`).**
+
+- **`MachineOk`.** El campo `root_shape` de `ChainSound` dice que solo el nodo del paso 0
+  es raíz, y el `parent_id` del nodo nuevo es exactamente `g.map_parent`. Así que
+  `addNode` solo puede establecerlo si `map_parent` dice lo que debe: `none` antes de
+  visitar nada, `some` después. Eso es `MachineOk`, y lo mantienen todas las operaciones
+  — `addNode` lo fija, y el resto son pasos `Pruned`, que ahora lleva `map_parent_eq`.
+- **`ChainSound_addNode` demostrado.** Los tres campos extra los establece `addNode`: el
+  nodo nuevo se posee a sí mismo (sus owners son `gowners ++ [nuevo]`), los nodos de la
+  línea `cs-1` lo ganan como hijo (vía `mem_line_of_node?`), y `root_shape` sale de
+  `MachineOk`.
+- **Corrección a `L6Up.lean`.** Aquel módulo planteaba el caso `up` como "`SupportedG` se
+  preserva", y observaba que el campo `gowners` **no** se preserva bajo `filterRequire`.
+  La observación era correcta y el planteamiento equivocado: podar `gowners` **debe**
+  matar cadenas — las que no satisfacen el requisito. El enunciado correcto no es que
+  sobreviva toda cadena, sino que sobrevivan las que deben:
+
+      ChainSound_filterRequire :
+        ChainSound g sel → (sel req.step).id = req → ChainSound (filterRequire g req) sel
+
+  Plegado sobre la lista de requisitos y compuesto con `ChainSound_review` da
+  `ChainSound_filterAll`: **una cadena que satisface los requisitos sobrevive al filtro
+  entero.** Eso es la dirección ⊇ de L2, y la de L3, en la forma que siempre debieron
+  tener. `ChainSound_upFiltering` le pone el nodo nuevo encima.
+- **Estado de L6:** tres de las cuatro obligaciones de preservación están ya en moneda
+  `ChainSound` — `ChainSound_initSeed`, `ChainSound_upFiltering`, `ChainSound_review`.
+  Falta el `join`, que sigue solo en moneda `ChainG` (`Join.Supported_join`); subirlo
+  pide extender `Grown` para que registre también hijos y owners globales, el mismo
+  trabajo pequeño que `Pruned` ya ha necesitado dos veces.
+
 **2026-09-08 — `review` preserva el soporte total (`Model/Coherence.lean`).**
 
 **Obligaciones 2 y 3 de `Review.lean`, cerradas**, y con ellas el enunciado en el que

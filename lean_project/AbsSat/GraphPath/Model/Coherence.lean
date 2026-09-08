@@ -37,16 +37,9 @@ justify.
 
 ## What this does not yet give
 
-`L6Up.lean`'s `SupportedG_upFiltering` is stated over `SupportedG` /
-`InhabitedG`, whose witnesses are `ChainG`, not `ChainSound`. Feeding
-`SupportedS_review` into it needs `ChainG_addNode` upgraded to a
-`ChainSound_addNode` — that is, `addNode` must be shown to establish the three
-extra fields. Two of them are immediate (the new node owns itself, and the
-parents gain it as a son). The third, `root_shape`, needs one structural fact
-this development does not yet carry: `g.map_parent ≠ none` whenever
-`current_step > 0`, since the new node's `parent_id` is exactly `g.map_parent`.
-Every `up` sets it, so it holds for reachable graphs; it just has to be
-stated and threaded.
+Feeding `SupportedS_review` into the `up` case needs `addNode` in the same
+currency. That is `AddNode.lean` (`ChainSound_addNode`), which also carries
+the structural fact `root_shape` needs (`MachineOk`).
 -/
 
 namespace AbsSat.GraphPath.Model

@@ -37,4 +37,5 @@ import AbsSat.GraphPath.Model.L6Up
 import AbsSat.GraphPath.Model.Review
 import AbsSat.GraphPath.Model.CleanInvalid
 import AbsSat.GraphPath.Model.Coherence
+import AbsSat.GraphPath.Model.AddNode
 import AbsSat.GraphPath.Model.L6Search

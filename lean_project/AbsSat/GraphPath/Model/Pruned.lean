@@ -24,6 +24,7 @@ open AbsSat.Utils.Alias
 
 structure Pruned (g g' : GPathM) : Prop where
   step_eq : g'.current_step = g.current_step
+  map_parent_eq : g'.map_parent = g.map_parent
   gowners_sub : ∀ q ∈ g'.gowners, q ∈ g.gowners
   nodes_derived : ∀ n' ∈ g'.nodes, ∃ n ∈ g.nodes, n'.id = n.id ∧
     (∀ q ∈ n'.owners, q ∈ n.owners) ∧ (∀ p ∈ n'.parents, p ∈ n.parents)
@@ -32,12 +33,14 @@ namespace Pruned
 
 protected theorem refl (g : GPathM) : Pruned g g where
   step_eq := rfl
+  map_parent_eq := rfl
   gowners_sub _ hq := hq
   nodes_derived n hn := ⟨n, hn, rfl, fun _ hq => hq, fun _ hp => hp⟩
 
 protected theorem trans {g₁ g₂ g₃ : GPathM} (h₁₂ : Pruned g₁ g₂) (h₂₃ : Pruned g₂ g₃) :
     Pruned g₁ g₃ where
   step_eq := h₂₃.step_eq.trans h₁₂.step_eq
+  map_parent_eq := h₂₃.map_parent_eq.trans h₁₂.map_parent_eq
   gowners_sub q hq := h₁₂.gowners_sub q (h₂₃.gowners_sub q hq)
   nodes_derived n₃ hn₃ := by
     obtain ⟨n₂, hn₂, hid₂, hown₂, hpar₂⟩ := h₂₃.nodes_derived n₃ hn₃
@@ -72,6 +75,7 @@ theorem pruned_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
     (hpar : ∀ n, ∀ p ∈ (f n).parents, p ∈ n.parents) :
     Pruned g (updateAt g id f) where
   step_eq := rfl
+  map_parent_eq := rfl
   gowners_sub _ hq := hq
   nodes_derived n' hn' := by
     simp only [updateAt, updateAtGo] at hn'
@@ -83,6 +87,7 @@ theorem pruned_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
 theorem pruned_removeNode (g : GPathM) (id : PathNodeId) :
     Pruned g (removeNode g id) where
   step_eq := rfl
+  map_parent_eq := rfl
   gowners_sub _ hq := (List.mem_filter.mp hq).1
   nodes_derived n' hn' := by
     dsimp only [removeNode] at hn'
@@ -94,6 +99,7 @@ theorem pruned_removeNode (g : GPathM) (id : PathNodeId) :
 theorem pruned_filterRequire (g : GPathM) (req : NodeId) :
     Pruned g (filterRequire g req) where
   step_eq := rfl
+  map_parent_eq := rfl
   gowners_sub _ hq := (List.mem_filter.mp hq).1
   nodes_derived n hn := ⟨n, hn, rfl, fun _ hq => hq, fun _ hp => hp⟩
 

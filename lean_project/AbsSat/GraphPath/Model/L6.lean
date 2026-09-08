@@ -64,13 +64,13 @@ def Supported (g : GPathM) : Prop :=
 /-- The other half of L6: a valid graph denotes something. -/
 def Inhabited (g : GPathM) : Prop := ∃ p, denot g p
 
-private theorem initSeed_nodes (d : NodeId) (title : String) :
+theorem initSeed_nodes (d : NodeId) (title : String) :
     (GPathM.initSeed d title).nodes =
       [PNodeM.mk { id := d, parent_id := none } title [] [] [{ id := d, parent_id := none }]] := by
   unfold GPathM.initSeed GPathM.up GPathM.addNode
   simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
 
-private theorem initSeed_current (d : NodeId) (title : String) :
+theorem initSeed_current (d : NodeId) (title : String) :
     (GPathM.initSeed d title).current_step = 1 := by
   unfold GPathM.initSeed GPathM.up GPathM.addNode
   simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
