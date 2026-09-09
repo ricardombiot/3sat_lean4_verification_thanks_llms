@@ -22,9 +22,9 @@ nodo concreto en la lista de owners. Ese es todo el hueco de la mitad pinzada.
 el id de mapa (L1 los pinza a `req`; la cadena req-satisfactoria elige `req`). Solo puede
 diferir el padre.
 
-**Medido — `lake exe extend --randompinned`, 60 instancias:** **466.889** pares
-(nodo, requisito); **45.086** (9,7 %) con dos `PathNodeId` distintos en el paso pinzado;
-**el conjunto más ancho visto es 2, nunca tres.** El conjunto de owners en un paso pinzado es
+**Medido — `lake exe extend --randompinned`, dos semillas (160 instancias):** semilla 2026 →
+466.889 pares, 45.086 (9,7 %) con dos; semilla 90210 → 1.188.019 pares, 121.983 (10,3 %) con
+dos. **Total 1.654.908 pares; el conjunto más ancho visto es 2, nunca tres.** El conjunto de owners en un paso pinzado es
 a lo sumo un par `{⟨req, p₁⟩, ⟨req, p₂⟩}` — el mismo nodo de mapa desde dos padres.
 Registrado como `MapChain.PinnedWidthTwo` (medido, no demostrado).
 

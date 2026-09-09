@@ -159,9 +159,10 @@ list. That is the whole residual gap for the pinned half of
 names, *every* owner of `sel j` there agrees with the chain's own pick on the
 map id. So the only thing that can differ is the parent.
 
-**Measured** (`lake exe extend --randompinned`, 60 instances): over 466,889
-(node, requirement) pairs, 45,086 have two distinct owner `PathNodeId`s at the
-required step — and the widest such set seen is **2**. Never three.
+**Measured** (`lake exe extend --randompinned`, two independent seeds, 160
+instances): over **1,654,908** (node, requirement) pairs, 167,069 have two
+distinct owner `PathNodeId`s at the required step — and the widest such set
+seen is **2**. Never three.
 
 So the gap is not an unbounded search. At a pinned step the owner set is at
 most a pair `{⟨req, p₁⟩, ⟨req, p₂⟩}`, and what is missing is that the chain
@@ -189,7 +190,7 @@ theorem owner_at_req_shares_mapid (g : GPathM) (hrf : ReqFiltered reqOf g)
 
 /-- **The residual gap, named.** At a step some requirement names, a node's
 owners hold at most two distinct path nodes. Measured — widest set seen is 2
-over 466,889 (node, requirement) pairs — not proved. With
+over 1,654,908 (node, requirement) pairs across two seeds — not proved. With
 `owner_at_req_shares_mapid`, those two can only differ in `parent_id`. -/
 def PinnedWidthTwo (g : GPathM) : Prop :=
   ∀ pid n, g.node? pid = some n → ∀ req ∈ reqOf pid.id,

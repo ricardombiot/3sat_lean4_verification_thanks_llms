@@ -27,15 +27,15 @@ Tu L1 pinza el id de mapa de los owners a `req`; la cadena req-satisfactoria eli
 
 ## 3. Lo que se mide: el hueco es de factor dos
 
-Campaña de 60 instancias:
+Dos campañas, semillas independientes:
 
-| | |
-|---|---|
-| pares (nodo, requisito) examinados | **466.889** |
-| con **2** `PathNodeId` distintos en el paso pinzado | 45.086 (9,7 %) |
-| **conjunto de owners más ancho visto en un paso pinzado** | **2** |
+| campaña | pares (nodo, requisito) | con 2 `PathNodeId` distintos | **ancho máximo** |
+|---|---|---|---|
+| semilla 2026, 3–9 vars, 60 inst. | 466.889 | 45.086 (9,7 %) | **2** |
+| semilla 90210, 3–10 vars, 100 inst. | **1.188.019** | 121.983 (10,3 %) | **2** |
+| **total** | **1.654.908** | 167.069 | **2** |
 
-**Nunca tres.** El conjunto de owners en un paso pinzado es, a lo sumo, un par `{⟨req, p₁⟩, ⟨req, p₂⟩}` — el mismo nodo de mapa alcanzado desde dos padres distintos.
+**Nunca tres, en 1,65 millones de pares.** El conjunto de owners en un paso pinzado es, a lo sumo, un par `{⟨req, p₁⟩, ⟨req, p₂⟩}` — el mismo nodo de mapa alcanzado desde dos padres distintos.
 
 Así que lo que falta no es una búsqueda sin cota. Es que la cadena elija **el de los dos que está ahí**.
 
@@ -77,7 +77,7 @@ ChainSound
   ⟸ self_owned       demostrado (v30)
   ⟸ PairwiseOwned
        ⟸ requisitos ⟹ id de mapa correcto          demostrado (v33)
-       + el hueco: elegir entre ≤ 2 path-nodes      medido, ancho máximo 2
+       + el hueco: elegir entre ≤ 2 path-nodes      medido, 1.654.908 pares, ancho máx 2
   + ∃ camino req-satisfactorio en cada estado válido
                                                     medido, 0 sin camino
 ```
