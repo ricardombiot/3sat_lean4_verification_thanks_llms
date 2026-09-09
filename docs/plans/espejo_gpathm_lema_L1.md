@@ -10,6 +10,43 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (m) — `PairwiseOwned`: la vía barata, refutada con coste demostrado.**
+
+**Por qué esta es distinta.** Todas las obligaciones cerradas hasta ahora eran **locales**
+(propiedad de un nodo o de una operación, preservada paso a paso: `GownersAreNodes`,
+`MachineOk`, `PN`, `PBelow`, `NotRoot`). `PairwiseOwned` es una propiedad de una **selección
+global**; no hay inducción sobre operaciones que la dé. Así que primero se midió.
+
+**`lake exe extend --owners`,** sobre cada estado válido que la máquina sostiene:
+
+| propiedad | violaciones |
+|---|---|
+| simetría de la posesión | **0** |
+| `nodes ⊆ gowners` | **0** |
+| auto-posesión | **0** |
+| **clique del soporte** | **418.366** solo en la transición de fase |
+
+**El coste de la refutación, demostrado.** `Model/Ownership.lean`:
+`SupportClique_gives_PairwiseOwned` — si el soporte de un nodo fuera un clique, cualquier
+cadena sacada de ese soporte estaría co-poseída **gratis**; y (l) ya construye caminos. Las
+dos juntas habrían cerrado `ChainSound`. El clique falla por cuatro órdenes de magnitud.
+
+**Y eso es la Helly en el vocabulario de la máquina:** dos nodos pueden ser ambos compatibles
+con `t` e incompatibles entre sí. Explica por qué (h) anchura, (i) hipergrafo y (l)
+`Extendable` se quedaban cortas: todas intentaban sacar información global de información
+por pares, y la medición dice que la información por pares no la contiene.
+
+**Dianas demostrables que quedan:** `SelfOwned` (con `self_owned_of_SelfOwned` ya demostrado,
+cierra directamente una de las tres condiciones que faltan de `ChainSound`),
+`OwnersSymmetric` y `NodesAreGowners` — las tres con 0 violaciones y del tipo que sí se sabe
+demostrar (idioma de (j) y (l)). No hechas en este turno.
+
+**Lo que no se afirma:** `PairwiseOwned` no está demostrado y no parece salir de más
+invariantes estructurales. Lo que queda ahí es matemática sobre la red de restricciones que
+genera el mapa, no fontanería sobre el grafo.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v28.md`.
+
 **2026-09-09 (l) — `IsChain` demostrado. `PairwiseOwned` queda aislado.**
 
 **`Model/Parents.lean` — tres invariantes de forma.**

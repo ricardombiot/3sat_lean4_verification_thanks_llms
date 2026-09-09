@@ -458,4 +458,116 @@ PickValid violations={bad}; no-choice endpoints verified={good} unverified={ungo
     IO.println s!"{failures} instance(s) break an A' obligation. ❌"
     pure 1
 
+-- ============================================================
+-- Probing the ownership relation itself (route to `PairwiseOwned`)
+-- ============================================================
+
+/-!
+`PairwiseOwned` is the last piece of `ChainSound` that is not plumbing. Two
+natural shortcuts to it are worth measuring before either is attempted:
+
+* **symmetry** — if `q` is an owner of `n`, is `n` an owner of `q`?
+* **support clique** — are the owners of a single node pairwise co-owned? If
+  they were, a chain could be drawn from one node's support and would be
+  co-owned for free.
+
+The second is the one that would close it cheaply. The first is a lemma worth
+having either way.
+-/
+
+/-- Pairs `(n, q)` with `q` an owner of `n` (and a real node) but `n` not an
+owner of `q`. -/
+def symViolations (g : GPathM) : Nat :=
+  g.nodes.foldl (fun acc n =>
+    acc + (n.owners.filter (fun q =>
+      match g.node? q with
+      | some m => !m.owners.contains n.id
+      | none => false)).length) 0
+
+/-- Owners of one node, at distinct steps, that do not own each other. Zero
+would mean a node's support is a clique — and `PairwiseOwned` would follow for
+any chain drawn from it. -/
+def cliqueViolations (g : GPathM) : Nat :=
+  g.nodes.foldl (fun acc t =>
+    acc + t.owners.foldl (fun a q1 =>
+      a + (t.owners.filter (fun q2 =>
+        (q1.id.step != q2.id.step) &&
+        (match g.node? q2 with
+         | some m => !m.owners.contains q1
+         | none => false))).length) 0) 0
+
+/-- Nodes whose own id is not a global owner. The converse of
+`GownersNodes.GownersAreNodes`; `filterRequire` breaks it and `review` is
+supposed to restore it. -/
+def nodesNotGowners (g : GPathM) : Nat :=
+  (g.nodes.filter (fun n => !g.gowners.contains n.id)).length
+
+/-- Nodes that do not own themselves. -/
+def notSelfOwned (g : GPathM) : Nat :=
+  (g.nodes.filter (fun n => !n.owners.contains n.id)).length
+
+/-- `(states, nodes, symmetry, clique, nodes∉gowners, not self-owned)`. -/
+abbrev OAcc := Nat × Nat × Nat × Nat × Nat × Nat
+
+partial def walkOwners (gmap : GMap) (line : MirrorLine) (fuel : Nat)
+    (acc : OAcc) : OAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : OAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        (a.1 + 1, a.2.1 + g.nodes.length,
+         a.2.2.1 + symViolations g, a.2.2.2.1 + cliqueViolations g,
+         a.2.2.2.2.1 + nodesNotGowners g, a.2.2.2.2.2 + notSelfOwned g)) acc
+    walkOwners gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def reportOwners (path : String) : IO Unit := do
+  let gmap ← load_import! path
+  let (states, nodes, sym, clique, ng, nso) :=
+    walkOwners gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0, 0)
+  IO.println s!"{path}"
+  IO.println s!"  valid states={states}  nodes={nodes}"
+  IO.println s!"  ownership symmetry violations = {sym}"
+  IO.println s!"  support-clique violations     = {clique}"
+  IO.println s!"  nodes whose id is not a gowner = {ng}"
+  IO.println s!"  nodes not owning themselves    = {nso}"
+
+def runRandomOwners (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- ownership relation: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut states := 0
+  let mut nodes := 0
+  let mut sym := 0
+  let mut clique := 0
+  let mut symCases := 0
+  let mut cliqueCases := 0
+  let mut ng := 0
+  let mut nso := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let (st, nd, sy, cl, g1, g2) := walkOwners gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0, 0)
+    states := states + st; nodes := nodes + nd
+    sym := sym + sy; clique := clique + cl
+    ng := ng + g1; nso := nso + g2
+    if sy != 0 then symCases := symCases + 1
+    if cl != 0 then cliqueCases := cliqueCases + 1
+  IO.println s!"--- states={states} nodes={nodes} ---"
+  IO.println s!"--- symmetry: {sym} violations in {symCases}/{cases} instances ---"
+  IO.println s!"--- support clique: {clique} violations in {cliqueCases}/{cases} instances ---"
+  IO.println s!"--- nodes not gowners: {ng};  nodes not self-owning: {nso} ---"
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch
