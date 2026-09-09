@@ -48,10 +48,10 @@ narrowing direction, already proved in `Filter.lean`.
       ⟸ isValid_removeNode_of_other   one pass reduces to one node removal
 
 so what is still owed is: **no removal the review makes is the last global
-owner of its step.** And `not_isValid_removeNode_of_only` records the limit of
-this route — the review *must* be able to invalidate, because that is how the
-machine reports UNSAT, so the obligation cannot be discharged by making
-removals impossible.
+owner of its step** — in the regime where the graph is already valid, which is
+the only regime `PickValid` speaks about. `not_isValid_removeNode_of_only`
+records the exact shape of that failure. UNSAT lives elsewhere, in the
+construction; see `Certifies.lean`.
 -/
 
 namespace AbsSat.GraphPath.Model.PickInduction
@@ -343,11 +343,22 @@ theorem isValid_removeNode_of_other (g : GPathM) (id : PathNodeId)
   rw [removeNode_gowners]
   exact List.mem_filter.mpr ⟨hq, bne_iff_ne.mpr hne⟩
 
-/-- Conversely, a removal that leaves a step with no owner is exactly a
-verdict of UNSAT at that step. Stated so the two directions sit together: the
-review *must* be able to invalidate — that is how the machine reports UNSAT —
-so `PickValid` cannot be proved by making removals impossible. It has to say
-that *these particular* removals never strip a step bare. -/
+/-- Conversely, a removal that leaves a step with no owner invalidates the
+graph. Stated so the two directions sit together — but read it in the right
+regime.
+
+**Correction (author, 2026-09-09).** An earlier version of this docstring said
+the review "must be able to invalidate, since that is how the machine reports
+UNSAT", and used that to argue `PickValid` cannot be discharged by ruling
+removals out. The verdict half is right but it belongs to a different regime:
+UNSAT is decided by `upFiltering` **while the graph is being built**, and an
+unsatisfiable formula never yields a valid set at all. The picks `PickValid`
+quantifies over happen on a graph that is *already* valid — the regime the
+Reader works in — and there an invalidation is not a verdict, it is an
+invariant violation. See `Certifies.lean`.
+
+So what this lemma marks is not "some removals are legitimate verdicts" but
+the exact shape of the failure to rule out: a step stripped bare. -/
 theorem not_isValid_removeNode_of_only (g : GPathM) (id : PathNodeId) (k : Int)
     (hlo : 0 ≤ k) (hhi : k < g.current_step)
     (h : ∀ q ∈ g.gowners, q.id.step = k → q = id) :

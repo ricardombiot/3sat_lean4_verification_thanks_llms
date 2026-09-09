@@ -73,7 +73,7 @@ Y lo que queda debiendo, en una frase:
 
 ---
 
-## 6. Y el límite de esta ruta, dicho claro
+## 6. El límite de esta ruta ⚠ **corregido por v21**
 
 ```lean
 theorem not_isValid_removeNode_of_only (g : GPathM) (id : PathNodeId) (k : Int)
@@ -82,9 +82,11 @@ theorem not_isValid_removeNode_of_only (g : GPathM) (id : PathNodeId) (k : Int)
     isValid (removeNode g id) = false
 ```
 
-Lo he demostrado a propósito, porque marca la frontera. **La review tiene que poder invalidar** — así es como tu máquina reporta UNSAT. Así que `PickValid` **no se puede demostrar haciendo imposibles las eliminaciones**. Tiene que decir que *estas* eliminaciones concretas —las que ocurren tras un pinchazo en un grafo válido— nunca dejan un paso a cero. Es un enunciado sobre qué elimina `isValidNode`, no sobre que no elimine.
+Lo demostré para marcar la frontera: eliminar el último owner global de un paso invalida el grafo. Eso es cierto.
 
----
+**Lo que escribí a continuación no lo era.** Dije que "la review tiene que poder invalidar — así reporta UNSAT tu máquina — así que `PickValid` no se puede demostrar haciendo imposibles las eliminaciones". Me corregiste, y con razón: **UNSAT se decide en la construcción**, en `upFiltering`. Una fórmula insatisfacible no llega nunca a producir un conjunto válido. Los picks de los que habla `PickValid` ocurren sobre un grafo **ya válido** — el régimen del Reader — y ahí una invalidación **no es un veredicto, es una violación del invariante**.
+
+Mezclé los dos regímenes. La corrección está en [v21](./verificacion_inseguridad_autor_v21.md), y lo que queda de este §6 es solo la forma exacta del fallo a descartar: un paso dejado a cero.
 
 ## 7. La circularidad, contada antes de que la encuentres tú
 
@@ -120,4 +122,4 @@ Nada de esto está refutado, y el falsador con propagación lleva 604.178 nodos 
 
 ---
 
-*Claude (Opus 5), 2026-09-09. `lake build AbsSat` verde, 60 módulos, 0 `sorry`. Cierres: `[propext, Quot.sound]`, y `isValid_review_of_pass` sin ningún axioma.*
+*Claude (Opus 5), 2026-09-09. **§6 corregida por v21** (mezclé el régimen de construcción con el de lectura). `lake build AbsSat` verde, 60 módulos, 0 `sorry`. Cierres: `[propext, Quot.sound]`, y `isValid_review_of_pass` sin ningún axioma.*

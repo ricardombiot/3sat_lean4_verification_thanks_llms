@@ -10,6 +10,48 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (f) — Corrección del autor sobre el régimen, y el invariante enunciado en la construcción.**
+
+**Corrección aceptada.** En v20 §6 escribí que "la review tiene que poder invalidar — así
+reporta UNSAT la máquina". Eso mezcla dos regímenes. El autor:
+
+> Si la máquina obtiene un conjunto válido tras toda la construcción con revisiones, es
+> porque hay al menos un certificado que el Reader podrá leer. UNSAT se filtra **antes** de
+> llegar al Reader: la máquina directamente no puede construir un conjunto solución. El
+> `filter` durante la lectura está porque al seleccionar un nodo válido se filtran **otros**
+> caminos válidos, los que ese nodo no necesita.
+
+Es decir: la invalidación **es** el veredicto en `upFiltering` (construcción), y **sería una
+violación del invariante** en la lectura. v20 §6 retirada y marcada; docstring de
+`not_isValid_removeNode_of_only` corregida.
+
+**`Model/Certifies.lean` — el invariante donde va.**
+
+    def Certifies : Prop := ∀ g, Reachable reqOf g → isValid g = true → Inhabited g
+
+Inducción sobre `Reachable`, con el ledger:
+
+| caso | estado |
+|---|---|
+| `seed` | **demostrado** (`Inhabited_initSeed`) — la semilla tiene un nodo y es su propia cadena |
+| `join` | **demostrado** (`Inhabited_join`) — `okJoin` ya exige `isValid` de ambas ramas, y join solo crece |
+| `up` | `UpCertifies`, la obligación |
+
+Lemas de apoyo, ambos del diseño del propio código:
+
+- `isValid_of_pruned` — la validez solo baja al podar; quitar owners globales nunca hace
+  válido lo que no lo era.
+- `isValid_of_upFiltering` — **un `upFiltering` válido solo pudo venir de un grafo válido**,
+  porque si el filtro invalida, `up` devuelve el grafo invalidado sin añadir nodo. Es lo que
+  hace usable la hipótesis de inducción.
+
+**Orden correcto de ataque, revisado:** `UpCertifies` primero (construcción), `PickValid`
+después (lectura) — no al revés, como estaba planteado. El punto (3) del autor dice además
+que el filtro del Reader **debe** quitar caminos: eso es su función. Lo único que no puede
+es quitarlos todos, y eso es consecuencia de (1) aplicado al nodo elegido.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v21.md`.
+
 **2026-09-09 (e) — `PickValid`, molida hasta una sola eliminación de nodo.**
 
 Ataque a la única obligación que dejó A′. No demostrada; reducida.
