@@ -10,6 +10,38 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (j) — `GownersAreNodes` demostrado para toda la máquina, y corrección de (i).**
+
+**Corrección de (i)/v24.** Allí escribí que `filterRequire` rompe este invariante. Falso:
+`GownersAreNodes` es **gowners ⊆ nodes**, y `filterRequire` *encoge* `gowners` sin tocar los
+nodos, luego lo preserva. Lo que rompe es la **recíproca** (`nodes ⊆ gowners`), que `review`
+limpia. Direcciones intercambiadas. Consecuencia buena: el invariante no vive solo en los
+puntos fijos, vale en todas partes.
+
+**`Model/GownersNodes.lean`**, en la forma de `Pruned.lean`. Operación por operación:
+`filterRequire` (encoge gowners), `updateAt` (no toca gowners, preserva ids), `removeNode`
+(quita owner y nodo a la vez), `cleanInvalidGo`/`cleanInvalid`, `reviewNode`/`reviewLine`/
+`reviewSteps`/`reviewPass`/`reviewFuel`/`review`, `addNode` (añade owner con su nodo),
+`up`/`upFiltering`, `join`, `initSeed`. De ahí `GN_reachable`,
+**`GownersAreNodes_reachable`** y **`GownersAreNodes_filterAll`** (esta última es la que
+importa: los intermedios filtrados son donde vive la obligación).
+
+**El corolario que hace el trabajo:** `node_at_every_step`. `isValid` dice "hay un owner
+global en cada paso"; el invariante lo convierte en **"hay un nodo en cada paso"** — justo lo
+que a `degenerate` le faltaba. La clase de contraejemplos degenerados queda eliminada.
+
+**Lo que no cierra:** que haya un nodo por paso no da que se pueda *seleccionar* uno por paso
+encadenado y co-poseído. `FilteredChain` sigue abierta. Lo que cambia es que ahora puede
+suponer que hay algo que seleccionar, y que el invariante está explícito en vez de escondido
+dentro de `Reachable`.
+
+**Nota técnica.** `hasNode_iff` casi entra con `Classical.choice` vía `List.isSome_find?` de
+Std; sustituido por inducción propia con `List.find?_cons_of_pos`/`_of_neg` **indicando el
+predicado explícitamente** (sin `(p := ...)` el elaborador unifica `p := BEq.beq a.id` y
+falla). Cazado por los `#guard_msgs`.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v25.md`.
+
 **2026-09-09 (i) — `ArcImpliesChain` REFUTADO. Error propio de la entrada (h).**
 
 **El error.** En (h)/v23 celebré que la obligación final ya no contuviera `Reachable`. Quitar

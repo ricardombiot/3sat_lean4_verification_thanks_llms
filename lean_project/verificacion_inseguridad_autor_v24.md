@@ -88,7 +88,7 @@ theorem GownersAreNodes_initSeed (d : NodeId) (title : String) :
     GownersAreNodes (GPathM.initSeed d title)
 ```
 
-Y hay un detalle que conviene anotar antes de seguir por ahí: **`filterRequire` rompe temporalmente este invariante**. Quita owners globales sin quitar los nodos que los llevan. Es `review` quien lo restaura, eliminando esos nodos. Así que el invariante vale en los puntos fijos, no en los intermedios — que es justo la clase sobre la que hay que enunciarlo.
+⚠ **Corregido por v25.** Escribí aquí que `filterRequire` rompe temporalmente este invariante. **Es falso, y me equivoqué de dirección.** `filterRequire` *encoge* `gowners` y deja los nodos intactos, así que `gowners ⊆ nodes` lo atraviesa sin despeinarse. Lo que `filterRequire` rompe es la **recíproca** — nodos cuyo id ya no es owner global —, y `review` es quien limpia esos. Con la dirección correcta, el invariante vale **en todas partes**, y en [v25](./verificacion_inseguridad_autor_v25.md) está demostrado para toda la máquina.
 
 ---
 
