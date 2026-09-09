@@ -10,6 +10,48 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (i) — `ArcImpliesChain` REFUTADO. Error propio de la entrada (h).**
+
+**El error.** En (h)/v23 celebré que la obligación final ya no contuviera `Reachable`. Quitar
+una hipótesis **no debilita** una obligación: la fortalece. Sin `Reachable` el enunciado
+tiene que valer para grafos que la máquina no puede construir.
+
+**El contraejemplo, demostrado:**
+
+    degenerate := { nodes := [], gowners := [⟨⟨0,0⟩, none⟩], current_step := 1,
+                    map_parent := none }
+
+- `degenerate_valid` : `isValid = true` (hay entrada en todos los pasos) — por cómputo.
+- `degenerate_fixpoint` : `review degenerate = degenerate` — no hay nodos que revisar.
+- `degenerate_arcConsistent` : las cuatro cláusulas de `ArcConsistent` cuantifican sobre
+  nodos, luego son vacías.
+- `degenerate_no_chain` : `IsChain` pide un nodo en el paso 0; no hay ninguno.
+
+`not_ArcImpliesChain : ¬ ArcImpliesChain reqOf`, cierre `[propext]`.
+
+**Reparación:** `ArcImpliesChainOn`, con todas las hipótesis del sitio de llamada. Y las dos
+direcciones demostradas (`FilteredChain_of_ArcImpliesChainOn`,
+`ArcImpliesChainOn_of_FilteredChain`): **son equivalentes**. Es decir, el último escalón de
+(h) no era un debilitamiento. Las hipótesis de arco-consistencia y punto fijo siguen siendo
+gratis y útiles, pero no achican la obligación.
+
+**Lo que de (h) sobrevive:** `ReqChain → FilteredChain` sí era debilitamiento estricto, y
+`arcConsistent_filterAll` / `filterAll_is_review_fixpoint` siguen demostrados. **La escalera
+de reducciones toca fondo en `FilteredChain`.**
+
+**Lo que el contraejemplo nombra:** `GownersAreNodes h : ∀ q ∈ h.gowners, (h.node? q).isSome`
+— todo owner global es un nodo. Es lo que `degenerate` viola y lo que `Reachable`
+suministraba en silencio; cualquier demostración lo necesita explícito.
+`GownersAreNodes_initSeed` hecho; `addNode` / `review` / `join` pendientes. Nota:
+`filterRequire` **rompe** este invariante temporalmente (quita owners sin quitar nodos) y
+`review` lo restaura, así que vale en los puntos fijos, no en los intermedios.
+
+**Lección de método, anotada:** quitar hipótesis parece limpieza y es lo contrario. Un
+enunciado que se ve "más elegante" por haber perdido contexto de la máquina es sospechoso.
+Lo detectó el propio método: intentar demostrarlo produjo el contraejemplo.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v24.md`.
+
 **2026-09-09 (h) — `ReqChain` debilitado tres veces: la obligación final es el enunciado clásico de CSP.**
 
 **Se podía pedir menos.** `ChainSound_upFiltering` empuja la cadena de `ReqChain`

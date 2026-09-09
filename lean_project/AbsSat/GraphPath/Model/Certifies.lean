@@ -438,7 +438,12 @@ theorem arcConsistent_filterAll (g : GPathM) (reqs : List NodeId)
   arcConsistent_of_ReqFiltered reqOf _ hv
     (filterAll_preserves_ReqFiltered reqOf (L1 reqOf hreach) reqs)
 
-/-- **The whole claim, with every machine-specific hypothesis discharged.**
+/-- ⚠ **FALSE as stated** — see `not_ArcImpliesChain` below, and use
+`ArcImpliesChainOn` instead. Dropping `Reachable` admits graphs the machine
+cannot build, and a node-less one refutes it. Kept because the refutation is
+the point.
+
+The whole claim, with every machine-specific hypothesis discharged.
 
     a valid, arc-consistent `review` fixpoint carries a complete co-owned chain
 
@@ -466,5 +471,130 @@ theorem Certifies_of_ArcImpliesChain (h : ArcImpliesChain reqOf) : Certifies req
 /-- info: 'AbsSat.GraphPath.Model.Certifies.Certifies_of_ArcImpliesChain' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Certifies_of_ArcImpliesChain
+
+-- ============================================================
+-- ⚠ `ArcImpliesChain` as stated above is FALSE
+-- ============================================================
+
+/-!
+Dropping `Reachable` from the obligation was not a weakening — it was a
+strengthening, and it went too far. Without it the statement quantifies over
+graphs the machine cannot build, and one of those refutes it outright: a graph
+with a global owner at every step and **no nodes at all** is valid, is a
+`review` fixpoint, and is arc consistent for free (every clause of
+`ArcConsistent` quantifies over nodes), yet has no chain because there is
+nothing to select.
+
+That is a flaw in v23's framing, not in the machine. The repair is below:
+state the obligation on the graphs it is actually applied to, keeping the
+`Reachable` context — which is exactly `FilteredChain` with arc consistency
+added as a free extra hypothesis.
+-/
+
+/-- A valid, arc-consistent `review` fixpoint with no nodes. -/
+def degenerate : GPathM :=
+  { nodes := [],
+    gowners := [{ id := { step := 0, index := 0 }, parent_id := none }],
+    current_step := 1,
+    map_parent := none }
+
+theorem degenerate_valid : isValid degenerate = true := rfl
+
+theorem degenerate_fixpoint : review degenerate = degenerate := rfl
+
+theorem degenerate_node? (pid : PathNodeId) : degenerate.node? pid = none := rfl
+
+theorem degenerate_arcConsistent : ArcConsistent reqOf degenerate where
+  supported := fun pid n hn => by rw [degenerate_node?] at hn; exact absurd hn (by simp)
+  pinned := fun d hd => absurd hd List.not_mem_nil
+  coherent_parents := fun k hk => absurd hk (by intro h; exact absurd h List.not_mem_nil)
+  coherent_sons := fun k hk => absurd hk (by intro h; exact absurd h List.not_mem_nil)
+
+theorem degenerate_no_chain : ¬ ∃ sel, ChainSound degenerate sel := by
+  intro ⟨sel, hsel⟩
+  have hsome := (hsel.chain.1.1 0 (by decide) (by decide)).1
+  rw [degenerate_node?] at hsome
+  exact Bool.false_ne_true hsome
+
+/-- **`ArcImpliesChain` is false.** Proved, not suspected. -/
+theorem not_ArcImpliesChain : ¬ ArcImpliesChain reqOf := fun h =>
+  degenerate_no_chain (h degenerate (degenerate_arcConsistent reqOf)
+    degenerate_valid degenerate_fixpoint)
+
+-- ============================================================
+-- The repair: the obligation on the graphs it is applied to
+-- ============================================================
+
+/-- **The obligation, with every hypothesis the call site actually has.** This
+is `FilteredChain` with arc consistency and the fixpoint added — both free, by
+`arcConsistent_filterAll` and `filterAll_is_review_fixpoint` — and with the
+`Reachable` context kept, which is what rules out `degenerate`. -/
+def ArcImpliesChainOn : Prop :=
+  ∀ (g : GPathM) (d : NodeId), Reachable reqOf g → isValid g = true →
+    (∃ sel, ChainSound g sel) →
+    ArcConsistent reqOf (filterAll g (reqOf d)) →
+    review (filterAll g (reqOf d)) = filterAll g (reqOf d) →
+    isValid (filterAll g (reqOf d)) = true →
+    ∃ sel, ChainSound (filterAll g (reqOf d)) sel
+
+theorem FilteredChain_of_ArcImpliesChainOn (h : ArcImpliesChainOn reqOf) :
+    FilteredChain reqOf := fun g d hr hv hex hfv =>
+  h g d hr hv hex (arcConsistent_filterAll reqOf g (reqOf d) hr hfv)
+    (filterAll_is_review_fixpoint g (reqOf d) hfv) hfv
+
+theorem Certifies_of_ArcImpliesChainOn (h : ArcImpliesChainOn reqOf) : Certifies reqOf :=
+  Certifies_of_FilteredChain reqOf (FilteredChain_of_ArcImpliesChainOn reqOf h)
+
+/-- And it *is* weaker than `FilteredChain`: the two extra hypotheses come for
+free, so anything that proves `FilteredChain` proves this. -/
+theorem ArcImpliesChainOn_of_FilteredChain (h : FilteredChain reqOf) :
+    ArcImpliesChainOn reqOf := fun g d hr hv hex _ _ hfv => h g d hr hv hex hfv
+
+/-- info: 'AbsSat.GraphPath.Model.Certifies.not_ArcImpliesChain' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms not_ArcImpliesChain
+
+/-- info: 'AbsSat.GraphPath.Model.Certifies.Certifies_of_ArcImpliesChainOn' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Certifies_of_ArcImpliesChainOn
+
+-- ============================================================
+-- What the counterexample actually names
+-- ============================================================
+
+/-- **Every global owner is a node.** This is the property `degenerate`
+violates, and therefore the one `Reachable` was silently supplying. Any proof
+of the obligation needs it explicitly: without it "there is an owner at every
+step" says nothing about there being anything to select. -/
+def GownersAreNodes (h : GPathM) : Prop := ∀ q ∈ h.gowners, (h.node? q).isSome = true
+
+theorem not_GownersAreNodes_degenerate : ¬ GownersAreNodes degenerate := by
+  intro h
+  have hx := h { id := { step := 0, index := 0 }, parent_id := none } (by
+    show _ ∈ [({ id := { step := 0, index := 0 }, parent_id := none } : PathNodeId)]
+    exact List.mem_cons_self ..)
+  rw [degenerate_node?] at hx
+  exact Bool.false_ne_true hx
+
+theorem initSeed_gowners (d : NodeId) (title : String) :
+    (GPathM.initSeed d title).gowners = [{ id := d, parent_id := none }] := by
+  unfold GPathM.initSeed GPathM.up GPathM.addNode
+  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
+
+/-- The seed satisfies it. The remaining ledger for this invariant is
+`addNode`, `filterAll` and `join` — and `filterRequire` is where it can
+*temporarily* fail, since it drops global owners without dropping the nodes
+that carry them; `review` is what restores it by removing those nodes. -/
+theorem GownersAreNodes_initSeed (d : NodeId) (title : String) :
+    GownersAreNodes (GPathM.initSeed d title) := by
+  intro q hq
+  rw [initSeed_gowners] at hq
+  rcases List.mem_singleton.mp hq with rfl
+  rw [node?_initSeed]
+  rfl
+
+/-- info: 'AbsSat.GraphPath.Model.Certifies.not_GownersAreNodes_degenerate' does not depend on any axioms -/
+#guard_msgs in
+#print axioms not_GownersAreNodes_degenerate
 
 end AbsSat.GraphPath.Model.Certifies
