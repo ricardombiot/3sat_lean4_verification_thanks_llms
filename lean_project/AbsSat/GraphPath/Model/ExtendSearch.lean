@@ -747,4 +747,100 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"--- widest owner set at a required step = {mx} ---"
   pure 0
 
+-- ============================================================
+-- The sharpened pinned-step question, restricted to chain nodes
+-- ============================================================
+
+/-!
+v33 measured owner-set width at pinned steps over **all** nodes, and found sets
+of two. That does not settle the question `ReqSatImpliesOwned` actually asks,
+which is about nodes **the chain selects**, and which needs only that the
+chain's own pick is *in* the set — not that every owner equals it.
+
+So three numbers, over requirement-satisfying paths only:
+
+* how wide the owner set is at a pinned step of a chain node;
+* whether the chain's pick is a **member** of it (that is the obligation);
+* of the owners there, how many carry `parent_id` equal to the chain's map id
+  one step below (the question of whether the parent decides which).
+-/
+
+/-- `(chain-node/requirement pairs, sets of width ≥2, chain pick NOT a member,
+owners matching the chain's predecessor: none / exactly one / two or more)`. -/
+abbrev CAcc := Nat × Nat × Nat × Nat × Nat × Nat
+
+def pinnedOnPath (gmap : GMap) (g : GPathM) (p : List PathNodeId) : CAcc :=
+  (List.range p.length).foldl (fun (a : CAcc) j =>
+    match p[j]? with
+    | none => a
+    | some pj =>
+      match g.node? pj with
+      | none => a
+      | some n =>
+        (reqOfG gmap pj.id).foldl (fun (b : CAcc) r =>
+          let os := distinctPids (ownersAt n.owners r.step)
+          let rj := r.step.toNat
+          match p[rj]? with
+          | none => b
+          | some pick =>
+            let prev : Option NodeId := if rj = 0 then none else (p[rj - 1]?).map (·.id)
+            let nmatch := (os.filter (fun q => q.parent_id == prev)).length
+            (b.1 + 1,
+             b.2.1 + (if os.length ≥ 2 then 1 else 0),
+             b.2.2.1 + (if os.contains pick then 0 else 1),
+             b.2.2.2.1 + (if nmatch = 0 then 1 else 0),
+             b.2.2.2.2.1 + (if nmatch = 1 then 1 else 0),
+             b.2.2.2.2.2 + (if nmatch ≥ 2 then 1 else 0))) a)
+    (0, 0, 0, 0, 0, 0)
+
+def addC (a b : CAcc) : CAcc :=
+  (a.1 + b.1, a.2.1 + b.2.1, a.2.2.1 + b.2.2.1, a.2.2.2.1 + b.2.2.2.1,
+   a.2.2.2.2.1 + b.2.2.2.2.1, a.2.2.2.2.2 + b.2.2.2.2.2)
+
+partial def walkPinnedChain (gmap : GMap) (line : MirrorLine) (fuel cap : Nat)
+    (acc : CAcc) : CAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : CAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        (collectReqPaths gmap g 0 [] cap []).foldl
+          (fun b p => addC b (pinnedOnPath gmap g p)) a) acc
+    walkPinnedChain gmap (mirrorAdvance gmap line) (fuel - 1) cap acc
+
+def showC (c : CAcc) : IO Unit := do
+  IO.println s!"  (chain node, requirement) pairs = {c.1}"
+  IO.println s!"  owner sets of width 2 or more   = {c.2.1}"
+  IO.println s!"  chain pick NOT in the owner set = {c.2.2.1}"
+  IO.println s!"  owners matching the chain's predecessor: \
+none={c.2.2.2.1}  exactly one={c.2.2.2.2.1}  two or more={c.2.2.2.2.2}"
+
+def reportPinnedChain (path : String) (cap : Nat) : IO Unit := do
+  let gmap ← load_import! path
+  IO.println s!"{path}"
+  showC (walkPinnedChain gmap (mirrorInit gmap) 1000 cap (0, 0, 0, 0, 0, 0))
+
+def runRandomPinnedChain (cases seed nvMin nvSpan cap : Nat) : IO UInt32 := do
+  IO.println s!"--- pinned steps on chains: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} cap={cap} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : CAcc := (0, 0, 0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addC acc (walkPinnedChain gmap (mirrorInit gmap) 1000 cap (0, 0, 0, 0, 0, 0))
+  showC acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

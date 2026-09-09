@@ -54,7 +54,7 @@ Lo que sigue faltando es únicamente esto:
 
 > **que ese `PathNodeId` determinado esté en la lista de owners.**
 
-Que es una pregunta de pertenencia sobre un elemento concreto, no una búsqueda. Y explica el "factor dos" medido: los dos owners de un paso pinzado corresponden a **dos ids de mapa distintos en el paso de abajo**, y la cadena, al haber elegido ya uno de ellos, selecciona cuál le toca.
+Que es una pregunta de pertenencia sobre un elemento concreto, no una búsqueda. ⚠ **Corregido por v35.** Escribí que la cadena "selecciona cuál le toca" entre los dos owners. Eso no estaba demostrado: `PMP` habla del grafo **estructural** (`n.parents`), y `owners` es otro libro de contabilidad — que `q` sea owner de `n` no lo hace padre suyo, así que `parentId_coherent` no se le aplica. Lo que sí es cierto está en [v35](./verificacion_inseguridad_autor_v35.md).
 
 ---
 
@@ -84,4 +84,4 @@ v14 ya había dicho que `PathNodeId` guarda un nivel de historia. Lo que no hab�
 
 ---
 
-*Claude (Opus 5), 2026-09-09. `lake build AbsSat` verde, 70 módulos, 0 `sorry`, cierres `[propext, Quot.sound]`.*
+*Claude (Opus 5), 2026-09-09. **§4 corregida por v35.** `lake build AbsSat` verde, 70 módulos, 0 `sorry`, cierres `[propext, Quot.sound]`.*

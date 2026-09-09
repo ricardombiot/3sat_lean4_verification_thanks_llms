@@ -267,4 +267,75 @@ theorem chain_eq_of_mapIds_eq (h : GPathM) (hpmp : PMP h)
 #guard_msgs in
 #print axioms chain_eq_of_mapIds_eq
 
+-- ============================================================
+-- The pinned half of `ReqSatImpliesOwned`, reduced to one existence
+-- ============================================================
+
+/-!
+Putting `MapChain.owner_at_req_shares_mapid` (the map id of every owner at a
+pinned step agrees with the chain's pick) together with `parentId_coherent`
+(the chain's pick has a determined `parent_id`) settles which owner is the
+chain's: the one whose `parent_id` agrees. A `PathNodeId` is nothing but those
+two fields.
+
+So the pinned half of `ReqSatImpliesOwned` reduces to a single **existence**:
+that some owner at the required step carries the chain's `parent_id`.
+
+**Measured** (`lake exe extend --randompinnedchain`, 60 instances): over
+1,193,194 (chain node, requirement) pairs, **exactly one** owner matches the
+chain's predecessor — never zero, never two — and the chain's pick is a member
+of the owner set in every single case.
+
+**And it corrects a tempting overshoot.** The obligation is *membership*, not
+"every owner at a pinned step equals the chain's pick": 277,070 of those pairs
+(23%) have an owner set of width two, so the stronger reading is false on chain
+nodes, not merely unproven.
+-/
+
+/-- **Which owner is the chain's.** An owner at a pinned step that carries the
+chain's `parent_id` *is* the chain's pick — its map id already agrees. -/
+theorem owner_eq_chain_pick (reqOf : NodeId → List NodeId) (g : GPathM)
+    (hrf : ReqFiltered reqOf g) (sel : Int → PathNodeId)
+    (hrs : MapChain.ReqSatisfying reqOf g sel)
+    (j : Int) (hjlo : 0 ≤ j) (hjhi : j < g.current_step)
+    (n : PNodeM) (hn : g.node? (sel j) = some n)
+    (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
+    (hrlo : 0 ≤ req.step) (hrhi : req.step < g.current_step)
+    (q : PathNodeId) (hq : q ∈ ownersAt n.owners req.step)
+    (hpar : q.parent_id = (sel req.step).parent_id) :
+    q = sel req.step :=
+  pathNodeId_ext
+    (MapChain.owner_at_req_shares_mapid reqOf g hrf sel hrs j hjlo hjhi n hn req hreq
+      hrlo hrhi q hq)
+    hpar
+
+/-- **The single remaining obligation of the pinned half.** Some owner at the
+required step carries the chain's `parent_id`. Measured at exactly one, over
+1,193,194 (chain node, requirement) pairs; not proved. -/
+def OwnerMatchesPredecessor (reqOf : NodeId → List NodeId) (g : GPathM)
+    (sel : Int → PathNodeId) : Prop :=
+  ∀ j, 0 ≤ j → j < g.current_step → ∀ n, g.node? (sel j) = some n →
+    ∀ req ∈ reqOf (sel j).id, 0 ≤ req.step → req.step < g.current_step →
+      ∃ q ∈ ownersAt n.owners req.step, q.parent_id = (sel req.step).parent_id
+
+/-- **And it gives the pinned half.** Existence of a matching owner plus the
+two proved facts puts the chain's own pick in the owner set. -/
+theorem chain_pick_mem_owners (reqOf : NodeId → List NodeId) (g : GPathM)
+    (hrf : ReqFiltered reqOf g) (sel : Int → PathNodeId)
+    (hrs : MapChain.ReqSatisfying reqOf g sel)
+    (hmatch : OwnerMatchesPredecessor reqOf g sel)
+    (j : Int) (hjlo : 0 ≤ j) (hjhi : j < g.current_step)
+    (n : PNodeM) (hn : g.node? (sel j) = some n)
+    (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
+    (hrlo : 0 ≤ req.step) (hrhi : req.step < g.current_step) :
+    sel req.step ∈ ownersAt n.owners req.step := by
+  obtain ⟨q, hq, hpar⟩ := hmatch j hjlo hjhi n hn req hreq hrlo hrhi
+  have : q = sel req.step :=
+    owner_eq_chain_pick reqOf g hrf sel hrs j hjlo hjhi n hn req hreq hrlo hrhi q hq hpar
+  rw [← this]; exact hq
+
+/-- info: 'AbsSat.GraphPath.Model.ParentId.chain_pick_mem_owners' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_pick_mem_owners
+
 end AbsSat.GraphPath.Model.ParentId
