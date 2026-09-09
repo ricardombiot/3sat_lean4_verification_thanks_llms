@@ -90,6 +90,18 @@ Compara con A:
 
 310 estados, todos los descensos completan, ninguna obligación rota.
 
+**Y en campaña aleatoria** (150 instancias, 3–10 variables, mismos regímenes de densidad que `diffTest`):
+
+| | |
+|---|---|
+| instancias limpias | **150 / 150** |
+| estados válidos | **16.444** |
+| descensos completados | **16.444** |
+| violaciones de `PickValid` | **0** |
+| endpoints sin elección con cadena **certificada** | **16.444 / 16.444** |
+
+Ni un solo descenso se queda a medias, y cada punto de llegada lleva una cadena verificada por la ruta C — es decir, `Supported` demostrado en ese grafo, no una búsqueda que salió bien.
+
 ---
 
 ## 5. Lo que falta, sin adornos

@@ -37,7 +37,10 @@ base, ninguno refutado, con la terminación demostrada.
 **El probe mide las dos a la vez.** `lake exe extend --descend` ejecuta el descenso real; un
 pick que rompe validez es violación de `PickValid`, y todo endpoint sin elección se verifica
 con `Certificate.isCert` (ruta C). Familias adversarias: 310 estados, **310 descensos
-completados, 0 violaciones, 310/310 endpoints con cadena certificada**.
+completados, 0 violaciones, 310/310 endpoints con cadena certificada**. Campaña aleatoria
+(150 instancias, 3–10 vars, semilla 4242): **150/150 limpias, 16.444 estados, 16.444
+descensos completados, 0 violaciones de `PickValid`, 16.444/16.444 endpoints con cadena
+certificada**.
 
 **Lo que falta:** `PickValid` (la última pieza del puente, ahora la **única**), el caso base
 (no trivial: varios `PathNodeId` comparten id de mapa, así que quedan padres por elegir), y
