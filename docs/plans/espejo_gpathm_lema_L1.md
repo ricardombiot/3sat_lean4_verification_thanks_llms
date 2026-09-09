@@ -10,6 +10,50 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (h) — `ReqChain` debilitado tres veces: la obligación final es el enunciado clásico de CSP.**
+
+**Se podía pedir menos.** `ChainSound_upFiltering` empuja la cadena de `ReqChain`
+inmediatamente por `ChainSound_filterAll` y solo usa el resultado. Así que la obligación se
+enuncia un paso más tarde, sobre el grafo **filtrado**: `FilteredChain`. Estrictamente más
+débil — `ReqChain_gives_FilteredChain` da una dirección, y la vuelta necesitaría transferir
+`ChainSound` hacia atrás a través de una poda, cosa que `Pruned` no suministra (registra
+owners y parents, no sons).
+
+**El colapso.** Las seis obligaciones perseguidas (`Supported`, `Extendable`, `PickValid`,
+`UpCertifies`, `ReqChain`, `FilteredChain`) son el mismo enunciado sobre grafos distintos:
+
+    ValidHasChain h : isValid h = true → ∃ sel, ChainSound h sel
+
+**La clase más estrecha.** `FilteredChain` lo necesita solo sobre `filterAll g reqs`, y esos
+son **puntos fijos de `review`** (`filterAll_is_review_fixpoint`, vía `review_idempotent`).
+El punto fijo es donde valen las propiedades de `Fuel.lean` (`review_node_valid`,
+`review_owners_within_gowners`, `review_owners_coherent_parents`/`_sons`) y la estructura
+`ArcConsistent` de `ArcConsistency.lean`.
+
+**La obligación final:**
+
+    ArcImpliesChain : ∀ h, ArcConsistent reqOf h → isValid h = true → review h = h →
+                        ∃ sel, ChainSound h sel
+
+con `Certifies_of_ArcImpliesChain`. Las dos hipótesis nuevas están **demostradas** de la
+clase a la que se aplica: `arcConsistent_filterAll` (los filtrados heredan `ReqFiltered` de
+`g` por L1 + `filterAll_preserves_ReqFiltered`; el resto lo pone el punto fijo — hizo falta
+`arcConsistent_of_ReqFiltered`, variante de `review_arcConsistent` sin la hipótesis
+`Reachable`, que allí solo servía para llegar a `ReqFiltered` por L1) y
+`filterAll_is_review_fixpoint`.
+
+**Lo que ya no queda dentro:** `addNode`, el bucle de fuel, `join`, la semilla, `MachineOk`,
+rangos de nodos, ni `Reachable`. Queda: **consistencia local ⟹ solución global.**
+
+**Precisión sobre v13, que sigue en pie.** `ArcConsistent` tiene cuatro cláusulas: `pinned`
+es `ReqFiltered` (L1), que habla de los **requisitos** — donde el 0/1/all de
+`MapReqs.Functional` está demostrado. Las otras tres hablan de las **tablas `owners`**, y de
+esas v13 demostró con 164 testigos que no heredan la forma 0/1/all. No se afirma que CCJ
+aplique; se afirma solo que es el primer enunciado del proyecto donde la estructura de los
+requisitos y la propagación de las tablas son hipótesis de la **misma** proposición.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v23.md`.
+
 **2026-09-09 (g) — `UpCertifies` reducido a `ReqChain`, el primer enunciado que menciona los requisitos.**
 
 **Desmontar el paso.** `upFiltering g reqs d = up (filterAll g reqs) d`, y `up` es `addNode`
