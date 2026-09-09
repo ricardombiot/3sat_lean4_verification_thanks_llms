@@ -60,4 +60,5 @@ import AbsSat.GraphPath.Model.PathExists
 import AbsSat.GraphPath.Model.Ownership
 import AbsSat.GraphPath.Model.Sons
 import AbsSat.GraphPath.Model.SelfOwn
+import AbsSat.GraphPath.Model.MapChain
 import AbsSat.GraphPath.Model.ExtendSearch

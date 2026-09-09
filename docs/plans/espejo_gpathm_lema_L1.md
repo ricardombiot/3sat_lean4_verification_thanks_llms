@@ -10,6 +10,42 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (p) — `PairwiseOwned` por la estructura del mapa: entra por los requisitos.**
+
+**Dónde entra el mapa.** Un requisito pinza un nodo en un paso (`MapReqs.Functional`, 0/1/all);
+los `owners` son tablas que la máquina estrecha y que (h) demostró que **no** heredan esa
+forma. Luego la condición natural a nivel de mapa sobre una cadena es **satisfacer los
+requisitos**, no la co-posesión — y no menciona `owners`.
+
+**`Model/MapChain.lean`.**
+
+- `ReqSatisfying` — la condición a nivel de mapa.
+- **`reqSatisfying_of_pairwiseOwned`** — demostrado: la co-posesión implica satisfacer los
+  requisitos. Es L1 (`ReqFiltered`) leído a lo largo de la cadena: la co-posesión mete
+  `sel req.step` en los owners de `sel k` en ese paso, y L1 dice que ese conjunto entero
+  proyecta a `req`. Es la dirección que consume `ChainSound_filterAll`.
+- `ReqSatImpliesOwned` — la recíproca, abierta. Había razón para desconfiar: (h) mostró que
+  los `owners` son más estrechos que las restricciones crudas.
+
+**Medición (`lake exe extend --randomreqpaths`, 60 instancias):** 6.548 estados válidos,
+**89.104 caminos que satisfacen los requisitos, 0 no co-poseídos, 0/60 instancias con
+violación.** Los owners son más estrechos que las restricciones crudas, pero no tanto como
+para excluir un camino que respeta los requisitos.
+
+**La ensambladura — `ChainSound_of_parts`.** Reúne `IsChain` (l), `son_link` y `root_shape`
+(n), `self_owned` (o), y deja `ChainSound` saliendo de **exactamente dos** enunciados
+abiertos:
+
+1. **existe un camino que satisface los requisitos** — en un mapa 3SAT, *que la fórmula sea
+   satisfacible*;
+2. `ReqSatImpliesOwned` — medido, sin violaciones.
+
+El punto 1 no es un lema que se escape: **es la afirmación central del autor**. Lo que cambia
+en esta entrada es *dónde* está: ya no repartido entre owners, cadenas, invariantes y pasadas
+de coherencia, sino en un solo sitio y en el vocabulario del mapa.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v31.md`.
+
 **2026-09-09 (o) — `self_owned` cerrado. `ParentOwns` no hacía falta.**
 
 **Lo que (n) tenía incompleto.** La recursión mutua `SelfOwned` ↔ `ParentOwns` es real para la

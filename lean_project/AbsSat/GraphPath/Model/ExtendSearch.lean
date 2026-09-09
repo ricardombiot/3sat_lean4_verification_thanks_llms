@@ -570,4 +570,97 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"--- nodes not gowners: {ng};  nodes not self-owning: {nso} ---"
   pure 0
 
+-- ============================================================
+-- The map-level question: does satisfying the requirements
+-- make a path co-owned? (`MapChain.ReqSatImpliesOwned`)
+-- ============================================================
+
+def reqOfG (gmap : GMap) (d : NodeId) : List NodeId :=
+  match get_node gmap d with
+  | some n => n.requires.toList
+  | none => []
+
+/-- Every path (parent-linked, one node per step) whose picks satisfy every
+requirement of every node on it, up to `cap` of them. -/
+partial def collectReqPaths (gmap : GMap) (g : GPathM) (k : Int)
+    (chosen : List PathNodeId) (cap : Nat) (acc : List (List PathNodeId)) :
+    List (List PathNodeId) :=
+  if acc.length ≥ cap then acc
+  else if k ≥ g.current_step then acc ++ [chosen.reverse]
+  else
+    ((g.line k).map (·.id)).foldl (fun a c =>
+      if a.length ≥ cap then a
+      else
+        let linkOk :=
+          match chosen with
+          | [] => true
+          | top :: _ => match g.node? c with
+                        | some n => n.parents.contains top
+                        | none => false
+        let sel := c :: chosen
+        let reqOk := (reqOfG gmap c.id).all (fun r =>
+          match sel.find? (fun p => p.id.step == r.step) with
+          | some p => p.id == r
+          | none => true)
+        if linkOk && reqOk then collectReqPaths gmap g (k + 1) sel cap a else a) acc
+
+/-- Is a selection pairwise co-owned? -/
+def pathCoOwned (g : GPathM) (sel : List PathNodeId) : Bool :=
+  sel.all (fun p => sel.all (fun q => p == q || (ownersOfB g q).contains p))
+
+/-- `(states, req-satisfying paths, of those not co-owned)`. -/
+abbrev RAcc2 := Nat × Nat × Nat
+
+partial def walkReqPaths (gmap : GMap) (line : MirrorLine) (fuel cap : Nat)
+    (acc : RAcc2) : RAcc2 :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : RAcc2) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let paths := collectReqPaths gmap g 0 [] cap []
+        let bad := (paths.filter (fun p => !pathCoOwned g p)).length
+        (a.1 + 1, a.2.1 + paths.length, a.2.2 + bad)) acc
+    walkReqPaths gmap (mirrorAdvance gmap line) (fuel - 1) cap acc
+
+def reportReqPaths (path : String) (cap : Nat) : IO Unit := do
+  let gmap ← load_import! path
+  let (states, paths, bad) := walkReqPaths gmap (mirrorInit gmap) 1000 cap (0, 0, 0)
+  IO.println s!"{path}"
+  IO.println s!"  valid states={states}  requirement-satisfying paths={paths}"
+  IO.println s!"  of those, NOT pairwise co-owned = {bad}"
+
+def runRandomReqPaths (cases seed nvMin nvSpan cap : Nat) : IO UInt32 := do
+  IO.println s!"--- ReqSatImpliesOwned: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} cap={cap} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut states := 0
+  let mut paths := 0
+  let mut bad := 0
+  let mut badCases := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let (st, pa, bd) := walkReqPaths gmap (mirrorInit gmap) 1000 cap (0, 0, 0)
+    states := states + st; paths := paths + pa; bad := bad + bd
+    if bd != 0 then badCases := badCases + 1
+  IO.println s!"--- states={states}  requirement-satisfying paths={paths} ---"
+  IO.println s!"--- not co-owned: {bad}, in {badCases}/{cases} instances ---"
+  if bad == 0 then
+    IO.println "Every requirement-satisfying path is co-owned. ReqSatImpliesOwned survives. ✅"
+  else
+    IO.println "ReqSatImpliesOwned is FALSE. ❌"
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch
