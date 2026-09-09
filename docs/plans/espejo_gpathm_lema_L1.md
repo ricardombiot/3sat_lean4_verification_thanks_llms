@@ -10,6 +10,41 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (o) — `self_owned` cerrado. `ParentOwns` no hacía falta.**
+
+**Lo que (n) tenía incompleto.** La recursión mutua `SelfOwned` ↔ `ParentOwns` es real para la
+ruta *directa*. Lo que faltaba ver es que la auto-posesión **no hay que llevarla como
+invariante**.
+
+**`Model/SelfOwn.lean` — el invariante que solo encoge.**
+
+    OOS h : ∀ n ∈ h.nodes, ∀ q ∈ n.owners, q.id.step = n.id.id.step → q = n.id
+
+En su propio paso, los owners de un nodo no contienen nada más que a él. Cierto **desde el
+nacimiento**: `addNode` da al nodo nuevo `gowners ++ [pid]`, y todos los gowners están en
+pasos estrictamente inferiores. Y estable, porque todas las demás operaciones **solo quitan**
+owners — un invariante que solo encoge no pelea con la pasada de coherencia. Demostrado para
+toda la máquina (`OOS_reachable`), más `SNN` (los pasos son ≥ 0) que hacía falta para
+instanciar el rango.
+
+**Y la auto-posesión es consecuencia, no invariante:** `SelfOwned_of_OOS` — en un punto fijo
+válido todo nodo pasa `isValidNode`, que exige un owner en cada paso incluido el suyo; por
+`OOS` ese owner solo puede ser el nodo mismo. De ahí `SelfOwned_filterAll`.
+
+`ParentOwns` se conserva en `Sons.lean` marcado como la ruta que no hace falta.
+
+**Estado de `ChainSound`: cinco de seis.** `IsChain` ✔ (l), cláusula `gowners` ✔ (k),
+`son_link` ✔ (n), `root_shape` ✔ (n), `self_owned` ✔ (o). Queda **`PairwiseOwned`** — la
+Helly (m), y es el único de los seis que no es una propiedad local preservada operación a
+operación.
+
+**Anotado:** cuarta vez que una decisión de diseño del autor resulta ser justo la pieza que
+falta — `okJoin` exigiendo validez de ambas ramas (k), `up` devolviendo el grafo invalidado
+sin añadir nodo (k), `MachineOk` ligando `map_parent` a `current_step` (l, n), y ahora
+`addNode` dando `gowners ++ [pid]` con los gowners por debajo (o).
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v30.md`.
+
 **2026-09-09 (n) — `son_link` y `root_shape` cerrados; `self_owned` es de otra clase.**
 
 **`Model/Sons.lean`.**

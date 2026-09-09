@@ -451,12 +451,18 @@ union over *its* neighbours contains `n`, which needs `n` to own itself). The
 two are **mutually recursive**, so neither can be proved alone: they need a
 simultaneous induction over the machine, carrying `NodesAreGowners` as well.
 
-That is a genuinely bigger piece of work than the other two, and it is stated
-here rather than attempted.
+That is a genuinely bigger piece of work than the other two — **and it turned
+out not to be necessary**. `SelfOwn.lean` closes `self_owned` by a different
+route: `OOS`, the invariant that a node's owners at its *own* step contain
+nothing but itself. `OOS` only ever shrinks, so no preservation argument has to
+fight the coherence pass, and self-ownership then follows from `isValidNode` at
+the fixpoint rather than being carried as an invariant. `ParentOwns` below is
+kept as the record of the route that does not work.
 -/
 
 /-- A parent owns its child. Mutually recursive with `Ownership.SelfOwned`
-under the coherence pass. -/
+under the coherence pass — and, as `SelfOwn.lean` shows, not needed: kept as
+the record of the route that does not work. -/
 def ParentOwns (h : GPathM) : Prop :=
   ∀ n ∈ h.nodes, ∀ p ∈ n.parents, ∀ m ∈ h.nodes, m.id = p → n.id ∈ m.owners
 
