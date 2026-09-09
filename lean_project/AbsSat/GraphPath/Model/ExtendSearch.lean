@@ -843,4 +843,154 @@ vars={nvMin}..{nvMin + nvSpan - 1} cap={cap} ---"
   showC acc
   pure 0
 
+-- ============================================================
+-- The bridge candidates: does the owners ledger contain the
+-- structural links?
+-- ============================================================
+
+/-!
+`OwnerMatchesPredecessor` needs a specific path node to be *in* an owner list.
+The owners ledger is built by `addNode` (append `pid` everywhere) and pruned by
+`intersectOwners` against `unionOwnersOf`; the parents ledger is built by
+`newParents`. Nothing so far connects them.
+
+The minimal candidate bridge is that the two ledgers agree on the direct links:
+
+* **`ParentIsOwner`** — every parent of a node is one of its owners;
+* **`SonIsOwner`** — every son of a node is one of its owners.
+
+Both are plausible for a reason worth stating: `upFiltering` filters *before*
+it adds, so a node's parents are drawn from an already-filtered line. And the
+transitive version (`owns every ancestor`) is *not* plausible — pruning
+incompatible ancestors is exactly what the machine is for — which is why the
+direct links are the thing to measure.
+-/
+
+/-- `(nodes, parent links, parents missing from owners, son links, sons missing
+from owners)`. -/
+abbrev BAcc := Nat × Nat × Nat × Nat × Nat
+
+def bridgeCount (g : GPathM) : BAcc :=
+  g.nodes.foldl (fun (a : BAcc) n =>
+    let pm := (n.parents.filter (fun p => !n.owners.contains p)).length
+    let sm := (n.sons.filter (fun s => !n.owners.contains s)).length
+    (a.1 + 1, a.2.1 + n.parents.length, a.2.2.1 + pm,
+     a.2.2.2.1 + n.sons.length, a.2.2.2.2 + sm)) (0, 0, 0, 0, 0)
+
+partial def walkBridge (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : BAcc) : BAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : BAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let b := bridgeCount g
+        (a.1 + b.1, a.2.1 + b.2.1, a.2.2.1 + b.2.2.1,
+         a.2.2.2.1 + b.2.2.2.1, a.2.2.2.2 + b.2.2.2.2)) acc
+    walkBridge gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showB (b : BAcc) : IO Unit := do
+  IO.println s!"  nodes={b.1}"
+  IO.println s!"  parent links={b.2.1}   parents NOT in owners = {b.2.2.1}"
+  IO.println s!"  son links   ={b.2.2.2.1}   sons NOT in owners    = {b.2.2.2.2}"
+
+def reportBridge (path : String) : IO Unit := do
+  let gmap ← load_import! path
+  IO.println s!"{path}"
+  showB (walkBridge gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0))
+
+def runRandomBridge (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- owners/parents bridge: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : BAcc := (0, 0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let b := walkBridge gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0)
+    acc := (acc.1 + b.1, acc.2.1 + b.2.1, acc.2.2.1 + b.2.2.1,
+            acc.2.2.2.1 + b.2.2.2.1, acc.2.2.2.2 + b.2.2.2.2)
+  showB acc
+  pure 0
+
+-- ============================================================
+-- Where the two ledgers disagree: on chains, or off them?
+-- ============================================================
+
+/-!
+The direct-link bridge is **false**, but only just: 37 parent links and 71 son
+links out of 328,086 are missing from the owners. So the two ledgers do
+disagree, and the parents table is the stale one — ownership pruning never
+unlinks a parent, so a node can keep a structural predecessor that propagation
+has already ruled out.
+
+The question that decides whether that matters is *where* the disagreement
+sits: on the consecutive picks of a requirement-satisfying chain, or only off
+them. If only off them, the bridge holds exactly where `OwnerMatchesPredecessor`
+needs it — and the stale links are a warning about `PathExists.exists_isChain`,
+which descends by picking an arbitrary parent.
+-/
+
+/-- `(nodes with a stale parent, consecutive chain pairs, of those not an
+ownership link)`. -/
+abbrev SAcc := Nat × Nat × Nat
+
+def staleAndChain (gmap : GMap) (g : GPathM) (cap : Nat) : SAcc :=
+  let stale := (g.nodes.filter (fun n => n.parents.any (fun p => !n.owners.contains p))).length
+  let pairs := (collectReqPaths gmap g 0 [] cap []).foldl (fun (a : Nat × Nat) p =>
+    (List.range (p.length - 1)).foldl (fun (b : Nat × Nat) k =>
+      match p[k]?, p[k+1]? with
+      | some lo, some hi =>
+        match g.node? hi with
+        | some n => (b.1 + 1, b.2 + (if n.owners.contains lo then 0 else 1))
+        | none => b
+      | _, _ => b) a) (0, 0)
+  (stale, pairs.1, pairs.2)
+
+partial def walkStale (gmap : GMap) (line : MirrorLine) (fuel cap : Nat) (acc : SAcc) : SAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : SAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let b := staleAndChain gmap g cap
+        (a.1 + b.1, a.2.1 + b.2.1, a.2.2 + b.2.2)) acc
+    walkStale gmap (mirrorAdvance gmap line) (fuel - 1) cap acc
+
+def runRandomStale (cases seed nvMin nvSpan cap : Nat) : IO UInt32 := do
+  IO.println s!"--- stale parent links vs chain links: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : SAcc := (0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let b := walkStale gmap (mirrorInit gmap) 1000 cap (0, 0, 0)
+    acc := (acc.1 + b.1, acc.2.1 + b.2.1, acc.2.2 + b.2.2)
+  IO.println s!"  nodes holding a stale parent (a parent that is not an owner) = {acc.1}"
+  IO.println s!"  consecutive pairs on requirement-satisfying chains = {acc.2.1}"
+  IO.println s!"  of those, parent NOT an owner = {acc.2.2}"
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

@@ -10,6 +10,37 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (u) — El puente `owners`/`parents`: refutado en general, cierto en cadenas.**
+
+**El candidato mínimo.** `OwnerMatchesPredecessor` pide que un `PathNodeId` concreto esté en
+una lista de owners. Los dos libros se construyen aparte (`addNode` + `intersectOwners` vs
+`newParents`), y el puente mínimo sería que coincidan en los enlaces directos.
+
+**Refutado.** `lake exe extend --randombridge`, 60 instancias, 282.077 nodos: **37** enlaces
+padre y **71** enlaces hijo de 328.086 faltan de los owners (0,011 %). Registrados en
+`ParentId.lean` como `ParentIsOwner` / `SonIsOwner`, refutados.
+
+**La razón, en el código:** la poda de owners **nunca desenlaza un padre** — `removeNode` sí,
+pero `intersectOwners` solo encoge `owners`. Un nodo puede conservar un predecesor
+estructural que la propagación ya descartó. **De los dos libros, el obsoleto es `parents`.**
+Observación sobre la implementación, no recomendación: el lector filtra por requisitos, no
+camina `parents` a ciegas.
+
+**Cierto donde hace falta.** `lake exe extend --stale`: **992.719** pares consecutivos de
+caminos req-satisfactorios, **0** con el padre fuera de los owners. Los **36** nodos con
+enlace rancio están fuera de todo camino req-satisfactorio. Enunciado como
+`ChainParentIsOwner` — que es `OwnerMatchesPredecessor` para `req.step = j-1`.
+
+**Aviso sobre (l)/v27.** `PathExists.exists_isChain` desciende eligiendo un padre
+*cualquiera*, y ahora se sabe que hay enlaces padre rancios de verdad: el camino que ese
+teorema construye puede usar uno. La distancia entre `IsChain` y `ChainSound` no es una
+precaución teórica.
+
+**Resultado negativo sobre la estrategia:** el puente **no es estructural**. La pieza que
+falta sigue necesitando el lado del mapa; no se saca de cómo están construidas las listas.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v36.md`.
+
 **2026-09-09 (t) — Revisión externa: el lema propuesto es falso; la mitad pinzada se reduce a
 una existencia.**
 

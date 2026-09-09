@@ -14,6 +14,23 @@ def main (args : List String) : IO UInt32 := do
                        lake exe extend --random <cases> <seed> [minVars] [varSpan] [budget]\n\
                        lake exe extend --syn <steps> <width> <trials> [budget]"
     return 1
+  | "--stale" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 50
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 5
+    let cap := (rest[4]?.bind (·.toNat?)).getD 20
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomStale cases seed nvMin nvSpan cap
+  | "--bridge" :: rest =>
+    for path in rest do
+      AbsSat.GraphPath.Model.ExtendSearch.reportBridge path
+    return 0
+  | "--randombridge" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 50
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 5
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomBridge cases seed nvMin nvSpan
   | "--pinnedchain" :: rest =>
     for path in rest do
       AbsSat.GraphPath.Model.ExtendSearch.reportPinnedChain path 20

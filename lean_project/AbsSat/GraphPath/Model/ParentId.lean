@@ -338,4 +338,57 @@ theorem chain_pick_mem_owners (reqOf : NodeId → List NodeId) (g : GPathM)
 #guard_msgs in
 #print axioms chain_pick_mem_owners
 
+-- ============================================================
+-- The bridge between the two ledgers: refuted in general,
+-- true exactly where it is needed
+-- ============================================================
+
+/-!
+`OwnerMatchesPredecessor` needs a specific path node to be *in* an owner list.
+The owners ledger is built by `addNode` and pruned by `intersectOwners` against
+`unionOwnersOf`; the parents ledger is built by `newParents`. The minimal
+candidate bridge is that they agree on the direct links.
+
+**It is false.** `lake exe extend --randombridge`, 60 instances, 282,077 nodes:
+**37** parent links and **71** son links out of 328,086 are missing from the
+owners. Small — 0.011% — but not zero, and enough to sink any attempt to prove
+`ParentIsOwner`.
+
+The reason is visible in the code: **ownership pruning never unlinks a
+parent.** `removeNode` unlinks, but `intersectOwners` only shrinks `owners`, so
+a node can keep a structural predecessor that propagation has already ruled
+out. The parents table is the stale one.
+
+**And it is true exactly where the obligation needs it.** Restricted to the
+consecutive picks of requirement-satisfying chains
+(`lake exe extend --stale`): **992,719 pairs, zero** where the parent is not an
+owner. The 36 nodes holding a stale parent are off every such chain.
+
+**A caveat this puts on `PathExists.exists_isChain`.** That descent picks an
+*arbitrary* parent at each step, and stale parent links exist — so the path it
+builds really can use one. v27 said the path need not be co-owned; this says
+the gap is not merely theoretical.
+-/
+
+/-- Every parent of a node is one of its owners. ⚠ **Refuted** — 37 of 328,086
+parent links are missing from the owners. Kept as the record of the minimal
+bridge that does not hold, and of why: ownership pruning never unlinks a
+parent. -/
+def ParentIsOwner (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ p ∈ n.parents, p ∈ n.owners
+
+/-- The same for sons. ⚠ **Refuted** — 71 of 328,086. -/
+def SonIsOwner (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ s ∈ n.sons, s ∈ n.owners
+
+/-- **The bridge that survives**: the parent link between consecutive picks of
+a requirement-satisfying chain is an ownership link. Measured at 992,719 pairs
+with no exception; not proved. It is `OwnerMatchesPredecessor` for the case
+`req.step = j - 1`, and the general case is the same statement further down. -/
+def ChainParentIsOwner (reqOf : NodeId → List NodeId) (g : GPathM)
+    (sel : Int → PathNodeId) : Prop :=
+  MapChain.ReqSatisfying reqOf g sel →
+    ∀ k, 0 ≤ k → k + 1 < g.current_step →
+      ∀ n, g.node? (sel (k + 1)) = some n → sel k ∈ n.owners
+
 end AbsSat.GraphPath.Model.ParentId
