@@ -27,9 +27,10 @@ requisitos**, no la co-posesión — y no menciona `owners`.
 - `ReqSatImpliesOwned` — la recíproca, abierta. Había razón para desconfiar: (h) mostró que
   los `owners` son más estrechos que las restricciones crudas.
 
-**Medición (`lake exe extend --randomreqpaths`, 60 instancias):** 6.548 estados válidos,
-**89.104 caminos que satisfacen los requisitos, 0 no co-poseídos, 0/60 instancias con
-violación.** Los owners son más estrechos que las restricciones crudas, pero no tanto como
+**Medición (`lake exe extend --randomreqpaths`), dos semillas independientes:** semilla 2026
+(3–9 vars, 60 instancias) → 6.548 estados, 89.104 caminos; semilla 90210 (3–10 vars, 100
+instancias) → 12.779 estados, 261.139 caminos. **Total: 160/160 instancias, 19.327 estados,
+350.243 caminos que satisfacen los requisitos, 0 no co-poseídos.** Los owners son más estrechos que las restricciones crudas, pero no tanto como
 para excluir un camino que respeta los requisitos.
 
 **La ensambladura — `ChainSound_of_parts`.** Reúne `IsChain` (l), `son_link` y `root_shape`

@@ -39,16 +39,15 @@ def ReqSatImpliesOwned (g : GPathM) : Prop :=
 
 Había razón para desconfiar: v13 demostró que las tablas `owners` son **más estrechas** que las restricciones crudas, así que satisfacer los requisitos no coloca automáticamente un nodo dentro de la tabla de otro.
 
-Lo medí. Campaña de 60 instancias, sin quedarme en tres como en v28:
+Lo medí. Y esta vez con campaña, no con tres instancias como en v28 — **dos semillas independientes**:
 
-| | |
-|---|---|
-| estados válidos | **6.548** |
-| **caminos que satisfacen los requisitos** | **89.104** |
-| de esos, **no** co-poseídos | **0** |
-| instancias con alguna violación | **0 / 60** |
+| campaña | instancias | estados | **caminos req-satisfactorios** | **no co-poseídos** |
+|---|---|---|---|---|
+| semilla 2026, 3–9 vars | 60/60 | 6.548 | 89.104 | **0** |
+| semilla 90210, 3–10 vars | 100/100 | 12.779 | **261.139** | **0** |
+| **total** | **160/160** | **19.327** | **350.243** | **0** |
 
-**Ni uno.** Los `owners` son más estrechos que las restricciones crudas — v13 sigue en pie — pero **no tanto como para excluir un camino que respeta los requisitos.**
+**Ni uno, en 350.243 caminos.** Los `owners` son más estrechos que las restricciones crudas — v13 sigue en pie — pero **no tanto como para excluir un camino que respeta los requisitos.**
 
 Esa es exactamente la propiedad que hacía falta, y es la primera vez que algo del lado del mapa toca `PairwiseOwned`.
 
@@ -67,7 +66,7 @@ theorem ChainSound_of_parts (g : GPathM)
 Todo lo cerrado en los últimos turnos entra ahí: `IsChain` (v27), `son_link` y `root_shape` (v29), `self_owned` (v30). Y `ChainSound` sale de **exactamente dos** enunciados abiertos:
 
 1. **existe un camino que satisface los requisitos** — que en un mapa 3SAT es, palabra por palabra, *que la fórmula sea satisfacible*;
-2. **`ReqSatImpliesOwned`** — medido, 89.104 caminos, cero violaciones.
+2. **`ReqSatImpliesOwned`** — medido sobre **350.243** caminos en dos campañas independientes, cero violaciones.
 
 ## 5. Y ahí está el fondo, dicho sin rodeos
 
@@ -86,7 +85,7 @@ Lo que ha cambiado en este turno no es que se cierre, es **dónde está**: ya no
 | `son_link` | demostrado (v29) |
 | `root_shape` | demostrado (v29) |
 | `self_owned` | demostrado (v30) |
-| `PairwiseOwned` | **`ReqSatImpliesOwned`** — medido, 0 violaciones en 89.104 caminos |
+| `PairwiseOwned` | **`ReqSatImpliesOwned`** — medido, 0 violaciones en **350.243** caminos, dos semillas |
 
 Y arriba de todo: **existe un camino que satisface los requisitos** = la fórmula es satisfacible.
 
