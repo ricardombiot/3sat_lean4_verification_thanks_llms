@@ -1,6 +1,9 @@
 -- lean_project/AbsSat/GraphPath/Model/Certifies.lean
 import AbsSat.GraphPath.Model.PickInduction
 import AbsSat.GraphPath.Model.Join
+import AbsSat.GraphPath.Model.JoinSound
+import AbsSat.GraphPath.Model.AddNode
+import AbsSat.GraphPath.Model.OwnersInvariants
 
 /-!
 **The design invariant, stated where it belongs: at construction time.**
@@ -80,6 +83,17 @@ theorem isValid_of_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId)
   cases hv : isValid (filterAll g reqs) with
   | true => rfl
   | false => rw [if_neg (by rw [hv]; exact Bool.false_ne_true)] at h; exact absurd h (by rw [hv]; exact Bool.false_ne_true)
+
+/-- The filtered graph is where a valid `upFiltering` gets its validity from. -/
+theorem isValid_of_filterAll_of_upFiltering (g : GPathM) (reqs : List NodeId)
+    (d : NodeId) (title : String) (h : isValid (upFiltering g reqs d title) = true) :
+    isValid (filterAll g reqs) = true := by
+  unfold GPathM.upFiltering GPathM.up at h
+  cases hv : isValid (filterAll g reqs) with
+  | true => rfl
+  | false =>
+    rw [if_neg (by rw [hv]; exact Bool.false_ne_true)] at h
+    exact absurd h (by rw [hv]; exact Bool.false_ne_true)
 
 -- ============================================================
 -- The seed case
@@ -167,5 +181,123 @@ theorem Certifies_of_upStep (hup : UpCertifies reqOf) : Certifies reqOf := by
 /-- info: 'AbsSat.GraphPath.Model.Certifies.Certifies_of_upStep' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Certifies_of_upStep
+
+-- ============================================================
+-- The same ledger in `ChainSound` currency — where the machinery lives
+-- ============================================================
+
+/-!
+`Certifies_of_upStep` leaves one obligation, but stated in `Inhabited`
+currency it cannot use anything already proved about `upFiltering`: the
+existing results (`ChainSound_addNode`, `ChainSound_filterAll`,
+`ChainSound_upFiltering`) are all about `ChainSound` chains. Restating the
+invariant in that currency lets them all be plugged in, and the obligation
+shrinks to exactly what none of them supplies.
+-/
+
+/-- The construction invariant, with `ChainSound` witnesses. -/
+def CertifiesS : Prop :=
+  ∀ g, Reachable reqOf g → isValid g = true → ∃ sel, ChainSound g sel
+
+theorem Inhabited_of_ChainSound (g : GPathM) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) : AbsSat.GraphPath.Model.Inhabited g :=
+  ⟨pathOf sel g, sel, h.chain.1, h.chain.2.1, rfl⟩
+
+theorem Certifies_of_CertifiesS (h : CertifiesS reqOf) : Certifies reqOf := by
+  intro g hr hv
+  obtain ⟨sel, hsel⟩ := h g hr hv
+  exact Inhabited_of_ChainSound g sel hsel
+
+-- ============================================================
+-- The structural side conditions `ChainSound_upFiltering` asks for
+-- ============================================================
+
+theorem MachineOk_join (g₁ g₂ : GPathM) (h : MachineOk g₁) : MachineOk (join g₁ g₂) := h
+
+theorem MachineOk_initSeed (d : NodeId) (title : String) :
+    MachineOk (GPathM.initSeed d title) := by
+  unfold GPathM.initSeed GPathM.up
+  rw [if_pos (by rfl : isValid empty = true)]
+  exact MachineOk_addNode empty d title MachineOk_empty
+
+theorem MachineOk_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId)
+    (title : String) (h : MachineOk g) : MachineOk (upFiltering g reqs d title) := by
+  have hf : MachineOk (filterAll g reqs) := MachineOk_of_pruned (pruned_filterAll g reqs) h
+  unfold GPathM.upFiltering GPathM.up
+  cases hv : isValid (filterAll g reqs) with
+  | true => rw [if_pos rfl]; exact MachineOk_addNode _ d title hf
+  | false => rw [if_neg Bool.false_ne_true]; exact hf
+
+/-- Every state the machine builds has the shape `addNode` needs. -/
+theorem MachineOk_reachable (g : GPathM) (h : Reachable reqOf g) : MachineOk g := by
+  induction h with
+  | seed d title _ _ => exact MachineOk_initSeed d title
+  | up g d title _ _ _ _ ih => exact MachineOk_upFiltering g (reqOf d) d title ih
+  | join g₁ g₂ _ _ _ ih₁ _ => exact MachineOk_join g₁ g₂ ih₁
+
+/-- Nodes stay below the current step across a pruning. -/
+theorem nodes_below_of_pruned {g g' : GPathM} (hpr : Pruned g g')
+    (h : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) :
+    ∀ n ∈ g'.nodes, n.id.id.step < g'.current_step := by
+  intro n hn
+  obtain ⟨m, hm, hid, _, _⟩ := hpr.nodes_derived n hn
+  rw [hpr.step_eq, hid]
+  exact h m hm
+
+-- ============================================================
+-- What the `up` case actually still owes
+-- ============================================================
+
+/-- **The obligation, at its smallest.** If the machine holds a valid,
+certified graph and the filter for the next node leaves it valid, then the
+graph has a sound chain that *satisfies those requirements*.
+
+This is all `ChainSound_upFiltering` is missing. It says nothing about
+`addNode`, nothing about the review passes, nothing about the new node: only
+that the validity the machine checks after filtering is witnessed by an actual
+chain through the required nodes. -/
+def ReqChain : Prop :=
+  ∀ (g : GPathM) (d : NodeId), Reachable reqOf g → isValid g = true →
+    (∃ sel, ChainSound g sel) →
+    isValid (filterAll g (reqOf d)) = true →
+    ∃ sel, ChainSound g sel ∧
+      ∀ req ∈ reqOf d, 0 ≤ req.step → req.step < g.current_step → (sel req.step).id = req
+
+/-- **The ledger, closed down to `ReqChain`.** `seed` is `ChainSound_initSeed`,
+`join` is `ChainSound_join_left`, and `up` is `ChainSound_upFiltering` once
+`ReqChain` supplies the chain it needs. -/
+theorem CertifiesS_of_ReqChain (h : ReqChain reqOf) : CertifiesS reqOf := by
+  intro g hreach
+  induction hreach with
+  | seed d title hstep _ =>
+    intro _; exact ⟨_, ChainSound_initSeed d title hstep⟩
+  | up g d title hstep _ _ hr ih =>
+    intro hv
+    have hgv : isValid g = true := isValid_of_upFiltering g (reqOf d) d title hv
+    have hfv : isValid (filterAll g (reqOf d)) = true :=
+      isValid_of_filterAll_of_upFiltering g (reqOf d) d title hv
+    obtain ⟨sel, hsel, hreqs⟩ := h g d hr hgv (ih hgv) hfv
+    refine ⟨_, ChainSound_upFiltering g (reqOf d) d title hfv ?_ ?_ ?_ sel hsel hreqs⟩
+    · rw [(pruned_filterAll g (reqOf d)).step_eq]; exact hstep
+    · exact nodes_below_of_pruned (pruned_filterAll g (reqOf d))
+        (steps_below_current reqOf hr)
+    · exact MachineOk_of_pruned (pruned_filterAll g (reqOf d))
+        (MachineOk_reachable reqOf g hr)
+  | join g₁ g₂ hok _ _ ih₁ _ =>
+    intro _
+    obtain ⟨sel, hsel⟩ := ih₁ (isValid_left_of_okJoin hok)
+    exact ⟨sel, ChainSound_join_left g₁ g₂ sel hsel⟩
+
+/-- And therefore the author's claim, in `Inhabited` currency. -/
+theorem Certifies_of_ReqChain (h : ReqChain reqOf) : Certifies reqOf :=
+  Certifies_of_CertifiesS reqOf (CertifiesS_of_ReqChain reqOf h)
+
+/-- info: 'AbsSat.GraphPath.Model.Certifies.CertifiesS_of_ReqChain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms CertifiesS_of_ReqChain
+
+/-- info: 'AbsSat.GraphPath.Model.Certifies.MachineOk_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms MachineOk_reachable
 
 end AbsSat.GraphPath.Model.Certifies

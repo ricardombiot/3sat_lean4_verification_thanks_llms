@@ -10,6 +10,49 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (g) — `UpCertifies` reducido a `ReqChain`, el primer enunciado que menciona los requisitos.**
+
+**Desmontar el paso.** `upFiltering g reqs d = up (filterAll g reqs) d`, y `up` es `addNode`
+cuando el filtro deja válido. `addNode` solo crece; el filtro ya tenía
+`ChainSound_filterAll`, con la condición de que la cadena satisfaga los requisitos.
+
+**Cambio de moneda.** v21 enunciaba el invariante en `Inhabited`, pero toda la maquinaria
+demostrada está en `ChainSound` (`ChainSound_initSeed`, `ChainSound_join_left`,
+`ChainSound_filterAll`, `ChainSound_addNode`, `ChainSound_upFiltering`). Reenunciado como
+`CertifiesS`, el ledger se cierra salvo una cosa.
+
+**Condiciones laterales de `ChainSound_upFiltering`, ahora todas demostradas:**
+
+- el paso del nodo nuevo — `Reachable.up` + `(pruned_filterAll _).step_eq`;
+- nodos por debajo del paso actual — `nodes_below_of_pruned` sobre `steps_below_current`;
+- `MachineOk` — inducción propia sobre `Reachable`: **`MachineOk_reachable`** (nueva; seed vía
+  `MachineOk_initSeed`, up vía `MachineOk_upFiltering`, join porque `join` hereda
+  `current_step`/`map_parent` de `g₁`).
+
+**Los teoremas:** `CertifiesS_of_ReqChain` y `Certifies_of_ReqChain`.
+
+**La obligación, mínima:**
+
+    ReqChain : ∀ g d, Reachable g → isValid g → (∃ sel, ChainSound g sel) →
+      isValid (filterAll g (reqOf d)) → ∃ sel, ChainSound g sel ∧ sel satisface reqOf d
+
+No menciona `addNode`, ni las pasadas de review, ni el nodo nuevo, ni el grafo filtrado.
+Solo: **la validez que la máquina comprueba tras filtrar está atestiguada por una cadena
+que pasa por los requisitos.**
+
+**Y aquí entra el mapa.** `ReqChain` es el primer enunciado del ledger que menciona los
+**requisitos**; todos los anteriores (`PickValid`, `UpCertifies`, `Supported`, `Extendable`)
+hablaban solo de owners, cadenas y validez. `GraphMap.MapReqs.Functional` —demostrado el
+2026-09-08, que `ImportCnf` solo genera requisitos 0/1/all— llevaba desde entonces sin poder
+conectarse con nada. Es la primera vez que las dos mitades del trabajo se tocan en el mismo
+enunciado.
+
+**Medición:** `Certifies` no necesita falsador nuevo — es lo que `lake exe validate` y
+`lake exe extend --descend` ya comprueban en cada estado, con certificados verificados por
+`Certificate.isCert`. 16.444 + 5.466 estados, 1.048.889 nodos, 0 violaciones.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v22.md`.
+
 **2026-09-09 (f) — Corrección del autor sobre el régimen, y el invariante enunciado en la construcción.**
 
 **Corrección aceptada.** En v20 §6 escribí que "la review tiene que poder invalidar — así
