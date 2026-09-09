@@ -22,13 +22,14 @@ owner cualquiera. Eso corrige una frase de (s)/v34 §4.
 **Lo que hay que corregir de su propuesta.** Propuso
 `owner_at_req_eq_chain_pick : ∀ q ∈ ownersAt n.owners req.step, q = sel req.step`. **Es
 falso.** Medido sobre nodos *de cadena* (`lake exe extend --randompinnedchain`, 60
-instancias): 1.193.194 pares (nodo de cadena, requisito), de los cuales **277.070 (23 %)
-tienen conjunto de owners de ancho ≥ 2**. Lo que `PairwiseOwned` necesita es **pertenencia**,
+instancias) y semilla 90210 (100 instancias): **4.429.212** pares (nodo de cadena,
+requisito) en total, de los cuales **1.035.280 (23,4 %) tienen conjunto de owners de ancho
+≥ 2**. Lo que `PairwiseOwned` necesita es **pertenencia**,
 estrictamente más débil.
 
 **Su pregunta empírica, respondida:** la elección de la cadena falta del conjunto de owners
 **0** veces; owners que casan con el predecesor de la cadena: ninguno **0**, exactamente uno
-**1.193.194**, dos o más **0**. **Siempre exactamente uno.**
+**4.429.212**, dos o más **0**. **Siempre exactamente uno**, en dos semillas.
 
 **Lo demostrado (`Model/ParentId.lean`):**
 

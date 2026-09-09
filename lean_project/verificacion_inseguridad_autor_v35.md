@@ -21,12 +21,13 @@ theorem owner_at_req_eq_chain_pick ... (q ∈ ownersAt n.owners req.step) : q = 
 
 O sea: **todo** owner en el paso pinzado es el nodo que elige la cadena. Eso **no puede ser cierto**, y lo dicen mis propios números — solo que v33 los midió sobre *todos* los nodos, no sobre nodos de cadena, así que había que rehacer la medición para estar seguro. Hecho:
 
-| sobre caminos req-satisfactorios, 60 instancias | |
-|---|---|
-| pares (nodo **de cadena**, requisito) | **1.193.194** |
-| **con conjunto de owners de ancho ≥ 2** | **277.070 (23 %)** |
+| sobre caminos req-satisfactorios | pares (nodo **de cadena**, requisito) | **ancho ≥ 2** |
+|---|---|---|
+| semilla 2026, 3–9 vars, 60 inst. | 1.193.194 | 277.070 (23,2 %) |
+| semilla 90210, 3–10 vars, 100 inst. | **3.236.018** | 758.210 (23,4 %) |
+| **total** | **4.429.212** | **1.035.280** |
 
-En 277.070 sitios hay dos owners distintos y la cadena elige uno. `∀ q, q = sel` es falso ahí, y no por falta de demostración.
+En más de un millón de sitios hay dos owners distintos y la cadena elige uno. `∀ q, q = sel` es falso ahí, y no por falta de demostración.
 
 **Lo que `PairwiseOwned` necesita no es eso: es pertenencia.** `sel req.step ∈ ownersAt n.owners req.step`. Estrictamente más débil, y es lo que hay que atacar.
 
@@ -34,14 +35,14 @@ En 277.070 sitios hay dos owners distintos y la cadena elige uno. `∀ q, q = se
 
 Preguntaba: en cada par pinzado, ¿cuál de los dos owners tiene `parent_id` igual al predecesor de la cadena — siempre exactamente uno, nunca cero, nunca los dos?
 
-| | |
+| sobre los **4.429.212** pares, dos semillas | |
 |---|---|
 | **la elección de la cadena NO está en el conjunto de owners** | **0** |
 | owners que casan con el predecesor: **ninguno** | **0** |
-| owners que casan con el predecesor: **exactamente uno** | **1.193.194** |
+| owners que casan con el predecesor: **exactamente uno** | **4.429.212** |
 | owners que casan con el predecesor: **dos o más** | **0** |
 
-**Siempre exactamente uno. En 1,19 millones de casos.** Ni un cero, ni un dos.
+**Siempre exactamente uno. En 4,43 millones de casos.** Ni un cero, ni un dos.
 
 ---
 
@@ -77,7 +78,7 @@ def OwnerMatchesPredecessor (reqOf) (g) (sel) : Prop :=
 
 > **Existe** un owner en el paso requerido que lleva el `parent_id` de la cadena.
 
-Una **existencia**, sobre un elemento cuyos dos campos están determinados. No una búsqueda, no una elección. Medida: exactamente uno, 1.193.194 veces.
+Una **existencia**, sobre un elemento cuyos dos campos están determinados. No una búsqueda, no una elección. Medida: exactamente uno, **4.429.212** veces, dos semillas independientes.
 
 Y ahí sí encaja lo que el otro agente señala como la pieza que falta: **un puente entre el libro de `owners` y el de `parents`**. Porque para demostrar esa existencia hay que saber que las pasadas de coherencia (`intersectOwners` contra `unionOwnersOf`) no expulsan justamente al owner que la rama estructural sí conserva. Eso sigue sin atacarse, y es el sitio correcto para atacarlo.
 
@@ -94,7 +95,7 @@ PairwiseOwned
   ⟸ pares pinzados
        ⟸ id de mapa                  demostrado (v33)
        ⟸ parent_id ⟹ es la cadena    demostrado (v35)
-       + ∃ owner con ese parent_id    medido: exactamente uno, 1.193.194 veces
+       + ∃ owner con ese parent_id    medido: exactamente uno, 4.429.212 veces
   ⟸ pares NO pinzados                 sin reducción; solo medición global
 ```
 

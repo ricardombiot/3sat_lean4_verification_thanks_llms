@@ -281,15 +281,15 @@ two fields.
 So the pinned half of `ReqSatImpliesOwned` reduces to a single **existence**:
 that some owner at the required step carries the chain's `parent_id`.
 
-**Measured** (`lake exe extend --randompinnedchain`, 60 instances): over
-1,193,194 (chain node, requirement) pairs, **exactly one** owner matches the
-chain's predecessor — never zero, never two — and the chain's pick is a member
-of the owner set in every single case.
+**Measured** (`lake exe extend --randompinnedchain`, two seeds, 160 instances):
+over **4,429,212** (chain node, requirement) pairs, **exactly one** owner
+matches the chain's predecessor — never zero, never two — and the chain's pick
+is a member of the owner set in every single case.
 
 **And it corrects a tempting overshoot.** The obligation is *membership*, not
 "every owner at a pinned step equals the chain's pick": 277,070 of those pairs
-(23%) have an owner set of width two, so the stronger reading is false on chain
-nodes, not merely unproven.
+(23.4%, 1,035,280 of them) have an owner set of width two, so the stronger
+reading is false on chain nodes, not merely unproven.
 -/
 
 /-- **Which owner is the chain's.** An owner at a pinned step that carries the
@@ -310,8 +310,8 @@ theorem owner_eq_chain_pick (reqOf : NodeId → List NodeId) (g : GPathM)
     hpar
 
 /-- **The single remaining obligation of the pinned half.** Some owner at the
-required step carries the chain's `parent_id`. Measured at exactly one, over
-1,193,194 (chain node, requirement) pairs; not proved. -/
+required step carries the chain's `parent_id`. Measured at exactly one, over 4,429,212 (chain node,
+requirement) pairs across two seeds; not proved. -/
 def OwnerMatchesPredecessor (reqOf : NodeId → List NodeId) (g : GPathM)
     (sel : Int → PathNodeId) : Prop :=
   ∀ j, 0 ≤ j → j < g.current_step → ∀ n, g.node? (sel j) = some n →
