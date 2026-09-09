@@ -38,14 +38,13 @@ Corregido en el docstring de `MapChain.lean` y aquí.
 
 Una vez dicho que la obligación es *"todo estado válido que la máquina sostiene tiene un camino que satisface los requisitos"*, eso **se puede medir directamente**. Añadí el contador y lo ejecuté:
 
-| campaña, semilla 2026 (3–9 vars, 60 instancias) | |
-|---|---|
-| estados válidos | **6.548** |
-| caminos que satisfacen los requisitos | 89.104 |
-| de esos, no co-poseídos | **0** |
-| **estados válidos SIN ningún camino así** | **0** |
+| campaña | instancias | estados válidos | caminos req-satisfactorios | no co-poseídos | **estados SIN camino** |
+|---|---|---|---|---|---|
+| semilla 2026, 3–9 vars | 60/60 | 6.548 | 89.104 | 0 | **0** |
+| semilla 90210, 3–10 vars | 100/100 | 12.779 | 261.139 | 0 | **0** |
+| **total** | **160/160** | **19.327** | **350.243** | **0** | **0** |
 
-Ese último cero es la obligación abierta, medida de frente. Ni un solo estado válido que la máquina sostenga se queda sin camino que satisfaga sus requisitos.
+La última columna es la obligación abierta, medida de frente, con **dos semillas independientes**. Ni un solo estado válido que la máquina sostenga se queda sin camino que satisfaga sus requisitos.
 
 Antes de v32 no lo había medido porque lo tenía mal planteado: creía que la obligación hablaba del mapa, y el mapa no es medible en ese sentido. Planteada sobre los **estados de la máquina**, es una comprobación directa.
 
@@ -61,7 +60,7 @@ ChainSound
   ⟸ self_owned         demostrado (v30)
   ⟸ PairwiseOwned  ⟸  ReqSatImpliesOwned    medido: 350.243 caminos, 0 violaciones
                     +  ∃ camino req-satisfactorio en cada estado válido
-                                              medido: 6.548 estados, 0 sin camino
+                                              medido: 19.327 estados, 0 sin camino
 ```
 
 Las dos obligaciones que quedan están **medidas y en pie**, y ninguna es sobre el mapa: las dos son sobre lo que la máquina sostiene después de procesarlo.

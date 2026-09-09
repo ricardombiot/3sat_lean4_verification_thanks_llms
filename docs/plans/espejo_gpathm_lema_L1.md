@@ -37,7 +37,9 @@ Corregido el docstring de `MapChain.lean` y la §5 de v31.
 **Y la corrección permite medir la obligación de frente.** Planteada sobre los estados de la
 máquina es comprobable, cosa que sobre el mapa no lo era. Añadido el contador
 "estados válidos sin ningún camino req-satisfactorio" a `lake exe extend --randomreqpaths`:
-semilla 2026, 3–9 vars, 60 instancias → **6.548 estados válidos, 0 sin camino**.
+semilla 2026 (3–9 vars, 60 instancias) → 6.548 estados; semilla 90210 (3–10 vars, 100
+instancias) → 12.779 estados. **Total 19.327 estados válidos, 0 sin camino**, con dos
+semillas independientes.
 
 **Estado:** las dos obligaciones restantes (`ReqSatImpliesOwned` y la existencia del camino)
 están **medidas y en pie**, y **ninguna es sobre el mapa**: las dos son sobre lo que la
