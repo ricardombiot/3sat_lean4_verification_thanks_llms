@@ -10,6 +10,41 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (l) — `IsChain` demostrado. `PairwiseOwned` queda aislado.**
+
+**`Model/Parents.lean` — tres invariantes de forma.**
+
+| | |
+|---|---|
+| `PN` | todo padre de un nodo superviviente es un nodo superviviente |
+| `PBelow` | un padre está exactamente un paso por debajo |
+| `NotRoot` | un nodo por encima del paso 0 no es raíz |
+
+`PBelow` y `NotRoot` salen **gratis de `Pruned`** (`nodes_derived` da que los padres encogen y
+los ids no cambian), luego solo hay que demostrarlos en `initSeed`, `addNode` y `join`. `PN`
+no: `Pruned` registra que los padres encogen, no que los nodos que nombran sobrevivan —
+cierto porque `removeNode` desenlaza el id que elimina, pero hay que probarlo operación por
+operación como en (j). `NotRoot` en `addNode` sale de `MachineOk` (el nodo nuevo lleva
+`parent_id := map_parent`, y `MachineOk` da `map_parent ≠ none` en cuanto `current_step > 0`).
+Empaquetados en `Shape`, con `Shape_reachable` y `Shape_filterAll`.
+
+**`Model/PathExists.lean` — el descenso.** `parents_ne_nil_of_isValidNode` (un nodo no raíz
+tiene padres), `step_down` (un paso hacia abajo desde una `PartialChain`), `descend`
+(inducción sobre `lo.toNat`) y **`exists_isChain`**: partiendo de un nodo del paso más alto
+(`node_at_every_step`, (j)) se baja hasta el paso 0. `IsChain` demostrado.
+
+**El matiz, anotado:** el camino construido **no tiene por qué estar co-poseído** — se elige
+un padre cualquiera en cada paso. Construir *un* camino es fácil; construir *un camino
+co-poseído* es el problema. Esto es progreso de fontanería, no de matemáticas. Lo que gana el
+proyecto es que `PairwiseOwned` queda **completamente aislado**: ya no hay nada mezclado con
+él que sea cuestión de invariantes de la máquina.
+
+**Restos de `ChainSound`:** `root_shape` parece casi inmediato desde `NotRoot`; `son_link`
+pediría un invariante de simetría padre/hijo (mismo idioma); `self_owned` es menos claro
+porque `intersectOwners` puede quitarlo. `PairwiseOwned` no parece alcanzable por esta vía.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v27.md`.
+
 **2026-09-09 (k) — `FilteredChain`: separada la vacuidad de la elección; la vacuidad, demostrada.**
 
 **`Model/Candidates.lean`.** Una cadena es una *selección*, así que antes de preguntar si
