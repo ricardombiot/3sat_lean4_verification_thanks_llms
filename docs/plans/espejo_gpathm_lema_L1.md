@@ -10,6 +10,47 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (v) — Bug real corregido en el ejecutable, y el puente formalizado.**
+
+**El bug, reportado por el autor** a partir de la medición de (u): la poda de owners debe
+**desenlazar a los padres incompatibles**, y un nodo que se queda sin padres se invalida y se
+elimina, porque nunca podría formar parte de una cadena solución.
+
+**Corregido en `GraphPath.lean`:** `unlink_incompatible!`, llamada tras las dos
+intersecciones de owners (`clean_invalid_nodes!`, `review_owners_line!`). Desenlace
+**simétrico** —si `n` pierde a `p` como padre, `p` pierde a `n` como hijo— para no romper
+`Sons.SMP` (n). `remove_if_invalid_node!` hace el resto.
+
+**Validado:** `diffTest` **800/800** contra el oráculo (701 SAT, 99 UNSAT), veredictos y
+conjuntos completos de soluciones **sin cambio** — que es el único resultado aceptable para
+un arreglo que solo poda lo ya inservible.
+
+**`Model/Bridge.lean` — el puente como teorema.**
+
+    LinksInOwners h : ∀ n ∈ h.nodes, (∀ p ∈ n.parents, p ∈ n.owners) ∧ (∀ s ∈ n.sons, s ∈ n.owners)
+
+- `linksInOwners_relinkSelf` / `linksInOwners_at` — **el arreglo lo establece por
+  construcción** en el nodo sobre el que actúa.
+- `pruned_unlinkIncompatible` — solo quita enlaces, luego todo lo que da `Pruned` atraviesa
+  la operación. Es lo que hace segura la migración.
+- `chain_link_survives` — **por qué la migración saldrá**: el enlace padre de una cadena
+  sonora sobrevive al desenlace *precisamente porque la cadena está co-poseída*, y
+  `PairwiseOwned` ya es un campo de `ChainSound`.
+
+**Estado de la migración del espejo** (intentada y revertida para no romper el build):
+`GPathM` (definiciones + pasos cableados), `Pruned`, las cotas de medida de `Fuel` y **F2.c
+entero** funcionan; faltan `CleanInvalid`, `Coherence`, `Review`, `AddNode`, cada una
+necesitando `ChainSound_unlinkIncompatible`, cuyo argumento es `chain_link_survives`.
+Mientras tanto el espejo poda menos que el ejecutable; la diferencia es conservadora y
+`diffTest` valida ambas bandas.
+
+**Nota de método:** el puente pasó de **refutado** (u, 37 testigos que escalaban) a **cierto
+por construcción** (v) por un cambio en el algoritmo, no por una demostración mejor. Solo
+pasa cuando lo que falla es un defecto y no una conjetura — a diferencia de `Extendable`, el
+clique del soporte, la simetría, la aciclicidad y `ArcImpliesChain`, que siguen refutados.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v37.md` y `..._v38.md`.
+
 **2026-09-09 (u) — El puente `owners`/`parents`: refutado en general, cierto en cadenas.**
 
 **El candidato mínimo.** `OwnerMatchesPredecessor` pide que un `PathNodeId` concreto esté en
