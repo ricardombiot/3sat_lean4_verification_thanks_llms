@@ -30,3 +30,7 @@ root = "WidthMain"
 [[lean_exe]]
 name = "validate"
 root = "ValidateMain"
+
+[[lean_exe]]
+name = "hyper"
+root = "HyperMain"

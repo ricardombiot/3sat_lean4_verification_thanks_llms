@@ -12,6 +12,8 @@ import AbsSat.Utils.Checker
 import AbsSat.Db.Machine.Cols.ColTimeline
 import AbsSat.Db.Map.Cols.MapColVars
 import AbsSat.GraphMap.MapReqs
+import AbsSat.GraphMap.Hypergraph
+import AbsSat.GraphMap.HyperProbe
 import AbsSat.Utils.Alias
 import AbsSat.Db.Path.Cols.PathColNodes
 import AbsSat.Db.Path.Docs.PathDocNode
@@ -46,3 +48,5 @@ import AbsSat.GraphPath.Model.Link
 import AbsSat.GraphPath.Model.WidthProbe
 import AbsSat.GraphPath.Model.Validate
 import AbsSat.GraphPath.Model.L6Search
+import AbsSat.GraphPath.Model.Certificate
+import AbsSat.GraphPath.Model.Verdict

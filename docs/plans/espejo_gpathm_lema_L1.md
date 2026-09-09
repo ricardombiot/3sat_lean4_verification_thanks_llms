@@ -10,6 +10,111 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (b) — Corrección del autor sobre el Reader, y ruta E cerrada.**
+
+**Corrección aceptada.** En v16 escribí que un zombi "hace que el lector tenga que
+retroceder". Es falso. `Reader/PathReader.lean` toma `ids.toList.head?`, filtra, y si el
+filtro invalida el grafo pone `error` y **para** — no prueba otro nodo.
+`Reader/PathExpReader.lean` aborta **la enumeración entera** ante una sola rama con
+error (el `GRAVE ERROR READER... GPATH INVALID` de Julia, cuyo comentario ya enunciaba el
+invariante de diseño: todo nodo superviviente es extensible). Consecuencia correcta: un
+zombi es una **parada en seco** que destruye el conjunto de soluciones, y `Supported` es
+**precondición de corrección del lector**, no una propiedad de rendimiento.
+
+Lo que no cambia: el veredicto sale de `have_solution` (validez del grafo), no del lector
+(`DiffTest.run_case`), así que `Inhabited` sigue siendo lo que consume el veredicto y la
+localización de `Verdict.lean` se mantiene. Y `denot_has_no_zombies` sigue en pie: un
+zombi no puede *inventar* una solución.
+
+**Hallazgo que sale de la corrección.** Como el lector re-filtra tras cada selección, lo
+que necesita es `Supported` **preservado por ese filtro** — enunciado como
+`Verdict.ReadStable`. Que es el mismo enunciado abierto del puente. La corrección del
+lector y el hueco de L6 son **una sola obligación**.
+
+**Ruta E — `GraphMap/Hypergraph.lean` + `lake exe hyper`.** ¿Aplica BFMY (α-aciclicidad ⇒
+la consistencia por pares implica consistencia global) en vez de CCJ? Construido el CSP
+explícito (variables = pasos, dominios = nodos del mapa, restricciones = `requires`), los
+dos hipergrafos (`scopesByStep`, el honesto para BFMY; `scopesByNode`, cota optimista) y
+la reducción GYO como `Bool` decidible. Sin `native_decide`: los casos de prueba se
+verifican con `decide`.
+
+*El techo de la ruta:* los CSP α-acíclicos son polinómicos, así que un mapa α-acíclico
+pondría 3SAT en P por un teorema de 1983 — E no era un atajo, era la afirmación entera.
+Un "no" no refuta nada del algoritmo.
+
+*Medición:* no α-acíclico. `sample.cnf` (núcleo 5/5), literal repetido (8/8), UNSAT
+forzado (11/11), transición de fase (32/32). **Sí** α-acíclico: la cadena implicativa
+larga, cuyo grafo de restricciones es un camino — señal de que el probe mide lo correcto.
+Campañas: 16/200 (3–10 vars), 5/100 (3–4), 7/100 (8–12); el núcleo cíclico es casi
+siempre el hipergrafo entero y crece con la instancia (media 10 → 22 → 37 aristas).
+Verificado con `decide` dónde está el ciclo: dos cláusulas que comparten dos variables
+reducen; tres encadenadas, no. **El ciclo es la estructura de variables compartidas.**
+
+**Conclusión.** E cerrada. Junto con lo que `l6search` ya decía (sin contraejemplos ni con
+requisitos arbitrarios sin estructura 3SAT), apunta a que si la propiedad se cumple **se
+cumple por cómo poda la máquina, no por cómo está hecho el mapa** — lo que descarta E/F y
+señala A (`Extendable`, backtrack-free), que es además lo que el Reader necesita de
+verdad.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v17.md`; v16 §2 corregida in
+situ.
+
+**2026-09-09 — Rutas C y D: el checker demostrado, y la separación de las dos mitades de L6.**
+
+De las siete rutas alternativas discutidas para "sin zombis", el autor pidió atacar **C**
+(certificado por instancia) y **D** (cambiar el teorema). Ninguna cierra L6.
+
+**Ruta C — `Model/Certificate.lean`.** El `validate` de v15 daba un resultado con estatus
+lógico "mi programa buscó y encontró". Ahora el *checker* está demostrado correcto:
+
+- `isCert_sound` — si el `Bool` acepta, existe una selección que cumple `IsChain` y
+  `PairwiseOwned` **en el sentido de `Denot.lean`**, no en el del código del checker.
+- `Supported_of_checkSupported` — un grafo aceptado satisface `Supported`, que es
+  literalmente la L6 abierta.
+- `Validate.Supported_of_zombiesOf_nil` — el enlace con el ejecutable.
+
+La búsqueda que *encuentra* los certificados (`searchFrom`, `partial`) sigue **sin
+teoremas a propósito**: un fallo en ella solo puede hacer que el checker rechace, nunca
+que acepte un grafo con zombis. Separación buscar/verificar, como en los verificadores de
+pruebas SAT.
+
+*Detalle que no era cosmético:* `isGoodChain` comprobaba las condiciones en los índices
+que la lista tuviera, así que una lista corta pasaba vacíamente en los pasos ausentes.
+`isCert` añade `sel.length = current_step`, que es lo que hace cuadrar los índices `Nat`
+del checker con los pasos `Int` del modelo. Sin eso el lema de reflexión es falso.
+
+**Ruta D — `Model/Verdict.lean`.** `L6.lean` enunciaba dos propiedades y las trataba como
+un lema. No valen lo mismo:
+
+| | lo consume |
+|---|---|
+| `Inhabited g` | el veredicto SAT/UNSAT |
+| `Supported g` | el lector (no retroceder) |
+
+- `denot_has_no_zombies` — un zombi no ensucia la denotación (cierto por definición, y ese
+  es el contenido): "sin zombis" sostiene la cota de lectura, no la corrección del
+  veredicto.
+- `Inhabited_iff_SupportedAt` — **`Inhabited` es L6 en un solo nodo**. `Supported` es el
+  mismo `SupportedAt` cuantificado sobre todos. La mitad que sostiene el veredicto hay que
+  resolverla una vez, en un nodo *que uno elige*, no contra un adversario que lo elige.
+- `Certificate.Inhabited_of_isCert` — y se certifica con **un** certificado, no uno por
+  nodo.
+
+**Cierres de axiomas.** `Certificate`: `[propext, Quot.sound]`. `Verdict`: `[propext]`, y
+dos teoremas sin ningún axioma. Todos fijados por `#guard_msgs`.
+
+**Resultados.** `validate` reporta ahora las dos mitades por separado. Campaña aleatoria
+(semilla 2026, 3–7 vars): 40/40 limpias, 3.808 estados, 116.330 nodos, `Inhabited`
+certificado 3.808/3.808, 0 zombis. Las cinco familias adversarias de v15, limpias y con
+`Inhabited` certificado al 100%. `diffTest` 200/200. `lake build AbsSat` verde, 55
+módulos, 0 `sorry`.
+
+**Lo que sigue abierto:** L6 en general; el puente `GPath ↔ GPathM` (empírico); y el
+enlace `denot` → asignación satisfactoria, que vive en el lado del mapa (L7) — `Inhabited`
+da *una cadena*, no *una solución*.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v16.md`.
+
 **2026-09-08 (i) — Comprobación directa de validez: `lake exe validate`.**
 
 **Corrección aceptada:** la lentitud a `n=12` que reporté como anomalía no lo era. Con

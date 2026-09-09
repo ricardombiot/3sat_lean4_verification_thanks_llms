@@ -5,3 +5,6 @@ build_output_verbose.log
 run_output.log
 difftest_tmp.cnf
 difftest_failure_*.cnf
+validate_tmp.cnf
+validate_failure_*.cnf
+hyper_tmp.cnf

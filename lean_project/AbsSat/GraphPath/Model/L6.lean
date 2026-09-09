@@ -49,6 +49,14 @@ requirements should have broken it. Either the machine's own construction
 (owners start as "everyone owns everyone" and are only ever pruned coherently)
 forces the Helly property by itself, or the falsifier is not yet adversarial
 enough. Both are worth knowing before investing in a proof.
+
+**Two things now stand around it (2026-09-09).** `Certificate.lean` proves the
+*checker* for `Supported` correct, so a clean run of `lake exe validate` is a
+machine-checked `Supported g` for the graphs it examined rather than a report
+that a search succeeded. And `Verdict.lean` splits this module's two
+properties: `Inhabited` — the half the SAT/UNSAT verdict consumes — is
+`Supported` restricted to a *single* node, and a zombie cannot make `denot`
+wrong, only make the reader backtrack. Neither closes L6.
 -/
 
 namespace AbsSat.GraphPath.Model
