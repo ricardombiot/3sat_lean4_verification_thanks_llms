@@ -670,4 +670,81 @@ vars={nvMin}..{nvMin + nvSpan - 1} cap={cap} ---"
     IO.println "ReqSatImpliesOwned is FALSE. ❌"
   pure 0
 
+-- ============================================================
+-- The residual gap in `ReqSatImpliesOwned`: map id vs `PathNodeId`
+-- ============================================================
+
+/-!
+`MapChain.ReqSatisfying` is about **map ids** — `(sel req.step).id = req` — and
+lemma L1 pins the owners' map ids at a required step. `PairwiseOwned` is about
+**`PathNodeId`s**. So knowing the map id is right does not put the *particular*
+path node into the owners list: several `PathNodeId`s can share a map id,
+differing in their parent.
+
+That is the whole residual gap for the pinned half of `ReqSatImpliesOwned`, and
+it is measurable: at a step some requirement names, how many **distinct
+`PathNodeId`s** does a node's owner set hold? If the answer is always one, the
+gap closes there.
+-/
+
+def distinctPids (l : List PathNodeId) : List PathNodeId :=
+  l.foldl (fun acc q => if acc.contains q then acc else acc ++ [q]) []
+
+/-- `(node/requirement pairs looked at, of those with ≥2 distinct owners at the
+required step, the largest count seen)`. -/
+abbrev PAcc := Nat × Nat × Nat
+
+def pinnedWidth (gmap : GMap) (g : GPathM) : PAcc :=
+  g.nodes.foldl (fun (a : PAcc) n =>
+    (reqOfG gmap n.id.id).foldl (fun (b : PAcc) r =>
+      let os := distinctPids (ownersAt n.owners r.step)
+      (b.1 + 1, b.2.1 + (if os.length ≥ 2 then 1 else 0), Nat.max b.2.2 os.length)) a)
+    (0, 0, 0)
+
+partial def walkPinned (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : PAcc) : PAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : PAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let p := pinnedWidth gmap g
+        (a.1 + p.1, a.2.1 + p.2.1, Nat.max a.2.2 p.2.2)) acc
+    walkPinned gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def reportPinned (path : String) : IO Unit := do
+  let gmap ← load_import! path
+  let (pairs, wide, mx) := walkPinned gmap (mirrorInit gmap) 1000 (0, 0, 0)
+  IO.println s!"{path}"
+  IO.println s!"  (node, requirement) pairs = {pairs}"
+  IO.println s!"  with 2+ distinct owner PathNodeIds at the required step = {wide}"
+  IO.println s!"  widest owner set at a required step = {mx}"
+
+def runRandomPinned (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- pinned-step width: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut pairs := 0
+  let mut wide := 0
+  let mut mx := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let (p, w, m) := walkPinned gmap (mirrorInit gmap) 1000 (0, 0, 0)
+    pairs := pairs + p; wide := wide + w; mx := Nat.max mx m
+  IO.println s!"--- (node, requirement) pairs = {pairs} ---"
+  IO.println s!"--- with 2+ distinct owner PathNodeIds at the required step = {wide} ---"
+  IO.println s!"--- widest owner set at a required step = {mx} ---"
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

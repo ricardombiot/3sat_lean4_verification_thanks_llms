@@ -10,6 +10,34 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (r) — El hueco de `ReqSatImpliesOwned`, acotado a factor dos.**
+
+**Dónde está el hueco.** `ReqSatisfying` habla de **ids de mapa**
+(`(sel req.step).id = req`); `PairwiseOwned` habla de **`PathNodeId`s**. Varios path-nodes
+comparten id de mapa y difieren solo en `parent_id`, así que acertar el id de mapa no mete el
+nodo concreto en la lista de owners. Ese es todo el hueco de la mitad pinzada.
+
+**Demostrado — `MapChain.owner_at_req_shares_mapid`:** en un paso que algún requisito de
+`sel j` nombra, **todos** los owners de `sel j` ahí coinciden con la elección de la cadena en
+el id de mapa (L1 los pinza a `req`; la cadena req-satisfactoria elige `req`). Solo puede
+diferir el padre.
+
+**Medido — `lake exe extend --randompinned`, 60 instancias:** **466.889** pares
+(nodo, requisito); **45.086** (9,7 %) con dos `PathNodeId` distintos en el paso pinzado;
+**el conjunto más ancho visto es 2, nunca tres.** El conjunto de owners en un paso pinzado es
+a lo sumo un par `{⟨req, p₁⟩, ⟨req, p₂⟩}` — el mismo nodo de mapa desde dos padres.
+Registrado como `MapChain.PinnedWidthTwo` (medido, no demostrado).
+
+**La segunda obligación no se disfraza:** "existe un camino req-satisfactorio en cada estado
+válido" **es** la afirmación central en la dirección de (q). Ocho reducciones acabaron ahí.
+Lo que hay es la medición: 19.327 estados válidos, 0 sin camino.
+
+**Contexto de credibilidad del arnés:** ha refutado cinco cosas — `Extendable` (l),
+aciclicidad (i), `ArcImpliesChain` (i), clique del soporte (m) y simetría de posesión (m,
+corrigiendo al propio autor de la entrada).
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v33.md`.
+
 **2026-09-09 (q) — Corrección del autor: el mapa dibuja, la máquina garantiza.**
 
 **El error de (p).** Glosé la obligación restante como "existe un camino que satisface los

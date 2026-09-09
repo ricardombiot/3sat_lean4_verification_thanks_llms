@@ -144,4 +144,60 @@ theorem ChainSound_of_parts (g : GPathM)
 #guard_msgs in
 #print axioms ChainSound_of_parts
 
+-- ============================================================
+-- Sizing the residual gap: map id vs `PathNodeId`
+-- ============================================================
+
+/-!
+`ReqSatisfying` is about **map ids**; `PairwiseOwned` is about **`PathNodeId`s**.
+Several path nodes can carry the same map id, differing only in `parent_id`, so
+knowing the map id is right does not put the particular path node into an owner
+list. That is the whole residual gap for the pinned half of
+`ReqSatImpliesOwned`, and it is now sized.
+
+**Proved** (`owner_at_req_shares_mapid`): at a step some requirement of `sel j`
+names, *every* owner of `sel j` there agrees with the chain's own pick on the
+map id. So the only thing that can differ is the parent.
+
+**Measured** (`lake exe extend --randompinned`, 60 instances): over 466,889
+(node, requirement) pairs, 45,086 have two distinct owner `PathNodeId`s at the
+required step — and the widest such set seen is **2**. Never three.
+
+So the gap is not an unbounded search. At a pinned step the owner set is at
+most a pair `{⟨req, p₁⟩, ⟨req, p₂⟩}`, and what is missing is that the chain
+picks the one that is there.
+-/
+
+/-- **At a required step, the owners agree with the chain on the map id.** L1
+pins their map id to `req`, and a requirement-satisfying chain picks `req`
+there too. Only `parent_id` can differ. -/
+theorem owner_at_req_shares_mapid (g : GPathM) (hrf : ReqFiltered reqOf g)
+    (sel : Int → PathNodeId) (hrs : ReqSatisfying reqOf g sel)
+    (j : Int) (hjlo : 0 ≤ j) (hjhi : j < g.current_step)
+    (n : PNodeM) (hn : g.node? (sel j) = some n)
+    (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
+    (hrlo : 0 ≤ req.step) (hrhi : req.step < g.current_step)
+    (q : PathNodeId) (hq : q ∈ ownersAt n.owners req.step) :
+    q.id = (sel req.step).id := by
+  have hnid : n.id = sel j := node?_id_eq g _ n hn
+  have hq' := List.mem_filter.mp hq
+  have h1 : q.id = req :=
+    hrf n (List.mem_of_find?_eq_some hn) req (by rw [hnid]; exact hreq) q hq'.1
+      (eq_of_beq hq'.2)
+  have h2 : (sel req.step).id = req := hrs j hjlo hjhi req hreq hrlo hrhi
+  rw [h1, h2]
+
+/-- **The residual gap, named.** At a step some requirement names, a node's
+owners hold at most two distinct path nodes. Measured — widest set seen is 2
+over 466,889 (node, requirement) pairs — not proved. With
+`owner_at_req_shares_mapid`, those two can only differ in `parent_id`. -/
+def PinnedWidthTwo (g : GPathM) : Prop :=
+  ∀ pid n, g.node? pid = some n → ∀ req ∈ reqOf pid.id,
+    ∀ q₁ ∈ ownersAt n.owners req.step, ∀ q₂ ∈ ownersAt n.owners req.step,
+      ∀ q₃ ∈ ownersAt n.owners req.step, q₁ = q₂ ∨ q₁ = q₃ ∨ q₂ = q₃
+
+/-- info: 'AbsSat.GraphPath.Model.MapChain.owner_at_req_shares_mapid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owner_at_req_shares_mapid
+
 end AbsSat.GraphPath.Model.MapChain
