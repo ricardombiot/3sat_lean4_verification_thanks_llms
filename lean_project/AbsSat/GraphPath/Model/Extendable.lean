@@ -1,0 +1,277 @@
+-- lean_project/AbsSat/GraphPath/Model/Extendable.lean
+import AbsSat.GraphPath.Model.Verdict
+
+/-!
+**Route A — replacing the global `∃` by a local `∀`.**
+
+`Supported g` says *there exists* a complete co-owned chain through every node.
+Induction on `Reachable` cannot reach it: the `up` case would have to conjure a
+global object out of the one- and two-consistency that `upFiltering` and the
+coherence passes maintain, and it does not reduce.
+
+The standard move when an existential invariant is not inductive is to
+**strengthen it until it is**. Here the strengthening is *backtrack-freeness*:
+
+> `Extendable` — every consistent partial chain extends one more step.
+
+That is a **one-step** property, the kind a filtering pass can plausibly
+sustain, and `Supported` follows from it by induction on the step index rather
+than on the construction. This module does that reduction:
+
+    ExtendUp g → ExtendDown g → NodesInRange g → Supported g
+
+so the open problem moves from "a global chain exists" to "nothing ever gets
+stuck". This is Freuder's backtrack-free condition, stated as an invariant of
+the mirror.
+
+**Why this is the right target and not just a different one.** `Verdict.lean`
+records that the reader does not backtrack: it picks a surviving node, filters,
+and stops if that invalidates the graph. So what the reader needs is precisely
+that every partial selection extends — `Extendable`, not `Supported`. And
+v17's measurement (the map's constraint hypergraph is not α-acyclic) says the
+proof cannot come from the map's static structure, which leaves the machine's
+pruning: exactly what `Extendable` is about.
+
+**`Extendable` is strictly stronger than `Supported`.** `Supported` allows a
+pair of nodes that own each other while lying on no common chain; a
+non-backtracking search that picks that pair is stuck even though every node
+involved is supported.
+
+## The measurement, and what it says (2026-09-09)
+
+`ExtendSearch.lean` (`lake exe extend`) explores every consistent partial chain
+of every valid state, in both directions. **`Extendable` is false.** Over 60
+random instances: 14 with a stuck chain, **1,574 dead-end partial chains**
+(1,517 upward, 57 downward). A witness on the phase-transition instance is a
+*complete* partial chain from step 0 to step 12 with no continuation at 13.
+
+So the reduction below is sound and its hypothesis is refuted: **route A in
+this form is closed**, exactly as v13 closed v12's.
+
+## But the refutation locates the missing ingredient
+
+The search above checks only pairwise co-ownership. The machine's reader does
+something more: after each pick it runs `filterAll`, which **propagates** —
+prunes everything incompatible with the selection — and continues in the
+filtered graph. Re-run with propagation (`lake exe extend --read`) and on the
+very same instances **nothing ever gets stuck**, at every state and every
+branch.
+
+That is the finding, and it is sharper than "A fails":
+
+> Pairwise ownership alone is *not* enough — which is why the width and
+> hypergraph analyses kept coming up short. The propagation after each
+> selection is what recovers it.
+
+Which says the successor target is `PickStable` / `Determined` below — route A
+restated *with* propagation, and the same statement as `Verdict.ReadStable`.
+-/
+
+namespace AbsSat.GraphPath.Model.Extendable
+
+open AbsSat.Utils.Alias
+open AbsSat.GraphPath.Model
+open AbsSat.GraphPath.Model.GPathM
+open AbsSat.GraphPath.Model.Verdict (SupportedAt)
+
+-- ============================================================
+-- Selections, updated at one step
+-- ============================================================
+
+/-- Override a selection at one step. `Int` has decidable equality, so this
+stays out of `Classical`. -/
+def upd (sel : Int → PathNodeId) (j : Int) (c : PathNodeId) : Int → PathNodeId :=
+  fun i => if i = j then c else sel i
+
+theorem upd_self (sel : Int → PathNodeId) (j : Int) (c : PathNodeId) :
+    upd sel j c j = c := by unfold upd; rw [if_pos rfl]
+
+theorem upd_other (sel : Int → PathNodeId) (j : Int) (c : PathNodeId) {i : Int}
+    (h : i ≠ j) : upd sel j c i = sel i := by unfold upd; rw [if_neg h]
+
+-- ============================================================
+-- Partial chains, over an interval of steps
+-- ============================================================
+
+/-- `sel` is a chain over the steps `[lo, hi]`: a real node at each step, and
+parent-linked between consecutive ones. -/
+def PartialChain (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) : Prop :=
+  (∀ i, lo ≤ i → i ≤ hi → (g.node? (sel i)).isSome ∧ (sel i).id.step = i) ∧
+  (∀ i, lo ≤ i → i + 1 ≤ hi →
+    sel i ∈ ((g.node? (sel (i + 1))).map PNodeM.parents).getD [])
+
+/-- Every pick in `[lo, hi]` owns every other. -/
+def PartialOwned (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) : Prop :=
+  ∀ i j, lo ≤ i → lo ≤ j → i ≤ hi → j ≤ hi → i ≠ j →
+    sel i ∈ ownersAt (ownersOf g (sel j)) i
+
+/-- A partial chain spanning the whole range is a chain. -/
+theorem isChain_of_partial (g : GPathM) (sel : Int → PathNodeId)
+    (h : PartialChain g sel 0 (g.current_step - 1)) : IsChain g sel := by
+  refine ⟨?_, ?_⟩
+  · intro k hlo hhi; exact h.1 k hlo (by omega)
+  · intro k hlo hhi; exact h.2 k hlo (by omega)
+
+theorem pairwiseOwned_of_partial (g : GPathM) (sel : Int → PathNodeId)
+    (h : PartialOwned g sel 0 (g.current_step - 1)) : PairwiseOwned g sel := by
+  intro i j hi0 hj0 hi hj hne
+  exact h i j hi0 hj0 (by omega) (by omega) hne
+
+/-- The one-step selection at a node's own step. -/
+theorem partial_singleton (g : GPathM) (pid : PathNodeId) (n : PNodeM)
+    (hn : g.node? pid = some n) :
+    PartialChain g (fun _ => pid) pid.id.step pid.id.step ∧
+    PartialOwned g (fun _ => pid) pid.id.step pid.id.step := by
+  refine ⟨⟨?_, ?_⟩, ?_⟩
+  · intro i hlo hhi
+    have hi : i = pid.id.step := by omega
+    refine ⟨by rw [hn]; rfl, ?_⟩
+    rw [hi]
+  · intro i _ _; omega
+  · intro i j hi0 hj0 hi hj hne; omega
+
+-- ============================================================
+-- Backtrack-freeness
+-- ============================================================
+
+/-- **Nothing gets stuck going up**: any consistent partial chain over
+`[lo, hi]` can be given a node at `hi + 1`. -/
+def ExtendUp (g : GPathM) : Prop :=
+  ∀ sel lo hi, 0 ≤ lo → lo ≤ hi → hi + 1 < g.current_step →
+    PartialChain g sel lo hi → PartialOwned g sel lo hi →
+    ∃ c, PartialChain g (upd sel (hi + 1) c) lo (hi + 1) ∧
+         PartialOwned g (upd sel (hi + 1) c) lo (hi + 1)
+
+/-- **Nothing gets stuck going down**: the same, towards step 0. Needed because
+`Supported` asks for a chain through a node at an arbitrary step, not only
+through a node at step 0. -/
+def ExtendDown (g : GPathM) : Prop :=
+  ∀ sel lo hi, 0 < lo → lo ≤ hi → hi < g.current_step →
+    PartialChain g sel lo hi → PartialOwned g sel lo hi →
+    ∃ c, PartialChain g (upd sel (lo - 1) c) (lo - 1) hi ∧
+         PartialOwned g (upd sel (lo - 1) c) (lo - 1) hi
+
+/-- Every node the machine holds sits at a step it is actually running. -/
+def NodesInRange (g : GPathM) : Prop :=
+  ∀ pid n, g.node? pid = some n → 0 ≤ pid.id.step ∧ pid.id.step < g.current_step
+
+-- ============================================================
+-- The reduction: induction on the step index, not on `Reachable`
+-- ============================================================
+
+theorem extendUpTo (g : GPathM) (hup : ExtendUp g) (m : Nat) :
+    ∀ (sel : Int → PathNodeId) (lo hi : Int),
+      (g.current_step - 1 - hi).toNat ≤ m →
+      0 ≤ lo → lo ≤ hi → hi < g.current_step →
+      PartialChain g sel lo hi → PartialOwned g sel lo hi →
+      ∃ sel', (∀ i, lo ≤ i → i ≤ hi → sel' i = sel i) ∧
+        PartialChain g sel' lo (g.current_step - 1) ∧
+        PartialOwned g sel' lo (g.current_step - 1) := by
+  induction m with
+  | zero =>
+    intro sel lo hi hm hlo hlohi hhi hc ho
+    have hEq : hi = g.current_step - 1 := by omega
+    subst hEq
+    exact ⟨sel, fun _ _ _ => rfl, hc, ho⟩
+  | succ m ih =>
+    intro sel lo hi hm hlo hlohi hhi hc ho
+    if hnext : hi + 1 < g.current_step then
+      obtain ⟨c, hc', ho'⟩ := hup sel lo hi hlo hlohi hnext hc ho
+      obtain ⟨sel', hagree, hc'', ho''⟩ :=
+        ih (upd sel (hi + 1) c) lo (hi + 1) (by omega) hlo (by omega) hnext hc' ho'
+      refine ⟨sel', ?_, hc'', ho''⟩
+      intro i hi1 hi2
+      rw [hagree i hi1 (by omega), upd_other sel (hi + 1) c (by omega)]
+    else
+      have hEq : hi = g.current_step - 1 := by omega
+      subst hEq
+      exact ⟨sel, fun _ _ _ => rfl, hc, ho⟩
+
+theorem extendDownTo (g : GPathM) (hdown : ExtendDown g) (m : Nat) :
+    ∀ (sel : Int → PathNodeId) (lo hi : Int),
+      lo.toNat ≤ m →
+      0 ≤ lo → lo ≤ hi → hi < g.current_step →
+      PartialChain g sel lo hi → PartialOwned g sel lo hi →
+      ∃ sel', (∀ i, lo ≤ i → i ≤ hi → sel' i = sel i) ∧
+        PartialChain g sel' 0 hi ∧ PartialOwned g sel' 0 hi := by
+  induction m with
+  | zero =>
+    intro sel lo hi hm hlo hlohi hhi hc ho
+    have hEq : lo = 0 := by omega
+    subst hEq
+    exact ⟨sel, fun _ _ _ => rfl, hc, ho⟩
+  | succ m ih =>
+    intro sel lo hi hm hlo hlohi hhi hc ho
+    if hpos : 0 < lo then
+      obtain ⟨c, hc', ho'⟩ := hdown sel lo hi hpos hlohi hhi hc ho
+      obtain ⟨sel', hagree, hc'', ho''⟩ :=
+        ih (upd sel (lo - 1) c) (lo - 1) hi (by omega) (by omega) (by omega) hhi hc' ho'
+      refine ⟨sel', ?_, hc'', ho''⟩
+      intro i hi1 hi2
+      rw [hagree i (by omega) hi2, upd_other sel (lo - 1) c (by omega)]
+    else
+      have hEq : lo = 0 := by omega
+      subst hEq
+      exact ⟨sel, fun _ _ _ => rfl, hc, ho⟩
+
+/-- **Route A, the reduction.** Backtrack-freeness gives "no zombies" — by
+induction on the step index, with no case analysis on how the graph was built. -/
+theorem SupportedAt_of_Extend (g : GPathM) (hup : ExtendUp g) (hdown : ExtendDown g)
+    (pid : PathNodeId) (n : PNodeM) (hn : g.node? pid = some n)
+    (hlo : 0 ≤ pid.id.step) (hhi : pid.id.step < g.current_step) :
+    SupportedAt g pid := by
+  obtain ⟨hc0, ho0⟩ := partial_singleton g pid n hn
+  obtain ⟨sel₁, hagree₁, hc₁, ho₁⟩ :=
+    extendUpTo g hup (g.current_step - 1 - pid.id.step).toNat
+      (fun _ => pid) pid.id.step pid.id.step (Nat.le_refl _) hlo (Int.le_refl _)
+      hhi hc0 ho0
+  obtain ⟨sel₂, hagree₂, hc₂, ho₂⟩ :=
+    extendDownTo g hdown pid.id.step.toNat sel₁ pid.id.step (g.current_step - 1)
+      (Nat.le_refl _) hlo (by omega) (by omega) hc₁ ho₁
+  refine ⟨sel₂, isChain_of_partial g sel₂ hc₂, pairwiseOwned_of_partial g sel₂ ho₂, ?_⟩
+  rw [hagree₂ pid.id.step (Int.le_refl _) (by omega),
+    hagree₁ pid.id.step (Int.le_refl _) (Int.le_refl _)]
+
+/-- And therefore `Supported` — the open lemma L6 — for any graph whose nodes
+sit at steps it is running. -/
+theorem Supported_of_Extend (g : GPathM) (hrange : NodesInRange g)
+    (hup : ExtendUp g) (hdown : ExtendDown g) : Supported g := by
+  intro pid n hn
+  obtain ⟨hlo, hhi⟩ := hrange pid n hn
+  exact SupportedAt_of_Extend g hup hdown pid n hn hlo hhi
+
+-- ============================================================
+-- The successor target: route A restated with propagation
+-- ============================================================
+
+/-- The map nodes still available at step `k`. -/
+def mapIdsAt (g : GPathM) (k : Int) : List NodeId :=
+  ((g.line k).map (·.id.id)).foldl
+    (fun acc id => if acc.contains id then acc else acc ++ [id]) []
+
+/-- **What the measurement says holds.** Selecting any surviving map node and
+*propagating* (`filterAll`, which is `filterRequire` followed by the review
+passes) leaves the graph valid. This is the one-step form of
+`Verdict.ReadStable`, and `lake exe extend --read` finds no violation.
+
+Stated, not proved. Unlike `ExtendUp`, it is not refuted. -/
+def PickStable (g : GPathM) : Prop :=
+  ∀ k, 0 ≤ k → k < g.current_step → ∀ mid ∈ mapIdsAt g k,
+    isValid (filterAll g [mid]) = true
+
+/-- A graph in which propagation has left one map node per step. The remaining
+obligation, once `PickStable` drives the induction, is that such a graph
+denotes something — a much smaller statement than the general case, because
+there is nothing left to choose at the map level. -/
+def Determined (g : GPathM) : Prop :=
+  ∀ k, 0 ≤ k → k < g.current_step → ∃ mid, mapIdsAt g k = [mid]
+
+-- ============================================================
+-- Axiom guards
+-- ============================================================
+
+/-- info: 'AbsSat.GraphPath.Model.Extendable.Supported_of_Extend' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Supported_of_Extend
+
+end AbsSat.GraphPath.Model.Extendable

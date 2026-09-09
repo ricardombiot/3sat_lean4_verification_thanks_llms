@@ -34,3 +34,7 @@ root = "ValidateMain"
 [[lean_exe]]
 name = "hyper"
 root = "HyperMain"
+
+[[lean_exe]]
+name = "extend"
+root = "ExtendMain"

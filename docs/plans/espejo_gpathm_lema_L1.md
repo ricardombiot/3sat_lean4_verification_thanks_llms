@@ -10,6 +10,51 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (c) — Ruta A: teorema demostrado, hipótesis refutada, y el ingrediente que falta.**
+
+**El teorema — `Model/Extendable.lean`.** `Supported_of_Extend : NodesInRange g → ExtendUp g
+→ ExtendDown g → Supported g`, por **inducción sobre el índice de paso**, sin análisis de
+casos sobre `Reachable`. Cambia el ∃ global de L6 por un ∀ local (Freuder,
+backtrack-free). Cierre `[propext, Quot.sound]`. Lo decisivo: un ∀ local es **decidible
+sobre un mapa concreto**, y eso permitió medirlo.
+
+**La refutación — `Model/ExtendSearch.lean`, `lake exe extend`.** Explora *todas* las
+cadenas parciales consistentes de cada estado válido, en las dos direcciones, desde cada
+nodo. Campaña 3–8 vars, 60 instancias: **14 con cadena atascada, 1.574 cadenas parciales
+muertas** (1.517 arriba, 57 abajo), sobre 5.720 estados válidos (4.177 con ramificación) y
+188.413 nodos. Testigo en la transición de fase: una cadena parcial **completa de 0 a 12**,
+consistente y co-poseída, sin continuación al 13. **`Extendable` es falsa; A tal como se
+enunció está cerrada.**
+
+**El hallazgo.** La búsqueda solo comprueba co-posesión **por pares**. El lector
+**propaga**: tras cada selección corre `filterAll` y sigue en el grafo filtrado. Con
+propagación (`lake exe extend --read`), sobre las mismas instancias, **cero** fallos — ni
+de un paso ni de lectura completa, en todos los estados y todas las ramas.
+
+> La co-posesión por pares no basta — que es exactamente por qué v13 (anchura) y v17
+> (hipergrafo) se quedaban cortos. Lo que recupera la propiedad es **la propagación
+> después de cada decisión**.
+
+Tres medidas independientes convergen: la máquina no funciona por la estructura del mapa,
+funciona por cómo filtra.
+
+**Diana sucesora, enunciada no demostrada:** `PickStable` (seleccionar cualquier nodo de
+mapa superviviente y propagar deja el grafo válido — la forma de un paso de
+`Verdict.ReadStable`) y `Determined` (la propagación ha dejado un nodo de mapa por paso).
+No refutadas por el falsador. La inducción iría sobre pasos indeterminados, con caso base
+`Determined`, que es un enunciado mucho menor que L6 general.
+
+**Reservas anotadas:** el falsador con propagación es exponencial en el peor caso y corre
+con presupuesto — un run que lo agota se reporta **inconcluyente**, no limpio (ninguno lo
+agotó). Los mapas sintéticos de `l6search` no violan `Extendable` a los tamaños
+alcanzables (244 estados / 99 ramificaciones frente a 5.720 / 4.177), así que **no** se
+concluye de ahí que la estructura 3SAT sea la culpable: es diferencia de tamaño.
+
+Estado de las siete rutas: A refutada → A′; B (cadena canónica) cae con A; C y D hechas
+(v16); E cerrada (v17); F sin tocar; G pendiente.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v18.md`.
+
 **2026-09-09 (b) — Corrección del autor sobre el Reader, y ruta E cerrada.**
 
 **Corrección aceptada.** En v16 escribí que un zombi "hace que el lector tenga que

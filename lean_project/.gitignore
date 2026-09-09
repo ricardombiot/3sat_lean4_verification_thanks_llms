@@ -8,3 +8,5 @@ difftest_failure_*.cnf
 validate_tmp.cnf
 validate_failure_*.cnf
 hyper_tmp.cnf
+extend_tmp.cnf
+extend_failure_*.cnf
