@@ -10,6 +10,41 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (q) — Corrección del autor: el mapa dibuja, la máquina garantiza.**
+
+**El error de (p).** Glosé la obligación restante como "existe un camino que satisface los
+requisitos — que en un mapa 3SAT es, palabra por palabra, que la fórmula sea satisfacible".
+Eso mezcla el mapa con la máquina. El autor:
+
+> El mapa con los requisitos **dibuja** la expresión 3SAT en términos que la máquina
+> entiende, pero el dibujo **no garantiza** que deba existir un camino que satisfaga la
+> expresión que representa. Es la máquina la que, después de procesar el mapa, si obtiene un
+> conjunto válido, entonces **sí** garantiza que la fórmula es satisfacible. Y la máquina
+> podría también no poder construir paso a paso un conjunto solución, y ahí tendríamos la
+> detección de UNSAT.
+
+Si el dibujo certificara la satisfacibilidad, el mapa **sería** el solver. La implicación va
+**de la validez a la solución**, y la produce la máquina.
+
+**Enunciado correcto de la obligación:** *existe un camino que satisface los requisitos en el
+estado válido que la máquina sostiene.* No es una propiedad del mapa. Y el lado UNSAT no es
+una omisión sino el diseño: si la máquina no puede construir el conjunto, el grafo se
+invalida, toda obligación sobre grafos válidos es vacía, y esa incapacidad *es* el veredicto
+(ya colocado bien en (f), tapado por la frase de (p)).
+
+Corregido el docstring de `MapChain.lean` y la §5 de v31.
+
+**Y la corrección permite medir la obligación de frente.** Planteada sobre los estados de la
+máquina es comprobable, cosa que sobre el mapa no lo era. Añadido el contador
+"estados válidos sin ningún camino req-satisfactorio" a `lake exe extend --randomreqpaths`:
+semilla 2026, 3–9 vars, 60 instancias → **6.548 estados válidos, 0 sin camino**.
+
+**Estado:** las dos obligaciones restantes (`ReqSatImpliesOwned` y la existencia del camino)
+están **medidas y en pie**, y **ninguna es sobre el mapa**: las dos son sobre lo que la
+máquina sostiene después de procesarlo.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v32.md`.
+
 **2026-09-09 (p) — `PairwiseOwned` por la estructura del mapa: entra por los requisitos.**
 
 **Dónde entra el mapa.** Un requisito pinza un nodo en un paso (`MapReqs.Functional`, 0/1/all);

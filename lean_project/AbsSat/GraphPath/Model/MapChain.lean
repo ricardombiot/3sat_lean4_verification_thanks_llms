@@ -38,11 +38,25 @@ inside another's table.
 `IsChain` (v27), `son_link` and `root_shape` (v29), `self_owned` (v30) — and
 shows `ChainSound` follows from **exactly two** open statements:
 
-1. a requirement-satisfying path exists (which, on a 3SAT map, is the formula
-   being satisfiable), and
+1. a requirement-satisfying path exists **in the valid state the machine
+   holds**, and
 2. `ReqSatImpliesOwned`.
 
 Everything else is discharged.
+
+**A correction the author had to make.** An earlier version of this docstring
+glossed (1) as "which, on a 3SAT map, is the formula being satisfiable". That
+conflates two different things. The map with its requirements *draws* the 3SAT
+expression in terms the machine understands, and **the drawing guarantees
+nothing**: nothing about the map says a requirement-satisfying path has to
+exist. It is the **machine** that, having processed the map and come out with a
+valid set, would guarantee satisfiability — and that implication, from
+validity to a readable solution, is precisely what (1) is and what is open.
+
+And the other side is not an omission but the design: the machine may simply
+fail to build the set step by step, in which case the graph goes invalid,
+every obligation stated on valid graphs is vacuous, and that failure **is** the
+UNSAT verdict. `Certifies.lean` places it correctly; this docstring did not.
 -/
 
 namespace AbsSat.GraphPath.Model.MapChain
@@ -98,7 +112,9 @@ def ReqSatImpliesOwned (g : GPathM) : Prop :=
 
 /-- **Everything proved, in one place.** `ChainSound` follows from the five
 conditions the last several turns closed, plus exactly two open statements:
-that a requirement-satisfying path exists, and `ReqSatImpliesOwned`.
+that a requirement-satisfying path exists **in the valid state the machine
+holds** (not a property of the map — see the module docstring), and
+`ReqSatImpliesOwned`.
 
 The `gowners` hypothesis is `Ownership.NodesAreGowners` read along the chain —
 measured at zero violations over 259,187 nodes, not proved. -/

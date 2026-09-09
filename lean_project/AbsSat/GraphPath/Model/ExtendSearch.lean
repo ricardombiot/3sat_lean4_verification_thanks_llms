@@ -608,8 +608,11 @@ partial def collectReqPaths (gmap : GMap) (g : GPathM) (k : Int)
 def pathCoOwned (g : GPathM) (sel : List PathNodeId) : Bool :=
   sel.all (fun p => sel.all (fun q => p == q || (ownersOfB g q).contains p))
 
-/-- `(states, req-satisfying paths, of those not co-owned)`. -/
-abbrev RAcc2 := Nat × Nat × Nat
+/-- `(states, req-satisfying paths, of those not co-owned, states with NO
+req-satisfying path at all)`. That last counter is the open obligation itself:
+a valid state the machine holds with no requirement-satisfying path would mean
+the machine kept a set it cannot read a solution out of. -/
+abbrev RAcc2 := Nat × Nat × Nat × Nat
 
 partial def walkReqPaths (gmap : GMap) (line : MirrorLine) (fuel cap : Nat)
     (acc : RAcc2) : RAcc2 :=
@@ -620,15 +623,17 @@ partial def walkReqPaths (gmap : GMap) (line : MirrorLine) (fuel cap : Nat)
       if !isValid g then a else
         let paths := collectReqPaths gmap g 0 [] cap []
         let bad := (paths.filter (fun p => !pathCoOwned g p)).length
-        (a.1 + 1, a.2.1 + paths.length, a.2.2 + bad)) acc
+        (a.1 + 1, a.2.1 + paths.length, a.2.2.1 + bad,
+         a.2.2.2 + (if paths.isEmpty then 1 else 0))) acc
     walkReqPaths gmap (mirrorAdvance gmap line) (fuel - 1) cap acc
 
 def reportReqPaths (path : String) (cap : Nat) : IO Unit := do
   let gmap ← load_import! path
-  let (states, paths, bad) := walkReqPaths gmap (mirrorInit gmap) 1000 cap (0, 0, 0)
+  let (states, paths, bad, none') := walkReqPaths gmap (mirrorInit gmap) 1000 cap (0, 0, 0, 0)
   IO.println s!"{path}"
   IO.println s!"  valid states={states}  requirement-satisfying paths={paths}"
   IO.println s!"  of those, NOT pairwise co-owned = {bad}"
+  IO.println s!"  valid states with NO such path  = {none'}"
 
 def runRandomReqPaths (cases seed nvMin nvSpan cap : Nat) : IO UInt32 := do
   IO.println s!"--- ReqSatImpliesOwned: cases={cases} seed={seed} \
@@ -638,6 +643,7 @@ vars={nvMin}..{nvMin + nvSpan - 1} cap={cap} ---"
   let mut paths := 0
   let mut bad := 0
   let mut badCases := 0
+  let mut nopath := 0
   for idx in [0:cases] do
     let (rng1, nv) := rng.below nvSpan
     let nVars := nvMin + nv
@@ -652,11 +658,12 @@ vars={nvMin}..{nvMin + nvSpan - 1} cap={cap} ---"
     rng := rng3
     IO.FS.writeFile "extend_tmp.cnf" cnf
     let gmap ← load_import! "extend_tmp.cnf"
-    let (st, pa, bd) := walkReqPaths gmap (mirrorInit gmap) 1000 cap (0, 0, 0)
-    states := states + st; paths := paths + pa; bad := bad + bd
+    let (st, pa, bd, np) := walkReqPaths gmap (mirrorInit gmap) 1000 cap (0, 0, 0, 0)
+    states := states + st; paths := paths + pa; bad := bad + bd; nopath := nopath + np
     if bd != 0 then badCases := badCases + 1
   IO.println s!"--- states={states}  requirement-satisfying paths={paths} ---"
   IO.println s!"--- not co-owned: {bad}, in {badCases}/{cases} instances ---"
+  IO.println s!"--- valid states with NO requirement-satisfying path: {nopath} ---"
   if bad == 0 then
     IO.println "Every requirement-satisfying path is co-owned. ReqSatImpliesOwned survives. ✅"
   else
