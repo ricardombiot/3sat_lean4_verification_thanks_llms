@@ -10,6 +10,38 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (n) — `son_link` y `root_shape` cerrados; `self_owned` es de otra clase.**
+
+**`Model/Sons.lean`.**
+
+- **`SMP`** — si `p` es padre de `n`, `n` es hijo de `p`. Demostrado para toda la máquina:
+  `filterRequire`, `updateAt`, `removeNode` (filtra padres **e** hijos por el mismo id, así
+  que el reflejo sobrevive), la cadena de `review`, `addNode` (necesitó `PBelow` y
+  `steps_below_current` para descartar que un padre fuese el nodo nuevo), `join` (necesitó
+  `PN` de ambas ramas) e `initSeed`. De ahí `SMP_reachable` y `SMP_reachable_filterAll`.
+- **`RootAtZero`** — un nodo del paso 0 es raíz; espejo de `NotRoot` (l). En `addNode` sale
+  de `MachineOk` (tercera vez que esa pieza resulta ser justo la que falta).
+- **Los puentes:** `son_link_of_SMP` (el enlace padre de `IsChain` se da la vuelta) y
+  `root_shape_of` (`RootAtZero` abajo, `NotRoot` arriba).
+
+**`self_owned`, y por qué no salió.** `SMP` y `RootAtZero` hablan de `parents`/`sons`/`id`,
+que las pasadas de review nunca tocan salvo al eliminar un nodo con sus enlaces:
+incondicionales. `Ownership.SelfOwned` habla de `owners`, que es lo que las pasadas podan:
+
+- bajo `cleanInvalid`, `n.id` sobrevive la intersección con `gowners` solo si
+  `n.id ∈ gowners` — o sea dado `NodesAreGowners` (medido, no demostrado);
+- bajo `reviewNode`, sobrevive solo si **algún vecino posee a `n`** — que es `ParentOwns`.
+
+Y `ParentOwns` se preserva solo dado `SelfOwned`. **Mutuamente recursivas**: hace falta
+inducción simultánea sobre la máquina arrastrando también `NodesAreGowners`. Enunciado
+(`ParentOwns` en el código con el mecanismo al lado), no intentado.
+
+**Estado de `ChainSound` (seis requisitos):** `IsChain` ✔ (l), cláusula `gowners` ✔ gratis
+(k), `son_link` ✔ (n), `root_shape` ✔ (n), `self_owned` abierto pero acotado, `PairwiseOwned`
+abierto — la Helly (m). **Cuatro de seis.**
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v29.md`.
+
 **2026-09-09 (m) — `PairwiseOwned`: la vía barata, refutada con coste demostrado.**
 
 **Por qué esta es distinta.** Todas las obligaciones cerradas hasta ahora eran **locales**

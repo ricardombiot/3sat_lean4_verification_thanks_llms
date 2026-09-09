@@ -58,4 +58,5 @@ import AbsSat.GraphPath.Model.Candidates
 import AbsSat.GraphPath.Model.Parents
 import AbsSat.GraphPath.Model.PathExists
 import AbsSat.GraphPath.Model.Ownership
+import AbsSat.GraphPath.Model.Sons
 import AbsSat.GraphPath.Model.ExtendSearch
