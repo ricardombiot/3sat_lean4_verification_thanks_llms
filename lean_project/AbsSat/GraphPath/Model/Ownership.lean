@@ -15,16 +15,25 @@ have bought.
 
 Over every valid state the machine holds:
 
+Over a campaign of 80 random instances — 7,800 valid states, 259,187 nodes:
+
 | property | violations |
 |---|---|
-| **symmetry** — `q` owns `n` ⟹ `n` owns `q` | **0** |
 | **`nodes ⊆ gowners`** — every node's id is a global owner | **0** |
 | **self-ownership** — every node owns itself | **0** |
-| **support clique** — the owners of one node own each other | **418,366** on one instance alone |
+| **symmetry** — `q` owns `n` ⟹ `n` owns `q` | **1,364**, in 19 of 80 instances |
+| **support clique** — the owners of one node own each other | **63,917,242**, in 80 of 80 |
 
-The first three are candidate invariants worth proving, and they are stated
-below. The fourth is refuted, and it matters that it is: it was the cheap way
-to `PairwiseOwned`.
+The first two are candidate invariants worth proving, and they are stated
+below. The last two are refuted.
+
+**A correction, recorded because it was mine.** An earlier version of this
+docstring reported symmetry as holding with zero violations. That came from
+four hand-picked instances; the campaign refutes it. Four instances is not a
+measurement, and there was a campaign harness sitting right there. The
+mechanism is visible in hindsight: `reviewNode` intersects a node's owners
+against the union over its *neighbours*, which is not a symmetric operation, so
+`q` can be pruned from `n`'s owners while `n` stays in `q`'s.
 
 ## Why the refutation matters
 
@@ -54,17 +63,23 @@ open AbsSat.GraphPath.Model.GPathM
 -- Three properties that hold, stated for the record
 -- ============================================================
 
-/-- Ownership is symmetric. `lake exe extend --owners`: no violation. -/
+/-- Ownership is symmetric. ⚠ **Refuted** — `lake exe extend --randomowners`
+reports 1,364 violations across 19 of 80 instances. Kept as the record of a
+plausible-looking invariant that is false, and of why: the coherence pass
+intersects against the union over a node's neighbours, which is not
+symmetric. -/
 def OwnersSymmetric (h : GPathM) : Prop :=
   ∀ pid n, h.node? pid = some n → ∀ q ∈ n.owners, ∀ m, h.node? q = some m → pid ∈ m.owners
 
 /-- Every node's id is a global owner — the converse of
 `GownersNodes.GownersAreNodes`. `filterRequire` breaks it and `review` restores
-it; no violation is observed at any state the machine holds. -/
+it. **No violation over 259,187 nodes.** -/
 def NodesAreGowners (h : GPathM) : Prop := ∀ n ∈ h.nodes, n.id ∈ h.gowners
 
 /-- Every node owns itself. This is exactly `ChainSound`'s `self_owned` field,
-read off the graph instead of off a chain. -/
+read off the graph instead of off a chain. **No violation over 259,187
+nodes** — and by `self_owned_of_SelfOwned` below, proving it discharges one of
+the three conditions `ChainSound` still lacks. -/
 def SelfOwned (h : GPathM) : Prop :=
   ∀ pid n, h.node? pid = some n → pid ∈ n.owners
 
@@ -82,8 +97,8 @@ theorem self_owned_of_SelfOwned (h : GPathM) (hso : SelfOwned h)
 -- ============================================================
 
 /-- The owners of one node, at distinct steps, own each other. **Refuted** —
-`lake exe extend --owners` reports 418,366 violations on the phase-transition
-instance alone. Stated because the next theorem shows exactly what it would
+`lake exe extend --randomowners` reports 63,917,242 violations across all 80
+instances of the campaign. Stated because the next theorem shows exactly what it would
 have closed. -/
 def SupportClique (h : GPathM) (t : PNodeM) : Prop :=
   ∀ q₁ ∈ t.owners, ∀ q₂ ∈ t.owners, q₁.id.step ≠ q₂.id.step →

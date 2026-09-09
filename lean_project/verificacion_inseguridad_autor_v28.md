@@ -14,16 +14,24 @@ Así que antes de intentar demostrar nada, medí la relación.
 
 ## 2. Lo que dice `lake exe extend --owners`
 
-Sobre cada estado válido que la máquina sostiene:
+Campaña de 80 instancias aleatorias: **7.800 estados válidos, 259.187 nodos.**
 
 | propiedad | violaciones |
 |---|---|
-| **simetría** — si `q` posee a `n`, ¿`n` posee a `q`? | **0** |
 | **`nodes ⊆ gowners`** — el id de todo nodo es owner global | **0** |
 | **auto-posesión** — todo nodo se posee a sí mismo | **0** |
-| **clique del soporte** — los owners de un nodo, ¿se poseen entre sí? | **418.366** solo en la transición de fase |
+| **simetría** — si `q` posee a `n`, ¿`n` posee a `q`? | **1.364**, en 19 de 80 instancias |
+| **clique del soporte** — los owners de un nodo, ¿se poseen entre sí? | **63.917.242**, en 80 de 80 |
 
-Las tres primeras son invariantes candidatos, y las he dejado enunciadas. La cuarta está refutada — y esa era la vía barata.
+Las dos primeras son invariantes candidatos, y las he dejado enunciadas. Las dos últimas están refutadas.
+
+### Una corrección mía, y la anoto porque es de método
+
+La primera versión de este documento decía que la simetría tenía **cero violaciones**. Lo decía a partir de **cuatro instancias elegidas a mano**. La campaña la refuta.
+
+Cuatro instancias no son una medición, y tenía el arnés de campañas ahí mismo. Es exactamente el error contra el que llevo veinte turnos avisando, cometido por mí.
+
+Visto en retrospectiva el mecanismo es evidente: `reviewNode` intersecta los owners de un nodo contra la **unión sobre sus vecinos**, y esa operación no es simétrica — `q` puede desaparecer de los owners de `n` mientras `n` sigue en los de `q`. Es el mismo mecanismo que v13 identificó.
 
 ## 3. Cuánto costaba la vía barata
 
@@ -40,7 +48,7 @@ theorem SupportClique_gives_PairwiseOwned (h : GPathM) (t : PNodeM)
 
 Y v27 ya construye caminos. Las dos juntas habrían cerrado `ChainSound` entero.
 
-No lo hacen. Y el clique no falla por poco: falla por cuatro órdenes de magnitud.
+No lo hacen. Y el clique no falla por poco: **63,9 millones de violaciones, en las 80 instancias de la campaña.**
 
 ## 4. Y eso **es** la Helly, dicho en tu vocabulario
 
@@ -52,7 +60,7 @@ Eso es la propiedad de Helly fallando, dicha con `owners` en vez de con conjunto
 
 ## 5. Lo que sí queda como diana demostrable
 
-Las tres propiedades con cero violaciones. Y una de ellas paga directamente:
+Las **dos** propiedades que sobreviven a la campaña. Y una de ellas paga directamente:
 
 ```lean
 theorem self_owned_of_SelfOwned ... : ∀ k, ... → sel k ∈ ownersOf h (sel k)
@@ -60,7 +68,9 @@ theorem self_owned_of_SelfOwned ... : ∀ k, ... → sel k ∈ ownersOf h (sel k
 
 `SelfOwned` — todo nodo se posee a sí mismo — cierra **directamente** una de las tres condiciones que le faltaban a `ChainSound`. El puente está demostrado; falta el invariante.
 
-`OwnersSymmetric` y `NodesAreGowners` son las otras dos, y son del tipo que sí sé demostrar (mismo idioma que v25 y v27). No las he hecho en este turno.
+`NodesAreGowners` es la otra, y es del tipo que sí sé demostrar (mismo idioma que v25 y v27). No la he hecho en este turno.
+
+`OwnersSymmetric` queda **refutada**, y anotada en el código como lo que es: un invariante de aspecto plausible que resulta falso, con el mecanismo escrito al lado.
 
 ## 6. Lo que no voy a fingir
 
@@ -76,8 +86,9 @@ Dicho de otro modo: he pasado veinte turnos quitándole a la obligación todo lo
 |---|---|
 | **`PairwiseOwned`** | **lo que queda; la Helly** |
 | ~~`SupportClique`~~ | **refutado** (v28) — con el coste demostrado |
-| `SelfOwned` → `ChainSound.self_owned` | puente demostrado, invariante medido (0 violaciones) |
-| `OwnersSymmetric`, `NodesAreGowners` | medidos (0 violaciones), sin demostrar |
+| ~~`OwnersSymmetric`~~ | **refutado** (v28) — 1.364 violaciones en 19/80 |
+| `SelfOwned` → `ChainSound.self_owned` | puente demostrado, invariante medido (0 en 259.187 nodos) |
+| `NodesAreGowners` | medido (0 en 259.187 nodos), sin demostrar |
 | `IsChain` | demostrado (v27) |
 | dominios no vacíos, `GownersAreNodes` | demostrados (v25, v26) |
 | `MachineOk`, `Certifies` seed/join | demostrados (v21, v22) |
@@ -87,4 +98,4 @@ Y lo que no ha cambiado en veinte turnos: **sin refutar.** 1.048.889 nodos verif
 
 ---
 
-*Claude (Opus 5), 2026-09-09. `lake build AbsSat` verde, 66 módulos, 0 `sorry`, cierres `[propext, Quot.sound]`.*
+*Claude (Opus 5), 2026-09-09. §2 corregida tras la campaña de 80 instancias: la simetría es falsa. `lake build AbsSat` verde, 66 módulos, 0 `sorry`, cierres `[propext, Quot.sound]`.*
