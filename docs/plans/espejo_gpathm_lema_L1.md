@@ -10,6 +10,39 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (s) — La condición local sobre `parent_id`: una cadena está determinada por sus
+ids de mapa.**
+
+**`parent_id` no es decoración.** `addNode` construye `⟨d, g.map_parent⟩` y da al nodo nuevo
+como `parents` la línea anterior de la misma rama. De ahí dos invariantes, en
+`Model/ParentId.lean`:
+
+- **`TL`** — la línea de arriba de un estado lleva el nodo de mapa que nombra `map_parent`.
+- **`PMP`** — todo padre de un nodo lleva el id de mapa que nombra el `parent_id` del nodo.
+
+Demostrados para toda la máquina (`TL_reachable`, `PMP_reachable`, `PMP_filterAll`); `TL` es
+lo que hace pasar el caso `addNode` de `PMP`.
+
+**La condición local — `parentId_coherent`:** `(sel (k+1)).parent_id = some (sel k).id`. El
+enlace padre de `IsChain` leído sobre los ids.
+
+**Lo que fuerza — `chain_eq_of_mapIds_eq`:** dos cadenas que coinciden en todos los ids de
+mapa **son la misma cadena**. Paso 0 por `root_shape` (n); cada paso siguiente por
+`parentId_coherent`.
+
+**Efecto sobre (r).** Aquel decía "en un paso pinzado hay a lo sumo dos `PathNodeId` y falta
+que la cadena elija el que está ahí". **Ya no hay elección:** el path-node está determinado
+por el id de mapa del requisito (`ReqSatisfying`) más el id de mapa del paso de abajo
+(`parentId_coherent`). Lo que queda es una **pertenencia** de un elemento concreto, no una
+búsqueda. Y explica el factor dos medido: los dos owners corresponden a dos ids de mapa
+distintos en el paso inferior, y la cadena ya ha elegido uno.
+
+**Quinta vez que la pieza que falta es una decisión de diseño del autor:** ligar `parent_id`
+a `map_parent` hace que el `PathNodeId` codifique un paso de historia — lo que v14 había
+observado sin ver para qué servía.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v34.md`.
+
 **2026-09-09 (r) — El hueco de `ReqSatImpliesOwned`, acotado a factor dos.**
 
 **Dónde está el hueco.** `ReqSatisfying` habla de **ids de mapa**
