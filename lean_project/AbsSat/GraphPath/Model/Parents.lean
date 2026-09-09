@@ -65,6 +65,20 @@ theorem PN_removeNode (g : GPathM) (id : PathNodeId) (h : PN g) :
 theorem PN_filterRequire (g : GPathM) (req : NodeId) (h : PN g) :
     PN (filterRequire g req) := h
 
+/-- The unlink only removes links, and keeps every node with its id. -/
+theorem PN_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : PN g) :
+    PN (unlinkIncompatible g id) := by
+  intro n' hn' p hp
+  have hpr := pruned_unlinkIncompatible g id
+  obtain ⟨n, hn, hid, _, hpar⟩ := hpr.nodes_derived n' hn'
+  obtain ⟨m, hm, hmid⟩ := h n hn p (hpar p hp)
+  show ∃ x ∈ (unlinkIncompatible g id).nodes, x.id = p
+  unfold GPathM.unlinkIncompatible
+  split
+  · exact ⟨m, hm, hmid⟩
+  · next n₀ _ =>
+    exact ⟨unlinkMap n₀ id m, List.mem_map_of_mem hm, by rw [unlinkMap_id]; exact hmid⟩
+
 theorem PN_cleanInvalidGo (ids : List PathNodeId) :
     ∀ g : GPathM, PN g → PN (cleanInvalidGo g ids) := by
   induction ids with
@@ -78,9 +92,10 @@ theorem PN_cleanInvalidGo (ids : List PathNodeId) :
       have h₁ : PN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
         PN_updateAt g id _ (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := PN_unlinkIncompatible _ id h₁
       split
-      · exact ih _ h₁
-      · exact ih _ (PN_removeNode _ id h₁)
+      · exact ih _ h₂
+      · exact ih _ (PN_removeNode _ id h₂)
 
 theorem PN_cleanInvalid (g : GPathM) (h : PN g) : PN (cleanInvalid g) :=
   PN_cleanInvalidGo _ g h
@@ -95,9 +110,10 @@ theorem PN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : G
     · have h₁ : PN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         PN_updateAt g id _ (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := PN_unlinkIncompatible _ id h₁
       split
-      · exact h₁
-      · exact PN_removeNode _ id h₁
+      · exact h₂
+      · exact PN_removeNode _ id h₂
     · exact PN_removeNode g id h
 
 private theorem PN_foldl {β : Type} (f : GPathM → β → GPathM)

@@ -151,8 +151,42 @@ def removeNode (g : GPathM) (id : PathNodeId) : GPathM :=
 -- Review pass (mirror of make_review_owners!'s body, one round)
 -- ============================================================
 
+/-- Keep only the links a node's own owners still allow. -/
+def relinkSelf (n : PNodeM) : PNodeM :=
+  { n with parents := n.parents.filter (fun p => n.owners.contains p),
+           sons := n.sons.filter (fun s => n.owners.contains s) }
+
+/-- Put new owners on a node and re-link against them. -/
+def relink (ow : List PathNodeId) (n : PNodeM) : PNodeM :=
+  relinkSelf { n with owners := ow }
+
+/-- What the unlink does to every node. -/
+def unlinkMap (n : PNodeM) (id : PathNodeId) (m : PNodeM) : PNodeM :=
+  if m.id == id then
+    { m with parents := m.parents.filter (fun p => n.owners.contains p),
+             sons := m.sons.filter (fun s => n.owners.contains s) }
+  else if n.owners.contains m.id then m
+  else { m with parents := m.parents.filter (fun p => p != id),
+                sons := m.sons.filter (fun s => s != id) }
+
+/-- **Owners/links coherence** (mirror of `unlink_incompatible!`). Pruning a
+node's owners can leave a parent or son that is no longer an owner — a
+neighbour propagation has already ruled out. Such a link is stale: no chain
+through this node can use it, so it goes, on both sides.
+
+Without this the two ledgers drift: `removeNode` unlinks when a node is
+*removed*, but the owners intersections only shrink `owners`. The drift was
+measured at 37 stale parent links per ~328k, and the author identified it as a
+bug (2026-09-09). Id- and owners-preserving, link-shrinking, so `Pruned` still
+holds through it. -/
+def unlinkIncompatible (g : GPathM) (id : PathNodeId) : GPathM :=
+  match g.node? id with
+  | none => g
+  | some n => { g with nodes := g.nodes.map (unlinkMap n id) }
+
 /-- One `clean_invalid_nodes!` sweep over a snapshot of node ids: intersect
-each node's owners with the global owners, then drop it if invalid. -/
+each node's owners with the global owners, unlink what that leaves
+incompatible, then drop the node if invalid. -/
 def cleanInvalidGo (g : GPathM) : List PathNodeId → GPathM
   | [] => g
   | id :: rest =>
@@ -160,8 +194,9 @@ def cleanInvalidGo (g : GPathM) : List PathNodeId → GPathM
     | none => cleanInvalidGo g rest
     | some d =>
       let gow := g.gowners
-      let d := { d with owners := intersectOwners d.owners gow }
-      let g := updateAt g id (fun n => { n with owners := intersectOwners n.owners gow })
+      let d := relink (intersectOwners d.owners gow) d
+      let g := unlinkIncompatible
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners gow })) id
       let g := if isValidNode g d then g else removeNode g id
       cleanInvalidGo g rest
 
@@ -177,8 +212,9 @@ def reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) 
   | some d =>
     if isValidNode g d then
       let uni := unionOwnersOf g (nb d)
-      let d := { d with owners := intersectOwners d.owners uni }
-      let g := updateAt g id (fun n => { n with owners := intersectOwners n.owners uni })
+      let d := relink (intersectOwners d.owners uni) d
+      let g := unlinkIncompatible
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners uni })) id
       if isValidNode g d then g else removeNode g id
     else
       removeNode g id

@@ -138,28 +138,44 @@ theorem ChainSound_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId)
       exact chain_mem_unionOwnersOf g sel h (nb d) w hw hw' hwm i hi hi'
     have hup : ChainSound (updateAt g id (uniMap (unionOwnersOf g (nb d)))) sel :=
       ChainSound_updateAt_gen g id _ sel h hB
+    have hunl : ChainSound
+        (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id) sel :=
+      ChainSound_unlinkIncompatible _ id sel hup
     have hshape : reviewNode g nb id =
         if isValidNode g d then
-          (if isValidNode (updateAt g id (uniMap (unionOwnersOf g (nb d))))
-                (uniMap (unionOwnersOf g (nb d)) d)
-            then updateAt g id (uniMap (unionOwnersOf g (nb d)))
-            else removeNode (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id)
+          (if isValidNode
+                (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id)
+                (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d)
+            then unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+            else removeNode
+              (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id) id)
         else removeNode g id := by
       simp only [reviewNode, hid]
       rfl
     rw [hshape]
     split
     · split
-      · exact hup
+      · exact hunl
       · next hbad =>
-        refine ChainSound_removeNode _ id sel hup ?_
+        refine ChainSound_removeNode _ id sel hunl ?_
         intro k hlo hhi hk
         apply hbad
-        have hnode : (updateAt g id (uniMap (unionOwnersOf g (nb d)))).node? (sel k)
+        have hnode0 : (updateAt g id (uniMap (unionOwnersOf g (nb d)))).node? id
             = some (uniMap (unionOwnersOf g (nb d)) d) := by
-          rw [hk, updateAt_node? g id _ (uniMap_id _) id d hid]
-          rw [show (d.id == id) = true from by rw [hd_id]; exact beq_self_eq_true id]
-        exact isValidNode_of_chain _ sel hup k _ hnode hlo hhi
+          rw [updateAt_node? g id _ (uniMap_id _) id d hid]
+          rw [show (d.id == id) = true from beq_iff_eq.mpr hd_id]
+        have hnode : (unlinkIncompatible
+              (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id).node? (sel k)
+            = some (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d) := by
+          rw [hk]
+          rw [unlinkIncompatible_node? _ id _ hnode0 id _ hnode0]
+          show some (unlinkMap (uniMap (unionOwnersOf g (nb d)) d) id
+            (uniMap (unionOwnersOf g (nb d)) d)) = _
+          unfold GPathM.unlinkMap
+          rw [if_pos (show ((uniMap (unionOwnersOf g (nb d)) d).id == id) = true from
+            beq_iff_eq.mpr hd_id)]
+          rfl
+        exact isValidNode_of_chain _ sel hunl k _ hnode hlo hhi
     · next hbad =>
       refine ChainSound_removeNode g id sel h ?_
       intro k hlo hhi hk
@@ -177,7 +193,9 @@ theorem reviewNode_current_step (g : GPathM) (nb : PNodeM → List PathNodeId)
   split
   · rfl
   · split
-    · split <;> rfl
+    · split
+      · exact unlinkIncompatible_current _ id
+      · exact unlinkIncompatible_current _ id
     · rfl
 
 theorem ChainSound_foldl_reviewNode (nb : PNodeM → List PathNodeId) (k cs : Int)

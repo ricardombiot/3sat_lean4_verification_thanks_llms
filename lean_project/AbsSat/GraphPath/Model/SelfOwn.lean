@@ -132,6 +132,17 @@ theorem OOS_removeNode (g : GPathM) (id : PathNodeId) (h : OOS g) :
   rw [hno] at hq
   exact h n (List.mem_filter.mp hn).1 q hq hstep
 
+theorem OOS_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : OOS g) : OOS g' := by
+  intro n' hn' q hq hstep
+  obtain ⟨n, hn, hid, hown, _⟩ := hpr.nodes_derived n' hn'
+  rw [hid] at hstep ⊢
+  exact h n hn q (hown q hq) hstep
+
+/-- The unlink leaves every node's owners alone. -/
+theorem OOS_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : OOS g) :
+    OOS (unlinkIncompatible g id) :=
+  OOS_of_pruned (pruned_unlinkIncompatible g id) h
+
 theorem OOS_cleanInvalidGo (ids : List PathNodeId) :
     ∀ g : GPathM, OOS g → OOS (cleanInvalidGo g ids) := by
   induction ids with
@@ -143,9 +154,10 @@ theorem OOS_cleanInvalidGo (ids : List PathNodeId) :
     · exact ih g h
     · next d _ =>
       have h₁ := OOS_updateAt g id g.gowners h
+      have h₂ := OOS_unlinkIncompatible _ id h₁
       split
-      · exact ih _ h₁
-      · exact ih _ (OOS_removeNode _ id h₁)
+      · exact ih _ h₂
+      · exact ih _ (OOS_removeNode _ id h₂)
 
 theorem OOS_cleanInvalid (g : GPathM) (h : OOS g) : OOS (cleanInvalid g) :=
   OOS_cleanInvalidGo _ g h
@@ -158,9 +170,10 @@ theorem OOS_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : 
   · next d _ =>
     split
     · have h₁ := OOS_updateAt g id (unionOwnersOf g (nb d)) h
+      have h₂ := OOS_unlinkIncompatible _ id h₁
       split
-      · exact h₁
-      · exact OOS_removeNode _ id h₁
+      · exact h₂
+      · exact OOS_removeNode _ id h₂
     · exact OOS_removeNode g id h
 
 private theorem OOS_foldl {β : Type} (f : GPathM → β → GPathM)

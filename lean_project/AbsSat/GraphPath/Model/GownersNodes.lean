@@ -112,6 +112,19 @@ theorem GN_filterRequire (g : GPathM) (req : NodeId) (h : GN g) :
 -- The review chain, in `Pruned.lean`'s shape
 -- ============================================================
 
+/-- The unlink keeps every node, with its id — so `gowners ⊆ nodes` survives. -/
+theorem GN_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : GN g) :
+    GN (unlinkIncompatible g id) := by
+  intro q hq
+  rw [unlinkIncompatible_gowners] at hq
+  obtain ⟨m, hm, hmid⟩ := h q hq
+  show ∃ x ∈ (unlinkIncompatible g id).nodes, x.id = q
+  unfold GPathM.unlinkIncompatible
+  split
+  · exact ⟨m, hm, hmid⟩
+  · next n _ =>
+    exact ⟨unlinkMap n id m, List.mem_map_of_mem hm, by rw [unlinkMap_id]; exact hmid⟩
+
 theorem GN_cleanInvalidGo (ids : List PathNodeId) :
     ∀ g : GPathM, GN g → GN (cleanInvalidGo g ids) := by
   induction ids with
@@ -125,9 +138,10 @@ theorem GN_cleanInvalidGo (ids : List PathNodeId) :
       have h₁ : GN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
         GN_updateAt g id _ (fun _ => rfl) h
+      have h₂ := GN_unlinkIncompatible _ id h₁
       split
-      · exact ih _ h₁
-      · exact ih _ (GN_removeNode _ id h₁)
+      · exact ih _ h₂
+      · exact ih _ (GN_removeNode _ id h₂)
 
 theorem GN_cleanInvalid (g : GPathM) (h : GN g) : GN (cleanInvalid g) :=
   GN_cleanInvalidGo _ g h
@@ -142,9 +156,10 @@ theorem GN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : G
     · have h₁ : GN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         GN_updateAt g id _ (fun _ => rfl) h
+      have h₂ := GN_unlinkIncompatible _ id h₁
       split
-      · exact h₁
-      · exact GN_removeNode _ id h₁
+      · exact h₂
+      · exact GN_removeNode _ id h₂
     · exact GN_removeNode g id h
 
 theorem GN_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM)

@@ -118,6 +118,36 @@ theorem pruned_foldl {β : Type} (f : GPathM → β → GPathM)
 -- The review pass
 -- ============================================================
 
+theorem unlinkMap_id (n : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    (unlinkMap n id m).id = m.id := by
+  unfold GPathM.unlinkMap; split
+  · rfl
+  · split <;> rfl
+
+theorem unlinkMap_owners (n : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    (unlinkMap n id m).owners = m.owners := by
+  unfold GPathM.unlinkMap; split
+  · rfl
+  · split <;> rfl
+
+theorem pruned_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    Pruned g (unlinkIncompatible g id) := by
+  unfold GPathM.unlinkIncompatible
+  split
+  · exact Pruned.refl g
+  · next n _ =>
+    refine ⟨rfl, rfl, fun q hq => hq, ?_⟩
+    intro n' hn'
+    obtain ⟨m, hm, hEq⟩ := List.mem_map.mp hn'
+    refine ⟨m, hm, ?_, ?_, ?_⟩
+    · rw [← hEq]; exact unlinkMap_id n id m
+    · rw [← hEq, unlinkMap_owners]; intro q hq; exact hq
+    · rw [← hEq]; unfold GPathM.unlinkMap; split
+      · intro p hp; exact (List.mem_filter.mp hp).1
+      · split
+        · intro p hp; exact hp
+        · intro p hp; exact (List.mem_filter.mp hp).1
+
 theorem pruned_cleanInvalidGo (ids : List PathNodeId) :
     ∀ g : GPathM, Pruned g (cleanInvalidGo g ids) := by
   induction ids with
@@ -133,9 +163,10 @@ theorem pruned_cleanInvalidGo (ids : List PathNodeId) :
           (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
         pruned_updateAt g id _ (fun _ => rfl)
           (fun _ q hq => (List.mem_filter.mp hq).1) (fun _ _ hp => hp)
+      have h₂ := Pruned.trans h₁ (pruned_unlinkIncompatible _ id)
       split
-      · exact h₁
-      · exact Pruned.trans h₁ (pruned_removeNode _ id)
+      · exact h₂
+      · exact Pruned.trans h₂ (pruned_removeNode _ id)
 
 theorem pruned_cleanInvalid (g : GPathM) : Pruned g (cleanInvalid g) :=
   pruned_cleanInvalidGo _ g
@@ -151,9 +182,10 @@ theorem pruned_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId)
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         pruned_updateAt g id _ (fun _ => rfl)
           (fun _ q hq => (List.mem_filter.mp hq).1) (fun _ _ hp => hp)
+      have h₂ := Pruned.trans h₁ (pruned_unlinkIncompatible _ id)
       split
-      · exact h₁
-      · exact Pruned.trans h₁ (pruned_removeNode _ id)
+      · exact h₂
+      · exact Pruned.trans h₂ (pruned_removeNode _ id)
     · exact pruned_removeNode g id
 
 theorem pruned_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM) :

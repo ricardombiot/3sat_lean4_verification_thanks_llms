@@ -10,6 +10,54 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (w) — El puente, demostrado; el espejo migrado.**
+
+**El teorema** (`Model/Bridge.lean`, cierre `[propext, Quot.sound]`):
+
+    LinksInOwners h := ∀ pid d, h.node? pid = some d →
+      (∀ p ∈ d.parents, p ∈ d.owners) ∧ (∀ s ∈ d.sons, s ∈ d.owners)
+
+    linksInOwners_review   : isValid (review g) = true → LinksInOwners (review g)
+    linksInOwners_filterAll: isValid (filterAll g reqs) = true → LinksInOwners (filterAll g reqs)
+
+Enunciado sobre `node?`, no sobre `n ∈ h.nodes`: así no hace falta unicidad de ids, y
+encaja con la moneda en la que el resto de los módulos consulta el grafo.
+
+**Ruta** (tres pasos, todos ya disponibles tras la migración): en un punto fijo válido cada
+`cleanStep` es la identidad (`Fuel.review_cleanStep_fixed`) → el desenlace de dentro es la
+identidad (`Fuel.intersectOrDrop_valid_branch`, ahora terna) → los enlaces ya estaban dentro
+de los owners (`Fuel.relinkSelf_eq_self_of_fixed` + `links_of_relinkSelf_eq`).
+
+**Migración del arreglo del autor al espejo, completa.** `GPathM.relinkSelf`/`relink`/
+`unlinkMap`/`unlinkIncompatible`, cableados en `cleanInvalidGo` y `reviewNode` en el mismo
+orden que el ejecutable. Reparados: `Pruned` (`pruned_unlinkIncompatible`), `Fuel`
+(`measure_unlinkIncompatible_le`, `unlinkIncompatible_eq_self`, `relinkSelf_eq_self_of_fixed`,
+toda F2.c), `CleanInvalid` (`ChainSound_unlinkIncompatible`), `Coherence`, `GownersNodes`
+(`GN_unlinkIncompatible`), `Parents` (`PN_unlinkIncompatible`), `Sons` (`SMP_unlinkIncompatible`,
+el delicado), `SelfOwn` (`OOS_unlinkIncompatible`). `lake build AbsSat` verde, 71 módulos, 0 `sorry`.
+
+**Error de diseño corregido:** la primera `unlinkMap` filtraba los enlaces del vecino contra
+*sus propios* owners; eso rompía `Pruned` con ids repetidos y rompía `SMP`. La correcta filtra
+los enlaces del objetivo contra `n.owners` dejando `m.owners` intacto — los owners del nodo
+podado deciden en los dos lados, como en el desenlace simétrico del ejecutable.
+
+**Medición antes/después con las mismas banderas y semilla** (el *antes* se obtuvo guardando la
+migración y volviendo a medir):
+
+- `extend --randombridge 60` (161.839 nodos, 174,7 k enlaces): 5 padres y 2 hijos fuera de
+  owners → **0 y 0**.
+- `extend --stale 100 90210 3 8` (la campaña de (u)): **277** nodos con padre rancio → **0**,
+  con los mismos 2.563.751 pares consecutivos de cadenas req-satisfactorias y 0 excepciones.
+- `validate --random 60 2026 3 5`: 60/60 limpias, 5.466 estados válidos, 161.839 nodos,
+  5.466 `Inhabited` certificados — mismo recuento de nodos que antes, así que no se poda de más.
+
+**Consecuencia:** se retira el aviso de (u) sobre `PathExists.exists_isChain` — el padre
+arbitrario que elige el descenso es ahora necesariamente owner. `ParentId.ParentIsOwner` y
+`SonIsOwner`, refutados en (u), pasan a ser consecuencias del teorema sobre los estados que
+importan. Sin cambio en lo abierto: **`PairwiseOwned`**.
+
+Documento: `verificacion_inseguridad_autor_v39.md`.
+
 **2026-09-09 (v) — Bug real corregido en el ejecutable, y el puente formalizado.**
 
 **El bug, reportado por el autor** a partir de la medición de (u): la poda de owners debe

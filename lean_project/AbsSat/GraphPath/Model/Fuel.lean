@@ -119,6 +119,44 @@ theorem measure_removeNode_le (g : GPathM) (id : PathNodeId) :
       (sum_map_le _ _ PNodeM.weight (fun n _ => weight_unlink_le id n))
     exact sum_map_filter_le _ _ _
 
+private theorem weight_relinkBy_le (ow : List PathNodeId) (m : PNodeM) :
+    PNodeM.weight { m with parents := m.parents.filter (fun p => ow.contains p),
+                           sons := m.sons.filter (fun s => ow.contains s) }
+      ≤ PNodeM.weight m := by
+  have h1 := List.length_filter_le (fun p => ow.contains p) m.parents
+  have h2 := List.length_filter_le (fun p => ow.contains p) m.sons
+  have hw : PNodeM.weight { m with parents := m.parents.filter (fun p => ow.contains p),
+                                   sons := m.sons.filter (fun s => ow.contains s) }
+      = 1 + (m.parents.filter (fun p => ow.contains p)).length
+          + (m.sons.filter (fun p => ow.contains p)).length + m.owners.length := rfl
+  have hw2 : PNodeM.weight m = 1 + m.parents.length + m.sons.length + m.owners.length := rfl
+  rw [hw, hw2]
+  omega
+
+private theorem weight_relinkSelf_le (n : PNodeM) :
+    PNodeM.weight (relinkSelf n) ≤ PNodeM.weight n := weight_relinkBy_le n.owners n
+
+private theorem weight_unlinkMap_le (n : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    PNodeM.weight (unlinkMap n id m) ≤ PNodeM.weight m := by
+  unfold GPathM.unlinkMap
+  split
+  · exact weight_relinkBy_le n.owners m
+  · split
+    · exact Nat.le_refl _
+    · exact weight_unlink_le id m
+
+/-- Unlinking incompatible neighbours cannot raise the measure. -/
+theorem measure_unlinkIncompatible_le (g : GPathM) (id : PathNodeId) :
+    measure (unlinkIncompatible g id) ≤ measure g := by
+  unfold GPathM.unlinkIncompatible
+  split
+  · exact Nat.le_refl _
+  · next n _ =>
+    simp only [measure]
+    refine Nat.add_le_add (Nat.le_refl _) ?_
+    rw [List.map_map]
+    exact sum_map_le _ _ PNodeM.weight (fun m _ => weight_unlinkMap_le n id m)
+
 -- ============================================================
 -- Measure bounds for the review pass
 -- ============================================================
@@ -139,9 +177,10 @@ theorem measure_cleanInvalidGo_le (ids : List PathNodeId) :
             (fun n => { n with owners := intersectOwners n.owners g.gowners })) ≤
             measure g :=
         measure_updateAt_le g id _ (weight_intersect_le g.gowners)
+      have h₂ := Nat.le_trans (measure_unlinkIncompatible_le _ id) h₁
       split
-      · exact h₁
-      · exact Nat.le_trans (measure_removeNode_le _ id) h₁
+      · exact h₂
+      · exact Nat.le_trans (measure_removeNode_le _ id) h₂
 
 theorem measure_cleanInvalid_le (g : GPathM) : measure (cleanInvalid g) ≤ measure g :=
   measure_cleanInvalidGo_le _ g
@@ -158,9 +197,10 @@ theorem measure_reviewNode_le (nb : PNodeM → List PathNodeId) (id : PathNodeId
             (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) ≤
             measure g :=
         measure_updateAt_le g id _ (weight_intersect_le _)
+      have h₂ := Nat.le_trans (measure_unlinkIncompatible_le _ id) h₁
       split
-      · exact h₁
-      · exact Nat.le_trans (measure_removeNode_le _ id) h₁
+      · exact h₂
+      · exact Nat.le_trans (measure_removeNode_le _ id) h₂
     · exact measure_removeNode_le g id
 
 private theorem measure_foldl_le {β : Type} (f : GPathM → β → GPathM)
@@ -281,6 +321,114 @@ private theorem intersect_eq_self_of_weight (b : List PathNodeId) (n : PNodeM)
     filter_eq_self_of_length _ _ hlen
   rw [this]
 
+
+private theorem relinkBy_eq_self_of_weight (ow : List PathNodeId) (m : PNodeM)
+    (h : PNodeM.weight { m with parents := m.parents.filter (fun p => ow.contains p),
+                                sons := m.sons.filter (fun s => ow.contains s) }
+        = PNodeM.weight m) :
+    { m with parents := m.parents.filter (fun p => ow.contains p),
+             sons := m.sons.filter (fun s => ow.contains s) } = m := by
+  have h1 := List.length_filter_le (fun p => ow.contains p) m.parents
+  have h2 := List.length_filter_le (fun p => ow.contains p) m.sons
+  have hw : PNodeM.weight { m with parents := m.parents.filter (fun p => ow.contains p),
+                                   sons := m.sons.filter (fun s => ow.contains s) }
+      = 1 + (m.parents.filter (fun p => ow.contains p)).length
+          + (m.sons.filter (fun p => ow.contains p)).length + m.owners.length := rfl
+  have hw2 : PNodeM.weight m = 1 + m.parents.length + m.sons.length + m.owners.length := rfl
+  rw [hw, hw2] at h
+  have hp : (m.parents.filter (fun p => ow.contains p)).length = m.parents.length := by omega
+  have hs : (m.sons.filter (fun p => ow.contains p)).length = m.sons.length := by omega
+  show { m with parents := m.parents.filter (fun p => ow.contains p),
+                sons := m.sons.filter (fun p => ow.contains p) } = m
+  rw [filter_eq_self_of_length _ _ hp, filter_eq_self_of_length _ _ hs]
+
+private theorem relinkSelf_eq_self_of_weight (n : PNodeM)
+    (h : PNodeM.weight (relinkSelf n) = PNodeM.weight n) : relinkSelf n = n :=
+  relinkBy_eq_self_of_weight n.owners n h
+
+private theorem unlink_eq_self_of_weight (id : PathNodeId) (m : PNodeM)
+    (h : PNodeM.weight { m with parents := m.parents.filter (fun p => p != id),
+                                sons := m.sons.filter (fun s => s != id) }
+        = PNodeM.weight m) :
+    { m with parents := m.parents.filter (fun p => p != id),
+             sons := m.sons.filter (fun s => s != id) } = m := by
+  have h1 := List.length_filter_le (fun p => p != id) m.parents
+  have h2 := List.length_filter_le (fun p => p != id) m.sons
+  have hw : PNodeM.weight { m with parents := m.parents.filter (fun p => p != id),
+                                   sons := m.sons.filter (fun s => s != id) }
+      = 1 + (m.parents.filter (fun p => p != id)).length
+          + (m.sons.filter (fun p => p != id)).length + m.owners.length := rfl
+  have hw2 : PNodeM.weight m = 1 + m.parents.length + m.sons.length + m.owners.length := rfl
+  rw [hw, hw2] at h
+  have hp : (m.parents.filter (fun p => p != id)).length = m.parents.length := by omega
+  have hs : (m.sons.filter (fun p => p != id)).length = m.sons.length := by omega
+  show { m with parents := m.parents.filter (fun p => p != id),
+                sons := m.sons.filter (fun p => p != id) } = m
+  rw [filter_eq_self_of_length _ _ hp, filter_eq_self_of_length _ _ hs]
+
+private theorem unlinkMap_eq_self_of_weight (n : PNodeM) (id : PathNodeId) (m : PNodeM)
+    (h : PNodeM.weight (unlinkMap n id m) = PNodeM.weight m) : unlinkMap n id m = m := by
+  unfold GPathM.unlinkMap at h ⊢
+  split at h
+  · next hc => rw [if_pos hc]; exact relinkBy_eq_self_of_weight n.owners m h
+  · next hc =>
+    rw [if_neg hc]
+    split at h
+    · next hc2 => rw [if_pos hc2]
+    · next hc2 => rw [if_neg hc2]; exact unlink_eq_self_of_weight id m h
+
+/-- At the fixpoint the unlink is the identity: it only filters, so preserving
+the measure means it removed nothing. -/
+theorem unlinkIncompatible_eq_self (g : GPathM) (id : PathNodeId)
+    (h : measure (unlinkIncompatible g id) = measure g) : unlinkIncompatible g id = g := by
+  cases hn : g.node? id with
+  | none => simp only [GPathM.unlinkIncompatible, hn]
+  | some n =>
+    have hshape : unlinkIncompatible g id = { g with nodes := g.nodes.map (unlinkMap n id) } := by
+      simp only [GPathM.unlinkIncompatible, hn]
+    rw [hshape] at h ⊢
+    have hsum : (g.nodes.map (PNodeM.weight ∘ unlinkMap n id)).sum
+        = (g.nodes.map PNodeM.weight).sum := by
+      simp only [measure] at h
+      rw [List.map_map] at h
+      omega
+    have hpt := sum_map_eq_pointwise g.nodes (PNodeM.weight ∘ unlinkMap n id) PNodeM.weight
+      (fun m _ => weight_unlinkMap_le n id m) hsum
+    have hmap : g.nodes.map (unlinkMap n id) = g.nodes :=
+      map_eq_self_of _ _ (fun m hm => unlinkMap_eq_self_of_weight n id m (hpt m hm))
+    rw [hmap]
+
+private theorem map_pointwise_of_eq {α : Type} (l : List α) (f : α → α)
+    (h : l.map f = l) : ∀ a ∈ l, f a = a := by
+  induction l with
+  | nil => intro a ha; exact absurd ha List.not_mem_nil
+  | cons a as ih =>
+    simp only [List.map_cons, List.cons.injEq] at h
+    intro x hx
+    rcases List.mem_cons.mp hx with rfl | hx'
+    · exact h.1
+    · exact ih h.2 x hx'
+
+theorem unlinkIncompatible_pointwise (g : GPathM) (id : PathNodeId) (n : PNodeM)
+    (hn : g.node? id = some n) (h : unlinkIncompatible g id = g)
+    (m : PNodeM) (hm : m ∈ g.nodes) : unlinkMap n id m = m := by
+  have hshape : unlinkIncompatible g id = { g with nodes := g.nodes.map (unlinkMap n id) } := by
+    simp only [GPathM.unlinkIncompatible, hn]
+  rw [hshape] at h
+  have hmap : g.nodes.map (unlinkMap n id) = g.nodes := congrArg GPathM.nodes h
+  exact map_pointwise_of_eq _ _ hmap m hm
+
+/-- **The owners/parents bridge, at the fixpoint.** A node's links are already
+inside its owners: the unlink had nothing to do. -/
+theorem relinkSelf_eq_self_of_fixed (g : GPathM) (id : PathNodeId) (d : PNodeM)
+    (hd : g.node? id = some d) (h : unlinkIncompatible g id = g) : relinkSelf d = d := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  have hpt := unlinkIncompatible_pointwise g id d hd h d hd_mem
+  unfold GPathM.unlinkMap at hpt
+  rw [if_pos (by rw [hd_id]; exact beq_iff_eq.mpr rfl)] at hpt
+  exact hpt
+
 -- ============================================================
 -- updateAt: weight-preserving update is the identity
 -- ============================================================
@@ -382,21 +530,26 @@ private theorem exists_mem_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM �
 node's owners against `b`, then physically drop the node if that left it
 invalid. Factoring it out lets one lemma serve both passes. -/
 def intersectOrDrop (g : GPathM) (id : PathNodeId) (b : List PathNodeId) (d : PNodeM) : GPathM :=
-  if isValidNode (updateAt g id (fun n => { n with owners := intersectOwners n.owners b }))
-      { d with owners := intersectOwners d.owners b } then
-    updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+  if isValidNode
+      (unlinkIncompatible
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id)
+      (relink (intersectOwners d.owners b) d) then
+    unlinkIncompatible
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
   else
-    removeNode (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+    removeNode (unlinkIncompatible
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id) id
 
 theorem measure_intersectOrDrop_le (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
     (d : PNodeM) : measure (intersectOrDrop g id b d) ≤ measure g := by
   have hupd : measure (updateAt g id
       (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
     measure_updateAt_le g id _ (weight_intersect_le b)
+  have hupd2 := Nat.le_trans (measure_unlinkIncompatible_le _ id) hupd
   unfold intersectOrDrop
   split
-  · exact hupd
-  · exact Nat.le_trans (measure_removeNode_le _ id) hupd
+  · exact hupd2
+  · exact Nat.le_trans (measure_removeNode_le _ id) hupd2
 
 /-- At the fixpoint the tail is the identity: the intersection kept every
 owner, and the drop branch is unreachable because removing a node that is
@@ -412,22 +565,34 @@ theorem intersectOrDrop_eq_self (g : GPathM) (id : PathNodeId) (b : List PathNod
   have hupd_le : measure (updateAt g id
       (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
     measure_updateAt_le g id _ hle_f
+  have hunl_le := measure_unlinkIncompatible_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
   obtain ⟨n, hn, hn_id⟩ :
-      ∃ n ∈ (updateAt g id
-        (fun n => { n with owners := intersectOwners n.owners b })).nodes, n.id = id := by
+      ∃ n ∈ (unlinkIncompatible (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) id).nodes, n.id = id := by
     obtain ⟨n, hn, hn_id⟩ :=
       exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
         (fun _ => rfl) d hd_mem
-    exact ⟨n, hn, by rw [hn_id]; exact hd_id⟩
+    have hid' : n.id = id := by rw [hn_id]; exact hd_id
+    unfold GPathM.unlinkIncompatible
+    split
+    · exact ⟨n, hn, hid'⟩
+    · next n₀ _ =>
+      exact ⟨unlinkMap n₀ id n, List.mem_map_of_mem hn, by rw [unlinkMap_id]; exact hid'⟩
   have hlt := measure_removeNode_lt _ id n hn hn_id
   unfold intersectOrDrop at h ⊢
   split at h
   · next hv =>
     rw [if_pos hv]
-    exact updateAt_eq_self g id _ hle_f hid_f h
+    have h1 : measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = measure g := by omega
+    have h2 : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ hle_f hid_f h1
+    rw [h2] at h ⊢
+    exact unlinkIncompatible_eq_self g id h
   · next hv =>
     rw [if_neg hv]
-    exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt hupd_le))
+    exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt (Nat.le_trans hunl_le hupd_le)))
 
 -- ============================================================
 -- F2.c, step 1: cleanInvalid at the fixpoint
@@ -650,7 +815,8 @@ theorem intersectOrDrop_valid_branch (g : GPathM) (id : PathNodeId) (b : List Pa
     (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
     (h : measure (intersectOrDrop g id b d) = measure g) :
     updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g ∧
-      isValidNode g { d with owners := intersectOwners d.owners b } = true := by
+      unlinkIncompatible g id = g ∧
+      isValidNode g (relink (intersectOwners d.owners b) d) = true := by
   have hle_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
       ≤ PNodeM.weight n := weight_intersect_le b
   have hid_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
@@ -659,21 +825,34 @@ theorem intersectOrDrop_valid_branch (g : GPathM) (id : PathNodeId) (b : List Pa
   have hupd_le : measure (updateAt g id
       (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
     measure_updateAt_le g id _ hle_f
+  have hunl_le := measure_unlinkIncompatible_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
   obtain ⟨n, hn, hn_id⟩ :
-      ∃ n ∈ (updateAt g id
-        (fun n => { n with owners := intersectOwners n.owners b })).nodes, n.id = id := by
+      ∃ n ∈ (unlinkIncompatible (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) id).nodes, n.id = id := by
     obtain ⟨n, hn, hn_id⟩ :=
       exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
         (fun _ => rfl) d hd_mem
-    exact ⟨n, hn, by rw [hn_id]; exact hd_id⟩
+    have hid' : n.id = id := by rw [hn_id]; exact hd_id
+    unfold GPathM.unlinkIncompatible
+    split
+    · exact ⟨n, hn, hid'⟩
+    · next n₀ _ =>
+      exact ⟨unlinkMap n₀ id n, List.mem_map_of_mem hn, by rw [unlinkMap_id]; exact hid'⟩
   have hlt := measure_removeNode_lt _ id n hn hn_id
   unfold intersectOrDrop at h
   split at h
   · next hv =>
+    have h1 : measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = measure g := by omega
     have hupd : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
-      updateAt_eq_self g id _ hle_f hid_f h
-    exact ⟨hupd, by rw [← hupd]; exact hv⟩
-  · exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt hupd_le))
+      updateAt_eq_self g id _ hle_f hid_f h1
+    have hunl : unlinkIncompatible g id = g := by
+      rw [hupd] at h; exact unlinkIncompatible_eq_self g id h
+    refine ⟨hupd, hunl, ?_⟩
+    rw [hupd, hunl] at hv
+    exact hv
+  · exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt (Nat.le_trans hunl_le hupd_le)))
 
 /-- Every step of a fixpoint `cleanInvalidGo` walk was itself the identity,
 and on the *original* graph — the intermediate states never moved. -/
@@ -744,10 +923,13 @@ theorem cleanStep_node_valid (g : GPathM) (id : PathNodeId) (d : PNodeM)
   have hd_id : d.id = id := node?_id_eq g id d hd
   have hstep : measure (intersectOrDrop g id g.gowners d) = measure g := by
     simpa [cleanStep, hd] using h
-  obtain ⟨hupd, hvalid⟩ := intersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
+  obtain ⟨hupd, hunl, hvalid⟩ := intersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
   have hfix : { d with owners := intersectOwners d.owners g.gowners } = d :=
     updateAt_pointwise g id _ hupd d hd_mem hd_id
-  rwa [hfix] at hvalid
+  have hrel : relink (intersectOwners d.owners g.gowners) d = d := by
+    show relinkSelf { d with owners := intersectOwners d.owners g.gowners } = d
+    rw [hfix]; exact relinkSelf_eq_self_of_fixed g id d hd hunl
+  rwa [hrel] at hvalid
 
 /-- At the fixpoint, a node reached by `cleanInvalidGo` had its owners already
 contained in the global owners: intersecting against them was the identity. -/
@@ -758,7 +940,7 @@ theorem cleanStep_owners_fixed (g : GPathM) (id : PathNodeId) (d : PNodeM)
   have hd_id : d.id = id := node?_id_eq g id d hd
   have hstep : measure (intersectOrDrop g id g.gowners d) = measure g := by
     simpa [cleanStep, hd] using h
-  obtain ⟨hupd, _⟩ := intersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
+  obtain ⟨hupd, _, _⟩ := intersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
   have hfix : { d with owners := intersectOwners d.owners g.gowners } = d :=
     updateAt_pointwise g id _ hupd d hd_mem hd_id
   exact congrArg PNodeM.owners hfix

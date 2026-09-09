@@ -71,6 +71,65 @@ theorem SMP_removeNode (g : GPathM) (id : PathNodeId) (h : SMP g) :
   rw [hni, hms]
   exact List.mem_filter.mpr ⟨hson, by rw [← hni] at hnf ⊢; exact hnf.2⟩
 
+/-- **The unlink keeps the two link tables mirroring each other.** It removes an
+edge only when the target's owners reject it, and then it removes it from both
+sides — which is exactly what `SMP` needs. -/
+theorem SMP_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : SMP g) :
+    SMP (unlinkIncompatible g id) := by
+  cases hn : g.node? id with
+  | none => simpa [GPathM.unlinkIncompatible, hn] using h
+  | some n₀ =>
+    intro n' hn' p hp m' hm' hmid
+    have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n₀ id) := by
+      simp only [GPathM.unlinkIncompatible, hn]
+    rw [hshape] at hn' hm'
+    obtain ⟨n, hnmem, hnEq⟩ := List.mem_map.mp hn'
+    obtain ⟨m, hmmem, hmEq⟩ := List.mem_map.mp hm'
+    have hnid : n'.id = n.id := by rw [← hnEq]; exact unlinkMap_id n₀ id n
+    have hmidn : m'.id = m.id := by rw [← hmEq]; exact unlinkMap_id n₀ id m
+    have hmp : m.id = p := by rw [← hmidn]; exact hmid
+    -- `p` is a parent of `n` whatever branch `n` took
+    have hpn : p ∈ n.parents := by
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      split at hp
+      · exact (List.mem_filter.mp hp).1
+      · split at hp
+        · exact hp
+        · exact (List.mem_filter.mp hp).1
+    have hsons : n.id ∈ m.sons := h n hnmem p hpn m hmmem hmp
+    -- if the target is `m`, the target's owners keep `n`
+    have hkey : (m.id == id) = true → (n₀.owners.contains n.id) = true := by
+      intro hc
+      have hpid : p = id := by rw [← hmp]; exact eq_of_beq hc
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      split at hp
+      · next hcn =>
+        have := (List.mem_filter.mp hp).2
+        rw [hpid, ← eq_of_beq hcn] at this
+        exact this
+      · next hcn =>
+        split at hp
+        · next hcn2 => exact hcn2
+        · exact absurd (bne_iff_ne.mp (List.mem_filter.mp hp).2) (by rw [hpid]; exact fun h => h rfl)
+    have hkey2 : ¬ ((n₀.owners.contains m.id) = true) → n.id ≠ id := by
+      intro hc heq
+      apply hc
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      rw [if_pos (show (n.id == id) = true from beq_iff_eq.mpr heq)] at hp
+      have := (List.mem_filter.mp hp).2
+      rw [hmp]; exact this
+    rw [hnid, ← hmEq]
+    unfold GPathM.unlinkMap
+    split
+    · next hc => exact List.mem_filter.mpr ⟨hsons, hkey hc⟩
+    · next hc =>
+      split
+      · exact hsons
+      · next hc2 => exact List.mem_filter.mpr ⟨hsons, bne_iff_ne.mpr (hkey2 hc2)⟩
+
 theorem SMP_cleanInvalidGo (ids : List PathNodeId) :
     ∀ g : GPathM, SMP g → SMP (cleanInvalidGo g ids) := by
   induction ids with
@@ -84,9 +143,10 @@ theorem SMP_cleanInvalidGo (ids : List PathNodeId) :
       have h₁ : SMP (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
         SMP_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := SMP_unlinkIncompatible _ id h₁
       split
-      · exact ih _ h₁
-      · exact ih _ (SMP_removeNode _ id h₁)
+      · exact ih _ h₂
+      · exact ih _ (SMP_removeNode _ id h₂)
 
 theorem SMP_cleanInvalid (g : GPathM) (h : SMP g) : SMP (cleanInvalid g) :=
   SMP_cleanInvalidGo _ g h
@@ -101,9 +161,10 @@ theorem SMP_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : 
     · have h₁ : SMP (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         SMP_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := SMP_unlinkIncompatible _ id h₁
       split
-      · exact h₁
-      · exact SMP_removeNode _ id h₁
+      · exact h₂
+      · exact SMP_removeNode _ id h₂
     · exact SMP_removeNode g id h
 
 private theorem SMP_foldl {β : Type} (f : GPathM → β → GPathM)

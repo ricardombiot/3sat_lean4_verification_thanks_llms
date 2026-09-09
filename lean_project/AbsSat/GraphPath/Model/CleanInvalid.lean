@@ -273,6 +273,154 @@ theorem ChainSound_removeNode (g : GPathM) (id : PathNodeId) (sel : Int → Path
 -- One `cleanInvalidGo` step, and the whole walk
 -- ============================================================
 
+-- ============================================================
+-- The unlink preserves a sound chain
+-- ============================================================
+
+theorem unlinkIncompatible_current (g : GPathM) (id : PathNodeId) :
+    (unlinkIncompatible g id).current_step = g.current_step := by
+  unfold GPathM.unlinkIncompatible; split <;> rfl
+
+theorem unlinkIncompatible_gowners (g : GPathM) (id : PathNodeId) :
+    (unlinkIncompatible g id).gowners = g.gowners := by
+  unfold GPathM.unlinkIncompatible; split <;> rfl
+
+theorem unlinkIncompatible_node? (g : GPathM) (id : PathNodeId) (n : PNodeM)
+    (hn : g.node? id = some n) (pid : PathNodeId) (m : PNodeM)
+    (hm : g.node? pid = some m) :
+    (unlinkIncompatible g id).node? pid = some (unlinkMap n id m) := by
+  have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n id) := by
+    simp only [GPathM.unlinkIncompatible, hn]
+  have hp : (fun x : PNodeM => (unlinkMap n id x).id == pid)
+      = (fun x : PNodeM => x.id == pid) := by
+    funext x; rw [unlinkMap_id]
+  show List.find? _ (unlinkIncompatible g id).nodes = _
+  rw [hshape]
+  simp only [List.find?_map, Function.comp_def, hp]
+  rw [show g.nodes.find? (fun x : PNodeM => x.id == pid) = some m from hm]
+  rfl
+
+/-- **The unlink cannot break a sound chain.** A chain node's parent is one of
+its owners — that is `PairwiseOwned`, already a field of `ChainSound` — so the
+filter keeps it; and a neighbour that would lose the link is one the chain
+never used, for the same reason. -/
+theorem ChainSound_unlinkIncompatible (g : GPathM) (id : PathNodeId)
+    (sel : Int → PathNodeId) (h : ChainSound g sel) :
+    ChainSound (unlinkIncompatible g id) sel := by
+  cases hn : g.node? id with
+  | none => simpa [GPathM.unlinkIncompatible, hn] using h
+  | some n =>
+    obtain ⟨⟨hchain, howned, hgow⟩, hself, hson, hroot⟩ := h
+    have hcs := unlinkIncompatible_current g id
+    have hnode : ∀ pid m, g.node? pid = some m →
+        (unlinkIncompatible g id).node? pid = some (unlinkMap n id m) :=
+      fun pid m hm => unlinkIncompatible_node? g id n hn pid m hm
+    -- owners never move
+    have howners : ∀ pid m, g.node? pid = some m →
+        ownersOf (unlinkIncompatible g id) pid = ownersOf g pid := by
+      intro pid m hm
+      simp only [ownersOf, hm, hnode pid m hm, unlinkMap_owners]
+    have hnodeAt : ∀ k, 0 ≤ k → k < g.current_step → ∃ m, g.node? (sel k) = some m := by
+      intro k hlo hhi
+      obtain ⟨hsome, _⟩ := hchain.1 k hlo hhi
+      exact Option.isSome_iff_exists.mp hsome
+    refine ⟨⟨⟨?_, ?_⟩, ?_, ?_⟩, ?_, ?_, ?_⟩
+    · -- nodes present, at their step
+      intro k hlo hhi
+      rw [hcs] at hhi
+      obtain ⟨hsome, hstep⟩ := hchain.1 k hlo hhi
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsome
+      exact ⟨by rw [hnode _ m hm]; rfl, hstep⟩
+    · -- parent link
+      intro k hlo hhi
+      rw [hcs] at hhi
+      have hlink := hchain.2 k hlo hhi
+      obtain ⟨hsome, _⟩ := hchain.1 (k + 1) (by omega) (by omega)
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsome
+      have hmid : m.id = sel (k + 1) := node?_id_eq g _ m hm
+      rw [hm] at hlink
+      have hown : sel k ∈ m.owners := by
+        have := howned k (k + 1) hlo (by omega) (by omega) hhi (by omega)
+        simp only [ownersAt, List.mem_filter, ownersOf, hm] at this
+        exact this.1
+      rw [hnode _ m hm]
+      show sel k ∈ (unlinkMap n id m).parents
+      unfold GPathM.unlinkMap
+      split
+      · next hc =>
+        have hmn : m = n := by
+          have : g.node? id = some m := by rw [← eq_of_beq hc, hmid]; exact hm
+          rw [hn] at this; exact (Option.some.inj this).symm
+        exact List.mem_filter.mpr ⟨hlink, List.elem_iff.mpr (by rw [← hmn]; exact hown)⟩
+      · next hc =>
+        split
+        · exact hlink
+        · next hc2 =>
+          refine List.mem_filter.mpr ⟨hlink, bne_iff_ne.mpr ?_⟩
+          intro heq
+          apply hc2
+          -- if `sel k = id` then `n` owns `sel (k+1) = m.id`
+          have hnk : g.node? (sel k) = some n := by rw [heq]; exact hn
+          have := howned (k + 1) k (by omega) hlo (by omega) (by omega) (by omega)
+          simp only [ownersAt, List.mem_filter, ownersOf, hnk] at this
+          rw [hmid]
+          exact List.elem_iff.mpr this.1
+    · -- pairwise ownership: owners never moved
+      intro i j hi hj hi' hj' hne
+      rw [hcs] at hi' hj'
+      obtain ⟨mj, hmj⟩ := hnodeAt j hj hj'
+      rw [howners (sel j) mj hmj]
+      exact howned i j hi hj hi' hj' hne
+    · -- gowners
+      intro k hlo hhi
+      rw [hcs] at hhi
+      rw [unlinkIncompatible_gowners]
+      exact hgow k hlo hhi
+    · -- self ownership
+      intro k hlo hhi
+      rw [hcs] at hhi
+      obtain ⟨mk, hmk⟩ := hnodeAt k hlo hhi
+      rw [howners _ mk hmk]
+      exact hself k hlo hhi
+    · -- son link
+      intro k hlo hhi
+      rw [hcs] at hhi
+      have hlk := hson k hlo hhi
+      obtain ⟨hsome, _⟩ := hchain.1 k hlo (by omega)
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsome
+      have hmid : m.id = sel k := node?_id_eq g _ m hm
+      simp only [sonsOf, hm] at hlk
+      have hown : sel (k + 1) ∈ m.owners := by
+        have := howned (k + 1) k (by omega) hlo (by omega) (by omega) (by omega)
+        simp only [ownersAt, List.mem_filter, ownersOf, hm] at this
+        exact this.1
+      simp only [sonsOf, hnode _ m hm]
+      show sel (k + 1) ∈ (unlinkMap n id m).sons
+      unfold GPathM.unlinkMap
+      split
+      · next hc =>
+        have hmn : m = n := by
+          have : g.node? id = some m := by rw [← eq_of_beq hc, hmid]; exact hm
+          rw [hn] at this; exact (Option.some.inj this).symm
+        exact List.mem_filter.mpr ⟨hlk, List.elem_iff.mpr (by rw [← hmn]; exact hown)⟩
+      · next hc =>
+        split
+        · exact hlk
+        · next hc2 =>
+          refine List.mem_filter.mpr ⟨hlk, bne_iff_ne.mpr ?_⟩
+          intro heq
+          apply hc2
+          have hnk : g.node? (sel (k + 1)) = some n := by rw [heq]; exact hn
+          have := howned k (k + 1) hlo (by omega) (by omega) (by omega) (by omega)
+          simp only [ownersAt, List.mem_filter, ownersOf, hnk] at this
+          rw [hmid]
+          exact List.elem_iff.mpr this.1
+    · -- root shape: about the ids alone
+      refine ⟨hroot.1, ?_⟩
+      intro k hk hk'
+      rw [hcs] at hk'
+      exact hroot.2 k hk hk'
+
 /-- **A `cleanInvalid` step preserves a sound chain.** Either the node stays,
 and the owners intersection could not touch the chain (it lives in `gowners`);
 or the node is dropped, and then it cannot have been a chain node, because a
@@ -284,25 +432,37 @@ theorem ChainSound_cleanStep (g : GPathM) (id : PathNodeId) (sel : Int → PathN
   | some d =>
     have hd_id : d.id = id := node?_id_eq g id d hid
     have hup : ChainSound (updateAt g id (gowMap g)) sel := ChainSound_updateAt g id sel h
+    have hunl : ChainSound (unlinkIncompatible (updateAt g id (gowMap g)) id) sel :=
+      ChainSound_unlinkIncompatible _ id sel hup
     have hshape : cleanStep g id =
-        if isValidNode (updateAt g id (gowMap g)) (gowMap g d)
-        then updateAt g id (gowMap g)
-        else removeNode (updateAt g id (gowMap g)) id := by
+        if isValidNode (unlinkIncompatible (updateAt g id (gowMap g)) id)
+             (relink (intersectOwners d.owners g.gowners) d)
+        then unlinkIncompatible (updateAt g id (gowMap g)) id
+        else removeNode (unlinkIncompatible (updateAt g id (gowMap g)) id) id := by
       simp only [cleanStep, hid]
       rfl
     rw [hshape]
     split
-    · exact hup
+    · exact hunl
     · next hbad =>
       -- the dropped node cannot be on the chain
-      refine ChainSound_removeNode _ id sel hup ?_
+      refine ChainSound_removeNode _ id sel hunl ?_
       intro k hlo hhi hk
       apply hbad
-      have hnode : (updateAt g id (gowMap g)).node? (sel k) = some (gowMap g d) := by
-        rw [hk, updateAt_node? g id (gowMap g) (gowMap_id g) id d hid]
+      have hnode0 : (updateAt g id (gowMap g)).node? id = some (gowMap g d) := by
+        rw [updateAt_node? g id (gowMap g) (gowMap_id g) id d hid]
         simp only [gowMap]
-        rw [show (d.id == id) = true from by rw [hd_id]; exact beq_self_eq_true id]
-      exact isValidNode_of_chain _ sel hup k (gowMap g d) hnode hlo hhi
+        rw [show (d.id == id) = true from beq_iff_eq.mpr hd_id]
+      have hnode : (unlinkIncompatible (updateAt g id (gowMap g)) id).node? (sel k)
+          = some (relink (intersectOwners d.owners g.gowners) d) := by
+        rw [hk]
+        rw [unlinkIncompatible_node? _ id _ hnode0 id _ hnode0]
+        show some (unlinkMap (gowMap g d) id (gowMap g d)) = _
+        unfold GPathM.unlinkMap
+        rw [if_pos (show ((gowMap g d).id == id) = true from by
+          show (d.id == id) = true; exact beq_iff_eq.mpr hd_id)]
+        rfl
+      exact isValidNode_of_chain _ sel hunl k _ hnode hlo hhi
 
 theorem ChainSound_cleanInvalidGo (ids : List PathNodeId) :
     ∀ (g : GPathM) (sel : Int → PathNodeId), ChainSound g sel →
