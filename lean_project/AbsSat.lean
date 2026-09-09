@@ -54,4 +54,5 @@ import AbsSat.GraphPath.Model.Extendable
 import AbsSat.GraphPath.Model.PickInduction
 import AbsSat.GraphPath.Model.Certifies
 import AbsSat.GraphPath.Model.GownersNodes
+import AbsSat.GraphPath.Model.Candidates
 import AbsSat.GraphPath.Model.ExtendSearch

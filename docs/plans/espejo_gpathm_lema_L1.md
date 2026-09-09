@@ -10,6 +10,34 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (k) — `FilteredChain`: separada la vacuidad de la elección; la vacuidad, demostrada.**
+
+**`Model/Candidates.lean`.** Una cadena es una *selección*, así que antes de preguntar si
+existe una coherente hay que saber si hay algo que seleccionar. Hasta (j) no se podía
+responder — y por eso `degenerate` funcionaba: soporte no vacío que no nombra nada.
+
+- `owner_mem_gowners` — los owners de un nodo superviviente son owners globales
+  (`owners_mem_gowners` + `review_owners_within_gowners` + `hasStepEntry_of_isValid`).
+- **`owner_is_node`** — encadenado con `GownersAreNodes` (j): **todo owner de un nodo
+  superviviente es él mismo un nodo superviviente.** Justo lo que a `degenerate` le faltaba.
+- **`candidate_at_step`** — para cualquier nodo y cualquier paso, su soporte ahí es no vacío
+  y está hecho de nodos. (`owners_ok_of_isValidNode` da la primera mitad; la segunda es
+  nueva.) Y `candidate_at_step_filterAll` / `domains_nonempty` lo ponen sobre los grafos de
+  la obligación.
+- **`chainG_gowners_free`** — una cadena construida desde el soporte de un solo nodo vive
+  automáticamente en `gowners`, así que una de las cuatro condiciones extra de `ChainSound`
+  ya está pagada.
+
+**Lo que queda:** los dominios del CSP son no vacíos y concretos; falta que exista una
+**selección coherente** — encadenada padre→hijo y co-poseída dos a dos. La obligación ya no
+mezcla "¿hay candidatos?" con "¿se pueden elegir a la vez?".
+
+**Anotado como próximo paso plausible:** `IsChain` parece alcanzable por la misma vía
+(haría falta `ParentsAreNodes` y "los padres están un paso por debajo", en el idioma de (j)).
+`PairwiseOwned` no parece alcanzable así — ahí está la propiedad de Helly.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v26.md`.
+
 **2026-09-09 (j) — `GownersAreNodes` demostrado para toda la máquina, y corrección de (i).**
 
 **Corrección de (i)/v24.** Allí escribí que `filterRequire` rompe este invariante. Falso:
