@@ -26,9 +26,11 @@ estructural que la propagación ya descartó. **De los dos libros, el obsoleto e
 Observación sobre la implementación, no recomendación: el lector filtra por requisitos, no
 camina `parents` a ciegas.
 
-**Cierto donde hace falta.** `lake exe extend --stale`: **992.719** pares consecutivos de
-caminos req-satisfactorios, **0** con el padre fuera de los owners. Los **36** nodos con
-enlace rancio están fuera de todo camino req-satisfactorio. Enunciado como
+**Cierto donde hace falta.** `lake exe extend --stale`, dos semillas: **3.556.470** pares
+consecutivos de caminos req-satisfactorios, **0** con el padre fuera de los owners. Los
+**313** nodos con enlace rancio están fuera de todo camino req-satisfactorio. Asimetría
+significativa: los enlaces rancios **escalan** con el tamaño de la campaña (36 → 277); las
+excepciones en cadenas no aparecen nunca. Enunciado como
 `ChainParentIsOwner` — que es `OwnerMatchesPredecessor` para `req.step = j-1`.
 
 **Aviso sobre (l)/v27.** `PathExists.exists_isChain` desciende eligiendo un padre

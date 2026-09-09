@@ -36,13 +36,13 @@ Lo digo como observación, no como recomendación: tu lector no camina por `pare
 
 Restringido a los pares consecutivos de caminos que satisfacen los requisitos:
 
-| | |
-|---|---|
-| nodos con algún padre rancio | **36** (de 282.077) |
-| **pares consecutivos en caminos req-satisfactorios** | **992.719** |
-| **de esos, padre que NO es owner** | **0** |
+| campaña | nodos con padre rancio | **pares consecutivos en cadenas** | **padre NO owner** |
+|---|---|---|---|
+| semilla 2026, 3–9 vars, 60 inst. | 36 | 992.719 | **0** |
+| semilla 90210, 3–10 vars, 100 inst. | 277 | **2.563.751** | **0** |
+| **total** | **313** | **3.556.470** | **0** |
 
-Los 36 nodos con enlaces rancios están **fuera** de todo camino req-satisfactorio.
+Los 313 nodos con enlaces rancios están **fuera** de todo camino req-satisfactorio. Y fíjate en la asimetría: los enlaces rancios **escalan** con el tamaño de la campaña (36 → 277), o sea que son un fenómeno real y recurrente; las excepciones en cadenas **no aparecen nunca**.
 
 Así que el puente correcto no es *"todo padre es owner"* sino:
 
@@ -52,7 +52,7 @@ def ChainParentIsOwner (reqOf) (g) (sel) : Prop :=
     ∀ k, ... → ∀ n, g.node? (sel (k+1)) = some n → sel k ∈ n.owners
 ```
 
-Que es `OwnerMatchesPredecessor` para el caso `req.step = j - 1`. El caso general es el mismo enunciado más abajo.
+Que es `OwnerMatchesPredecessor` para el caso `req.step = j - 1`. El caso general es el mismo enunciado más abajo. Medido: **3.556.470 pares, 0 excepciones**, dos semillas.
 
 ---
 
@@ -69,7 +69,7 @@ O sea: el camino que demostré que existe puede ser uno de los que no sirven. El
 ```
 OwnerMatchesPredecessor
   ⟸ ParentIsOwner (puente mínimo)     ⚠ REFUTADO: 37/328.086
-  ⟸ ChainParentIsOwner                medido: 992.719 pares, 0 excepciones
+  ⟸ ChainParentIsOwner                medido: 3.556.470 pares, 0 excepciones
 ```
 
 El puente existe, pero **no es estructural**: solo vale sobre cadenas que satisfacen los requisitos. Lo que significa que la pieza que falta sigue necesitando el lado del mapa — no se puede sacar solo de cómo están construidas las listas.

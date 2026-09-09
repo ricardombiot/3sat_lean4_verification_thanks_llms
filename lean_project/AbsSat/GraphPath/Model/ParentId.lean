@@ -361,8 +361,10 @@ out. The parents table is the stale one.
 
 **And it is true exactly where the obligation needs it.** Restricted to the
 consecutive picks of requirement-satisfying chains
-(`lake exe extend --stale`): **992,719 pairs, zero** where the parent is not an
-owner. The 36 nodes holding a stale parent are off every such chain.
+(`lake exe extend --stale`, two seeds): **3,556,470 pairs, zero** where the
+parent is not an owner. The 313 nodes holding a stale parent are off every such
+chain — and the stale links *scale* with campaign size (36 → 277) while the
+chain exceptions never appear at all.
 
 **A caveat this puts on `PathExists.exists_isChain`.** That descent picks an
 *arbitrary* parent at each step, and stale parent links exist — so the path it
