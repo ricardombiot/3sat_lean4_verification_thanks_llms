@@ -10,6 +10,46 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (e) — `PickValid`, molida hasta una sola eliminación de nodo.**
+
+Ataque a la única obligación que dejó A′. No demostrada; reducida.
+
+**La mitad gratis.** `filterAll g [mid] = review (filterRequire g mid)`, y el pinchazo es
+inofensivo: `isValid_filterRequire` — para los pasos ≠ `req.step` el predicado del filtro es
+verdadero de entrada, y en el paso de `req` sobrevive el owner elegido. **Toda la dificultad
+está en `review`.**
+
+**Obligación estrechada.** El descenso solo elige en pasos donde los owners aún discrepan, y
+`filterRequire_eq_self_of_pinned` muestra que un pick en un paso determinado no filtra nada.
+Añadida la guarda `choiceAt` a `PickValid` sin debilitar `Inhabited_of_descent`.
+
+**La escalera:**
+
+    Inhabited g
+      ⟸ Inhabited_of_pickValid       PickValid + caso base sin elección
+      ⟸ isValid_filterRequire        el pinchazo es inofensivo
+      ⟸ isValid_review_of_pass       el bucle de fuel → una pasada (sin ningún axioma)
+      ⟸ isValid_removeNode_of_other  una pasada → una eliminación
+
+Queda debiendo: **ninguna eliminación de la review es el último owner global de su paso.**
+
+**El límite de la ruta, demostrado a propósito.** `not_isValid_removeNode_of_only`: si el
+nodo eliminado era el único owner de su paso, el grafo se invalida. La review **tiene** que
+poder invalidar — así reporta UNSAT — así que `PickValid` no puede demostrarse haciendo
+imposibles las eliminaciones; tiene que decir que *estas* no dejan un paso a cero.
+
+**La circularidad, anotada.** `isValid_filterAll_of_ChainSound` da `PickValid` en un pick a
+partir de una cadena sonora en el grafo pinchado (vía `ChainSound_review`), pero esa
+hipótesis es L6 a nivel de mapa. **A′ no reduce L6 a algo más débil: la reempaqueta en un
+enunciado de un paso.** Lo que gana el reempaquetado: es combinatoria finita de `review` en
+vez de existencia de un objeto global, y las mitades del pinchazo y del bucle de fuel ya
+están fuera de la cuenta.
+
+Cierres: `[propext, Quot.sound]`; `isValid_review_of_pass` sin ningún axioma. Fijados por
+`#guard_msgs`.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v20.md`.
+
 **2026-09-09 (d) — Ruta A′: la propagación conduce la inducción, y la terminación es un teorema.**
 
 **`Model/PickInduction.lean`.** La inducción que v18 señaló: elegir un nodo de mapa que

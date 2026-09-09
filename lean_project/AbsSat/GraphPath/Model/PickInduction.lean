@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/PickInduction.lean
 import AbsSat.GraphPath.Model.Extendable
+import AbsSat.GraphPath.Model.Coherence
 
 /-!
 **Route A′ — route A with propagation.**
@@ -37,6 +38,20 @@ termination of the descent is free, and only the validity of each step is owed.
 **And the transfer back is free too.** Filtering only prunes, so a chain of the
 filtered graph is a chain of the original — `denot_filterAll_subset`, L2's
 narrowing direction, already proved in `Filter.lean`.
+
+## What `PickValid` has been ground down to (2026-09-09)
+
+    Inhabited g
+      ⟸ Inhabited_of_pickValid        PickValid + a no-choice base case
+      ⟸ isValid_filterRequire         pinning is harmless — only `review` is left
+      ⟸ isValid_review_of_pass        the fuel loop reduces to one pass
+      ⟸ isValid_removeNode_of_other   one pass reduces to one node removal
+
+so what is still owed is: **no removal the review makes is the last global
+owner of its step.** And `not_isValid_removeNode_of_only` records the limit of
+this route — the review *must* be able to invalidate, because that is how the
+machine reports UNSAT, so the obligation cannot be discharged by making
+removals impossible.
 -/
 
 namespace AbsSat.GraphPath.Model.PickInduction
@@ -157,11 +172,193 @@ there is nothing left to choose at the map level. -/
 def NoChoice (g : GPathM) : Prop := hasChoice g = false
 
 /-- **The one obligation that remains.** Selecting a map node the global owners
-still allow, and propagating, keeps the graph valid. `Verdict.ReadStable`'s
-one-step form — the statement `lake exe extend --read` finds no violation of. -/
+still allow *at a step that still has a choice*, and propagating, keeps the
+graph valid. `Verdict.ReadStable`'s one-step form — the statement
+`lake exe extend --read` finds no violation of.
+
+The `choiceAt` guard is not cosmetic: the induction only ever picks at such a
+step, and `filterRequire_eq_self_of_pinned` below shows a pick at a step
+without a choice narrows nothing at all. So this is the smallest form of the
+obligation the descent actually needs. -/
 def PickValid (g : GPathM) : Prop :=
-  ∀ k, 0 ≤ k → k < g.current_step → ∀ q ∈ ownersAt g.gowners k,
+  ∀ k, 0 ≤ k → k < g.current_step → choiceAt g k = true → ∀ q ∈ ownersAt g.gowners k,
     isValid (filterAll g [q.id]) = true
+
+-- ============================================================
+-- Validity, in terms of the global owners
+-- ============================================================
+
+theorem isValid_of_gowner (g : GPathM)
+    (h : ∀ k, 0 ≤ k → k < g.current_step → ∃ q ∈ g.gowners, q.id.step = k) :
+    isValid g = true := by
+  unfold GPathM.isValid
+  refine List.all_eq_true.mpr ?_
+  intro k hk
+  obtain ⟨hlo, hhi⟩ := intRange_bounds hk
+  obtain ⟨q, hq, hstep⟩ := h k hlo (by omega)
+  exact List.any_eq_true.mpr ⟨q, hq, beq_iff_eq.mpr hstep⟩
+
+theorem gowner_of_isValid (g : GPathM) (h : isValid g = true)
+    (k : Int) (hlo : 0 ≤ k) (hhi : k < g.current_step) :
+    ∃ q ∈ g.gowners, q.id.step = k := by
+  unfold GPathM.isValid at h
+  have hx := List.all_eq_true.mp h k (mem_intRange hlo (by omega))
+  obtain ⟨q, hq, hs⟩ := List.any_eq_true.mp hx
+  exact ⟨q, hq, eq_of_beq hs⟩
+
+-- ============================================================
+-- Half of `PickValid` is free: pinning never invalidates
+-- ============================================================
+
+/-- **`filterRequire` cannot invalidate a graph.** Pinning a step to a map node
+the global owners already allow leaves every other step untouched, and leaves
+the pinned step with the very owner that was picked.
+
+This is what makes `PickValid` a statement about `review` alone: the filter's
+first half is harmless, and all the difficulty is in the review passes that
+follow it — the node removals, not the owner pinning. -/
+theorem isValid_filterRequire (g : GPathM) (req : NodeId) (q₀ : PathNodeId)
+    (hq₀ : q₀ ∈ g.gowners) (hq₀id : q₀.id = req) (hv : isValid g = true) :
+    isValid (filterRequire g req) = true := by
+  refine isValid_of_gowner _ ?_
+  intro k hlo hhi
+  rw [filterRequire_gowners]
+  if hk : k = req.step then
+    refine ⟨q₀, List.mem_filter.mpr ⟨hq₀, ?_⟩, by rw [hq₀id, ← hk]⟩
+    rw [hq₀id, beq_iff_eq.mpr (rfl : req = req)]
+    exact Bool.or_true _
+  else
+    obtain ⟨q, hq, hstep⟩ := gowner_of_isValid g hv k hlo hhi
+    refine ⟨q, List.mem_filter.mpr ⟨hq, ?_⟩, hstep⟩
+    have : (q.id.step != req.step) = true := bne_iff_ne.mpr (by rw [hstep]; exact hk)
+    rw [this]
+    exact Bool.true_or _
+
+/-- A pick at a step where the global owners already agree narrows nothing:
+the filter keeps every one of them. This is why `PickValid` may be guarded by
+`choiceAt` without weakening `Inhabited_of_descent`. -/
+theorem filterRequire_eq_self_of_pinned (g : GPathM) (req : NodeId)
+    (h : ∀ q ∈ g.gowners, q.id.step = req.step → q.id = req) :
+    filterRequire g req = g := by
+  have hall : g.gowners.filter (fun q => q.id.step != req.step || q.id == req) = g.gowners := by
+    refine List.filter_eq_self.mpr ?_
+    intro q hq
+    if hs : q.id.step = req.step then
+      rw [beq_iff_eq.mpr (h q hq hs)]
+      exact Bool.or_true _
+    else
+      rw [show (q.id.step != req.step) = true from bne_iff_ne.mpr hs]
+      exact Bool.true_or _
+  unfold GPathM.filterRequire
+  rw [hall]
+
+-- ============================================================
+-- The other half is exactly L6 again — said precisely
+-- ============================================================
+
+/-- A graph carrying a chain that lives inside its global owners is valid. -/
+theorem isValid_of_ChainG (g : GPathM) (sel : Int → PathNodeId) (h : ChainG g sel) :
+    isValid g = true :=
+  isValid_of_gowner _ (fun k hlo hhi => ⟨sel k, h.2.2 k hlo hhi, (h.1.1 k hlo hhi).2⟩)
+
+theorem filterAll_single (g : GPathM) (mid : NodeId) :
+    filterAll g [mid] = review (filterRequire g mid) := rfl
+
+/-- **`PickValid` at one pick, from a sound chain through it.** `review`
+preserves a `ChainSound` chain (`Coherence.ChainSound_review`), and a chain
+inside the global owners makes the graph valid — so a pinned graph that still
+has a chain propagates to a valid graph.
+
+**And this is where the honest accounting has to happen.** The hypothesis is
+"the graph still has a complete co-owned chain through the pinned map node",
+which is L6 read at the map level. So proving `PickValid` *this* way is
+circular with what route A′ uses it for: A′ turns L6's `Inhabited` half into a
+one-step statement, it does not reduce it to something weaker. The value of
+the reduction is that the one-step statement is the kind of thing the review
+passes can be attacked with directly — and `isValid_filterRequire` above has
+already removed the pinning half of it from the account. -/
+theorem isValid_filterAll_of_ChainSound (g : GPathM) (mid : NodeId)
+    (sel : Int → PathNodeId) (h : ChainSound (filterRequire g mid) sel) :
+    isValid (filterAll g [mid]) = true :=
+  isValid_of_ChainG _ sel (ChainSound_review _ sel h).chain
+
+/-- The pinned-chain hypothesis, named. `PickValid_of_PinnedSound` says this
+implies the obligation; the docstring above says why that is not a way out. -/
+def PinnedSound (g : GPathM) : Prop :=
+  ∀ k, 0 ≤ k → k < g.current_step → ∀ q ∈ ownersAt g.gowners k,
+    ∃ sel, ChainSound (filterRequire g q.id) sel
+
+theorem PickValid_of_PinnedSound (g : GPathM) (h : PinnedSound g) : PickValid g := by
+  intro k hlo hhi _ q hq
+  obtain ⟨sel, hsel⟩ := h k hlo hhi q hq
+  exact isValid_filterAll_of_ChainSound g q.id sel hsel
+
+-- ============================================================
+-- Grinding the remaining half down: from `review` to one pass,
+-- and from one pass to one removal
+-- ============================================================
+
+/-- **`review` reduces to a single pass.** The fuel loop stops as soon as the
+graph goes invalid, so if one pass preserves validity inside a class the loop
+stays in, the whole review does. `Q` is that class. -/
+theorem isValid_reviewFuel_of_pass (Q : GPathM → Prop)
+    (hQpass : ∀ g, Q g → Q (reviewPass g))
+    (hQvalid : ∀ g, Q g → isValid g = true → isValid (reviewPass g) = true) :
+    ∀ (n : Nat) (g : GPathM), Q g → isValid g = true → isValid (reviewFuel n g) = true := by
+  intro n
+  induction n with
+  | zero => intro g _ hv; exact hv
+  | succ n ih =>
+    intro g hQ hv
+    simp only [reviewFuel, if_pos hv]
+    split
+    · exact ih (reviewPass g) (hQpass g hQ) (hQvalid g hQ hv)
+    · exact hQvalid g hQ hv
+
+theorem isValid_review_of_pass (Q : GPathM → Prop)
+    (hQpass : ∀ g, Q g → Q (reviewPass g))
+    (hQvalid : ∀ g, Q g → isValid g = true → isValid (reviewPass g) = true)
+    (g : GPathM) (hQ : Q g) (hv : isValid g = true) : isValid (review g) = true :=
+  isValid_reviewFuel_of_pass Q hQpass hQvalid _ g hQ hv
+
+/-- And a pass is three sweeps, each of which only ever drops nodes. -/
+theorem reviewPass_eq (g : GPathM) :
+    reviewPass g = reviewSons (reviewParents (cleanInvalid g)) := rfl
+
+theorem removeNode_gowners (g : GPathM) (id : PathNodeId) :
+    (removeNode g id).gowners = g.gowners.filter (fun q => q != id) := rfl
+
+/-- **The atom.** Every way the review can lose validity goes through
+`removeNode`, and `removeNode` only drops the one id from the global owners.
+So validity survives a removal exactly when every step keeps *some other*
+global owner — which is the whole of what `PickValid` still owes, once
+`isValid_filterRequire` has taken the pinning half off the account. -/
+theorem isValid_removeNode_of_other (g : GPathM) (id : PathNodeId)
+    (h : ∀ k, 0 ≤ k → k < g.current_step → ∃ q ∈ g.gowners, q.id.step = k ∧ q ≠ id) :
+    isValid (removeNode g id) = true := by
+  refine isValid_of_gowner _ ?_
+  intro k hlo hhi
+  obtain ⟨q, hq, hstep, hne⟩ := h k hlo hhi
+  refine ⟨q, ?_, hstep⟩
+  rw [removeNode_gowners]
+  exact List.mem_filter.mpr ⟨hq, bne_iff_ne.mpr hne⟩
+
+/-- Conversely, a removal that leaves a step with no owner is exactly a
+verdict of UNSAT at that step. Stated so the two directions sit together: the
+review *must* be able to invalidate — that is how the machine reports UNSAT —
+so `PickValid` cannot be proved by making removals impossible. It has to say
+that *these particular* removals never strip a step bare. -/
+theorem not_isValid_removeNode_of_only (g : GPathM) (id : PathNodeId) (k : Int)
+    (hlo : 0 ≤ k) (hhi : k < g.current_step)
+    (h : ∀ q ∈ g.gowners, q.id.step = k → q = id) :
+    isValid (removeNode g id) = false := by
+  cases hv : isValid (removeNode g id) with
+  | false => rfl
+  | true =>
+    obtain ⟨q, hq, hstep⟩ := gowner_of_isValid _ hv k hlo hhi
+    rw [removeNode_gowners] at hq
+    have hq' := List.mem_filter.mp hq
+    exact absurd (h q hq'.1 hstep) (bne_iff_ne.mp hq'.2)
 
 -- ============================================================
 -- Transferring the denotation back is free
@@ -224,7 +421,7 @@ theorem Inhabited_of_descent
       have hlt : measure (filterAll g [q.id]) < measure g :=
         measure_filterAll_lt g q.id r hrg (by rw [hrstep, hqstep]) hne'
       have hv' : isValid (filterAll g [q.id]) = true :=
-        hpick g hP hv k hklo (by omega) q hq
+        hpick g hP hv k hklo (by omega) hck q hq
       exact Inhabited_of_filterAll g (hnd g hP) [q.id]
         (ih (filterAll g [q.id]) (by omega) (hPf g q.id hP hv) hv')
 
@@ -247,6 +444,18 @@ theorem Inhabited_of_pickValid
 /-- info: 'AbsSat.GraphPath.Model.PickInduction.measure_filterAll_lt' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms measure_filterAll_lt
+
+/-- info: 'AbsSat.GraphPath.Model.PickInduction.isValid_filterRequire' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_filterRequire
+
+/-- info: 'AbsSat.GraphPath.Model.PickInduction.isValid_review_of_pass' does not depend on any axioms -/
+#guard_msgs in
+#print axioms isValid_review_of_pass
+
+/-- info: 'AbsSat.GraphPath.Model.PickInduction.isValid_removeNode_of_other' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_removeNode_of_other
 
 /-- info: 'AbsSat.GraphPath.Model.PickInduction.Inhabited_of_pickValid' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
