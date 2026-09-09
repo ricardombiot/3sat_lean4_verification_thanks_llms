@@ -120,6 +120,43 @@ def clean_links! (gpath : GPath) (path_node : PDocNode) : IO Unit := do
        pushNode! gpath.table_lines updated_son
     | none => pure ()
 
+/--
+**Owners/links coherence.** Pruning a node's owners can leave a parent or a son
+that is no longer an owner — i.e. a neighbour propagation has already ruled
+out. Such a link is stale: no solution chain through this node can use it, so
+it must be unlinked, on both sides.
+
+Without this the two ledgers drift apart: `remove_node_owner!` unlinks when a
+node is *removed*, but the owners intersections in `clean_invalid_nodes!` and
+`review_owners_line!` only shrank `owners`, leaving `parents`/`sons` stale. A
+reader stepping along a stale parent link would be walking a path the machine
+has already discarded.
+
+A node left with no parents (and not a root) then fails `is_valid_node` and is
+removed by `remove_if_invalid_node!`, which is right: it can no longer be part
+of any solution chain.
+
+Reported by the author, 2026-09-09, after the mirror harness measured the drift
+(37 stale parent links and 71 stale son links per ~328k, `lake exe extend
+--randombridge`).
+-/
+def unlink_incompatible! (gpath : GPath) (path_node : PDocNode) : IO PDocNode := do
+  let mut node := path_node
+  for parent_id in path_node.parents do
+    if !AbsSat.Db.Path.Docs.PathDocOwners.isOwner path_node.owners parent_id then
+      node := removeParent node parent_id
+      match ← getNode gpath.table_lines parent_id with
+      | some parent => pushNode! gpath.table_lines (removeSon parent path_node.id)
+      | none => pure ()
+  for son_id in path_node.sons do
+    if !AbsSat.Db.Path.Docs.PathDocOwners.isOwner path_node.owners son_id then
+      node := removeSon node son_id
+      match ← getNode gpath.table_lines son_id with
+      | some son => pushNode! gpath.table_lines (removeParent son path_node.id)
+      | none => pure ()
+  pushNode! gpath.table_lines node
+  pure node
+
 def remove_if_invalid_node! (gpath : GPath) (path_node : PDocNode) : IO Bool := do
   let is_valid ← is_valid_node gpath path_node
   if !is_valid then
@@ -136,6 +173,7 @@ def clean_invalid_nodes! (gpath : GPath) : IO Unit := do
     let updated_owners := AbsSat.Db.Path.Docs.PathDocOwners.intersect map_node.owners owners
     let map_node := putOwners map_node updated_owners
     pushNode! gpath.table_lines map_node
+    let map_node ← unlink_incompatible! gpath map_node
 
     remove_if_invalid_node! gpath map_node
   )
@@ -178,6 +216,7 @@ def review_owners_line! (gpath : GPath) (neighbors : PDocNode → Std.HashSet Pa
           let updated_owners := AbsSat.Db.Path.Docs.PathDocOwners.intersect path_node.owners owners_union
           let updated_node := putOwners path_node updated_owners
           pushNode! gpath.table_lines updated_node
+          let updated_node ← unlink_incompatible! gpath updated_node
           remove_if_invalid_node! gpath updated_node
         | none =>
           remove_if_invalid_node! gpath path_node
