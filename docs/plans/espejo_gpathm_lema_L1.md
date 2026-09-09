@@ -10,6 +10,42 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (d) — Ruta A′: la propagación conduce la inducción, y la terminación es un teorema.**
+
+**`Model/PickInduction.lean`.** La inducción que v18 señaló: elegir un nodo de mapa que
+los owners globales aún permitan en un paso donde discrepan, propagar (`filterAll`),
+aterrizar en un grafo válido estrictamente menor, repetir hasta que no quede elección.
+
+**La terminación no se supone, se demuestra.** `measure g = g.gowners.length + Σ pesos`, y
+`filterRequire` tira exactamente los owners globales del paso que nombran otro nodo de
+mapa. De ahí `measure_filterRequire_lt` y `measure_filterAll_lt`, teoremas. (Si `measure`
+contase solo nodos, esto no saldría — es el diseño de la medida el que lo da.)
+
+**El teorema.** `Inhabited_of_pickValid` reduce `Inhabited` — la mitad de L6 que consume el
+veredicto — a **una obligación y un caso base**:
+
+- `PickValid g` — seleccionar un nodo de mapa permitido y propagar deja el grafo válido.
+  Forma de un paso de `Verdict.ReadStable`.
+- `NoChoice g → Inhabited g` — un grafo cuyos owners globales coinciden en un nodo de mapa
+  por paso denota algo.
+
+La vuelta atrás es gratis (`denot_filterAll_subset`, L2 estrechamiento).
+
+Comparado con A: A pedía dos obligaciones y una era falsa; A′ pide una obligación y un caso
+base, ninguno refutado, con la terminación demostrada.
+
+**El probe mide las dos a la vez.** `lake exe extend --descend` ejecuta el descenso real; un
+pick que rompe validez es violación de `PickValid`, y todo endpoint sin elección se verifica
+con `Certificate.isCert` (ruta C). Familias adversarias: 310 estados, **310 descensos
+completados, 0 violaciones, 310/310 endpoints con cadena certificada**.
+
+**Lo que falta:** `PickValid` (la última pieza del puente, ahora la **única**), el caso base
+(no trivial: varios `PathNodeId` comparten id de mapa, así que quedan padres por elegir), y
+que esto es `Inhabited`, no `Supported` — arrancar el descenso filtrando por un nodo pinza
+su id de mapa, no su `PathNodeId`.
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v19.md`.
+
 **2026-09-09 (c) — Ruta A: teorema demostrado, hipótesis refutada, y el ingrediente que falta.**
 
 **El teorema — `Model/Extendable.lean`.** `Supported_of_Extend : NodesInRange g → ExtendUp g

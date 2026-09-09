@@ -1,0 +1,255 @@
+-- lean_project/AbsSat/GraphPath/Model/PickInduction.lean
+import AbsSat.GraphPath.Model.Extendable
+
+/-!
+**Route A′ — route A with propagation.**
+
+v18 refuted `Extendable`: pairwise co-ownership alone does not make the machine
+backtrack-free, and `lake exe extend` exhibits 1,574 dead-end partial chains.
+The same measurement showed that once the reader's own **propagation**
+(`filterAll` after every selection) is included, nothing gets stuck.
+
+So the induction has to be driven by the propagation, and this module sets it
+up:
+
+> Pick a map node the global owners still allow at a step where they still
+> disagree, propagate, and land on a *strictly smaller* valid graph. Repeat
+> until nothing is left to choose. If a graph with no choice left denotes
+> something, so did the one you started from.
+
+`Inhabited_of_descent` is that argument, proved. It reduces `Inhabited` — the
+half of L6 the SAT/UNSAT verdict consumes (`Verdict.lean`) — to **one
+obligation and a base case**:
+
+* `PickValid` — selecting an allowed map node and propagating keeps the graph
+  valid. This is `Verdict.ReadStable`'s one-step form, the statement
+  `lake exe extend --read` finds no violation of.
+* `NoChoice → Inhabited` — a valid graph whose global owners agree on one map
+  node per step denotes something. Nothing is left to choose at the map level
+  there, which makes it a different order of statement from L6.
+
+**The measure decrease is not assumed.** `measure` counts `gowners` as well as
+node weights, and `filterRequire` drops exactly the global owners that name a
+different map node — so `measure_filterAll_lt` below is a theorem, not a
+hypothesis. That is what makes this reduction cheaper than it looks: the
+termination of the descent is free, and only the validity of each step is owed.
+
+**And the transfer back is free too.** Filtering only prunes, so a chain of the
+filtered graph is a chain of the original — `denot_filterAll_subset`, L2's
+narrowing direction, already proved in `Filter.lean`.
+-/
+
+namespace AbsSat.GraphPath.Model.PickInduction
+
+open AbsSat.Utils.Alias
+open AbsSat.GraphPath.Model
+open AbsSat.GraphPath.Model.GPathM
+
+-- ============================================================
+-- The measure, and why propagation strictly shrinks it
+-- ============================================================
+
+theorem intRange_bounds {lo hi k : Int} (h : k ∈ intRange lo hi) : lo ≤ k ∧ k ≤ hi := by
+  simp only [intRange, List.mem_map, List.mem_range, Int.ofNat_eq_natCast] at h
+  obtain ⟨i, hi', rfl⟩ := h
+  exact ⟨by omega, by omega⟩
+
+private theorem length_filter_lt {α : Type} (p : α → Bool) :
+    ∀ (l : List α) (q : α), q ∈ l → p q = false → (l.filter p).length < l.length := by
+  intro l
+  induction l with
+  | nil => intro q hq _; exact absurd hq List.not_mem_nil
+  | cons a as ih =>
+    intro q hq hp
+    have hle : (as.filter p).length ≤ as.length := List.length_filter_le ..
+    rcases List.mem_cons.mp hq with rfl | hq'
+    · have hneg : ¬ (p q = true) := by rw [hp]; exact Bool.false_ne_true
+      rw [List.filter_cons_of_neg hneg, List.length_cons]
+      omega
+    · have hlt := ih q hq' hp
+      cases hpa : p a with
+      | true =>
+        rw [List.filter_cons_of_pos hpa, List.length_cons, List.length_cons]
+        omega
+      | false =>
+        have hneg : ¬ (p a = true) := by rw [hpa]; exact Bool.false_ne_true
+        rw [List.filter_cons_of_neg hneg, List.length_cons]
+        omega
+
+theorem filterRequire_nodes (g : GPathM) (req : NodeId) :
+    (filterRequire g req).nodes = g.nodes := rfl
+
+theorem filterRequire_gowners (g : GPathM) (req : NodeId) :
+    (filterRequire g req).gowners =
+      g.gowners.filter (fun q => q.id.step != req.step || q.id == req) := rfl
+
+theorem measure_filterRequire_le (g : GPathM) (req : NodeId) :
+    measure (filterRequire g req) ≤ measure g := by
+  unfold GPathM.measure
+  rw [filterRequire_nodes, filterRequire_gowners]
+  have hle : (g.gowners.filter (fun q => q.id.step != req.step || q.id == req)).length
+      ≤ g.gowners.length := List.length_filter_le ..
+  omega
+
+/-- **The descent, at the level of one filter.** `measure` counts `gowners`,
+and `filterRequire` drops exactly the global owners at `req`'s step that name a
+different map node. So a step where the owners still disagree strictly shrinks
+the measure — no hypothesis needed. -/
+theorem measure_filterRequire_lt (g : GPathM) (req : NodeId) (r : PathNodeId)
+    (hr : r ∈ g.gowners) (hstep : r.id.step = req.step) (hne : r.id ≠ req) :
+    measure (filterRequire g req) < measure g := by
+  have h1 : (r.id.step != req.step) = false := by
+    show (!(r.id.step == req.step)) = false
+    rw [beq_iff_eq.mpr hstep]
+    rfl
+  have h2 : (r.id == req) = false := by
+    cases hb : (r.id == req) with
+    | false => rfl
+    | true => exact absurd (eq_of_beq hb) hne
+  have hfalse : (r.id.step != req.step || r.id == req) = false := by rw [h1, h2]; rfl
+  have hlt := length_filter_lt
+    (fun q : PathNodeId => q.id.step != req.step || q.id == req) g.gowners r hr hfalse
+  unfold GPathM.measure
+  rw [filterRequire_nodes, filterRequire_gowners]
+  omega
+
+theorem measure_reviewFuel_le : ∀ (n : Nat) (g : GPathM),
+    measure (reviewFuel n g) ≤ measure g := by
+  intro n
+  induction n with
+  | zero => intro g; exact Nat.le_refl _
+  | succ n ih =>
+    intro g
+    simp only [reviewFuel]
+    split
+    · split
+      · exact Nat.le_trans (ih (reviewPass g)) (measure_reviewPass_le g)
+      · exact measure_reviewPass_le g
+    · exact Nat.le_refl _
+
+theorem measure_review_le (g : GPathM) : measure (review g) ≤ measure g :=
+  measure_reviewFuel_le _ g
+
+/-- **The descent, for the filter as the machine calls it.** -/
+theorem measure_filterAll_lt (g : GPathM) (mid : NodeId) (r : PathNodeId)
+    (hr : r ∈ g.gowners) (hstep : r.id.step = mid.step) (hne : r.id ≠ mid) :
+    measure (filterAll g [mid]) < measure g := by
+  refine Nat.lt_of_le_of_lt (measure_review_le _) ?_
+  simp only [List.foldl_cons, List.foldl_nil]
+  exact measure_filterRequire_lt g mid r hr hstep hne
+
+-- ============================================================
+-- Is there anything left to choose?
+-- ============================================================
+
+/-- Two global owners at step `k` naming different map nodes: a real choice is
+still open there. -/
+def choiceAt (g : GPathM) (k : Int) : Bool :=
+  (ownersAt g.gowners k).any (fun q =>
+    (ownersAt g.gowners k).any (fun r => q.id != r.id))
+
+def hasChoice (g : GPathM) : Bool :=
+  (intRange 0 (g.current_step - 1)).any (choiceAt g)
+
+/-- Propagation has left the global owners agreeing on one map node per step.
+**The base case's hypothesis** — and a much smaller statement than L6, because
+there is nothing left to choose at the map level. -/
+def NoChoice (g : GPathM) : Prop := hasChoice g = false
+
+/-- **The one obligation that remains.** Selecting a map node the global owners
+still allow, and propagating, keeps the graph valid. `Verdict.ReadStable`'s
+one-step form — the statement `lake exe extend --read` finds no violation of. -/
+def PickValid (g : GPathM) : Prop :=
+  ∀ k, 0 ≤ k → k < g.current_step → ∀ q ∈ ownersAt g.gowners k,
+    isValid (filterAll g [q.id]) = true
+
+-- ============================================================
+-- Transferring the denotation back is free
+-- ============================================================
+
+theorem Inhabited_of_filterAll (g : GPathM) (hnd : NodupIds g) (reqs : List NodeId)
+    (h : AbsSat.GraphPath.Model.Inhabited (filterAll g reqs)) :
+    AbsSat.GraphPath.Model.Inhabited g := by
+  obtain ⟨p, hp⟩ := h
+  exact ⟨p, denot_filterAll_subset g hnd reqs p hp⟩
+
+-- ============================================================
+-- The induction
+-- ============================================================
+
+/-- **Route A′, the reduction.** `Inhabited` follows from `PickValid` and the
+no-choice base case, by induction on the measure. `P` is whatever class the
+machine's states live in (`Reachable`, say); all that is asked of it is that
+propagation keeps you inside it and that node ids stay unique. -/
+theorem Inhabited_of_descent
+    (P : GPathM → Prop)
+    (hPf : ∀ g mid, P g → isValid g = true → P (filterAll g [mid]))
+    (hnd : ∀ g, P g → NodupIds g)
+    (hpick : ∀ g, P g → isValid g = true → PickValid g)
+    (hbase : ∀ g, P g → isValid g = true → NoChoice g →
+      AbsSat.GraphPath.Model.Inhabited g) :
+    ∀ (m : Nat) (g : GPathM), measure g ≤ m → P g → isValid g = true →
+      AbsSat.GraphPath.Model.Inhabited g := by
+  intro m
+  induction m with
+  | zero =>
+    intro g hm hP hv
+    match hch : hasChoice g with
+    | false => exact hbase g hP hv hch
+    | true =>
+      obtain ⟨k, hkmem, hck⟩ := List.any_eq_true.mp hch
+      obtain ⟨hklo, hkhi⟩ := intRange_bounds hkmem
+      obtain ⟨q, hq, hq2⟩ := List.any_eq_true.mp hck
+      obtain ⟨r, hr, hne⟩ := List.any_eq_true.mp hq2
+      have hrg : r ∈ g.gowners := (List.mem_filter.mp hr).1
+      have hrstep : r.id.step = k := eq_of_beq (List.mem_filter.mp hr).2
+      have hqstep : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+      have hne' : r.id ≠ q.id := fun h => (bne_iff_ne.mp hne) h.symm
+      have hlt : measure (filterAll g [q.id]) < measure g :=
+        measure_filterAll_lt g q.id r hrg (by rw [hrstep, hqstep]) hne'
+      exact absurd hlt (by omega)
+  | succ m ih =>
+    intro g hm hP hv
+    match hch : hasChoice g with
+    | false => exact hbase g hP hv hch
+    | true =>
+      obtain ⟨k, hkmem, hck⟩ := List.any_eq_true.mp hch
+      obtain ⟨hklo, hkhi⟩ := intRange_bounds hkmem
+      obtain ⟨q, hq, hq2⟩ := List.any_eq_true.mp hck
+      obtain ⟨r, hr, hne⟩ := List.any_eq_true.mp hq2
+      have hrg : r ∈ g.gowners := (List.mem_filter.mp hr).1
+      have hrstep : r.id.step = k := eq_of_beq (List.mem_filter.mp hr).2
+      have hqstep : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+      have hne' : r.id ≠ q.id := fun h => (bne_iff_ne.mp hne) h.symm
+      have hlt : measure (filterAll g [q.id]) < measure g :=
+        measure_filterAll_lt g q.id r hrg (by rw [hrstep, hqstep]) hne'
+      have hv' : isValid (filterAll g [q.id]) = true :=
+        hpick g hP hv k hklo (by omega) q hq
+      exact Inhabited_of_filterAll g (hnd g hP) [q.id]
+        (ih (filterAll g [q.id]) (by omega) (hPf g q.id hP hv) hv')
+
+/-- The same, without the explicit fuel. -/
+theorem Inhabited_of_pickValid
+    (P : GPathM → Prop)
+    (hPf : ∀ g mid, P g → isValid g = true → P (filterAll g [mid]))
+    (hnd : ∀ g, P g → NodupIds g)
+    (hpick : ∀ g, P g → isValid g = true → PickValid g)
+    (hbase : ∀ g, P g → isValid g = true → NoChoice g →
+      AbsSat.GraphPath.Model.Inhabited g)
+    (g : GPathM) (hP : P g) (hv : isValid g = true) :
+    AbsSat.GraphPath.Model.Inhabited g :=
+  Inhabited_of_descent P hPf hnd hpick hbase (measure g) g (Nat.le_refl _) hP hv
+
+-- ============================================================
+-- Axiom guards
+-- ============================================================
+
+/-- info: 'AbsSat.GraphPath.Model.PickInduction.measure_filterAll_lt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms measure_filterAll_lt
+
+/-- info: 'AbsSat.GraphPath.Model.PickInduction.Inhabited_of_pickValid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Inhabited_of_pickValid
+
+end AbsSat.GraphPath.Model.PickInduction

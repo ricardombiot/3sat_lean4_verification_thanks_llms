@@ -1,5 +1,7 @@
 -- lean_project/AbsSat/GraphPath/Model/ExtendSearch.lean
 import AbsSat.GraphPath.Model.Extendable
+import AbsSat.GraphPath.Model.PickInduction
+import AbsSat.GraphPath.Model.Validate
 import AbsSat.GraphPath.Model.MirrorTest
 import AbsSat.GraphMap.ImportCnf
 import AbsSat.SatMachine.DiffTest
@@ -351,6 +353,109 @@ one-step={one} whole-read={tr}"
     pure 0
   else
     IO.println s!"{failures} instance(s) where propagation breaks the graph. ❌"
+    pure 1
+
+-- ============================================================
+-- Route A' — running the descent `PickInduction` reasons about
+-- ============================================================
+
+open AbsSat.GraphPath.Model.PickInduction (hasChoice choiceAt)
+
+/-- The first global owner sitting at a step where the owners still disagree —
+the pick `Inhabited_of_descent` makes. -/
+def firstChoice (g : GPathM) : Option PathNodeId :=
+  (intRange 0 (g.current_step - 1)).findSome? (fun k =>
+    if choiceAt g k then (ownersAt g.gowners k).head? else none)
+
+/-- Run the descent: pick, propagate, repeat, until nothing is left to choose.
+`.error` means a pick broke validity — a violation of `PickValid`, the one
+obligation route A' still owes. -/
+partial def descend (g : GPathM) (fuel : Nat) : Except String GPathM :=
+  if fuel = 0 then .error "fuel exhausted"
+  else if !hasChoice g then .ok g
+  else
+    match firstChoice g with
+    | none => .ok g
+    | some q =>
+      let g' := filterAll g [q.id]
+      if isValid g' then descend g' (fuel - 1)
+      else .error s!"PickValid violated: selecting {q.id} invalidated the graph"
+
+/-- `(states, descents completed, PickValid violations, no-choice endpoints
+with a verified chain, no-choice endpoints without one)`. -/
+abbrev DAcc := Nat × Nat × Nat × Nat × Nat
+
+partial def walkDescend (gmap : GMap) (line : MirrorLine) (fuel : Nat)
+    (acc : DAcc) : DAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : DAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        match descend g 10000 with
+        | .error _ => (a.1 + 1, a.2.1, a.2.2.1 + 1, a.2.2.2.1, a.2.2.2.2)
+        | .ok g' =>
+          let cert := Validate.inhabitCert g'
+          if Certificate.isCert g' cert then
+            (a.1 + 1, a.2.1 + 1, a.2.2.1, a.2.2.2.1 + 1, a.2.2.2.2)
+          else
+            (a.1 + 1, a.2.1 + 1, a.2.2.1, a.2.2.2.1, a.2.2.2.2 + 1)) acc
+    walkDescend gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def reportDescend (path : String) : IO Bool := do
+  let gmap ← load_import! path
+  let (states, done, bad, good, ungood) :=
+    walkDescend gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0)
+  IO.println s!"{path}"
+  IO.println s!"  valid states={states}  descents completed={done}"
+  IO.println s!"  PickValid violations={bad}"
+  IO.println s!"  no-choice endpoints with a VERIFIED chain={good}, without={ungood}"
+  if bad == 0 && ungood == 0 then
+    IO.println "  both obligations of route A' hold here ✅"
+    return true
+  else
+    IO.println "  route A' obligation BROKEN ❌"
+    return false
+
+def runRandomDescend (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- route A' campaign: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut failures := 0
+  let mut states := 0
+  let mut done := 0
+  let mut bad := 0
+  let mut good := 0
+  let mut ungood := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let (st, dn, bd, gd, ug) := walkDescend gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0)
+    states := states + st; done := done + dn; bad := bad + bd
+    good := good + gd; ungood := ungood + ug
+    if bd + ug != 0 then
+      failures := failures + 1
+      IO.FS.writeFile s!"extend_failure_{idx}.cnf" cnf
+      IO.println s!"  A' BROKEN at case {idx} (vars={nVars} clauses={nClauses}) \
+PickValid={bd} base-case={ug}"
+  IO.println s!"--- {cases - failures}/{cases} clean; states={states} descents={done} \
+PickValid violations={bad}; no-choice endpoints verified={good} unverified={ungood} ---"
+  if failures == 0 then
+    IO.println "Every descent completes, and every endpoint carries a verified chain. ✅"
+    pure 0
+  else
+    IO.println s!"{failures} instance(s) break an A' obligation. ❌"
     pure 1
 
 end AbsSat.GraphPath.Model.ExtendSearch

@@ -51,4 +51,5 @@ import AbsSat.GraphPath.Model.L6Search
 import AbsSat.GraphPath.Model.Certificate
 import AbsSat.GraphPath.Model.Verdict
 import AbsSat.GraphPath.Model.Extendable
+import AbsSat.GraphPath.Model.PickInduction
 import AbsSat.GraphPath.Model.ExtendSearch
