@@ -10,6 +10,46 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-09 (t) — Revisión externa: el lema propuesto es falso; la mitad pinzada se reduce a
+una existencia.**
+
+**Contexto.** Otro agente revisó el estado con el código delante. Verificado y correcto:
+`ReqSatImpliesOwned` es un `def`, no un teorema; `ChainSound_of_parts` está listo para
+consumirlo; y —lo más valioso— **`PMP` es sobre el grafo estructural (`n.parents`) mientras
+`owners` es otro libro de contabilidad**, así que `parentId_coherent` **no** se aplica a un
+owner cualquiera. Eso corrige una frase de (s)/v34 §4.
+
+**Lo que hay que corregir de su propuesta.** Propuso
+`owner_at_req_eq_chain_pick : ∀ q ∈ ownersAt n.owners req.step, q = sel req.step`. **Es
+falso.** Medido sobre nodos *de cadena* (`lake exe extend --randompinnedchain`, 60
+instancias): 1.193.194 pares (nodo de cadena, requisito), de los cuales **277.070 (23 %)
+tienen conjunto de owners de ancho ≥ 2**. Lo que `PairwiseOwned` necesita es **pertenencia**,
+estrictamente más débil.
+
+**Su pregunta empírica, respondida:** la elección de la cadena falta del conjunto de owners
+**0** veces; owners que casan con el predecesor de la cadena: ninguno **0**, exactamente uno
+**1.193.194**, dos o más **0**. **Siempre exactamente uno.**
+
+**Lo demostrado (`Model/ParentId.lean`):**
+
+- `owner_eq_chain_pick` — un owner del paso pinzado que lleve el `parent_id` de la cadena
+  **es** la elección de la cadena (un `PathNodeId` son dos campos; el id de mapa lo daba
+  `owner_at_req_shares_mapid` de (r)).
+- `OwnerMatchesPredecessor` — la obligación restante: **existe** un owner con ese
+  `parent_id`.
+- `chain_pick_mem_owners` — y con esa existencia sale la pertenencia.
+
+**Dónde atacar ahora**, coincidiendo con la revisión: un **puente entre el libro de `owners`
+y el de `parents`** — que las pasadas de coherencia (`intersectOwners` contra
+`unionOwnersOf`) no expulsen justamente al owner que la rama estructural conserva.
+
+**Anotado, porque nadie lo había dicho:** `PairwiseOwned` pide **todos** los pares `(i,j)`;
+esto solo cubre aquellos donde `i` es un paso que un requisito de `sel j` nombra. Los pares
+**no pinzados** no tienen requisito en el que apoyarse y no tienen reducción — solo la
+medición global de (p).
+
+Documentado en `lean_project/verificacion_inseguridad_autor_v35.md`.
+
 **2026-09-09 (s) — La condición local sobre `parent_id`: una cadena está determinada por sus
 ids de mapa.**
 
