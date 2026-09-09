@@ -68,7 +68,10 @@ enunció está cerrada.**
 **El hallazgo.** La búsqueda solo comprueba co-posesión **por pares**. El lector
 **propaga**: tras cada selección corre `filterAll` y sigue en el grafo filtrado. Con
 propagación (`lake exe extend --read`), sobre las mismas instancias, **cero** fallos — ni
-de un paso ni de lectura completa, en todos los estados y todas las ramas.
+de un paso ni de lectura completa, en todos los estados y todas las ramas. Campaña
+aleatoria (120 instancias, 3–9 vars): **120/120 con `ReadStable`, 13.894 estados, 604.178
+nodos, 0 runs inconcluyentes** — el presupuesto no se agotó en ninguna, así que "sin
+fallos" significa explorado entero.
 
 > La co-posesión por pares no basta — que es exactamente por qué v13 (anchura) y v17
 > (hipergrafo) se quedaban cortos. Lo que recupera la propiedad es **la propagación

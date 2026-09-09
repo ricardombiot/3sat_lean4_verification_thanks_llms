@@ -65,6 +65,17 @@ Volví a medir con propagación (`lake exe extend --read`), sobre **las mismas i
 
 Nada se atasca. En el mismo mapa donde hay 12 cadenas parciales muertas sin propagación, **con propagación no hay ninguna**, en todos los estados y todas las ramas.
 
+Y en campaña aleatoria (120 instancias, 3–9 variables, exploración **exhaustiva** de ramas):
+
+| | |
+|---|---|
+| instancias con `ReadStable` | **120 / 120** |
+| estados válidos | **13.894** |
+| nodos | **604.178** |
+| runs **inconcluyentes** (presupuesto agotado) | **0** |
+
+Ese último cero es el que importa: la búsqueda no se rindió en ninguna instancia, así que "sin fallos" significa *explorado entero*, no *no encontré nada dentro del presupuesto*.
+
 ### Y eso es el hallazgo
 
 > La co-posesión por pares **no basta** — que es exactamente por qué el análisis de anchura (v13) y el del hipergrafo (v17) se quedaban cortos. Lo que la recupera es **la propagación después de cada selección**.
