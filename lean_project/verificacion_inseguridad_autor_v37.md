@@ -24,7 +24,14 @@ El desenlace es simétrico a propósito: si solo se quitara de un lado, las tabl
 
 ## 3. Validación
 
-`lake exe diffTest`: **300/300 de acuerdo con el oráculo de fuerza bruta** (264 SAT, 36 UNSAT), veredictos **y conjuntos completos de soluciones** sin cambio.
+`lake exe diffTest`:
+
+| casos | acuerdo con el oráculo de fuerza bruta | |
+|---|---|---|
+| 300 | **300/300** | 264 SAT, 36 UNSAT |
+| **800** | **800/800** | **701 SAT, 99 UNSAT** |
+
+Veredictos **y conjuntos completos de soluciones** sin cambio.
 
 Eso es exactamente como debe verse un arreglo correcto de este tipo: **no cambia ninguna respuesta**, porque solo poda cosas que ya eran inservibles. Si hubiera cambiado un veredicto o una solución, el arreglo estaría mal.
 
@@ -46,7 +53,7 @@ Lo revertí para no dejarte el repositorio sin compilar. La parte gorda es la ú
 
 ### La consecuencia, dicha claramente
 
-Hasta que migre el espejo, **el espejo y el ejecutable difieren**: el espejo poda menos. Es una diferencia conocida y conservadora, y `diffTest` sigue pasando porque compara cada banda contra el oráculo por separado. Pero los lemas del puente hablan del espejo, así que hablan de una máquina que ya no es exactamente la tuya.
+Hasta que migre el espejo, **el espejo y el ejecutable difieren**: el espejo poda menos. Es una diferencia conocida y conservadora, y `diffTest` sigue pasando porque compara cada banda contra el oráculo por separado — de hecho los 800 casos validan **las dos** bandas a la vez: el ejecutable corregido y el espejo sin corregir dan el mismo conjunto de soluciones que la fuerza bruta. Pero los lemas del puente hablan del espejo, así que hablan de una máquina que ya no es exactamente la tuya.
 
 Y una nota práctica: **mi arnés de medición mide el espejo**, así que seguirá reportando enlaces rancios hasta que lo migre. No es que el arreglo no funcione; es que no lo está midiendo.
 
@@ -66,4 +73,4 @@ El bug estaba en tu ejecutable **y el espejo lo reprodujo fielmente**. Por eso s
 
 ---
 
-*Claude (Opus 5), 2026-09-09. Bug reportado por el autor. `lake build AbsSat` verde, 70 módulos, 0 `sorry`. `diffTest` 300/300.*
+*Claude (Opus 5), 2026-09-09. Bug reportado por el autor. `lake build AbsSat` verde, 70 módulos, 0 `sorry`. `diffTest` 800/800.*
