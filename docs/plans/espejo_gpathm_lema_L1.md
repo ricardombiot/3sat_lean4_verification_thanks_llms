@@ -10,6 +10,30 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ag) — Recap de estado (v49).**
+
+Informe auditado contra el árbol, no contra la memoria. Higiene comprobada: 74 módulos, **0**
+`sorry` (las tres apariciones del texto son comentarios), **0** axiomas de proyecto, **0**
+`native_decide`, **106** pines `#print axioms`; todos los cierres `[propext, Quot.sound]` o más
+finos **salvo tres** en `MapReqs` que arrastran `Classical.choice` y están pinados como tales.
+
+**Encuadre corregido: la cadena de validación tiene cinco eslabones**, y solo uno es el problema
+abierto. (1) CNF→GMap **sin verificar** — `ImportCnf` es `IO` y no hay semántica booleana
+formalizada; (2) GMap→estados **demostrado**; (3) estado válido→cadena **abierto**; (4)
+cadena→asignación satisfactoria **sin verificar**; (5) ejecutable↔espejo **empírico**.
+Los eslabones 1 y 4 son los que convierten «hay una cadena» en «la fórmula es satisfacible»:
+sin ellos el resto habla de un grafo, no de 3SAT.
+
+**Siguientes pasos, por rentabilidad:** (1) cerrar 1 y 4 —definir `CNF`/`Assignment`/`satisfies`,
+`buildMap` puro, L7 y la vuelta para UNSAT; criterio de hecho:
+`Inhabited (machine (buildMap φ)) → ∃ a, satisfies a φ` sin axiomas—, que **no depende del
+problema abierto**; (2) el residuo, con tres frentes concretos (la regla de elección medida sobre
+los 6.371 descensos que fallan, buscar contraejemplo sin `Reachable`, y mirar el conjunto
+candidato con la lupa 0/1/all); (3) el refinamiento F6 como teorema, después del eslabón 3;
+(4) higiene de `Classical.choice`. **No** empezar por la complejidad.
+
+Documento: `verificacion_inseguridad_autor_v49.md`. Versión navegable publicada como artifact.
+
 **2026-09-10 (af) — Estudio: el paso 0 y la barrida de hijos (pregunta del autor).**
 
 **Origen de los rangos.** El espejo copia al ejecutable y este a Julia:
