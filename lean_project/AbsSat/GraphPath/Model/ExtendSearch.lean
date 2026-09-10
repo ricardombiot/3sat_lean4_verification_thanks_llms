@@ -1366,7 +1366,10 @@ def closedReport (g : GPathM) : XAcc :=
     let mem := g.nodes.filter (fun n => (ownersAt n.owners k).any (fun u => u.id == mid))
     mem.foldl (fun (b : XAcc) n =>
       let sup := (intRange 0 (g.current_step - 1)).foldl (fun (c : Nat × Nat) l =>
-        if (ownersAt n.owners l).any (fun v => inSid g k mid v)
+        let far := l != k && l != n.id.id.step
+          && l != n.id.id.step - 1 && l != n.id.id.step + 1
+        if !far then c
+        else if (ownersAt n.owners l).any (fun v => inSid g k mid v)
         then (c.1 + 1, c.2) else (c.1 + 1, c.2 + 1)) (0, 0)
       let sonOk := n.id.id.step == g.current_step - 1 ||
         mem.any (fun c => c.parents.contains n.id)
@@ -1384,7 +1387,7 @@ partial def walkClosed (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : XAc
     walkClosed gmap (mirrorAdvance gmap line) (fuel - 1) acc
 
 def showX (t : XAcc) : IO Unit := do
-  IO.println s!"  support checks (member, step)             = {t.1}"
+  IO.println s!"  FAR support checks (|l-step|>1, l != pin) = {t.1}"
   IO.println s!"    no member owned there                   = {t.2.1}"
   IO.println s!"  son checks (non-top member)               = {t.2.2.1}"
   IO.println s!"    not the parent of any member            = {t.2.2.2}"

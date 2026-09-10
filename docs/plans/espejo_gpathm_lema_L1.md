@@ -10,6 +10,33 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ac) — `CoreCovers` partido: la cobertura del candidato es teorema.**
+
+El núcleo se obtiene estrechando `PinSet g k mid = {p : p posee, en el paso k, algo con id de
+mapa mid}`. Dos preguntas separadas, y la primera está cerrada:
+
+    pinSet_covers : ∀ l en rango, ∃ p, PinSet g q.id.step q.id p ∧ p.id.step = l
+
+directo de `Threaded.threaded` (v42). La dificultad no es si hay candidatos —los hay en todos los
+pasos, demostrado— sino si la compatibilidad sobrevive a su propia clausura.
+
+**Cadena completa** (`Model/Survive.lean`, cierres `[propext, Quot.sound]`):
+
+    Closed_PinSet          : gow (vía OOS), node, parent (hop_down), coown (bridge) — demostradas
+    isValid_cleanInvalid_pin : del pinchazo a isValid (cleanInvalid (filterRequire g q.id))
+
+con **solo** `hsupport` y `hson` como hipótesis.
+
+**`support` gratis en cuatro pasos** — `support_at_pin`, `support_at_self`, `support_below`,
+`support_above`. Los dos últimos existen **solo gracias al arreglo del bug** (v37–v39): el puente
+hace owner a todo padre y a todo hijo, y `SAbove` pone el paso del hijo. Luego el residuo es
+`support` **a distancia ≥ 2**, que es donde la transitividad refutada de (v40) lo habría llevado.
+
+**Medido** (`extend --closed`, contando solo el residuo): 3.473.942 comprobaciones lejanas,
+**0** fallos; `son` 237.503 / **0**. De las 4.357.895 de v43, un 20 % pasó a ser teorema.
+
+Documento: `verificacion_inseguridad_autor_v45.md`.
+
 **2026-09-10 (ab) — `support` retirado de la cuenta: queda un solo enunciado.**
 
 Las seis cláusulas de `Closed` son de la forma «un miembro tiene un miembro entre sus …», luego

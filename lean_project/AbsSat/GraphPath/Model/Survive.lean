@@ -555,4 +555,236 @@ risk sits.
 #guard_msgs in
 #print axioms isValid_cleanInvalid_of_CoreCovers
 
+
+-- ============================================================
+-- The candidate set does cover — that half is a theorem
+-- ============================================================
+
+/-!
+`CoreCovers` is one statement, but it is not atomic. The core is obtained by
+**narrowing** a candidate set, and the candidate set for a pin at step `k` to
+map id `mid` is
+
+    PinSet g k mid = { p : p is a node owning, at step k, something with map id mid }
+
+Two questions, then: does the candidate set cover every step, and does the
+narrowing keep it covering? **The first is a theorem** — v42's threading puts
+a full path through the pinned node, and every node of that path owns it, so
+every step has a candidate. Only the second is open.
+
+That is worth separating, because it says the difficulty is not "is there
+anything compatible with the pick" (there is, at every step, provably) but
+"does compatibility survive its own closure".
+-/
+
+/-- The candidates a pin leaves: nodes that own something with the pinned map
+id at the pinned step. -/
+def PinSet (g : GPathM) (k : Int) (mid : NodeId) : PathNodeId → Prop :=
+  fun p => ∃ n, g.node? p = some n ∧ ∃ u ∈ ownersAt n.owners k, u.id = mid
+
+/-- **The candidate set reaches every step.** Straight from `Threaded.threaded`:
+the pinned node has a full path all of whose nodes own it. -/
+theorem pinSet_covers (g : GPathM) (tctx : Threaded.TCtx g) (q : PathNodeId) (nq : PNodeM)
+    (hq : g.node? q = some nq) (hself : q ∈ nq.owners) (h1 : 1 ≤ q.id.step)
+    (hqhi : q.id.step < g.current_step) :
+    ∀ l, 0 ≤ l → l < g.current_step →
+      ∃ p, PinSet g q.id.step q.id p ∧ p.id.step = l := by
+  obtain ⟨sel, hchain, howns⟩ := Threaded.threaded g tctx q nq hq hself h1 hqhi
+  intro l hlo hhi
+  obtain ⟨hs, hstep⟩ := hchain.1 l hlo hhi
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hs
+  refine ⟨sel l, ⟨n, hn, q, ?_, rfl⟩, hstep⟩
+  have hw := howns l hlo hhi
+  simp only [ownersOf, hn] at hw
+  exact List.mem_filter.mpr ⟨hw, beq_iff_eq.mpr rfl⟩
+
+/-- And on the pinned graph, where `Closed` lives: `filterRequire` touches only
+the global owners, so the nodes, their owners and the step count are the same. -/
+theorem pinSet_covers_filterRequire (g : GPathM) (tctx : Threaded.TCtx g)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hself : q ∈ nq.owners)
+    (h1 : 1 ≤ q.id.step) (hqhi : q.id.step < g.current_step) :
+    ∀ l, 0 ≤ l → l < (filterRequire g q.id).current_step →
+      ∃ p, PinSet (filterRequire g q.id) q.id.step q.id p ∧ p.id.step = l :=
+  pinSet_covers g tctx q nq hq hself h1 hqhi
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.pinSet_covers' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinSet_covers
+
+
+-- ============================================================
+-- The whole chain, with the residue isolated
+-- ============================================================
+
+/-- **`Closed` for the candidate set, from two hypotheses and nothing else.**
+`gow` comes from `OOS` (at the pinned step a node's only owner is itself, so a
+candidate there *is* the pinned id, and survives `filterRequire`); `node` is
+free; `parent` is `Threaded.hop_down`; `coown` is `coown_of_bridge`. What is
+left as hypotheses is exactly `support` and `son` — the residue of v43. -/
+theorem Closed_PinSet (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : NodeId)
+    (hkm : k = mid.step) (hklo : 0 ≤ k) (hkhi : k < g.current_step)
+    (hoos : SelfOwn.OOS g) (hrootz : Sons.RootAtZero g) (hsnn : SelfOwn.SNN g)
+    (hnodegow : ∀ p n, g.node? p = some n → p ∈ g.gowners)
+    (hbelow : ∀ p n, g.node? p = some n → p.id.step < g.current_step)
+    (hsmp : Sons.SMP g) (hlink : Bridge.LinksInOwners g)
+    (hsupport : ∀ p n, g.node? p = some n → PinSet g k mid p →
+      ∀ l, 0 ≤ l → l < g.current_step →
+        ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = l)
+    (hson : ∀ p, PinSet g k mid p → p.id.step ≠ g.current_step - 1 →
+      ∃ c m, PinSet g k mid c ∧ g.node? c = some m ∧ p ∈ m.parents) :
+    Closed (filterRequire g mid) (PinSet g k mid) := by
+  refine ⟨?_, ?_, ?_, ?_, hson, coown_of_bridge _ hsmp hlink _⟩
+  · -- gow
+    intro p hp
+    obtain ⟨n, hn, u, hu, humid⟩ := hp
+    refine List.mem_filter.mpr ⟨hnodegow p n hn, ?_⟩
+    simp only [Bool.or_eq_true, bne_iff_ne, ne_eq]
+    have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+    have hnid : n.id = p := node?_id_eq g p n hn
+    by_cases hks : p.id.step = k
+    · refine Or.inr (beq_iff_eq.mpr ?_)
+      have : u = n.id := hoos n (List.mem_of_find?_eq_some hn) u (List.mem_filter.mp hu).1
+        (by rw [hus, hnid, hks])
+      rw [← humid, this, hnid]
+    · exact Or.inl (fun h => hks (h.trans hkm.symm))
+  · intro p hp
+    obtain ⟨n, hn, _⟩ := hp
+    exact (show (g.node? p).isSome = true by rw [hn]; rfl)
+  · exact hsupport
+  · -- parent, via hop_down
+    intro p n hn hp hroot
+    obtain ⟨n', hn', u, hu, humid⟩ := hp
+    have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+    have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+    have hnid : n.id = p := node?_id_eq g p n hn
+    have hpos : 0 < p.id.step := by
+      have hz : p.id.step ≠ 0 := by
+        intro h0
+        exact hroot (by
+          have := hrootz n (List.mem_of_find?_eq_some hn) (by rw [hnid]; exact h0)
+          rwa [hnid] at this)
+      have := hsnn n (List.mem_of_find?_eq_some hn)
+      rw [hnid] at this
+      omega
+    obtain ⟨c, hc, m, hm, hmu⟩ :=
+      Threaded.hop_down g tctx p n hn hpos (hbelow p n hn) u (by rw [← hnn]; exact
+        (List.mem_filter.mp hu).1) (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
+    exact ⟨c, hc, m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩, humid⟩
+
+/-- **The chain, end to end.** Threading gives the coverage of the candidates,
+`Closed_PinSet` gives the closure, `Core_greatest` lifts it to the core, and
+`isValid_cleanInvalid_of_Core` finishes. Everything is proved except the two
+hypotheses of `Closed_PinSet`. -/
+theorem isValid_cleanInvalid_pin (g : GPathM) (tctx : Threaded.TCtx g)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hself : q ∈ nq.owners)
+    (h1 : 1 ≤ q.id.step) (hqhi : q.id.step < g.current_step)
+    (hoos : SelfOwn.OOS g) (hrootz : Sons.RootAtZero g) (hsnn : SelfOwn.SNN g)
+    (hnodegow : ∀ p n, g.node? p = some n → p ∈ g.gowners)
+    (hbelow : ∀ p n, g.node? p = some n → p.id.step < g.current_step)
+    (hsmp : Sons.SMP g) (hlink : Bridge.LinksInOwners g)
+    (hsupport : ∀ p n, g.node? p = some n → PinSet g q.id.step q.id p →
+      ∀ l, 0 ≤ l → l < g.current_step →
+        ∃ v ∈ n.owners, PinSet g q.id.step q.id v ∧ v.id.step = l)
+    (hson : ∀ p, PinSet g q.id.step q.id p → p.id.step ≠ g.current_step - 1 →
+      ∃ c m, PinSet g q.id.step q.id c ∧ g.node? c = some m ∧ p ∈ m.parents) :
+    isValid (cleanInvalid (filterRequire g q.id)) = true := by
+  have hcl : Closed (filterRequire g q.id) (PinSet g q.id.step q.id) :=
+    Closed_PinSet g tctx q.id.step q.id rfl (by omega) hqhi hoos hrootz hsnn hnodegow hbelow
+      hsmp hlink hsupport hson
+  refine isValid_cleanInvalid_of_Core _ (Sons.SMP_filterRequire g q.id hsmp) hlink ?_
+  intro l hlo hhi
+  obtain ⟨p, hp, hps⟩ := pinSet_covers_filterRequire g tctx q nq hq hself h1 hqhi l hlo hhi
+  exact ⟨p, Core_greatest _ _ hcl p hp, hps⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.isValid_cleanInvalid_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_cleanInvalid_pin
+
+
+-- ============================================================
+-- How much of `support` is free
+-- ============================================================
+
+/-!
+`support` asks a candidate for a candidate owner at **every** step. Four of
+those steps cost nothing, and it is worth seeing which, because it says where
+the residue actually lives.
+
+* the **pinned step** — the candidate owns the pinned node by definition, and
+  the pinned node is a candidate (it owns itself);
+* the candidate's **own step** — `SelfOwned`;
+* the step **below** — `Threaded.hop_down` produces a parent that is a
+  candidate, and v39's bridge makes a parent an owner;
+* the step **above** — `Threaded.hop_up` and the bridge's son side.
+
+So the residue is not "does a candidate have candidate support" in general; it
+is that question **at distance two or more**. And that is exactly where the
+refuted transitivity (v40) would have carried it: down twice gives a candidate
+owned by the parent, not by the node.
+-/
+
+variable (g : GPathM) (k : Int) (mid : NodeId)
+
+/-- At the pinned step. -/
+theorem support_at_pin (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.current_step)
+    (hselfown : ∀ p n, g.node? p = some n → p ∈ n.owners)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p) :
+    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = k := by
+  obtain ⟨n', hn', u, hu, humid⟩ := hp
+  have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+  have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+  have huo : u ∈ n.owners := by rw [← hnn]; exact (List.mem_filter.mp hu).1
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp
+    (tctx.ownerNode p n hn u huo (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi))
+  refine ⟨u, huo, ⟨m, hm, u, ?_, humid⟩, hus⟩
+  exact List.mem_filter.mpr ⟨hselfown u m hm, beq_iff_eq.mpr hus⟩
+
+/-- At its own step. -/
+theorem support_at_self (hselfown : ∀ p n, g.node? p = some n → p ∈ n.owners)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p) :
+    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step :=
+  ⟨p, hselfown p n hn, hp, rfl⟩
+
+/-- One step below: the parent the descent produces is a candidate, and v39's
+bridge makes it an owner. -/
+theorem support_below (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.current_step)
+    (hlink : Bridge.LinksInOwners g)
+    (hbelow : ∀ p n, g.node? p = some n → p.id.step < g.current_step)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
+    (hpos : 0 < p.id.step) :
+    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step - 1 := by
+  obtain ⟨n', hn', u, hu, humid⟩ := hp
+  have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+  have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+  obtain ⟨c, hc, m, hm, hmu⟩ :=
+    Threaded.hop_down g tctx p n hn hpos (hbelow p n hn) u
+      (by rw [← hnn]; exact (List.mem_filter.mp hu).1)
+      (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
+  have hnid : n.id = p := node?_id_eq g p n hn
+  refine ⟨c, (hlink p n hn).1 c hc, ⟨m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩,
+    humid⟩, ?_⟩
+  have := tctx.shape.pbelow n (List.mem_of_find?_eq_some hn) c hc
+  rw [this, hnid]
+
+/-- One step above: the son the climb produces is a candidate, and the bridge's
+son side makes it an owner. `Sons.SAbove` supplies the step. -/
+theorem support_above (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.current_step)
+    (hlink : Bridge.LinksInOwners g)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
+    (hlo : 1 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
+    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step + 1 := by
+  obtain ⟨n', hn', u, hu, humid⟩ := hp
+  have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+  have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+  obtain ⟨c, hc, m, hm, hmu, hcstep⟩ :=
+    Threaded.hop_up g tctx p n hn hlo hhi u
+      (by rw [← hnn]; exact (List.mem_filter.mp hu).1)
+      (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
+  exact ⟨c, (hlink p n hn).2 c hc,
+    ⟨m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩, humid⟩, hcstep⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.support_below' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms support_below
+
 end AbsSat.GraphPath.Model.Survive
