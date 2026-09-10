@@ -194,6 +194,73 @@ theorem inhabited_along (hwf : WF φ) (hsat : Sat a φ) (hzero : (0 : Int) < ste
   obtain ⟨sel, hsel, _⟩ := chainSound_along φ a hwf hsat hzero g h
   exact ⟨pathOf sel g, sel, hsel.chain.1, hsel.chain.2.1, rfl⟩
 
+-- ============================================================
+-- The branch exists, and it runs to the end of the map
+-- ============================================================
+
+/-- The filtered graph at the next step is valid — again because the chain
+survives the filter, not because anything extra was assumed. -/
+theorem isValid_filterAll_along (hwf : WF φ) (hsat : Sat a φ) (hzero : (0 : Int) < stepCount φ)
+    (g : GPathM) (h : AlongAssign φ a g) :
+    isValid (filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step))) = true := by
+  obtain ⟨sel, hsel, hids⟩ := chainSound_along φ a hwf hsat hzero g h
+  have hreqs : ∀ req ∈ reqOfCnf φ (selOfAssign φ a g.current_step),
+      0 ≤ req.step → req.step < g.current_step → (sel req.step).id = req := by
+    intro req hreq hr0 hr1
+    rw [hids req.step hr0 hr1]
+    exact reqSat_selOfAssign φ hwf a g.current_step req hreq
+  exact PickInduction.isValid_of_ChainG _ sel
+    (ChainSound_filterAll g _ sel hsel hreqs).chain
+
+theorem current_step_up_along (hwf : WF φ) (hsat : Sat a φ) (hzero : (0 : Int) < stepCount φ)
+    (g : GPathM) (h : AlongAssign φ a g) (title : String) :
+    (GPathM.upFiltering g (reqOfCnf φ (selOfAssign φ a g.current_step))
+      (selOfAssign φ a g.current_step) title).current_step = g.current_step + 1 := by
+  have hvalid := isValid_filterAll_along φ a hwf hsat hzero g h
+  have hpr := pruned_filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step))
+  have hshape : GPathM.upFiltering g (reqOfCnf φ (selOfAssign φ a g.current_step))
+      (selOfAssign φ a g.current_step) title
+      = addNode (filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step)))
+        (selOfAssign φ a g.current_step) title := by
+    simp only [upFiltering, GPathM.up, hvalid, if_pos]
+  rw [hshape, addNode_current, hpr.step_eq]
+
+/-- **The branch is walkable to the end.** For a satisfying assignment there is
+a state along its branch at every length up to the map's, built by the
+machine's own operations. -/
+theorem alongAssign_exists (hwf : WF φ) (hsat : Sat a φ) (hzero : (0 : Int) < stepCount φ) :
+    ∀ n : Nat, (n : Int) < stepCount φ →
+      ∃ g, AlongAssign φ a g ∧ g.current_step = (n : Int) + 1 := by
+  intro n
+  induction n with
+  | zero =>
+    intro _
+    exact ⟨GPathM.initSeed (selOfAssign φ a 0) "", AlongAssign.seed _,
+      by rw [initSeed_current]; omega⟩
+  | succ m ih =>
+    intro hlt
+    obtain ⟨g, hal, hcs⟩ := ih (by omega)
+    refine ⟨GPathM.upFiltering g (reqOfCnf φ (selOfAssign φ a g.current_step))
+      (selOfAssign φ a g.current_step) "", AlongAssign.up g "" (by omega) (by omega) hal, ?_⟩
+    rw [current_step_up_along φ a hwf hsat hzero g hal, hcs]
+    omega
+
+/-- **The completeness of the verdict, in its final form.** A satisfiable
+formula gives a state the machine's own operations reach, spanning the whole
+map, still valid, and denoting a solution. -/
+theorem exists_full_valid_state (hwf : WF φ) (hsat : Sat a φ)
+    (hzero : (0 : Int) < stepCount φ) :
+    ∃ g, AlongAssign φ a g ∧ g.current_step = stepCount φ ∧ isValid g = true ∧
+      AbsSat.GraphPath.Model.Inhabited g := by
+  obtain ⟨g, hal, hcs⟩ := alongAssign_exists φ a hwf hsat hzero
+    (stepCount φ - 1).toNat (by omega)
+  refine ⟨g, hal, by omega, isValid_along φ a hwf hsat hzero g hal,
+    inhabited_along φ a hwf hsat hzero g hal⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Conservation.exists_full_valid_state' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms exists_full_valid_state
+
 /-- **The two directions, side by side.**
 
 *Soundness* (v49's link 4, proved in `L7`): a state the machine holds that

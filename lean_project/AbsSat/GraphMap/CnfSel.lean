@@ -227,6 +227,65 @@ theorem selOfAssign_onMap (φ : Cnf) (a : Assign) (hsat : Sat a φ)
     simp only [selOfAssign, if_neg h0', if_neg h1', if_neg h2', if_pos h]
     exact List.mem_cons_self
 
+-- ============================================================
+-- The map's own edges, and that the branch follows them
+-- ============================================================
+
+/-!
+`add_var!` links the two positive nodes of a variable to the negation block
+**crossed**: `"v=0"` has son `"!v=1"` and `"v=1"` has son `"!v=0"`. Everywhere
+else the map is complete between consecutive steps — the next block's nodes are
+linked to every node of the previous one.
+
+So the son relation is two lines of arithmetic, and the point of writing it
+down is `selOfAssign_son` below: the branch an assignment names is not a
+sequence someone chose, it is a **path along the map's own edges**, which is
+what the driver walks.
+-/
+
+def mapSons (φ : Cnf) (k : Int) (i : Int) : List NodeId :=
+  if k < 0 then []
+  else if k < litBlock φ then
+    if k % 2 = 0 then [⟨k + 1, 1 - i⟩] else mapNodes φ (k + 1)
+  else mapNodes φ (k + 1)
+
+theorem bit_not (b : Bool) : bit (!b) = 1 - bit b := by cases b <;> decide
+
+theorem mapSons_var (φ : Cnf) (v : Nat) (hv : v < φ.nVars) (i : Int) :
+    mapSons φ (varStep v) i = [⟨varStep v + 1, 1 - i⟩] := by
+  have h0 : ¬ (varStep v < 0) := by simp only [varStep]; omega
+  have h1 : varStep v < litBlock φ := by simp only [varStep, litBlock]; omega
+  have h2 : varStep v % 2 = 0 := by simp only [varStep]; omega
+  simp only [mapSons, if_neg h0, if_pos h1, if_pos h2]
+
+theorem mapSons_other (φ : Cnf) (k : Int) (i : Int) (h0 : 0 ≤ k)
+    (h : ¬ (k < litBlock φ ∧ k % 2 = 0)) : mapSons φ k i = mapNodes φ (k + 1) := by
+  have hneg : ¬ (k < 0) := by omega
+  by_cases h1 : k < litBlock φ
+  · have h2 : ¬ (k % 2 = 0) := fun hc => h ⟨h1, hc⟩
+    simp only [mapSons, if_neg hneg, if_pos h1, if_neg h2]
+  · simp only [mapSons, if_neg hneg, if_neg h1]
+
+/-- **The assignment's branch is a path along the map's own edges.** Whatever
+the driver does with the rest of the map, this sequence of nodes is one it can
+walk: each is a son of the one before. -/
+theorem selOfAssign_son (φ : Cnf) (a : Assign) (hsat : Sat a φ) (k : Int)
+    (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ) :
+    selOfAssign φ a (k + 1) ∈ mapSons φ k (selOfAssign φ a k).index := by
+  by_cases hvar : k < litBlock φ ∧ k % 2 = 0
+  · obtain ⟨hlt, hpar⟩ := hvar
+    obtain ⟨v, hv, rfl⟩ : ∃ v, v < φ.nVars ∧ k = varStep v := by
+      refine ⟨(k / 2).toNat, ?_, ?_⟩
+      · simp only [litBlock] at hlt
+        omega
+      · simp only [varStep]
+        omega
+    have hnext : varStep v + 1 = negStep v := by simp only [varStep, negStep]
+    simp only [selOfAssign_var φ a v hv, mapSons_var φ v hv, hnext,
+      selOfAssign_neg φ a v hv, bit_not, List.mem_singleton]
+  · rw [mapSons_other φ k _ h0 hvar]
+    exact selOfAssign_onMap φ a hsat (k + 1) (by omega) hk
+
 /-- info: 'AbsSat.GraphMap.CnfSel.reqSat_selOfAssign' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms reqSat_selOfAssign

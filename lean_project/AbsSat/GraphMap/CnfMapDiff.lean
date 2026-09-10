@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphMap/CnfMapDiff.lean
 import AbsSat.GraphMap.CnfMap
+import AbsSat.GraphMap.CnfSel
 import AbsSat.Cnf.Dimacs
 import AbsSat.GraphMap.ImportCnf
 import AbsSat.SatMachine.DiffTest
@@ -47,6 +48,12 @@ def reqOfG (gmap : GMap) (d : NodeId) : List NodeId :=
   | some n => n.requires.toList
   | none => []
 
+/-- The sons the executable's map actually carries. -/
+def sonsOfG (gmap : GMap) (d : NodeId) : List NodeId :=
+  match get_node gmap d with
+  | some n => n.sons.toList
+  | none => []
+
 def sortedKeys (ids : List NodeId) : List String :=
   ((ids.map as_key).toArray.qsort (fun a b => decide (a < b))).toList
 
@@ -83,6 +90,12 @@ def compareMap (φ : Cnf) (gmap : GMap) : Report := Id.run do
           if bad.isNone then
             bad := some ("node " ++ as_key d ++ ": reqs " ++ toString rmine
               ++ " vs " ++ toString rtheirs)
+        let smine := sortedKeys (CnfSel.mapSons φ kk d.index)
+        let stheirs := sortedKeys (sonsOfG gmap d)
+        if smine != stheirs then
+          if bad.isNone then
+            bad := some ("node " ++ as_key d ++ ": sons " ++ toString smine
+              ++ " vs " ++ toString stheirs)
   match bad with
   | some m => return { ok := false, msg := m }
   | none => return { ok := true, msg := "" }

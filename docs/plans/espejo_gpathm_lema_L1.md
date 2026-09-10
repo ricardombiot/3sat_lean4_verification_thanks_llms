@@ -10,6 +10,39 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ai) — La rama es un camino del mapa, y llega hasta el final.**
+
+La salvedad que (ah) dejó abierta. Leyendo `add_var!`: los positivos se enlazan al bloque de
+negación **cruzados** (`"v=0"`→`"!v=1"`), y el resto del mapa es completo entre pasos
+consecutivos. Eso son dos líneas de aritmética (`CnfSel.mapSons`), y con ellas:
+
+    selOfAssign_son : selOfAssign φ a (k+1) ∈ mapSons φ k (selOfAssign φ a k).index
+
+**La rama que nombra una asignación es un camino a lo largo de las aristas del propio mapa.**
+El caso de variable es el bonito: el único hijo de `⟨2v, bit(a v)⟩` es `⟨2v+1, 1 − bit(a v)⟩`,
+que es `⟨2v+1, bit(¬a v)⟩` — **el cruce del mapa y la negación de la asignación son la misma
+operación**, y eso estaba ya en `add_var!`.
+
+Y la rama se recorre entera (`Model/Conservation.lean`):
+
+    alongAssign_exists      : ∀ n < stepCount φ, ∃ g, AlongAssign φ a g ∧ current_step = n+1
+    exists_full_valid_state : ∃ g, AlongAssign φ a g ∧ current_step = stepCount φ
+                                   ∧ isValid g ∧ Inhabited g
+
+La recursión necesita en cada paso que el grafo filtrado siga válido para que `up` tome la rama
+de `addNode`, y esa validez **la da la propia ley de conservación** (`isValid_filterAll_along`):
+la inducción se alimenta a sí misma, sin hipótesis metidas a mano.
+
+**Verificado, no supuesto:** la banda `cnfmap` compara ahora pasos, nodos, requisitos **e hijos**:
+40/40 (semilla 2026) y 120/120 (90210), 0 desacuerdos; malformadas 30 saltadas / 10 de acuerdo /
+0 desacuerdos; `diffTest` 150/150.
+
+**Queda:** el driver como teorema — `mirrorRun` vive sobre `GMap`/`HashMap` y razonar ahí
+arrastraría `Classical.choice`; cerrarlo pide un driver puro sobre el modelo aritmético validado
+diferencialmente, que es el patrón de siempre y es acotado. Y «sin zombis», y la complejidad.
+
+83 módulos. Documento: `verificacion_inseguridad_autor_v51.md`.
+
 **2026-09-10 (ah) — La ley de conservación: el veredicto cerrado por los dos lados.**
 
 **Corrección de estrategia, a partir de una observación del autor** («el conjunto válido contiene
