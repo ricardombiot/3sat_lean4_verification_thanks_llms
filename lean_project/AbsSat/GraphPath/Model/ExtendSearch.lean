@@ -1505,4 +1505,184 @@ seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showCo acc
   pure 0
 
+-- ============================================================
+-- Is the candidate set closed downward under ownership?
+-- ============================================================
+
+/-!
+`support` at distance ≥ 2 asks a candidate for **some** candidate owner at a
+far step. A strictly stronger statement would make it trivial:
+
+    every owner of a candidate is a candidate
+
+because `owners_ok` already hands out an owner at every step. Whether that
+holds is a closure question, not an existence question, and closure questions
+are the kind that induct. So it is worth knowing before trying to prove
+anything.
+
+(The neighbouring statement — every owner of a candidate is *compatible with*
+the candidate's own pinned owner — is the support clique, refuted in v28 with
+63.9M violations. This one is weaker: it only asks the owner to own *some*
+node with the pinned map id.)
+-/
+
+abbrev DAcc2 := Nat × Nat × Nat × Nat
+
+def isCand (_g : GPathM) (k : Int) (mid : NodeId) (n : PNodeM) : Bool :=
+  (ownersAt n.owners k).any (fun u => u.id == mid)
+
+def downReport (g : GPathM) : DAcc2 :=
+  let ks := (intRange 0 (g.current_step - 1)).filter (fun k => PickInduction.choiceAt g k)
+  let picks := ks.flatMap (fun k => (ownersAt g.gowners k).map (fun q => (k, q.id)))
+  picks.foldl (fun (a : DAcc2) kq =>
+    let k := kq.1
+    let mid := kq.2
+    let mem := g.nodes.filter (fun n => isCand g k mid n)
+    mem.foldl (fun (b : DAcc2) n =>
+      n.owners.foldl (fun (c : DAcc2) v =>
+        if v.id.step < 0 || v.id.step >= g.current_step then c
+        else
+          let far := v.id.step != k && v.id.step != n.id.id.step
+            && v.id.step != n.id.id.step - 1 && v.id.step != n.id.id.step + 1
+          let ok := match g.node? v with
+                    | some m => isCand g k mid m
+                    | none => false
+          (c.1 + 1, c.2.1 + (if ok then 0 else 1),
+           c.2.2.1 + (if far then 1 else 0),
+           c.2.2.2 + (if far && !ok then 1 else 0))) b) a) (0, 0, 0, 0)
+
+partial def walkDown (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : DAcc2) : DAcc2 :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : DAcc2) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let d := downReport g
+        (a.1 + d.1, a.2.1 + d.2.1, a.2.2.1 + d.2.2.1, a.2.2.2 + d.2.2.2)) acc
+    walkDown gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showD2 (t : DAcc2) : IO Unit := do
+  IO.println s!"  (candidate, owner) pairs                  = {t.1}"
+  IO.println s!"    owner is NOT a candidate                = {t.2.1}"
+  IO.println s!"  of those, owner at a far step             = {t.2.2.1}"
+  IO.println s!"    far owner is NOT a candidate            = {t.2.2.2}"
+
+def runRandomDown (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- is the candidate set downward closed: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : DAcc2 := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let d := walkDown gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + d.1, acc.2.1 + d.2.1, acc.2.2.1 + d.2.2.1, acc.2.2.2 + d.2.2.2)
+  showD2 acc
+  pure 0
+
+-- ============================================================
+-- Does the anchored descent stay inside the node's own support?
+-- ============================================================
+
+/-!
+The candidate set is **not** downward closed (measured: 722,851 of 3,723,185
+owner pairs), so `support`'s existential is doing real work: a candidate has
+*some* candidate owner at a far step, not all of them.
+
+`Threaded.hop_down` builds the obvious witness — descend from `p` picking, at
+each step, a parent that still owns the pinned node `u`. Every node of that
+descent is a candidate by construction. The only thing missing is whether it
+stays inside **`p`'s own owners**: the bridge gives the first hop for free
+(a parent is an owner), and v40 refuted the second (a grandparent need not be).
+
+So this counts, along the anchored descent from each candidate: how often a
+descent node is not an owner of the node it started from — and, when the
+first-parent choice fails, whether *some* parent choice would have worked.
+-/
+
+abbrev EAcc := Nat × Nat × Nat × Nat
+
+/-- The first parent of `d` that still owns `u`, if any. -/
+def descendStep (g : GPathM) (u : PathNodeId) (d : PNodeM) : Option PNodeM :=
+  (d.parents.findSome? (fun c =>
+    match g.node? c with
+    | some m => if m.owners.contains u then some m else none
+    | none => none))
+
+partial def descendWalk (g : GPathM) (u : PathNodeId) (top : PNodeM) (d : PNodeM)
+    (fuel : Nat) (acc : Nat × Nat) : Nat × Nat :=
+  if fuel = 0 then acc
+  else
+    match descendStep g u d with
+    | none => acc
+    | some m =>
+      let bad := if top.owners.contains m.id then 0 else 1
+      descendWalk g u top m (fuel - 1) (acc.1 + 1, acc.2 + bad)
+
+def descReport (g : GPathM) : EAcc :=
+  let ks := (intRange 0 (g.current_step - 1)).filter (fun k => PickInduction.choiceAt g k)
+  let picks := ks.flatMap (fun k => (ownersAt g.gowners k).map (fun q => (k, q.id)))
+  picks.foldl (fun (a : EAcc) kq =>
+    let k := kq.1
+    let mid := kq.2
+    let mem := g.nodes.filter (fun n => isCand g k mid n)
+    mem.foldl (fun (b : EAcc) n =>
+      match (ownersAt n.owners k).find? (fun u => u.id == mid) with
+      | none => b
+      | some u =>
+        let r := descendWalk g u n n 60 (0, 0)
+        (b.1 + 1, b.2.1 + (if r.2 > 0 then 1 else 0), b.2.2.1 + r.1, b.2.2.2 + r.2)) a)
+    (0, 0, 0, 0)
+
+partial def walkDesc (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : EAcc) : EAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : EAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let d := descReport g
+        (a.1 + d.1, a.2.1 + d.2.1, a.2.2.1 + d.2.2.1, a.2.2.2 + d.2.2.2)) acc
+    walkDesc gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showE (t : EAcc) : IO Unit := do
+  IO.println s!"  anchored descents run                     = {t.1}"
+  IO.println s!"    descents leaving the start's support    = {t.2.1}"
+  IO.println s!"  descent hops taken                        = {t.2.2.1}"
+  IO.println s!"    hop lands outside the start's support   = {t.2.2.2}"
+
+def runRandomDesc (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- does the anchored descent stay in the support: cases={cases} \
+seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : EAcc := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let d := walkDesc gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + d.1, acc.2.1 + d.2.1, acc.2.2.1 + d.2.2.1, acc.2.2.2 + d.2.2.2)
+  showE acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

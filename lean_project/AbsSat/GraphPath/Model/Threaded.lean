@@ -317,21 +317,23 @@ theorem descend_T (g : GPathM) (ctx : TCtx g) (a : PathNodeId)
     (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
     ∀ (fuel : Nat) (sel : Int → PathNodeId) (lo hi : Int), lo.toNat ≤ fuel → 0 ≤ lo →
       lo ≤ hi → hi < g.current_step → TPart g a sel lo hi →
-      ∃ sel', TPart g a sel' 0 hi := by
+      ∃ sel', TPart g a sel' 0 hi ∧ sel' hi = sel hi := by
   intro fuel
   induction fuel with
   | zero =>
     intro sel lo hi hm hlo hlohi _ hpc
     have : lo = 0 := by omega
-    subst this; exact ⟨sel, hpc⟩
+    subst this; exact ⟨sel, hpc, rfl⟩
   | succ fuel ih =>
     intro sel lo hi hm hlo hlohi hhi hpc
     if hpos : 0 < lo then
       obtain ⟨c, hpc'⟩ := step_down_T g ctx a halo hahi sel lo hi hpos hlohi hhi hpc
-      exact ih _ (lo - 1) hi (by omega) (by omega) (by omega) hhi hpc'
+      obtain ⟨sel', hT, hEq⟩ :=
+        ih _ (lo - 1) hi (by omega) (by omega) (by omega) hhi hpc'
+      exact ⟨sel', hT, hEq.trans (upd_other sel (lo - 1) c (by omega))⟩
     else
       have : lo = 0 := by omega
-      subst this; exact ⟨sel, hpc⟩
+      subst this; exact ⟨sel, hpc, rfl⟩
 
 /-- **Every node has a threaded past.** From step 0 up to the anchor's own step
 there is a parent-linked path *all of whose nodes own the anchor*.
@@ -343,7 +345,7 @@ theorem — the arc-consistency clause `coherent_parents` pays for it. -/
 theorem threaded_below (g : GPathM) (ctx : TCtx g) (a : PathNodeId) (n : PNodeM)
     (hn : g.node? a = some n) (hself : a ∈ n.owners)
     (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
-    ∃ sel, TPart g a sel 0 a.id.step := by
+    ∃ sel, TPart g a sel 0 a.id.step ∧ sel a.id.step = a := by
   refine descend_T g ctx a halo hahi a.id.step.toNat (fun _ => a) a.id.step a.id.step
     (Nat.le_refl _) halo (Int.le_refl _) hahi ⟨⟨?_, ?_⟩, ?_⟩
   · intro i _ hi2
@@ -386,7 +388,7 @@ theorem threaded_below_filterAll (g : GPathM) (reqs : List NodeId)
     (hreach : Reachable reqOf g) (hv : isValid (filterAll g reqs) = true)
     (a : PathNodeId) (n : PNodeM) (hn : (filterAll g reqs).node? a = some n)
     (halo : 0 ≤ a.id.step) (hahi : a.id.step < (filterAll g reqs).current_step) :
-    ∃ sel, TPart (filterAll g reqs) a sel 0 a.id.step :=
+    ∃ sel, TPart (filterAll g reqs) a sel 0 a.id.step ∧ sel a.id.step = a :=
   threaded_below _ (tctx_filterAll reqOf g reqs hreach hv) a n hn
     (SelfOwn.SelfOwned_filterAll reqOf g reqs hreach hv a n hn) halo hahi
 
@@ -432,7 +434,7 @@ theorem threaded (g : GPathM) (ctx : TCtx g) (a : PathNodeId) (n : PNodeM)
       have : i = g.current_step - 1 := by omega
       subst this
       simpa only [ownersOf, hnt] using htown
-  obtain ⟨sel, hpc⟩ :=
+  obtain ⟨sel, hpc, _⟩ :=
     descend_T g ctx a (by omega) hahi (g.current_step - 1).toNat (fun _ => t)
       (g.current_step - 1) (g.current_step - 1) (Nat.le_refl _) (by omega) (Int.le_refl _)
       (by omega) hseed
@@ -453,5 +455,58 @@ theorem threaded_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable
 /-- info: 'AbsSat.GraphPath.Model.Threaded.threaded_filterAll' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms threaded_filterAll
+
+
+-- ============================================================
+-- Where a node's support below it actually lives
+-- ============================================================
+
+/-- **Every owner below a node lies on a descent from it.** Given `v` among
+`p`'s owners at a lower step, there is a parent-linked chain from step 0 up to
+`p`, whose top *is* `p`, all of whose nodes own `v` — and whose node at `v`'s
+own step **is `v` itself**, because `OOS` leaves a node no other owner there.
+
+So the support of a node below it is a set of its **ancestors**, reached by
+chains that carry the owner all the way. Together with v39's bridge — every
+parent is an owner — this sandwiches the owners table:
+
+    parents(p) ⊆ owners(p) at step-1        (the bridge, v39)
+    owners(p) at l ⊆ ancestors of p at l    (here)
+
+and v40's refuted transitivity says neither inclusion is an equality: a
+grandparent need not be an owner. -/
+theorem owner_below_on_descent (g : GPathM) (ctx : TCtx g) (hoos : SelfOwn.OOS g)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n)
+    (hplo : 0 ≤ p.id.step) (hphi : p.id.step < g.current_step)
+    (v : PathNodeId) (hv : v ∈ n.owners) (hvlo : 0 ≤ v.id.step)
+    (hvle : v.id.step ≤ p.id.step) :
+    ∃ sel, TPart g v sel 0 p.id.step ∧ sel p.id.step = p ∧ sel v.id.step = v := by
+  have hvhi : v.id.step < g.current_step := by omega
+  have hseed : TPart g v (fun _ => p) p.id.step p.id.step := by
+    refine ⟨⟨?_, ?_⟩, ?_⟩
+    · intro i hi1 hi2
+      have : i = p.id.step := by omega
+      subst this
+      exact ⟨Option.isSome_iff_exists.mpr ⟨n, hn⟩, rfl⟩
+    · intro i hi1 hi2; omega
+    · intro i hi1 hi2
+      have : i = p.id.step := by omega
+      subst this
+      simpa only [ownersOf, hn] using hv
+  obtain ⟨sel, hT, hEq⟩ :=
+    descend_T g ctx v hvlo hvhi p.id.step.toNat (fun _ => p) p.id.step p.id.step
+      (Nat.le_refl _) hplo (Int.le_refl _) hphi hseed
+  refine ⟨sel, hT, hEq, ?_⟩
+  obtain ⟨hs, hstep⟩ := hT.chain.1 v.id.step hvlo hvle
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+  have hown := hT.owns v.id.step hvlo hvle
+  simp only [ownersOf, hm] at hown
+  have hmid : m.id = sel v.id.step := node?_id_eq g _ m hm
+  have hvm : v = m.id := hoos m (List.mem_of_find?_eq_some hm) v hown (by rw [hmid, hstep])
+  exact (hvm.trans hmid).symm
+
+/-- info: 'AbsSat.GraphPath.Model.Threaded.owner_below_on_descent' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owner_below_on_descent
 
 end AbsSat.GraphPath.Model.Threaded

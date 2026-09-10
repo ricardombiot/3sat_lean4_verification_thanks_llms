@@ -10,6 +10,36 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ad) — `support` a distancia ≥ 2: dos refutaciones y una caracterización.**
+
+**Refutado 1 — `Survive.PinSetDownClosed`** (todo owner de un candidato es candidato). Habría
+hecho `support` gratis vía `owners_ok`. `extend --downclosed`: 722.851 de 3.723.185 (semilla
+2026) y 1.418.285 de 6.271.084 (semilla 90210). Luego **el ∃ de `support` es esencial**.
+
+**Refutado 2 — `Survive.AnchoredDescentStaysInSupport`** (el descenso anclado al pinchazo se
+queda dentro de los owners del nodo de partida). Era el testigo obvio: `hop_down` garantiza que
+todo el descenso son candidatos, y el puente regala el primer salto. `extend --descentin`: se
+sale en 6.371 de 125.528 descensos (28.665 de 1.315.726 saltos) y 17.499 de 208.331 en la otra
+semilla. Luego `support` es cierto pero **no por la construcción natural**.
+
+**Demostrado — `Threaded.owner_below_on_descent`** (cierre `[propext, Quot.sound]`): todo owner
+por debajo de un nodo está en un descenso desde él —cadena de padres cuya cima es `p`, cuyos
+nodos poseen todos a `v`— y el nodo en el paso de `v` **es `v`**, por `OOS`. Con el puente esto
+encierra la tabla de owners:
+
+    parents(p) ⊆ owners(p) en el paso de abajo   (v39)
+    owners(p) en l ⊆ ancestros de p en l          (aquí)
+
+y la transitividad refutada de (v40) dice que ninguna es igualdad.
+
+De paso, `descend_T` y `threaded_below` se fortalecen para conservar el nodo de partida.
+
+**El residuo queda**: cierto (0 de 3.473.942), estrictamente existencial, y sin construcción.
+Lo que falta no es un lema más sino una **regla de elección**: entre los descensos que arrastran
+el pinchazo, uno que se quede dentro del soporte del candidato.
+
+Documento: `verificacion_inseguridad_autor_v46.md`.
+
 **2026-09-10 (ac) — `CoreCovers` partido: la cobertura del candidato es teorema.**
 
 El núcleo se obtiene estrechando `PinSet g k mid = {p : p posee, en el paso k, algo con id de

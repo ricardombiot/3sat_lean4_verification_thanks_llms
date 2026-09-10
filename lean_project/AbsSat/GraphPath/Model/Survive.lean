@@ -787,4 +787,56 @@ theorem support_above (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.cu
 #guard_msgs in
 #print axioms support_below
 
+
+-- ============================================================
+-- Two refutations that pin the residue down
+-- ============================================================
+
+/-- The candidate set, closed downward under ownership. ⚠ **Refuted by
+measurement** — `lake exe extend --downclosed`, 8 instances: **722,851** of
+3,723,185 (candidate, owner) pairs have an owner that is *not* a candidate,
+and 618,477 of those sit at a far step.
+
+Had it been true, `support` would have been free: `owners_ok` already hands out
+an owner at every step. It is not, so `support`'s **existential is essential** —
+a candidate has *some* candidate owner at a far step, not all of them.
+
+(The neighbouring statement, "an owner of a candidate owns the candidate's own
+pinned owner", is the support clique, refuted in v28 at 63.9M.) -/
+def PinSetDownClosed (g : GPathM) (k : Int) (mid : NodeId) : Prop :=
+  ∀ p n, g.node? p = some n → PinSet g k mid p →
+    ∀ v ∈ n.owners, 0 ≤ v.id.step → v.id.step < g.current_step → PinSet g k mid v
+
+/-- The obvious witness for `support`: descend from the candidate picking, at
+each step, a parent that still owns the pinned node — every node of that
+descent is a candidate by `Threaded.hop_down`. ⚠ **Refuted by measurement** —
+`lake exe extend --descentin`, 8 instances: the descent leaves the starting
+node's own owners in **6,371** of 125,528 runs, and **28,665** of 1,315,726
+individual hops land outside it.
+
+v39's bridge gives the first hop for free (a parent is an owner) and v40's
+refuted transitivity already said the second could fail; this measures how
+often it actually does. So `support` is true (0 failures in 3.47M checks) but
+**not by the natural construction**: which parent the descent picks matters. -/
+def AnchoredDescentStaysInSupport (g : GPathM) : Prop :=
+  ∀ p n, g.node? p = some n → ∀ u ∈ n.owners, ∀ c m,
+    g.node? c = some m → u ∈ m.owners → c.id.step < p.id.step → c ∈ n.owners
+
+/-!
+**Where that leaves the residue.** Three measured facts now bracket it:
+
+| statement | form | measured |
+|---|---|---|
+| a candidate has a candidate owner at every step | ∃ | 0 of 3,473,942 |
+| *every* owner of a candidate is a candidate | ∀ | **722,851 of 3,723,185** |
+| the anchored descent stays inside the support | construction | **6,371 of 125,528** |
+
+The residue is true, strictly existential, and not witnessed by the obvious
+construction. `Threaded.owner_below_on_descent` says what the search space
+looks like — the owners below a node are ancestors reached by chains that
+carry the owner — so what is missing is a *choice rule*: among the descents
+from a candidate that carry the pin, one that also stays inside the candidate's
+own support.
+-/
+
 end AbsSat.GraphPath.Model.Survive
