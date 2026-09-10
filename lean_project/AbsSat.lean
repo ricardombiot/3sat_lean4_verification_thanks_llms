@@ -2,6 +2,10 @@ import AbsSat.Cnf.Formula
 import AbsSat.Cnf.Dimacs
 import AbsSat.GraphMap.CnfMap
 import AbsSat.GraphMap.CnfMapDiff
+import AbsSat.GraphPath.Model.MapReachable
+import AbsSat.GraphPath.Model.CnfChain
+import AbsSat.GraphPath.Model.L7
+import AbsSat.GraphMap.CnfSel
 -- lean_project/AbsSat.lean
 
 import AbsSat.GraphPath.GraphPath
