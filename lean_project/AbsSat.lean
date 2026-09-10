@@ -1,5 +1,7 @@
 import AbsSat.Cnf.Formula
+import AbsSat.Cnf.Dimacs
 import AbsSat.GraphMap.CnfMap
+import AbsSat.GraphMap.CnfMapDiff
 -- lean_project/AbsSat.lean
 
 import AbsSat.GraphPath.GraphPath

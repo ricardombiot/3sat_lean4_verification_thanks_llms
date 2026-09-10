@@ -38,3 +38,7 @@ root = "HyperMain"
 [[lean_exe]]
 name = "extend"
 root = "ExtendMain"
+
+[[lean_exe]]
+name = "cnfmap"
+root = "CnfMapMain"
