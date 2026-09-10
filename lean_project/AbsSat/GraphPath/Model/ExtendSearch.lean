@@ -1413,4 +1413,93 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showX acc
   pure 0
 
+-- ============================================================
+-- Does the arc-consistent core reach every step?
+-- ============================================================
+
+/-!
+`Survive.Closed_Core` removes `support` from the account: the union of every
+self-supporting set is self-supporting, so the clauses hold of the **core** by
+construction. What is left of `cleanInvalid` after a pin is one statement —
+*the core reaches every step*.
+
+This computes the core directly, by narrowing `gowners` under the `Closed`
+clauses until it stops shrinking, and asks whether every step survives. It is
+deliberately **not** `review`: it never calls `isValidNode`, only the clauses
+of `Closed`, so a clean result is not a restatement of the pruning's own
+verdict.
+-/
+
+abbrev CoAcc := Nat × Nat × Nat × Nat
+
+def coreStep (g : GPathM) (S : List PathNodeId) : List PathNodeId :=
+  S.filter (fun p =>
+    match g.node? p with
+    | none => false
+    | some n =>
+      (intRange 0 (g.current_step - 1)).all (fun l =>
+        (ownersAt n.owners l).any (fun v => S.contains v))
+      && (p.parent_id.isNone || n.parents.any (fun c => S.contains c))
+      && (p.id.step == g.current_step - 1
+          || S.any (fun c => match g.node? c with
+                             | some m => m.parents.contains p
+                             | none => false)))
+
+partial def coreFix (g : GPathM) (S : List PathNodeId) (fuel : Nat) : List PathNodeId :=
+  if fuel = 0 then S
+  else
+    let S' := coreStep g S
+    if S'.length == S.length then S else coreFix g S' (fuel - 1)
+
+def coreReport (g : GPathM) : CoAcc :=
+  let ks := (intRange 0 (g.current_step - 1)).filter (fun k => PickInduction.choiceAt g k)
+  let picks := ks.flatMap (fun k => ownersAt g.gowners k)
+  picks.foldl (fun (a : CoAcc) q =>
+    let g' := filterRequire g q.id
+    let core := coreFix g' g'.gowners 200
+    let missing := ((intRange 0 (g'.current_step - 1)).filter
+      (fun l => !core.any (fun p => p.id.step == l))).length
+    (a.1 + 1, a.2.1 + (if missing > 0 then 1 else 0), a.2.2.1 + missing,
+     a.2.2.2 + core.length)) (0, 0, 0, 0)
+
+partial def walkCore (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : CoAcc) : CoAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : CoAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let c := coreReport g
+        (a.1 + c.1, a.2.1 + c.2.1, a.2.2.1 + c.2.2.1, a.2.2.2 + c.2.2.2)) acc
+    walkCore gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showCo (t : CoAcc) : IO Unit := do
+  IO.println s!"  pins examined                             = {t.1}"
+  IO.println s!"    core misses at least one step           = {t.2.1}"
+  IO.println s!"    total (pin, step) pairs left empty      = {t.2.2.1}"
+  IO.println s!"  total core size over all pins             = {t.2.2.2}"
+
+def runRandomCore (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- does the arc-consistent core reach every step: cases={cases} \
+seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : CoAcc := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let c := walkCore gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + c.1, acc.2.1 + c.2.1, acc.2.2.1 + c.2.2.1, acc.2.2.2 + c.2.2.2)
+  showCo acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

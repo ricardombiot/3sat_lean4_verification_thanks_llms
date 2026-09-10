@@ -10,6 +10,35 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ab) — `support` retirado de la cuenta: queda un solo enunciado.**
+
+Las seis cláusulas de `Closed` son de la forma «un miembro tiene un miembro entre sus …», luego
+son cerradas bajo unión — y `coown` **no depende del conjunto** (`coown_of_bridge`, v43), que es
+lo que hace que la unión cierre. Por tanto el mayor conjunto auto-sostenido las cumple por
+construcción (`Model/Survive.lean`, cierres `[propext, Quot.sound]`):
+
+    Core g p       := ∃ S, Closed g S ∧ S p
+    Core_greatest  : Closed g S → ∀ p, S p → Core g p
+    Closed_Core    : SMP g → LinksInOwners g → Closed g (Core g)
+    CoreCovers g   := ∀ l en rango, ∃ p, Core g p ∧ p.id.step = l
+    isValid_cleanInvalid_of_CoreCovers : SMP → LinksInOwners → CoreCovers g →
+                                          isValid (cleanInvalid g) = true
+
+**Todo lo que `cleanInvalid` debe tras un pinchazo es `CoreCovers`.** Un enunciado, sin cadenas,
+sin `isValidNode`, sin el bucle de fuel. No está demostrado: es `PickValid`.
+
+**Medido sin circularidad** (`extend --core`: el núcleo se calcula estrechando los gowners bajo
+las cláusulas de `Closed`, nunca llamando a `isValidNode`): 7.664 pinchazos / **0** pasos vacíos
+(semilla 2026) y 17.213 / **0** (semilla 90210). Núcleos de ~25–30 entradas por pinchazo.
+
+**El muro desde tres lados** (todos el mismo): `PairwiseOwned` en la cadena (v28–v42), `support`
+en el camino testigo (v43), y `share` en las pasadas de coherencia — esta última porque
+`reviewNode` intersecta con la unión de los **vecinos**, lo que pide un testigo común entre
+miembro y padre-miembro; propagada por la cadena de miembros da una selección poseída por todos,
+cuyos elementos se poseen entre sí, que es `PairwiseOwned`.
+
+Documento: `verificacion_inseguridad_autor_v44.md`.
+
 **2026-09-10 (aa) — Supervivencia a `cleanInvalid`: el testigo es un conjunto, no un camino.**
 
 **El hallazgo estructural.** `cleanInvalid` reintersecta los owners con los gowners *actuales*,

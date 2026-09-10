@@ -455,4 +455,104 @@ A *set* need not be, and that is the only room left.
 #guard_msgs in
 #print axioms coown_of_bridge
 
+
+-- ============================================================
+-- The core: `support` removed from the account
+-- ============================================================
+
+/-!
+`support` is the residue, and it does not have to be *proved* — it has to be
+**had**. The clauses of `Closed` are all of the form "a member has a member
+among its …", so they are closed under union: put every self-supporting set
+together and the result is self-supporting. That union is the greatest one,
+and it satisfies every clause by construction.
+
+So the account collapses. Instead of six clauses about a set someone has to
+exhibit, there is **one** statement left:
+
+> the core reaches every step.
+
+That is the whole of what `cleanInvalid` after a pin still owes. It is also
+exactly what the machine's propagation computes, which is the honest reason
+this is where the difficulty concentrates — but it is one statement about one
+object, not a family of conditions about a chain.
+-/
+
+/-- The **arc-consistent core**: the union of every self-supporting set. -/
+def Core (g : GPathM) : PathNodeId → Prop := fun p => ∃ S, Closed g S ∧ S p
+
+theorem Core_greatest (g : GPathM) (S : PathNodeId → Prop) (h : Closed g S) :
+    ∀ p, S p → Core g p := fun _ hp => ⟨S, h, hp⟩
+
+/-- **The core is self-supporting.** Every clause transfers from the set the
+witness came from; `coown` is `S`-independent (`coown_of_bridge`), which is
+what makes the union work. -/
+theorem Closed_Core (g : GPathM) (hsmp : Sons.SMP g) (hlink : Bridge.LinksInOwners g) :
+    Closed g (Core g) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, coown_of_bridge g hsmp hlink (Core g)⟩
+  · intro p hp; obtain ⟨S, hS, hSp⟩ := hp; exact hS.gow p hSp
+  · intro p hp; obtain ⟨S, hS, hSp⟩ := hp; exact hS.node p hSp
+  · intro p n hn hp l hlo hhi
+    obtain ⟨S, hS, hSp⟩ := hp
+    obtain ⟨v, hv, hSv, hvs⟩ := hS.support p n hn hSp l hlo hhi
+    exact ⟨v, hv, ⟨S, hS, hSv⟩, hvs⟩
+  · intro p n hn hp hroot
+    obtain ⟨S, hS, hSp⟩ := hp
+    obtain ⟨c, hc, hSc⟩ := hS.parent p n hn hSp hroot
+    exact ⟨c, hc, ⟨S, hS, hSc⟩⟩
+  · intro p hp hlast
+    obtain ⟨S, hS, hSp⟩ := hp
+    obtain ⟨c, m, hSc, hm, hpm⟩ := hS.son p hSp hlast
+    exact ⟨c, m, ⟨S, hS, hSc⟩, hm, hpm⟩
+
+/-- **The whole of what `cleanInvalid` owes, in one line.** -/
+theorem isValid_cleanInvalid_of_Core (g : GPathM) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g)
+    (hcov : ∀ l, 0 ≤ l → l < g.current_step → ∃ p, Core g p ∧ p.id.step = l) :
+    isValid (cleanInvalid g) = true :=
+  isValid_cleanInvalid_of_Closed g (Core g) hsmp (Closed_Core g hsmp hlink) hcov
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.isValid_cleanInvalid_of_Core' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_cleanInvalid_of_Core
+
+
+/-- **The one statement left**, named. Everything `cleanInvalid` owes after a
+pin is this — and it is `PickValid` with no reference to chains, no reference
+to `isValidNode`, and no reference to the review's fuel loop. -/
+def CoreCovers (g : GPathM) : Prop :=
+  ∀ l, 0 ≤ l → l < g.current_step → ∃ p, Core g p ∧ p.id.step = l
+
+theorem isValid_cleanInvalid_of_CoreCovers (g : GPathM) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (h : CoreCovers g) :
+    isValid (cleanInvalid g) = true :=
+  isValid_cleanInvalid_of_Core g hsmp hlink h
+
+/-!
+**Why the coherence sweeps are not covered by this, and what they would cost.**
+
+`reviewNode` intersects a node's owners with the union of its *neighbours'*
+owners, not with the global owners. For a member `p` to keep its support at
+step `l` through that, the witness must be owned by one of `p`'s neighbours
+too — so `Closed` would need a strictly stronger clause:
+
+> `share` — a member and its member-parent own a common member at every step.
+
+And `share` does not stand still: preserving it one level down asks the
+member-parent's own parent to own the same witness, and so on along the whole
+member chain. What that adds up to is a selection `u₀ … u_{S-1}`, one per
+step, owned by **every** member — and since each `uₗ` is itself a member, the
+`u`s own each other. That is `PairwiseOwned` for the selection.
+
+So the wall is now visible from three sides, and it is the same wall:
+`PairwiseOwned` along a chain (v28–v42), `support` for a path (v43), and
+`share` for the coherence sweeps. Only the core formulation escapes it, and
+only for `cleanInvalid` — which is, by v41's measurement, where all of the
+risk sits.
+-/
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.isValid_cleanInvalid_of_CoreCovers' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_cleanInvalid_of_CoreCovers
+
 end AbsSat.GraphPath.Model.Survive
