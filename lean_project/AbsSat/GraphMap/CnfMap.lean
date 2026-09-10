@@ -168,6 +168,73 @@ theorem index_range_of_clauseNode (φ : Cnf) (j : Nat) (hj : j < φ.clauses.leng
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
   rcases hd with h | h | h | h | h | h | h <;> simp only [h] <;> exact ⟨by omega, by omega⟩
 
+theorem reqOfCnf_below (φ : Cnf) (d : NodeId) (h : d.step < 0) : reqOfCnf φ d = [] := by
+  simp only [reqOfCnf, if_pos h]
+
+theorem reqOfCnf_fusion1 (φ : Cnf) (d : NodeId) (h : d.step = litBlock φ) :
+    reqOfCnf φ d = [] := by
+  have h0 : ¬ (d.step < 0) := by rw [h]; simp only [litBlock]; omega
+  have h1 : ¬ (d.step < litBlock φ) := by rw [h]; omega
+  have h2 : d.step ≤ litBlock φ := by rw [h]; omega
+  simp only [reqOfCnf, if_neg h0, if_neg h1, if_pos h2]
+
+theorem reqOfCnf_above (φ : Cnf) (d : NodeId) (h : fusionTop φ ≤ d.step) :
+    reqOfCnf φ d = [] := by
+  have h0 : ¬ (d.step < 0) := by simp only [fusionTop] at h; omega
+  have h1 : ¬ (d.step < litBlock φ) := by simp only [fusionTop, litBlock] at h ⊢; omega
+  have h2 : ¬ (d.step ≤ litBlock φ) := by simp only [fusionTop, litBlock] at h ⊢; omega
+  simp only [reqOfCnf, if_neg h0, if_neg h1, if_neg h2, if_pos h]
+
+theorem mapNodes_var (φ : Cnf) (k : Int) (h0 : 0 ≤ k) (h : k < litBlock φ) :
+    mapNodes φ k = [⟨k, 0⟩, ⟨k, 1⟩] := by
+  have hneg : ¬ (k < 0) := by omega
+  have hcnt : ¬ (stepCount φ ≤ k) := by
+    simp only [litBlock] at h; simp only [stepCount]; omega
+  simp only [mapNodes, if_neg hneg, if_neg hcnt, if_pos h]
+
+theorem mapNodes_fusion1 (φ : Cnf) (k : Int) (h : k = litBlock φ) :
+    mapNodes φ k = [⟨k, 0⟩] := by
+  have hneg : ¬ (k < 0) := by rw [h]; simp only [litBlock]; omega
+  have hcnt : ¬ (stepCount φ ≤ k) := by rw [h]; simp only [litBlock, stepCount]; omega
+  have hlt : ¬ (k < litBlock φ) := by rw [h]; omega
+  have hle : k ≤ litBlock φ := by rw [h]; omega
+  simp only [mapNodes, if_neg hneg, if_neg hcnt, if_neg hlt, if_pos hle]
+
+theorem mapNodes_fusionTop (φ : Cnf) (k : Int) (h : fusionTop φ ≤ k)
+    (hk : k < stepCount φ) : mapNodes φ k = [⟨k, 0⟩] := by
+  have hneg : ¬ (k < 0) := by simp only [fusionTop] at h; omega
+  have hcnt : ¬ (stepCount φ ≤ k) := by omega
+  have hlt : ¬ (k < litBlock φ) := by simp only [fusionTop, litBlock] at h ⊢; omega
+  have hle : ¬ (k ≤ litBlock φ) := by simp only [fusionTop, litBlock] at h ⊢; omega
+  simp only [mapNodes, if_neg hneg, if_neg hcnt, if_neg hlt, if_neg hle, if_pos h]
+
+/-- **Every step is one of six kinds.** The classification both directions case
+on: below the map, a variable's own step, its negation step, the first fusion
+node, a clause step, or the top fusion node and beyond. -/
+theorem step_cases (φ : Cnf) (k : Int) :
+    k < 0
+    ∨ (∃ v, v < φ.nVars ∧ k = varStep v)
+    ∨ (∃ v, v < φ.nVars ∧ k = negStep v)
+    ∨ k = litBlock φ
+    ∨ (∃ j, j < φ.clauses.length ∧ k = clauseStep φ j)
+    ∨ fusionTop φ ≤ k := by
+  by_cases h0 : k < 0
+  · exact Or.inl h0
+  by_cases h1 : k < litBlock φ
+  · simp only [litBlock] at h1
+    by_cases hpar : k % 2 = 0
+    · exact Or.inr (Or.inl ⟨(k / 2).toNat, by omega, by simp only [varStep]; omega⟩)
+    · exact Or.inr (Or.inr (Or.inl ⟨((k - 1) / 2).toNat, by omega,
+        by simp only [negStep]; omega⟩))
+  by_cases h2 : k = litBlock φ
+  · exact Or.inr (Or.inr (Or.inr (Or.inl h2)))
+  by_cases h3 : fusionTop φ ≤ k
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr h3))))
+  · simp only [litBlock] at h1 h2
+    simp only [fusionTop] at h3
+    exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      ⟨(k - 2 * (φ.nVars : Int) - 1).toNat, by omega, by simp only [clauseStep]; omega⟩))))
+
 -- ============================================================
 -- The two obligations `Reachable.up` states
 -- ============================================================

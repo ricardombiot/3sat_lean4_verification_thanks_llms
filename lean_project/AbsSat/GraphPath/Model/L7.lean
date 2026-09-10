@@ -32,9 +32,10 @@ assembles; it does not close the verdict on its own.
 
 The completeness direction stops at the map, deliberately: `reqSatisfying_of_sat`
 says every satisfying assignment yields a selection that satisfies the map's
-requirements and lands on nodes the map builds. It does **not** claim that
-selection is an `IsChain` in any particular `g` — lifting it through the
-machine's filtering is L2⊇, and that is the open problem again.
+requirements and lands on nodes the map builds, and `decode_selOfAssign` says
+the two directions agree. Neither claims that selection is an `IsChain` in any
+particular `g` — lifting it through the machine's filtering is L2⊇, and that is
+the open problem again.
 -/
 
 namespace AbsSat.GraphPath.Model.L7
@@ -68,8 +69,55 @@ theorem satisfiable_of_inhabited (φ : Cnf) (hwf : WF φ) (g : GPathM)
     (hinh : AbsSat.GraphPath.Model.Inhabited g) : Satisfiable φ :=
   sat_of_inhabited φ hwf g hmr hcs hinh
 
+-- ============================================================
+-- The other direction, as far as it goes without the open problem
+-- ============================================================
+
+/-- **The map-level half of completeness.** Every satisfying assignment names a
+selection that satisfies the map's requirements *and* lands on nodes the map
+actually builds.
+
+The two halves are proved separately on purpose: the requirement bookkeeping
+(`reqSat_selOfAssign`) needs no satisfiability at all, and `Sat` enters in
+exactly one place (`selOfAssign_onMap`) — a satisfied clause names a row other
+than `000`, the one row the map omits.
+
+**This is not a chain in `g`.** Nothing here claims the selection is parent
+linked or that it survives the machine's filtering; that lifting is L2⊇, which
+is the open problem. What it does give is the map-side obligation phase L7
+owed, discharged. -/
+theorem reqSatisfying_of_sat (φ : Cnf) (hwf : WF φ) (a : Assign) (hsat : Sat a φ)
+    (g : GPathM) (hcs : g.current_step = stepCount φ) :
+    MapChain.ReqSatisfying (reqOfCnf φ) g (fun k => ⟨selOfAssign φ a k, none⟩)
+      ∧ ChainOnMap φ g (fun k => ⟨selOfAssign φ a k, none⟩) := by
+  constructor
+  · intro k hk0 hk req hreq _ _
+    exact reqSat_selOfAssign φ hwf a k req hreq
+  · intro k hk0 hk
+    exact selOfAssign_onMap φ a hsat k hk0 (by rw [← hcs]; exact hk)
+
+/-- **The two directions agree.** Decoding the selection an assignment names
+gives that assignment back, on every variable the formula has. -/
+theorem decode_selOfAssign (φ : Cnf) (a : Assign) (v : Nat) (hv : v < φ.nVars) :
+    decode (fun k => ⟨selOfAssign φ a k, none⟩) v = a v := by
+  have hsel : (selOfAssign φ a (2 * (v : Int))).index = bit (a v) := by
+    have h := selOfAssign_var φ a v hv
+    simp only [varStep] at h
+    rw [h]
+  simp only [decode]
+  rw [hsel]
+  exact bit_eq_one_iff (a v)
+
 /-- info: 'AbsSat.GraphPath.Model.L7.sat_of_inhabited' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms sat_of_inhabited
+
+/-- info: 'AbsSat.GraphPath.Model.L7.reqSatisfying_of_sat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms reqSatisfying_of_sat
+
+/-- info: 'AbsSat.GraphPath.Model.L7.decode_selOfAssign' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms decode_selOfAssign
 
 end AbsSat.GraphPath.Model.L7
