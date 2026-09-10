@@ -10,6 +10,40 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ah) — La ley de conservación: el veredicto cerrado por los dos lados.**
+
+**Corrección de estrategia, a partir de una observación del autor** («el conjunto válido contiene
+de forma abstracta no una solución sino todas las soluciones»): el enunciado no es una existencia
+sino una **conservación**, y por eso los cinco intentos anteriores chocaban con el mismo muro —
+producir un testigo a partir de un conjunto construido por podas es justo la parte dura.
+
+**El teorema** (`Model/Conservation.lean`, cierres `[propext, Quot.sound]`):
+
+    AlongAssign φ a g   -- la rama de la máquina que sigue a la asignación `a`
+    chainSound_along : WF φ → Sat a φ → AlongAssign φ a g →
+      ∃ sel, ChainSound g sel ∧ ∀ k en rango, (sel k).id = selOfAssign φ a k
+
+El testigo **viene de fuera**: lo entrega la asignación. La máquina solo tiene que no destruirlo.
+
+**Los cuatro pasos ya estaban demostrados** y nadie los había encadenado así:
+`ChainSound_initSeed` y `ChainSound_upFiltering` (`AddNode.lean`), `ChainSound_join_left/right`
+(`JoinSound.lean`). La hipótesis que pide el paso del filtro es `CnfSel.reqSat_selOfAssign`,
+demostrada hoy en M3 — sin ella la inducción no cerraba.
+
+**Gratis:** `isValid_of_ChainG` convierte la supervivencia de la cadena en la validez, luego
+`isValid_along`: **la máquina no puede invalidar un estado que todavía contiene una solución.**
+La validez pasa de obligación a consecuencia.
+
+**`sound_and_complete`** junta las dos direcciones con `L7.sat_of_inhabited`: que el conjunto de
+la máquina sea no vacío **es** la satisfacibilidad.
+
+**No cierra:** `AlongAssign` es una rama — el paso de ahí a `mirrorRun` es la siguiente pieza,
+contable; «sin zombis» sigue abierto (lo necesita el lector sin retroceso); y la complejidad
+sigue sin un solo teorema.
+
+83 módulos, `diffTest` 150/150, `cnfmap` 60/60, `validate` 40/40.
+Documento: `verificacion_inseguridad_autor_v50.md`.
+
 **2026-09-10 (ag) — Recap de estado (v49).**
 
 Informe auditado contra el árbol, no contra la memoria. Higiene comprobada: 74 módulos, **0**
