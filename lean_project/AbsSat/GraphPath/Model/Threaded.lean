@@ -140,7 +140,7 @@ structure TCtx (g : GPathM) : Prop where
   cpar    : ∀ k ∈ intRange 1 (g.current_step - 1), ∀ id ∈ ((g.line k).map (·.id)),
               ∀ d, g.node? id = some d →
                 intersectOwners d.owners (unionOwnersOf g d.parents) = d.owners
-  cson    : ∀ k ∈ intRange 1 (g.current_step - 2), ∀ id ∈ ((g.line k).map (·.id)),
+  cson    : ∀ k ∈ intRange 0 (g.current_step - 2), ∀ id ∈ ((g.line k).map (·.id)),
               ∀ d, g.node? id = some d →
                 intersectOwners d.owners (unionOwnersOf g d.sons) = d.owners
   sabove  : Sons.SAbove g
@@ -215,7 +215,7 @@ some son of `d` — a node one step above, by `Sons.SAbove` — owns `a` too.
 nothing at step 0, and the hypothesis `1 ≤ p.id.step` below is not removable
 by this argument. -/
 theorem hop_up (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
-    (hd : g.node? p = some d) (hlo : 1 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2)
+    (hd : g.node? p = some d) (hlo : 0 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2)
     (a : PathNodeId) (ha : a ∈ d.owners)
     (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
     ∃ c ∈ d.sons, ∃ m, g.node? c = some m ∧ a ∈ m.owners ∧ c.id.step = p.id.step + 1 := by

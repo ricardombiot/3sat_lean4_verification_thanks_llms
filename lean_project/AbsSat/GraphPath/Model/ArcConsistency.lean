@@ -88,7 +88,7 @@ structure ArcConsistent (reqOf : NodeId → List NodeId) (g : GPathM) : Prop whe
     ∀ id ∈ ((g.line k).map (·.id)), ∀ d, g.node? id = some d →
       intersectOwners d.owners (unionOwnersOf g d.parents) = d.owners
   /-- Support is consistent with the sons' support (bottom-up pass). -/
-  coherent_sons : ∀ k ∈ intRange 1 (g.current_step - 2),
+  coherent_sons : ∀ k ∈ intRange 0 (g.current_step - 2),
     ∀ id ∈ ((g.line k).map (·.id)), ∀ d, g.node? id = some d →
       intersectOwners d.owners (unionOwnersOf g d.sons) = d.owners
 

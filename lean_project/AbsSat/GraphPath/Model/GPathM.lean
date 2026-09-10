@@ -233,9 +233,12 @@ def reviewSteps (g : GPathM) (nb : PNodeM → List PathNodeId) : List Int → GP
 def reviewParents (g : GPathM) : GPathM :=
   reviewSteps g (·.parents) (intRange 1 (g.current_step - 1))
 
-/-- Bottom-up: owners coherent with the union of the sons' owners. -/
+/-- Bottom-up: owners coherent with the union of the sons' owners, from
+`current_step-2` down to **0**. The lower bound is 0, not 1: a step-0 node has
+sons, and the parents pass' lower bound of 1 (a step-0 node has no parents) does
+not transfer. See `verificacion_inseguridad_autor_v48.md`. -/
 def reviewSons (g : GPathM) : GPathM :=
-  reviewSteps g (·.sons) (intRange 1 (g.current_step - 2)).reverse
+  reviewSteps g (·.sons) (intRange 0 (g.current_step - 2)).reverse
 
 /-- One full round of `make_review_owners!`. -/
 def reviewPass (g : GPathM) : GPathM :=

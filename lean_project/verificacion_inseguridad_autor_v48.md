@@ -75,11 +75,25 @@ Quien escribió esos lemas derivó la condición lateral natural —`0 ≤ k`—
 
 Con el espejo extendido, `lake exe diffTest` —que compara **ejecutable + espejo + oráculo por fuerza bruta**— pasa **150/150** y **400/400**. Ni un veredicto ni un conjunto de soluciones cambia.
 
-## 5. Lo que he hecho y lo que no
+## 5. Aplicado (2026-09-10, decisión del autor)
 
-**He revertido el cambio.** Está en tu máquina, no en la mía: aplicarlo de verdad significa tocar el ejecutable (y, si quieres mantener la trazabilidad, el original en Julia), no solo el espejo — dejar el espejo podando más que el ejecutable rompería el contrato de la fase F6 aunque los veredictos coincidan.
+**El cambio está aplicado a los dos lados**, ejecutable y espejo, en el mismo commit. La copia de Julia queda intacta como registro histórico y los docstrings que decían *«Mirrors Julia's `review_owners_sons_parents!`»* ahora dicen que **divergen deliberadamente**, con el porqué y la referencia a este documento.
 
-Si decides aplicarlo, son estas tres ediciones más el debilitamiento de dos hipótesis:
+**El pago se cobró:** `Closed_PinSet` e `isValid_cleanInvalid_pin` pasan de **dos hipótesis a una**. `son_of_hop_up` ya no tiene salvedad de paso, así que la cláusula `son` deja de ser hipótesis en todos los pasos no-cima, y **lo único que queda debido es `support`**.
+
+**Verificación tras aplicarlo:**
+
+| comprobación | resultado |
+|---|---|
+| `lake build AbsSat` | verde, 74 módulos, 0 `sorry`, cierres intactos |
+| `lake exe diffTest 400 2026` | **400/400** (352 SAT, 48 UNSAT) |
+| `lake exe diffTest 300 90210` | **300/300** (255 SAT, 45 UNSAT) |
+| `lake exe validate --random 50 2026 3 5` | **50/50** limpias, 4.835 estados, 151.308 nodos, 4.835 `Inhabited` certificados |
+| `lake exe extend --zerosons 25 2026 3 5` | **0** nodos con soporte rancio (antes 3), mismos 3.292 nodos raíz y 4.835 estados válidos |
+
+La última línea es la que cierra el círculo: la medición que detectó el problema ahora da cero, y el recuento de estados y de nodos raíz **no ha cambiado** — se podó soporte rancio, no se perdió nada.
+
+Las ediciones, para el registro:
 
 ```
 GPathM.lean         reviewSons: intRange 1 (current_step-2)  →  intRange 0 (current_step-2)
@@ -90,7 +104,7 @@ Threaded.lean       hop_up: 1 ≤ p.id.step  →  0 ≤ p.id.step
 Survive.lean        support_above, son_of_hop_up: idem
 ```
 
-Lo dejé compilando en verde con todo eso antes de revertir, así que sé que funciona.
+(más `Survive.Closed_PinSet` e `isValid_cleanInvalid_pin`, que pierden la hipótesis `hson`.)
 
 ## 6. Resumen
 
@@ -101,7 +115,8 @@ Lo dejé compilando en verde con todo eso antes de revertir, así que sé que fu
 | ¿Qué gana la demostración? | Cierra el hueco de v47 (`Closed.son` en el paso 0) y hace simétricas las dos cláusulas de arco-consistencia. Tres anotaciones de rango, ninguna demostración reescrita. |
 | ¿Es seguro? | El lado de la preservación **ya está demostrado para el paso 0**. `diffTest` 400/400 con el espejo extendido. |
 | ¿Acerca `PickValid`? | **No.** El residuo no se mueve. |
+| ¿Aplicado? | **Sí**, a ejecutable y espejo. `diffTest` 400/400 y 300/300. |
 
 ---
 
-*Claude (Opus 5), 2026-09-10. `lake build AbsSat` verde, 74 módulos, 0 `sorry`. El cambio estudiado está revertido; la medición `lake exe extend --zerosons` queda en el árbol.*
+*Claude (Opus 5), 2026-09-10. `lake build AbsSat` verde, 74 módulos, 0 `sorry`. El cambio está aplicado a ejecutable y espejo; la copia de Julia queda como registro histórico.*

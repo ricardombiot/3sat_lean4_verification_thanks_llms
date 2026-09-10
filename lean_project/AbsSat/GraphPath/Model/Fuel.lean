@@ -1050,14 +1050,14 @@ theorem review_owners_coherent_parents (g : GPathM) (h : isValid (review g) = tr
 /-- **F2.c (per-node), part 2b** — the same for the *sons'* owners. Note the
 narrower step range: the bottom-up pass walks `1 .. current_step - 2`. -/
 theorem review_owners_coherent_sons (g : GPathM) (h : isValid (review g) = true)
-    (k : Int) (hk : k ∈ intRange 1 ((review g).current_step - 2))
+    (k : Int) (hk : k ∈ intRange 0 ((review g).current_step - 2))
     (id : PathNodeId) (hid : id ∈ (((review g).line k).map (·.id)))
     (d : PNodeM) (hd : (review g).node? id = some d) :
     intersectOwners d.owners (unionOwnersOf (review g) d.sons) = d.owners := by
   have hfix : reviewPass (review g) = review g := reviewPass_review g h
   obtain ⟨_, _, hsons⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
   have hsteps : reviewSteps (review g) (·.sons)
-      (intRange 1 ((review g).current_step - 2)).reverse = review g := hsons
+      (intRange 0 ((review g).current_step - 2)).reverse = review g := hsons
   have hline : reviewLine (review g) (·.sons) k = review g :=
     reviewSteps_lines_eq_self _ _ (review g) h (by rw [hsteps]) k (List.mem_reverse.mpr hk)
   have hnode : reviewNode (review g) (·.sons) id = review g :=

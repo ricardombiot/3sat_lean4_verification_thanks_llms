@@ -38,9 +38,14 @@ No se gana: el residuo `support` a distancia ≥ 2 no se mueve (mismas 3.473.942
 **Comportamiento:** `diffTest` (ejecutable + espejo + fuerza bruta) 150/150 y 400/400 con el
 espejo extendido.
 
-**Revertido.** Aplicarlo de verdad toca el ejecutable (y el original en Julia); dejar solo el
-espejo podando más rompería el contrato de F6. Decisión del autor; las ediciones exactas están
-en el documento.
+**Aplicado** (decisión del autor, mismo día) a **ejecutable y espejo** en un commit propio.
+La copia de Julia queda intacta como registro histórico y los docstrings de procedencia dicen
+ahora que divergen deliberadamente. Pago cobrado: `Survive.Closed_PinSet` e
+`isValid_cleanInvalid_pin` pasan de **dos hipótesis a una** — solo `support`.
+Verificado: `lake build AbsSat` verde (74 módulos, 0 `sorry`), `diffTest` **400/400** (semilla
+2026) y **300/300** (90210), `validate --random 50` **50/50** con 4.835 estados e `Inhabited`
+certificado en todos, y `extend --zerosons` pasa de 3 nodos con soporte rancio a **0** con el
+mismo recuento de nodos raíz y de estados válidos — se podó basura, no se perdió nada.
 
 Documento: `verificacion_inseguridad_autor_v48.md`.
 

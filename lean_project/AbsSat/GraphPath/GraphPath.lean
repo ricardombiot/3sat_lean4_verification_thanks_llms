@@ -259,15 +259,27 @@ def review_owners_parents_sons! (gpath : GPath) : IO Unit := do
 
 /--
 Bottom-up pass: intersect every node's owners with the union of its sons'
-owners, one step at a time from current_step-2 down to 1. Mirrors Julia's
-`review_owners_sons_parents!`.
+owners, one step at a time from current_step-2 down to **0**.
+
+**Deliberate divergence from Julia** (2026-09-10, see
+`verificacion_inseguridad_autor_v48.md`). Julia's `review_owners_sons_parents!`
+runs `for step in current_step-2:-1:1`. Three of the four bounds of the two
+coherence passes are forced — a step-0 node has no parents, the top step has no
+sons — but this one is not: a step-0 node **does** have sons, so the original
+lower bound skips a line the pass would act on, and leaves root nodes carrying
+support no son of theirs backs. Measured at 3 of 3,292 root nodes on one
+campaign and 51 of 7,333 on another, never invalidating a state.
+
+Extending it is safe by a theorem already in the mirror:
+`Coherence.ChainSound_reviewLine_sons` holds for `0 ≤ k`, so the extra line
+cannot cut a sound chain and no solution can be lost.
 -/
 def review_owners_sons_parents! (gpath : GPath) : IO Unit := do
   let valid ← gpath.is_valid.get
   let review ← gpath.review_owners.get
   if valid && review then
     let current_step ← gpath.current_step.get
-    review_owners_descending! gpath (fun n => n.sons) (current_step - 2) 1
+    review_owners_descending! gpath (fun n => n.sons) (current_step - 2) 0
 
 /--
 Los owners deben ser coherentes con sus padres e hijos: run both the

@@ -616,11 +616,41 @@ theorem pinSet_covers_filterRequire (g : GPathM) (tctx : Threaded.TCtx g)
 -- The whole chain, with the residue isolated
 -- ============================================================
 
-/-- **`Closed` for the candidate set, from two hypotheses and nothing else.**
+/-- **`PMS` discharges the `son` clause, at every non-top step.**
+`Threaded.hop_up` gives a son that is still a candidate; `Sons.PMS` turns that
+son link round into the parent link `Closed.son` asks for.
+
+Step 0 used to be the exception — `reviewSons` skipped it, so `coherent_sons`
+said nothing there. Since v48 the sweep starts at 0 and the exception is gone,
+which leaves `Closed_PinSet` owing only `support`. -/
+theorem son_of_hop_up (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : NodeId)
+    (hklo : 0 ≤ k) (hkhi : k < g.current_step)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
+    (hlo : 0 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
+    ∃ c m, PinSet g k mid c ∧ g.node? c = some m ∧ p ∈ m.parents := by
+  obtain ⟨n', hn', u, hu, humid⟩ := hp
+  have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+  have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+  obtain ⟨c, hc, m, hm, hmu, _⟩ :=
+    Threaded.hop_up g tctx p n hn hlo hhi u
+      (by rw [← hnn]; exact (List.mem_filter.mp hu).1)
+      (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
+  refine ⟨c, m, ⟨m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩, humid⟩, hm, ?_⟩
+  have hnid : n.id = p := node?_id_eq g p n hn
+  have := tctx.pms n (List.mem_of_find?_eq_some hn) c hc m (List.mem_of_find?_eq_some hm)
+    (node?_id_eq g c m hm)
+  rwa [hnid] at this
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.son_of_hop_up' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms son_of_hop_up
+
+/-- **`Closed` for the candidate set, from one hypothesis and nothing else.**
 `gow` comes from `OOS` (at the pinned step a node's only owner is itself, so a
 candidate there *is* the pinned id, and survives `filterRequire`); `node` is
-free; `parent` is `Threaded.hop_down`; `coown` is `coown_of_bridge`. What is
-left as hypotheses is exactly `support` and `son` — the residue of v43. -/
+free; `parent` is `Threaded.hop_down`; `son` is `son_of_hop_up`; `coown` is
+`coown_of_bridge`. What is left is exactly **`support`** — and since v48 closed
+the step-0 gap in the sons sweep, nothing else. -/
 theorem Closed_PinSet (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : NodeId)
     (hkm : k = mid.step) (hklo : 0 ≤ k) (hkhi : k < g.current_step)
     (hoos : SelfOwn.OOS g) (hrootz : Sons.RootAtZero g) (hsnn : SelfOwn.SNN g)
@@ -629,11 +659,9 @@ theorem Closed_PinSet (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : Nod
     (hsmp : Sons.SMP g) (hlink : Bridge.LinksInOwners g)
     (hsupport : ∀ p n, g.node? p = some n → PinSet g k mid p →
       ∀ l, 0 ≤ l → l < g.current_step →
-        ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = l)
-    (hson : ∀ p, PinSet g k mid p → p.id.step ≠ g.current_step - 1 →
-      ∃ c m, PinSet g k mid c ∧ g.node? c = some m ∧ p ∈ m.parents) :
+        ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = l) :
     Closed (filterRequire g mid) (PinSet g k mid) := by
-  refine ⟨?_, ?_, ?_, ?_, hson, coown_of_bridge _ hsmp hlink _⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, coown_of_bridge _ hsmp hlink _⟩
   · -- gow
     intro p hp
     obtain ⟨n, hn, u, hu, humid⟩ := hp
@@ -670,11 +698,22 @@ theorem Closed_PinSet (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : Nod
       Threaded.hop_down g tctx p n hn hpos (hbelow p n hn) u (by rw [← hnn]; exact
         (List.mem_filter.mp hu).1) (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
     exact ⟨c, hc, m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩, humid⟩
+  · -- son, via hop_up and PMS
+    intro p hp hlast
+    have hcs : (filterRequire g mid).current_step = g.current_step := rfl
+    rw [hcs] at hlast
+    obtain ⟨n, hn, hu⟩ := hp
+    refine son_of_hop_up g tctx k mid hklo hkhi p n hn ⟨n, hn, hu⟩ ?_ ?_
+    · have hs := hsnn n (List.mem_of_find?_eq_some hn)
+      rw [node?_id_eq g p n hn] at hs
+      omega
+    · have hb := hbelow p n hn
+      omega
 
 /-- **The chain, end to end.** Threading gives the coverage of the candidates,
 `Closed_PinSet` gives the closure, `Core_greatest` lifts it to the core, and
-`isValid_cleanInvalid_of_Core` finishes. Everything is proved except the two
-hypotheses of `Closed_PinSet`. -/
+`isValid_cleanInvalid_of_Core` finishes. Everything is proved except the **one**
+hypothesis of `Closed_PinSet`: `support`. -/
 theorem isValid_cleanInvalid_pin (g : GPathM) (tctx : Threaded.TCtx g)
     (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hself : q ∈ nq.owners)
     (hqlo : 0 ≤ q.id.step) (hqhi : q.id.step < g.current_step)
@@ -684,13 +723,11 @@ theorem isValid_cleanInvalid_pin (g : GPathM) (tctx : Threaded.TCtx g)
     (hsmp : Sons.SMP g) (hlink : Bridge.LinksInOwners g)
     (hsupport : ∀ p n, g.node? p = some n → PinSet g q.id.step q.id p →
       ∀ l, 0 ≤ l → l < g.current_step →
-        ∃ v ∈ n.owners, PinSet g q.id.step q.id v ∧ v.id.step = l)
-    (hson : ∀ p, PinSet g q.id.step q.id p → p.id.step ≠ g.current_step - 1 →
-      ∃ c m, PinSet g q.id.step q.id c ∧ g.node? c = some m ∧ p ∈ m.parents) :
+        ∃ v ∈ n.owners, PinSet g q.id.step q.id v ∧ v.id.step = l) :
     isValid (cleanInvalid (filterRequire g q.id)) = true := by
   have hcl : Closed (filterRequire g q.id) (PinSet g q.id.step q.id) :=
     Closed_PinSet g tctx q.id.step q.id rfl hqlo hqhi hoos hrootz hsnn hnodegow hbelow
-      hsmp hlink hsupport hson
+      hsmp hlink hsupport
   refine isValid_cleanInvalid_of_Core _ (Sons.SMP_filterRequire g q.id hsmp) hlink ?_
   intro l hlo hhi
   obtain ⟨p, hp, hps⟩ := pinSet_covers_filterRequire g tctx q nq hq hself hqlo hqhi l hlo hhi
@@ -771,7 +808,7 @@ son side makes it an owner. `Sons.SAbove` supplies the step. -/
 theorem support_above (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.current_step)
     (hlink : Bridge.LinksInOwners g)
     (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
-    (hlo : 1 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
+    (hlo : 0 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
     ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step + 1 := by
   obtain ⟨n', hn', u, hu, humid⟩ := hp
   have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
@@ -839,33 +876,5 @@ from a candidate that carry the pin, one that also stays inside the candidate's
 own support.
 -/
 
-
-/-- **`PMS` discharges the `son` clause above step 0.** `Threaded.hop_up` gives
-a son that is still a candidate; `Sons.PMS` turns that son link round into the
-parent link `Closed.son` asks for. What it does not reach is a candidate at
-**step 0** with the pin somewhere else: `reviewSons` never sweeps step 0, so
-`coherent_sons` says nothing there, and the son it would need to produce is not
-constrained to stay a candidate. -/
-theorem son_of_hop_up (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : NodeId)
-    (hklo : 0 ≤ k) (hkhi : k < g.current_step)
-    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
-    (hlo : 1 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
-    ∃ c m, PinSet g k mid c ∧ g.node? c = some m ∧ p ∈ m.parents := by
-  obtain ⟨n', hn', u, hu, humid⟩ := hp
-  have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
-  have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
-  obtain ⟨c, hc, m, hm, hmu, _⟩ :=
-    Threaded.hop_up g tctx p n hn hlo hhi u
-      (by rw [← hnn]; exact (List.mem_filter.mp hu).1)
-      (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
-  refine ⟨c, m, ⟨m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩, humid⟩, hm, ?_⟩
-  have hnid : n.id = p := node?_id_eq g p n hn
-  have := tctx.pms n (List.mem_of_find?_eq_some hn) c hc m (List.mem_of_find?_eq_some hm)
-    (node?_id_eq g c m hm)
-  rwa [hnid] at this
-
-/-- info: 'AbsSat.GraphPath.Model.Survive.son_of_hop_up' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms son_of_hop_up
 
 end AbsSat.GraphPath.Model.Survive
