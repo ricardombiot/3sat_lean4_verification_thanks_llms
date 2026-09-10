@@ -2260,4 +2260,105 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showH acc
   pure 0
 
+-- ============================================================
+-- `ExtendDown`, but anchored at the top: every partial chain, not just greedy
+-- ============================================================
+
+/-!
+`--randomhist` measures a **greedy** descent: one path per anchor. That is
+weaker evidence than `Extendable.ExtendDown` needs, which quantifies over
+*every* consistent partial chain — and the original `--random` harness already
+refuted that, with 57 downward dead ends.
+
+But the composed proof (`Extendable.SupportedAt_of_Extend`) only ever applies
+the descent to chains that **already reach the top step**, because `extendUpTo`
+ran first. Those are exactly the chains the greedy descent maintains, and they
+are a strict subset of what `ExtendDown` quantifies over.
+
+So this mode measures the right statement: from every node at the top step,
+explore **all** partial chains downward — parent-linked, mutually owned with
+everything chosen — and count the ones that dead-end above step 0.
+-/
+
+/-- `(budget left, dead ends, chains completed to step 0)`. -/
+partial def dfsDownAll (g : GPathM) (chosen : List PathNodeId) (cur : PathNodeId)
+    (budget : Nat) : Nat × Nat × Nat :=
+  if budget == 0 then (0, 0, 0)
+  else if cur.id.step ≤ 0 then (budget - 1, 0, 1)
+  else
+    let ps : List PathNodeId :=
+      match g.node? cur with
+      | some n => n.parents
+      | none => []
+    let cands := ps.filter (fun c =>
+      c.id.step + 1 == cur.id.step && compatWith g chosen c)
+    if cands.isEmpty then (budget - 1, 1, 0)
+    else
+      cands.foldl (fun (a : Nat × Nat × Nat) c =>
+        if a.1 == 0 then a
+        else
+          let r := dfsDownAll g (c :: chosen) c (a.1 - 1)
+          (r.1, a.2.1 + r.2.1, a.2.2 + r.2.2)) (budget, 0, 0)
+
+structure DTAcc where
+  states : Nat := 0
+  tops : Nat := 0
+  deadEnds : Nat := 0
+  completed : Nat := 0
+  cut : Nat := 0
+
+def addDT (a b : DTAcc) : DTAcc :=
+  { states := a.states + b.states, tops := a.tops + b.tops,
+    deadEnds := a.deadEnds + b.deadEnds, completed := a.completed + b.completed,
+    cut := a.cut + b.cut }
+
+def downTopReport (g : GPathM) (budget : Nat) : DTAcc :=
+  g.nodes.foldl (fun (a : DTAcc) n =>
+    if n.id.id.step != g.current_step - 1 then a
+    else if !n.owners.contains n.id then a
+    else
+      let r := dfsDownAll g [n.id] n.id budget
+      addDT a { tops := 1, deadEnds := r.2.1, completed := r.2.2,
+                cut := (if r.1 == 0 then 1 else 0) })
+    { states := 1 }
+
+partial def walkDownTop (gmap : GMap) (line : MirrorLine) (fuel budget : Nat)
+    (acc : DTAcc) : DTAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : DTAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addDT a (downTopReport g budget)) acc
+    walkDownTop gmap (mirrorAdvance gmap line) (fuel - 1) budget acc
+
+def showDT (t : DTAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  top-step anchors explored                 = {t.tops}"
+  IO.println s!"    searches cut by budget                  = {t.cut}"
+  IO.println s!"  partial chains reaching step 0            = {t.completed}"
+  IO.println s!"  DEAD ENDS above step 0                    = {t.deadEnds}"
+
+def runRandomDownTop (cases seed nvMin nvSpan budget : Nat) : IO UInt32 := do
+  IO.println s!"--- every downward chain from the top: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} budget={budget} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : DTAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addDT acc (walkDownTop gmap (mirrorInit gmap) 1000 budget {})
+  showDT acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

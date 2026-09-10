@@ -10,6 +10,33 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (am) — `ExtendDownTop`: el veredicto sin la mitad refutada.**
+
+Reparo primero: `Extendable.ExtendDown` en general **también** está refutado (57 de los 1.574
+callejones son bajando), así que el descenso goloso de (al) no era evidencia suficiente. Pero
+`SupportedAt_of_Extend` solo aplica `hdown` a cadenas que **ya llegan al paso alto**, porque
+`extendUpTo` corrió antes — subconjunto estricto.
+
+`ExtendDownTop` (nuevo en `Extendable.lean`) es ese subconjunto. Modo `--randomdowntop`: desde cada
+nodo del paso alto, DFS sobre **todas** las cadenas parciales hacia abajo. **0 callejones en 15.755
+cadenas**, 5.393 anclas, 3.342 estados válidos, semillas 2026/31337/4242/90210, ninguna búsqueda
+cortada por presupuesto.
+
+Demostrado: `extendDownTopTo` (la inducción con `hi` fijo al techo),
+`SupportedAt_top_of_ExtendDownTop`, y en el módulo nuevo `Model/DownVerdict.lean`
+—aparte porque `PickInduction` importa `Extendable`— **`Inhabited_of_ExtendDownTop`**:
+`isValid` + `GN` dan un nodo en el paso alto, el descenso lo enhebra, y
+`Verdict.Inhabited_of_SupportedAt` cierra. `ExtendUp` no aparece. Ambos `[propext, Quot.sound]`.
+
+El residuo queda desnudo: `Threaded.hop_down` da, para **cada** owner, **algún** padre que lo posee;
+`ExtendDownTop` pide **algún** padre que posea **todos** los de la historia — un intercambio
+∀∃ → ∃∀. Pista estructural de la medición: menos de tres cadenas por ancla, porque los padres de un
+nodo comparten el id de mapa que `parent_id` codifica y solo se ramifica la decoración.
+
+85 módulos. Informe: `verificacion_inseguridad_autor_v55.md`.
+
+---
+
 **2026-09-11 (al) — Ruta C atacada por medición: el residuo se reduce al descenso.**
 
 Cuatro modos nuevos en `ExtendSearch.lean` / `ExtendMain.lean`, todos `IO` y sin teoremas:

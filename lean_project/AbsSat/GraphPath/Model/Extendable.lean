@@ -274,4 +274,91 @@ def Determined (g : GPathM) : Prop :=
 #guard_msgs in
 #print axioms Supported_of_Extend
 
+
+-- ============================================================
+-- The descent alone, anchored at the top
+-- ============================================================
+
+/-!
+**Why this section exists.** `Supported_of_Extend` above needs both halves, and
+`ExtendUp` is refuted (1,574 dead-end partial chains). But the verdict does not
+need `Supported`: `Verdict.Inhabited_of_SupportedAt` needs the chain through
+**one node of your choosing**. Choose one at the top step, and `extendUpTo`
+becomes vacuous — only the descent is left.
+
+That matters because the two halves do not measure alike. `ExtendDown` in full
+generality is refuted too (57 of those dead ends are downward), but it
+quantifies over partial chains ending anywhere. The composed proof only ever
+descends from a chain that **already reaches the top step** — which is a strict
+subset, and the one the reader actually walks.
+
+`ExtendDownTop` below is that subset. Measured with `lake exe extend
+--randomdowntop`, exhaustively over *every* downward partial chain from *every*
+top-step node, three seeds:
+
+| campaign | states | top anchors | chains to step 0 | dead ends |
+|---|---|---|---|---|
+| 8 cases, 2026, 3..5 vars | 472 | 657 | 1,095 | **0** |
+| 12 cases, 31337, 3..6 vars | 1,069 | 1,673 | 4,324 | **0** |
+| 10 cases, 4242, 4..6 vars | 834 | 1,389 | 3,912 | **0** |
+| 10 cases, 90210, 5..7 vars | 967 | 1,674 | 6,424 | **0** |
+
+**0 dead ends in 15,755 chains**, no search cut by budget. This is not a proof —
+it is a hypothesis that has survived the measurement that killed its two
+predecessors, and the reduction below says exactly what it would buy.
+-/
+
+/-- **Nothing gets stuck descending from the top.** `ExtendDown` restricted to
+partial chains that already span `[lo, current_step - 1]`. -/
+def ExtendDownTop (g : GPathM) : Prop :=
+  ∀ sel lo, 0 < lo → lo ≤ g.current_step - 1 →
+    PartialChain g sel lo (g.current_step - 1) →
+    PartialOwned g sel lo (g.current_step - 1) →
+    ∃ c, PartialChain g (upd sel (lo - 1) c) (lo - 1) (g.current_step - 1) ∧
+         PartialOwned g (upd sel (lo - 1) c) (lo - 1) (g.current_step - 1)
+
+theorem ExtendDownTop_of_ExtendDown (g : GPathM) (h : ExtendDown g) : ExtendDownTop g :=
+  fun sel lo hpos hhi hc ho => h sel lo (g.current_step - 1) hpos hhi (by omega) hc ho
+
+theorem extendDownTopTo (g : GPathM) (hdown : ExtendDownTop g) (m : Nat) :
+    ∀ (sel : Int → PathNodeId) (lo : Int),
+      lo.toNat ≤ m → 0 ≤ lo → lo ≤ g.current_step - 1 →
+      PartialChain g sel lo (g.current_step - 1) →
+      PartialOwned g sel lo (g.current_step - 1) →
+      ∃ sel', (∀ i, lo ≤ i → i ≤ g.current_step - 1 → sel' i = sel i) ∧
+        PartialChain g sel' 0 (g.current_step - 1) ∧
+        PartialOwned g sel' 0 (g.current_step - 1) := by
+  induction m with
+  | zero =>
+    intro sel lo hm hlo hlohi hc ho
+    have hEq : lo = 0 := by omega
+    subst hEq
+    exact ⟨sel, fun _ _ _ => rfl, hc, ho⟩
+  | succ m ih =>
+    intro sel lo hm hlo hlohi hc ho
+    if hpos : 0 < lo then
+      obtain ⟨c, hc', ho'⟩ := hdown sel lo hpos hlohi hc ho
+      obtain ⟨sel', hagree, hc'', ho''⟩ :=
+        ih (upd sel (lo - 1) c) (lo - 1) (by omega) (by omega) (by omega) hc' ho'
+      refine ⟨sel', ?_, hc'', ho''⟩
+      intro i hi1 hi2
+      rw [hagree i (by omega) hi2, upd_other sel (lo - 1) c (by omega)]
+    else
+      have hEq : lo = 0 := by omega
+      subst hEq
+      exact ⟨sel, fun _ _ _ => rfl, hc, ho⟩
+
+/-- **A node at the top step is supported by the descent alone.** -/
+theorem SupportedAt_top_of_ExtendDownTop (g : GPathM) (hdown : ExtendDownTop g)
+    (pid : PathNodeId) (n : PNodeM) (hn : g.node? pid = some n)
+    (htop : pid.id.step = g.current_step - 1) (hpos : 0 < g.current_step) :
+    SupportedAt g pid := by
+  obtain ⟨hc0, ho0⟩ := partial_singleton g pid n hn
+  rw [htop] at hc0 ho0
+  obtain ⟨sel, hagree, hc, ho⟩ :=
+    extendDownTopTo g hdown (g.current_step - 1).toNat (fun _ => pid) (g.current_step - 1)
+      (Nat.le_refl _) (by omega) (Int.le_refl _) hc0 ho0
+  refine ⟨sel, isChain_of_partial g sel hc, pairwiseOwned_of_partial g sel ho, ?_⟩
+  rw [htop, hagree (g.current_step - 1) (Int.le_refl _) (Int.le_refl _)]
+
 end AbsSat.GraphPath.Model.Extendable
