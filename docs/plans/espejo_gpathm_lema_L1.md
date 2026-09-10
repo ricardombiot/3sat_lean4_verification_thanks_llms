@@ -10,6 +10,35 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ak) — El bucle del driver conserva la rama: teorema.**
+
+La contabilidad que (aj) dejó nombrada, cerrada. En `Model/PureDriver.lean`: `StateOk` (clave en
+el mapa, `MapReachable`, `current_step`, `map_parent`, validez — los tres últimos campos son
+literalmente lo que pide `okJoin`), `LineOk` (claves `Nodup` + `StateOk` de cada entrada) y
+`Carries` (la entrada de la rama). El lema bisagra es **`Carries_insertPure`**: insertar en otra
+clave deja la entrada intacta, insertar sobre ella la fusiona con `join`, y `AlongAssign.joinL`
+cubre ese caso — ninguna de las dos operaciones del driver puede perderla.
+
+`pureAdvance` se partió en `sendTo` / `sendAll` (preserva la semántica; la banda `--driver` lo
+confirma) para poder razonar fold a fold: `StateOk_sent` → `LineOk_sendTo` → `LineOk_sendAll` →
+`LineOk_pureAdvance`; `sons_fold_establish` (el fold interno **crea** la entrada al llegar al hijo
+que `advance_target` señala) → `outer_fold_mono` → **`Carries_pureAdvance`**. Con `init_ok`
+(`AlongAssign.seed` en la primera línea) y `run_ok` (inducción sobre los pasos), sale
+**`pureRun_full_state`**: para *toda* asignación satisfactoria, la última línea tiene una entrada
+en su nodo final, con `current_step = stepCount φ`, válida e `Inhabited`. Y `pureRun_ne_nil`.
+
+Piezas nuevas fuera del fichero: `mapNodes_step` y `mapSons_subset` en `GraphMap/CnfSel.lean` (un
+hijo de un nodo del mapa es un nodo del mapa un paso arriba; el único caso no trivial es el enlace
+cruzado de variable).
+
+Trampa: `isValid_initSeed` con `simp` ancho arrastraba `Classical.choice`; reescrito vía
+`PickInduction.isValid_of_gowner` vuelve a `[propext, Quot.sound]`.
+
+Bandas: `cnfmap --driver` 30/30 (2026) y 100/100 (31337), `cnfmap` 200/200 (7), `diffTest` 300/300
+(2026). `lake build AbsSat` verde, 84 módulos, 0 `sorry`. Informe: `verificacion_inseguridad_autor_v53.md`.
+
+---
+
 **2026-09-10 (aj) — El driver, puro y validado.**
 
 `mirrorRun` vive sobre `GMap` (`Std.HashMap`) y razonar ahí arrastraría `Classical.choice`, así

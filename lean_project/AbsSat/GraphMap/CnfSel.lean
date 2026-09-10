@@ -266,6 +266,56 @@ theorem mapSons_other (φ : Cnf) (k : Int) (i : Int) (h0 : 0 ≤ k)
     simp only [mapSons, if_neg hneg, if_pos h1, if_neg h2]
   · simp only [mapSons, if_neg hneg, if_neg h1]
 
+/-- Every node the map builds at a step reports that step. -/
+theorem mapNodes_step (φ : Cnf) (k : Int) (d : NodeId) (h : d ∈ mapNodes φ k) : d.step = k := by
+  unfold mapNodes at h
+  split at h
+  · exact absurd h List.not_mem_nil
+  · split at h
+    · exact absurd h List.not_mem_nil
+    · split at h
+      · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+        rcases h with rfl | rfl <;> rfl
+      · split at h
+        · rcases List.mem_singleton.mp h with rfl; rfl
+        · split at h
+          · rcases List.mem_singleton.mp h with rfl; rfl
+          · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+            rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+
+/-- **A son of a map node is a map node, one step up.** The crossed link of the
+variable block is the only case that needs anything: it lands on `1 - i`, and
+`i` is `0` or `1` because the node it came from is on the map. -/
+theorem mapSons_subset (φ : Cnf) (k : Int) (i : Int)
+    (hi : (⟨k, i⟩ : NodeId) ∈ mapNodes φ k) :
+    ∀ d ∈ mapSons φ k i, d ∈ mapNodes φ (k + 1) := by
+  intro d hd
+  have h0 : 0 ≤ k := by
+    by_cases hc : k < 0
+    · exfalso
+      rw [show mapNodes φ k = [] by simp only [mapNodes, if_pos hc]] at hi
+      exact absurd hi List.not_mem_nil
+    · omega
+  by_cases hvar : k < litBlock φ ∧ k % 2 = 0
+  · obtain ⟨hlt, hpar⟩ := hvar
+    rw [mapNodes_var φ k h0 hlt] at hi
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+    have hi01 : i = 0 ∨ i = 1 := by
+      rcases hi with h | h
+      · exact Or.inl (congrArg NodeId.index h)
+      · exact Or.inr (congrArg NodeId.index h)
+    have hson : mapSons φ k i = [⟨k + 1, 1 - i⟩] := by
+      have hneg : ¬ (k < 0) := by omega
+      simp only [mapSons, if_neg hneg, if_pos hlt, if_pos hpar]
+    rw [hson] at hd
+    rcases List.mem_singleton.mp hd with rfl
+    rw [mapNodes_var φ (k + 1) (by omega) (by simp only [litBlock] at hlt ⊢; omega)]
+    rcases hi01 with rfl | rfl
+    · exact List.mem_cons_of_mem _ List.mem_cons_self
+    · exact List.mem_cons_self
+  · rw [mapSons_other φ k i h0 hvar] at hd
+    exact hd
+
 /-- **The assignment's branch is a path along the map's own edges.** Whatever
 the driver does with the rest of the map, this sequence of nodes is one it can
 walk: each is a son of the one before. -/
