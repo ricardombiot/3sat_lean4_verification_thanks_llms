@@ -5,6 +5,12 @@ import AbsSat.GraphMap.CnfMapDiff
 arithmetic map (`CnfMap`) against the map `ImportCnf` actually builds. -/
 def main (args : List String) : IO UInt32 := do
   match args with
+  | "--driver" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 60
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 5
+    AbsSat.GraphMap.CnfMapDiff.runDriver cases seed nvMin nvSpan
   | "--rough" :: rest =>
     let cases := (rest[0]?.bind (·.toNat?)).getD 100
     let seed := (rest[1]?.bind (·.toNat?)).getD 2026

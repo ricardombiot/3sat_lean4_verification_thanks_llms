@@ -10,6 +10,31 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (aj) — El driver, puro y validado.**
+
+`mirrorRun` vive sobre `GMap` (`Std.HashMap`) y razonar ahí arrastraría `Classical.choice`, así
+que se aplica una tercera vez el patrón del proyecto (`GPathM` frente a `GPath`, el modelo
+aritmético frente a `ImportCnf`): **`Model/PureDriver.lean`** define `insertPure`, `pureAdvance`,
+`pureInit`, `pureRun` — el mismo bucle con `mapSons` / `reqOfCnf` / `mapNodes` en lugar de
+`map_node.sons` / `destine_node.requires` / `get_ids_step`.
+
+**Banda `lake exe cnfmap --driver`**: compara `pureRun φ` con `mirrorRun gmap` en claves de la
+línea final, recuento de nodos por clave y validez. 30/30 (2026), 100/100 (90210), 60/60 (4242)
+— **190 instancias, 0 desacuerdos**. Los títulos no se comparan a propósito.
+
+**El teorema — `advance_target`** (cierre `[propext, Quot.sound]`): desde el estado aparcado en el
+nodo de la asignación en el paso `k`, (i) el hijo al que el driver va a moverse **es** el nodo de
+la asignación en `k+1`, (ii) el estado que construye allí es `AlongAssign`, y (iii) **pasa el
+filtro de validez**. Los tres conjuntos son justo lo que `pureAdvance` necesita en ese punto.
+
+**Lo que queda no es matemático:** que los dos `foldl` anidados conserven la entrada una vez
+insertada. Tres invariantes, nombrados en el módulo — claves nodup; `current_step`/`map_parent`/
+validez uniformes (para que `okJoin` valga); y `MapReachable` de todo estado (para `joinL`). Con
+ellos, `mem_insertPure` y `mem_insertPure_of_ne` (ya demostrados) llevan la entrada por ambos
+folds y `pureRun` acaba no vacío siempre que φ sea satisfacible.
+
+84 módulos. Documento: `verificacion_inseguridad_autor_v52.md`.
+
 **2026-09-10 (ai) — La rama es un camino del mapa, y llega hasta el final.**
 
 La salvedad que (ah) dejó abierta. Leyendo `add_var!`: los positivos se enlazan al bloque de

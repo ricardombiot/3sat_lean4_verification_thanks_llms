@@ -84,6 +84,8 @@ Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above).
 
 - [v51: la rama es un camino del mapa, y llega hasta el final (Claude)](./verificacion_inseguridad_autor_v51.md) — la pieza que v50 dejó pendiente. **`selOfAssign_son`**: la secuencia que nombra una asignación no es una sucesión elegida a mano, es un **camino a lo largo de las aristas del propio mapa** — y el caso bonito es que el enlace cruzado de `add_var!` (`"v=0"`→`"!v=1"`) y la negación de la asignación **son la misma operación**. Con **`exists_full_valid_state`**: una fórmula satisfacible da un estado que las operaciones de la máquina alcanzan, abarca el mapa entero, sigue válido y denota una solución — y la validez que la recursión necesita en cada paso **la suministra la propia ley de conservación**. La banda `cnfmap` compara ahora también los **hijos**: 40/40 y 120/120, 0 desacuerdos.
 
+- [v52: el driver, puro y validado (Claude)](./verificacion_inseguridad_autor_v52.md) — `mirrorRun` vive sobre `GMap`/`HashMap`, así que se aplica una vez más el patrón del proyecto: **`pureRun`**, el mismo bucle sobre el modelo aritmético, más una banda que lo ata al real — **190 instancias, 0 desacuerdos** en claves finales, recuentos de nodos y validez. Y el teorema que es el contenido: **`advance_target`** — desde el estado de la rama en el paso `k`, el hijo al que el driver va a moverse **es** el nodo de la asignación en `k+1`, el estado que construye allí es el siguiente de la rama, y **pasa el filtro de validez**. Lo que queda es contabilidad sobre la lista (tres invariantes, nombrados), no matemáticas.
+
 
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*
