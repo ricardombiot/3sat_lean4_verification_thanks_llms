@@ -10,6 +10,38 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (aa) — Supervivencia a `cleanInvalid`: el testigo es un conjunto, no un camino.**
+
+**El hallazgo estructural.** `cleanInvalid` reintersecta los owners con los gowners *actuales*,
+que encogen según elimina. Luego un nodo solo sigue pasando `isValidNode` si en cada paso tiene
+un owner **que también sobrevive**; iterando, el testigo debe estar cerrado bajo su propio
+soporte. Y **un camino cerrado bajo su propio soporte es `PairwiseOwned`** — de ahí que v27 y
+v41 no puedan cerrar esto: no les falta un ingrediente, les sobra la forma. Pero `isValid` pide
+un owner global por paso, no una cadena.
+
+**El teorema** (`Model/Survive.lean`, 74 módulos, cierres `[propext, Quot.sound]`):
+
+    Closed g S : gow, node, support, parent, son, coown  (ver el módulo)
+    Closed_cleanInvalidGo      : SMP g → Closed g S → Closed (cleanInvalidGo g ids) S
+    isValid_cleanInvalid_of_Closed : + cobertura de todos los pasos → isValid (cleanInvalid g)
+
+Corazón: `isValidNode_of_Closed` — cada cláusula de `isValidNode` la contesta una de `Closed`.
+La inducción reestablece las seis cláusulas en las tres suboperaciones (intersección de owners,
+`unlinkIncompatible`, `removeNode`). Diseño clave: `Closed.son` se escribe por la tabla de
+**padres**, así `SMP` la gira y el espejo inverso nunca se usa dentro del teorema.
+
+**Gratis:** `coown_of_bridge` (SMP gira el enlace de padre, el puente de v39 hace owner a los dos
+extremos) — cierre `[propext]`, sin `Quot.sound`.
+
+**El residuo:** `support` — *en cada paso, un miembro posee a un miembro*. Es `PickValid` sin
+cadenas: dice que el núcleo arco-consistente del pinchazo no se vacía.
+
+**Medido** (`extend --closed`, dos semillas): support 667.682 / **0** y 4.357.895 / **0**;
+la cláusula `son` 45.312 / **0** y 237.503 / **0** — el hueco del espejo es de formalización,
+no de matemáticas.
+
+Documento: `verificacion_inseguridad_autor_v43.md`.
+
 **2026-09-10 (z) — `SAbove` demostrado; el enhebrado completo.**
 
 **El invariante que (y) dejó nombrado** (`Model/Sons.lean`, cierre `[propext, Quot.sound]`):

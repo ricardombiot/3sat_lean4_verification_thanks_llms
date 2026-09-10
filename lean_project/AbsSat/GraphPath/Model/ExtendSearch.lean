@@ -1,6 +1,7 @@
 -- lean_project/AbsSat/GraphPath/Model/ExtendSearch.lean
 import AbsSat.GraphPath.Model.Extendable
 import AbsSat.GraphPath.Model.Pinned
+import AbsSat.GraphPath.Model.Survive
 import AbsSat.GraphPath.Model.PickInduction
 import AbsSat.GraphPath.Model.Validate
 import AbsSat.GraphPath.Model.MirrorTest
@@ -1326,6 +1327,90 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
     acc := (acc.1 + v.1, acc.2.1 + v.2.1, acc.2.2.1 + v.2.2.1,
             acc.2.2.2.1 + v.2.2.2.1, acc.2.2.2.2 + v.2.2.2.2)
   showV acc
+  pure 0
+
+-- ============================================================
+-- Is the pinned set self-supporting?
+-- ============================================================
+
+/-!
+`Survive.isValid_cleanInvalid_of_Closed` proves that a **self-supporting set**
+cannot be removed by `cleanInvalid`. For the pin at step `k` to map id `mid`,
+the natural candidate is
+
+    S = { n : n owns, at step k, a path node whose map id is mid }
+
+which is exactly what `cleanInvalid` is trying to keep. Four of `Closed`'s six
+clauses are free (`gow`, `node`, `parent`, `coown`). This counts the other two:
+
+* **support** — every member has, at every step, an owner that is a member.
+  This is the mathematical residue, and it *is* `PickValid` without chains.
+* **son** — every non-top member is the parent of a member. Free from
+  `coherent_sons` except that turning a son link round needs the mirror
+  `Sons.SMP` does not have, so it is counted too.
+-/
+
+abbrev XAcc := Nat × Nat × Nat × Nat
+
+def inSid (g : GPathM) (k : Int) (mid : NodeId) (v : PathNodeId) : Bool :=
+  match g.node? v with
+  | some m => (ownersAt m.owners k).any (fun u => u.id == mid)
+  | none => false
+
+def closedReport (g : GPathM) : XAcc :=
+  let ks := (intRange 0 (g.current_step - 1)).filter (fun k => PickInduction.choiceAt g k)
+  let picks := ks.flatMap (fun k => (ownersAt g.gowners k).map (fun q => (k, q.id)))
+  picks.foldl (fun (a : XAcc) kq =>
+    let k := kq.1
+    let mid := kq.2
+    let mem := g.nodes.filter (fun n => (ownersAt n.owners k).any (fun u => u.id == mid))
+    mem.foldl (fun (b : XAcc) n =>
+      let sup := (intRange 0 (g.current_step - 1)).foldl (fun (c : Nat × Nat) l =>
+        if (ownersAt n.owners l).any (fun v => inSid g k mid v)
+        then (c.1 + 1, c.2) else (c.1 + 1, c.2 + 1)) (0, 0)
+      let sonOk := n.id.id.step == g.current_step - 1 ||
+        mem.any (fun c => c.parents.contains n.id)
+      (b.1 + sup.1, b.2.1 + sup.2, b.2.2.1 + 1,
+       b.2.2.2 + (if sonOk then 0 else 1))) a) (0, 0, 0, 0)
+
+partial def walkClosed (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : XAcc) : XAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : XAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let x := closedReport g
+        (a.1 + x.1, a.2.1 + x.2.1, a.2.2.1 + x.2.2.1, a.2.2.2 + x.2.2.2)) acc
+    walkClosed gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showX (t : XAcc) : IO Unit := do
+  IO.println s!"  support checks (member, step)             = {t.1}"
+  IO.println s!"    no member owned there                   = {t.2.1}"
+  IO.println s!"  son checks (non-top member)               = {t.2.2.1}"
+  IO.println s!"    not the parent of any member            = {t.2.2.2}"
+
+def runRandomClosed (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- is the pinned set self-supporting: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : XAcc := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let x := walkClosed gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + x.1, acc.2.1 + x.2.1, acc.2.2.1 + x.2.2.1, acc.2.2.2 + x.2.2.2)
+  showX acc
   pure 0
 
 end AbsSat.GraphPath.Model.ExtendSearch
