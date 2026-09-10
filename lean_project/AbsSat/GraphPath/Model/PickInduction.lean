@@ -436,6 +436,102 @@ theorem Inhabited_of_descent
       exact Inhabited_of_filterAll g (hnd g hP) [q.id]
         (ih (filterAll g [q.id]) (by omega) (hPf g q.id hP hv) hv')
 
+-- ============================================================
+-- What the descent actually consumes: one good pick, not every one
+-- ============================================================
+
+/-!
+`Inhabited_of_descent` above asks for `PickValid` — **every** allowed map node
+at **every** step with a choice propagates to a valid graph. Reading its proof,
+it consumes exactly one successful pick per stage; it takes the first `k` and
+the first `q` only because that is what was convenient to write.
+
+So the honest obligation is the existential one below, which is what "the
+machine never has to backtrack" says at its weakest. It is strictly weaker than
+`PickValid`, and `Inhabited_of_pickSome` shows the descent runs on it.
+
+**Measured** (`lake exe extend --pickvalid`, 40 instances): of 63,314 allowed
+picks over 2,794 valid states with a choice left, **0** invalidate — so the ∀
+form survives too, and the weakening buys plausibility rather than a counted
+gap. It is still the smaller thing to owe.
+-/
+
+/-- Some allowed pick, at some step that still has a choice, keeps the graph
+valid. -/
+def PickSome (g : GPathM) : Prop :=
+  hasChoice g = true → ∃ k, 0 ≤ k ∧ k < g.current_step ∧ choiceAt g k = true ∧
+    ∃ q ∈ ownersAt g.gowners k, isValid (filterAll g [q.id]) = true
+
+theorem PickSome_of_PickValid (g : GPathM) (h : PickValid g) : PickSome g := by
+  intro hch
+  obtain ⟨k, hkmem, hck⟩ := List.any_eq_true.mp hch
+  obtain ⟨hklo, hkhi⟩ := intRange_bounds hkmem
+  obtain ⟨q, hq, _⟩ := List.any_eq_true.mp hck
+  exact ⟨k, hklo, by omega, hck, q, hq, h k hklo (by omega) hck q hq⟩
+
+/-- A step that still has a choice always offers, for any pick there, a rival
+global owner naming a different map node — which is what makes the filter
+strictly shrink the measure. -/
+theorem measure_lt_of_choiceAt (g : GPathM) (k : Int) (hck : choiceAt g k = true)
+    (q : PathNodeId) (hq : q ∈ ownersAt g.gowners k) :
+    measure (filterAll g [q.id]) < measure g := by
+  obtain ⟨x, hx, hx2⟩ := List.any_eq_true.mp hck
+  obtain ⟨y, hy, hne⟩ := List.any_eq_true.mp hx2
+  have hxs : x.id.step = k := eq_of_beq (List.mem_filter.mp hx).2
+  have hys : y.id.step = k := eq_of_beq (List.mem_filter.mp hy).2
+  have hqs : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+  have hxy : x.id ≠ y.id := bne_iff_ne.mp hne
+  if hxq : x.id = q.id then
+    refine measure_filterAll_lt g q.id y (List.mem_filter.mp hy).1 (by rw [hys, hqs]) ?_
+    intro h; exact hxy (hxq.trans h.symm)
+  else
+    exact measure_filterAll_lt g q.id x (List.mem_filter.mp hx).1 (by rw [hxs, hqs]) hxq
+
+/-- **Route A′, on the weaker obligation.** Identical to `Inhabited_of_descent`
+except that only *one* good pick per stage is required. -/
+theorem Inhabited_of_descent_some
+    (P : GPathM → Prop)
+    (hPf : ∀ g mid, P g → isValid g = true → P (filterAll g [mid]))
+    (hnd : ∀ g, P g → NodupIds g)
+    (hpick : ∀ g, P g → isValid g = true → PickSome g)
+    (hbase : ∀ g, P g → isValid g = true → NoChoice g →
+      AbsSat.GraphPath.Model.Inhabited g) :
+    ∀ (m : Nat) (g : GPathM), measure g ≤ m → P g → isValid g = true →
+      AbsSat.GraphPath.Model.Inhabited g := by
+  intro m
+  induction m with
+  | zero =>
+    intro g hm hP hv
+    match hch : hasChoice g with
+    | false => exact hbase g hP hv hch
+    | true =>
+      obtain ⟨k, _, _, hck, q, hq, _⟩ := hpick g hP hv hch
+      exact absurd (measure_lt_of_choiceAt g k hck q hq) (by omega)
+  | succ m ih =>
+    intro g hm hP hv
+    match hch : hasChoice g with
+    | false => exact hbase g hP hv hch
+    | true =>
+      obtain ⟨k, _, _, hck, q, hq, hv'⟩ := hpick g hP hv hch
+      have hlt := measure_lt_of_choiceAt g k hck q hq
+      exact Inhabited_of_filterAll g (hnd g hP) [q.id]
+        (ih (filterAll g [q.id]) (by omega) (hPf g q.id hP hv) hv')
+
+theorem Inhabited_of_pickSome
+    (P : GPathM → Prop)
+    (hPf : ∀ g mid, P g → isValid g = true → P (filterAll g [mid]))
+    (hnd : ∀ g, P g → NodupIds g)
+    (hpick : ∀ g, P g → isValid g = true → PickSome g)
+    (hbase : ∀ g, P g → isValid g = true → NoChoice g →
+      AbsSat.GraphPath.Model.Inhabited g)
+    (g : GPathM) (hP : P g) (hv : isValid g = true) :
+    AbsSat.GraphPath.Model.Inhabited g :=
+  Inhabited_of_descent_some P hPf hnd hpick hbase (measure g) g (Nat.le_refl _) hP hv
+
+/-- info: 'AbsSat.GraphPath.Model.PickInduction.Inhabited_of_pickSome' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Inhabited_of_pickSome
+
 /-- The same, without the explicit fuel. -/
 theorem Inhabited_of_pickValid
     (P : GPathM → Prop)

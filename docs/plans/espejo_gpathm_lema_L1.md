@@ -10,6 +10,43 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (y) — `PickValid`: obligación debilitada, riesgo localizado, y el enhebrado por debajo.**
+
+**No cerrado.** Tres avances:
+
+1. **`PickInduction.PickSome`** — la inducción de v19 consume *una* elección buena por etapa,
+   no todas. `Inhabited_of_pickSome` corre sobre la forma ∃; `measure_lt_of_choiceAt` mantiene
+   gratis el decrecimiento. `PickSome_of_PickValid` cierra la comparación.
+   Medido (`extend --pickvalid`, 40 instancias): 2.794 estados con elección, **63.314** elecciones,
+   **0** invalidan — la forma ∀ también aguanta, así que la debilitación compra tamaño, no un hueco.
+
+2. **Riesgo localizado** (`extend --sweep`, 25 instancias, 39.984 elecciones): `cleanInvalid` sola
+   deja el grafo inválido **0** veces; la review completa, **0**; las pasadas de coherencia quitan
+   nodos extra en **67** elecciones (185 nodos). `PickValid` es en la práctica un teorema sobre
+   `cleanInvalid`, la pasada que hace el trabajo del pinzado.
+
+3. **`Model/Threaded.lean`** — el ingrediente. `coherent_parents` da que si `d` posee `a`, algún
+   padre de `d` posee `a`; bajando con eso:
+
+       TPart g a sel lo hi  := PartialChain g sel lo hi  ∧  ∀ i en rango, a ∈ ownersOf g (sel i)
+       threaded_below       : ∃ sel, TPart g a sel 0 a.id.step
+
+   **Todo nodo tiene un pasado enhebrado**: un camino desde el paso 0 cuyos nodos poseen todos el
+   ancla. Un ancla común, no co-posesión por pares — estrictamente entre v27 y `PairwiseOwned`, y
+   demostrado. Ensamblado en `threaded_below_filterAll`. Módulos: 73.
+
+**El hueco, nombrado.** El ascenso por `coherent_sons` funciona pero entrega un nodo **sin paso**.
+Falta el espejo de `Parents.PBelow` para la tabla de hijos — **`SAbove`: todo hijo está un paso
+por encima** — que no sale de `Pruned` (lleva `owners ⊆` y `parents ⊆`, **no** hijos) y necesita la
+inducción operación por operación que necesitó `Sons.SMP`. Anotado en `Threaded.lean` donde iría
+`hop_up`.
+
+**Y aun con el camino completo** faltarían las dos pasadas de coherencia: para que un nodo del
+camino conserve soporte en un paso `l` cualquiera hace falta que comparta owner con su vecino *en
+ese* paso, y el ancla común solo lo da en el paso del ancla.
+
+Documento: `verificacion_inseguridad_autor_v41.md`.
+
 **2026-09-10 (x) — `PairwiseOwned` en el régimen pinzado, y el caso base de A′ descargado.**
 
 **Refutado primero:** `Pinned.OwnersTransitive` — la posesión no se propaga por los enlaces.

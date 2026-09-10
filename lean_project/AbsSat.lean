@@ -64,4 +64,5 @@ import AbsSat.GraphPath.Model.MapChain
 import AbsSat.GraphPath.Model.ParentId
 import AbsSat.GraphPath.Model.Bridge
 import AbsSat.GraphPath.Model.Pinned
+import AbsSat.GraphPath.Model.Threaded
 import AbsSat.GraphPath.Model.ExtendSearch
