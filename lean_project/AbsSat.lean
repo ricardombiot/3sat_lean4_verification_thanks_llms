@@ -1,3 +1,5 @@
+import AbsSat.Cnf.Formula
+import AbsSat.GraphMap.CnfMap
 -- lean_project/AbsSat.lean
 
 import AbsSat.GraphPath.GraphPath
