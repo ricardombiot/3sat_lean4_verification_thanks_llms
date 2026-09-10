@@ -585,11 +585,11 @@ def PinSet (g : GPathM) (k : Int) (mid : NodeId) : PathNodeId → Prop :=
 /-- **The candidate set reaches every step.** Straight from `Threaded.threaded`:
 the pinned node has a full path all of whose nodes own it. -/
 theorem pinSet_covers (g : GPathM) (tctx : Threaded.TCtx g) (q : PathNodeId) (nq : PNodeM)
-    (hq : g.node? q = some nq) (hself : q ∈ nq.owners) (h1 : 1 ≤ q.id.step)
+    (hq : g.node? q = some nq) (hself : q ∈ nq.owners) (hqlo : 0 ≤ q.id.step)
     (hqhi : q.id.step < g.current_step) :
     ∀ l, 0 ≤ l → l < g.current_step →
       ∃ p, PinSet g q.id.step q.id p ∧ p.id.step = l := by
-  obtain ⟨sel, hchain, howns⟩ := Threaded.threaded g tctx q nq hq hself h1 hqhi
+  obtain ⟨sel, hchain, howns⟩ := Threaded.threaded g tctx q nq hq hself hqlo hqhi
   intro l hlo hhi
   obtain ⟨hs, hstep⟩ := hchain.1 l hlo hhi
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hs
@@ -602,10 +602,10 @@ theorem pinSet_covers (g : GPathM) (tctx : Threaded.TCtx g) (q : PathNodeId) (nq
 the global owners, so the nodes, their owners and the step count are the same. -/
 theorem pinSet_covers_filterRequire (g : GPathM) (tctx : Threaded.TCtx g)
     (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hself : q ∈ nq.owners)
-    (h1 : 1 ≤ q.id.step) (hqhi : q.id.step < g.current_step) :
+    (hqlo : 0 ≤ q.id.step) (hqhi : q.id.step < g.current_step) :
     ∀ l, 0 ≤ l → l < (filterRequire g q.id).current_step →
       ∃ p, PinSet (filterRequire g q.id) q.id.step q.id p ∧ p.id.step = l :=
-  pinSet_covers g tctx q nq hq hself h1 hqhi
+  pinSet_covers g tctx q nq hq hself hqlo hqhi
 
 /-- info: 'AbsSat.GraphPath.Model.Survive.pinSet_covers' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -677,7 +677,7 @@ theorem Closed_PinSet (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : Nod
 hypotheses of `Closed_PinSet`. -/
 theorem isValid_cleanInvalid_pin (g : GPathM) (tctx : Threaded.TCtx g)
     (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hself : q ∈ nq.owners)
-    (h1 : 1 ≤ q.id.step) (hqhi : q.id.step < g.current_step)
+    (hqlo : 0 ≤ q.id.step) (hqhi : q.id.step < g.current_step)
     (hoos : SelfOwn.OOS g) (hrootz : Sons.RootAtZero g) (hsnn : SelfOwn.SNN g)
     (hnodegow : ∀ p n, g.node? p = some n → p ∈ g.gowners)
     (hbelow : ∀ p n, g.node? p = some n → p.id.step < g.current_step)
@@ -689,11 +689,11 @@ theorem isValid_cleanInvalid_pin (g : GPathM) (tctx : Threaded.TCtx g)
       ∃ c m, PinSet g q.id.step q.id c ∧ g.node? c = some m ∧ p ∈ m.parents) :
     isValid (cleanInvalid (filterRequire g q.id)) = true := by
   have hcl : Closed (filterRequire g q.id) (PinSet g q.id.step q.id) :=
-    Closed_PinSet g tctx q.id.step q.id rfl (by omega) hqhi hoos hrootz hsnn hnodegow hbelow
+    Closed_PinSet g tctx q.id.step q.id rfl hqlo hqhi hoos hrootz hsnn hnodegow hbelow
       hsmp hlink hsupport hson
   refine isValid_cleanInvalid_of_Core _ (Sons.SMP_filterRequire g q.id hsmp) hlink ?_
   intro l hlo hhi
-  obtain ⟨p, hp, hps⟩ := pinSet_covers_filterRequire g tctx q nq hq hself h1 hqhi l hlo hhi
+  obtain ⟨p, hp, hps⟩ := pinSet_covers_filterRequire g tctx q nq hq hself hqlo hqhi l hlo hhi
   exact ⟨p, Core_greatest _ _ hcl p hp, hps⟩
 
 /-- info: 'AbsSat.GraphPath.Model.Survive.isValid_cleanInvalid_pin' depends on axioms: [propext, Quot.sound] -/
@@ -838,5 +838,34 @@ carry the owner — so what is missing is a *choice rule*: among the descents
 from a candidate that carry the pin, one that also stays inside the candidate's
 own support.
 -/
+
+
+/-- **`PMS` discharges the `son` clause above step 0.** `Threaded.hop_up` gives
+a son that is still a candidate; `Sons.PMS` turns that son link round into the
+parent link `Closed.son` asks for. What it does not reach is a candidate at
+**step 0** with the pin somewhere else: `reviewSons` never sweeps step 0, so
+`coherent_sons` says nothing there, and the son it would need to produce is not
+constrained to stay a candidate. -/
+theorem son_of_hop_up (g : GPathM) (tctx : Threaded.TCtx g) (k : Int) (mid : NodeId)
+    (hklo : 0 ≤ k) (hkhi : k < g.current_step)
+    (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
+    (hlo : 1 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
+    ∃ c m, PinSet g k mid c ∧ g.node? c = some m ∧ p ∈ m.parents := by
+  obtain ⟨n', hn', u, hu, humid⟩ := hp
+  have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+  have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
+  obtain ⟨c, hc, m, hm, hmu, _⟩ :=
+    Threaded.hop_up g tctx p n hn hlo hhi u
+      (by rw [← hnn]; exact (List.mem_filter.mp hu).1)
+      (by rw [hus]; exact hklo) (by rw [hus]; exact hkhi)
+  refine ⟨c, m, ⟨m, hm, u, List.mem_filter.mpr ⟨hmu, beq_iff_eq.mpr hus⟩, humid⟩, hm, ?_⟩
+  have hnid : n.id = p := node?_id_eq g p n hn
+  have := tctx.pms n (List.mem_of_find?_eq_some hn) c hc m (List.mem_of_find?_eq_some hm)
+    (node?_id_eq g c m hm)
+  rwa [hnid] at this
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.son_of_hop_up' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms son_of_hop_up
 
 end AbsSat.GraphPath.Model.Survive

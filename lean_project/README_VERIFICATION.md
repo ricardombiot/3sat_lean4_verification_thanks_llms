@@ -74,6 +74,8 @@ Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above).
 
 - [v46: el residuo, acorralado por tres lados (Claude)](./verificacion_inseguridad_autor_v46.md) — dos refutaciones y una caracterización. **La versión fuerte es falsa**: no todo owner de un candidato es candidato (722.851 de 3,7 M; 1,4 M de 6,3 M en otra semilla), así que el ∃ de `support` es esencial. **El testigo obvio tampoco vale**: el descenso anclado al pinchazo se sale del soporte del nodo de partida en 6.371 de 125.528 descensos. Y lo que sí es teorema, `owner_below_on_descent`: **todo owner por debajo de un nodo está en un descenso desde él**, con el nodo en el paso del owner siendo el owner mismo (`OOS`) — lo que encierra la tabla de owners entre los padres (el puente) y los ancestros, sin que ninguna inclusión sea igualdad. El residuo queda **cierto, estrictamente existencial y sin construcción**: lo que falta es una *regla de elección*.
 
+- [v47: el espejo inverso, y con él dos huecos cerrados (Claude)](./verificacion_inseguridad_autor_v47.md) — **`SN`** (los hijos son nodos) y **`PMS`** (si `s` es hijo de `n`, `n` es padre de `s`), demostrados para toda la máquina. Toda la mitad de poda de `PMS` —`unlinkIncompatible` incluido— es el **calco literal** de `SMP` con `parents`/`sons` intercambiados y compiló entera sin tocar una línea: eso es tu arreglo del bug, que hizo el desenlace simétrico. Con `PMS` caen los dos agujeros que dependían de él: **`threaded` pierde la hipótesis `1 ≤ a.id.step`** (todo nodo, sin excepciones, está en un camino completo que lo posee entero) y **la cláusula `son` deja de ser hipótesis por encima del paso 0**.
+
 
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*

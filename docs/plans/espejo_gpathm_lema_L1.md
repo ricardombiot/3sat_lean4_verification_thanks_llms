@@ -10,6 +10,32 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (ae) — El espejo inverso (`SN`, `PMS`), y los dos huecos que cerraba.**
+
+    SN  h := ∀ n ∈ h.nodes, ∀ s ∈ n.sons, HasNode h s
+    PMS h := ∀ n ∈ h.nodes, ∀ s ∈ n.sons, ∀ m ∈ h.nodes, m.id = s → n.id ∈ m.parents
+    SN_reachable, PMS_reachable  (cierres [propext, Quot.sound])
+
+**Nota de método.** Toda la mitad de poda de `PMS` —`updateAt`, `removeNode`,
+`unlinkIncompatible`, `cleanInvalidGo`, `reviewNode`, las barridas, el fuel, `filterAll`— es el
+calco literal de las demostraciones de `SMP` con `parents`/`sons` intercambiados, y compiló
+entera sin retoques. Eso **es** el arreglo del autor: `unlinkIncompatible` desenlaza por los dos
+lados con los mismos owners decidiendo, luego la demostración es simétrica bajo el intercambio.
+Solo `addNode` —la única operación que crea enlaces— hubo que escribirla a mano.
+
+**Hueco 1 cerrado.** `Threaded.hop_up_zero`: un hijo del nodo del ancla tiene al ancla entre sus
+padres (`PMS`), el puente lo hace owner y `SAbove` pone el paso. Luego **`threaded` pierde
+`1 ≤ a.id.step`**: todo nodo está en un camino completo 0→cima cuyos nodos lo poseen todos. Y
+`Survive.pinSet_covers` deja de tener salvedad (cubría el 95,1 % de las elecciones; ahora todas).
+
+**Hueco 2 cerrado.** `Survive.son_of_hop_up`: `hop_up` da un hijo candidato y `PMS` gira el
+enlace, produciendo el enlace de padre que `Closed.son` pide — **para pasos ≥ 1**. Queda fuera
+un candidato en el paso 0 con el pinchazo en otro paso.
+
+**Sigue abierto:** `support` a distancia ≥ 2 (0 de 3.473.942), y con él `CoreCovers`/`PickValid`.
+
+`lake exe diffTest 200`: 200/200. Documento: `verificacion_inseguridad_autor_v47.md`.
+
 **2026-09-10 (ad) — `support` a distancia ≥ 2: dos refutaciones y una caracterización.**
 
 **Refutado 1 — `Survive.PinSetDownClosed`** (todo owner de un candidato es candidato). Habría

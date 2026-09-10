@@ -144,6 +144,8 @@ structure TCtx (g : GPathM) : Prop where
               ∀ d, g.node? id = some d →
                 intersectOwners d.owners (unionOwnersOf g d.sons) = d.owners
   sabove  : Sons.SAbove g
+  sn      : Sons.SN g
+  pms     : Sons.PMS g
   ownerNode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners,
                 0 ≤ q.id.step → q.id.step < g.current_step → (g.node? q).isSome = true
 
@@ -242,6 +244,40 @@ theorem hop_up (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
   · exact absurd hnil List.not_mem_nil
   · refine ⟨c, hcmem, m, hm, hmown, ?_⟩
     have := ctx.sabove d hmem c hcmem; rw [hid] at this; exact this
+
+/-- **The first hop, from step 0** — the one `coherent_sons` cannot make,
+because `reviewSons` never sweeps step 0. `Sons.PMS` makes it instead: a son of
+the anchor's own node has the anchor among its **parents**, and v39's bridge
+turns a parent into an owner. `Sons.SAbove` supplies the step.
+
+This is what v42 said was missing, and it is why `threaded` below no longer
+needs `1 ≤ a.id.step`. -/
+theorem hop_up_zero (g : GPathM) (ctx : TCtx g) (a : PathNodeId) (n : PNodeM)
+    (hn : g.node? a = some n) (hz : a.id.step = 0) (hpos : 1 < g.current_step) :
+    ∃ c m, g.node? c = some m ∧ a ∈ m.owners ∧ c.id.step = 1 := by
+  have hmem : n ∈ g.nodes := List.mem_of_find?_eq_some hn
+  have hid : n.id = a := node?_id_eq g a n hn
+  have hlast : ¬ (n.id.id.step = g.current_step - 1) := by
+    intro hc
+    rw [hid] at hc
+    omega
+  have hson := sons_ne_nil_of_isValidNode g n (ctx.nodeval a n hn) hlast
+  obtain ⟨c, rest, hcons⟩ : ∃ c rest, n.sons = c :: rest := by
+    cases hl : n.sons with
+    | nil => exact absurd hl hson
+    | cons x xs => exact ⟨x, xs, rfl⟩
+  have hcmem : c ∈ n.sons := by rw [hcons]; exact List.mem_cons_self ..
+  obtain ⟨m0, hm0, hm0id⟩ := ctx.sn n hmem c hcmem
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g c).mp ⟨m0, hm0, hm0id⟩)
+  have hmmem : m ∈ g.nodes := List.mem_of_find?_eq_some hm
+  have hmid : m.id = c := node?_id_eq g c m hm
+  have hpar : a ∈ m.parents := by
+    have := ctx.pms n hmem c hcmem m hmmem hmid
+    rwa [hid] at this
+  refine ⟨c, m, hm, (ctx.links c m hm).1 a hpar, ?_⟩
+  have hsa := ctx.sabove n hmem c hcmem
+  rw [hid] at hsa
+  omega
 
 /-- **Climb to the top.** Iterating `hop_up`: from an owner-carrying node above
 step 0 there is one at the very top. Only existence is claimed — the *linked*
@@ -377,6 +413,8 @@ theorem tctx_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable req
   cpar := (Certifies.arcConsistent_filterAll reqOf g reqs hreach hv).coherent_parents
   cson := (Certifies.arcConsistent_filterAll reqOf g reqs hreach hv).coherent_sons
   sabove := Sons.SAbove_reachable_filterAll reqOf g reqs hreach
+  sn := Sons.SN_reachable_filterAll reqOf g reqs hreach
+  pms := Sons.PMS_reachable_filterAll reqOf g reqs hreach
   ownerNode := fun pid n hn q hq hlo hhi =>
     Candidates.owner_is_node _ hv
       (GownersNodes.GN_filterAll g reqs (GownersNodes.GN_reachable reqOf g hreach))
@@ -417,12 +455,21 @@ different invariant from `Sons.SAbove` and would take the induction
 `Sons.SMP` took. -/
 theorem threaded (g : GPathM) (ctx : TCtx g) (a : PathNodeId) (n : PNodeM)
     (hn : g.node? a = some n) (hself : a ∈ n.owners)
-    (h1 : 1 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
+    (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
     ∃ sel, IsChain g sel ∧
       ∀ i, 0 ≤ i → i < g.current_step → a ∈ ownersOf g (sel i) := by
-  obtain ⟨t, nt, hnt, htstep, htown⟩ :=
-    climb g ctx a (by omega) hahi (g.current_step - 1 - a.id.step).toNat a.id.step
-      (Nat.le_refl _) h1 hahi a n hn rfl hself
+  obtain ⟨t, nt, hnt, htstep, htown⟩ :
+      ∃ t nt, g.node? t = some nt ∧ t.id.step = g.current_step - 1 ∧ a ∈ nt.owners := by
+    if hz : a.id.step = 0 then
+      if htp : (0 : Int) = g.current_step - 1 then
+        exact ⟨a, n, hn, by rw [hz]; exact htp, hself⟩
+      else
+        obtain ⟨c, m, hm, hmu, hcs⟩ := hop_up_zero g ctx a n hn hz (by omega)
+        exact climb g ctx a halo hahi (g.current_step - 1 - 1).toNat 1
+          (Nat.le_refl _) (Int.le_refl _) (by omega) c m hm hcs hmu
+    else
+      exact climb g ctx a halo hahi (g.current_step - 1 - a.id.step).toNat a.id.step
+        (Nat.le_refl _) (by omega) hahi a n hn rfl hself
   have hseed : TPart g a (fun _ => t) (g.current_step - 1) (g.current_step - 1) := by
     refine ⟨⟨?_, ?_⟩, ?_⟩
     · intro i hi1 hi2
@@ -445,12 +492,12 @@ theorem threaded (g : GPathM) (ctx : TCtx g) (a : PathNodeId) (n : PNodeM)
 theorem threaded_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable reqOf g)
     (hv : isValid (filterAll g reqs) = true)
     (a : PathNodeId) (n : PNodeM) (hn : (filterAll g reqs).node? a = some n)
-    (h1 : 1 ≤ a.id.step) (hahi : a.id.step < (filterAll g reqs).current_step) :
+    (halo : 0 ≤ a.id.step) (hahi : a.id.step < (filterAll g reqs).current_step) :
     ∃ sel, IsChain (filterAll g reqs) sel ∧
       ∀ i, 0 ≤ i → i < (filterAll g reqs).current_step →
         a ∈ ownersOf (filterAll g reqs) (sel i) :=
   threaded _ (tctx_filterAll reqOf g reqs hreach hv) a n hn
-    (SelfOwn.SelfOwned_filterAll reqOf g reqs hreach hv a n hn) h1 hahi
+    (SelfOwn.SelfOwned_filterAll reqOf g reqs hreach hv a n hn) halo hahi
 
 /-- info: 'AbsSat.GraphPath.Model.Threaded.threaded_filterAll' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
