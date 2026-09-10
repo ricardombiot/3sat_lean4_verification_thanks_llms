@@ -354,6 +354,251 @@ theorem SMP_join (g₁ g₂ : GPathM) (hp₁ : Parents.PN g₁) (hp₂ : Parents
       exact h₂ q hq p hqp m' hm'mem hmid
 
 -- ============================================================
+-- `SAbove`: the son table's mirror of `Parents.PBelow`
+-- ============================================================
+
+/-!
+`Parents.PBelow` — every parent sits one step below — comes free from `Pruned`,
+because `Pruned` carries a `parents ⊆` clause. Its mirror does **not**: there
+is no sons clause in `Pruned`, so "every son sits one step above" needs the
+same per-operation induction `SMP` needed.
+
+v41 named this as the one thing missing from `Threaded.hop_up`, and therefore
+from the full threading theorem. Here it is.
+
+The work is lighter than `SMP`'s because `SAbove` is *local* — it relates a
+node to its own sons — so every pruning operation is covered by one lemma:
+sons only shrink and ids never change (`SonsSub`). Only `addNode` says
+anything new, and what it says is the whole content: the son it hands out is
+the node one step up.
+-/
+
+/-- Every son of a node sits exactly one step above it. -/
+def SAbove (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ s ∈ n.sons, s.id.step = n.id.id.step + 1
+
+/-- What every pruning operation does to the son table: ids fixed, sons only
+shrink. This is the clause `Pruned` is missing. -/
+def SonsSub (g g' : GPathM) : Prop :=
+  ∀ n' ∈ g'.nodes, ∃ n ∈ g.nodes, n'.id = n.id ∧ ∀ s ∈ n'.sons, s ∈ n.sons
+
+theorem SAbove_of_SonsSub {g g' : GPathM} (hs : SonsSub g g') (h : SAbove g) : SAbove g' := by
+  intro n' hn' s hs'
+  obtain ⟨n, hn, hid, hsub⟩ := hs n' hn'
+  rw [hid]
+  exact h n hn s (hsub s hs')
+
+theorem SonsSub_refl (g : GPathM) : SonsSub g g := fun n hn => ⟨n, hn, rfl, fun _ h => h⟩
+
+theorem SonsSub_trans {a b c : GPathM} (h1 : SonsSub a b) (h2 : SonsSub b c) : SonsSub a c := by
+  intro n hn
+  obtain ⟨m, hm, hid, hsub⟩ := h2 n hn
+  obtain ⟨k, hk, hid2, hsub2⟩ := h1 m hm
+  exact ⟨k, hk, hid.trans hid2, fun s hs => hsub2 s (hsub s hs)⟩
+
+theorem SonsSub_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hid : ∀ n, (f n).id = n.id) (hson : ∀ n, ∀ s ∈ (f n).sons, s ∈ n.sons) :
+    SonsSub g (updateAt g id f) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  refine ⟨n, hn, ?_, ?_⟩
+  · rw [← hEq]; cases n.id == id with | true => exact hid n | false => rfl
+  · rw [← hEq]
+    cases n.id == id with
+    | true => exact hson n
+    | false => intro s hs; exact hs
+
+theorem SonsSub_removeNode (g : GPathM) (id : PathNodeId) :
+    SonsSub g (removeNode g id) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  refine ⟨n, (List.mem_filter.mp hn).1, by rw [← hEq], ?_⟩
+  rw [← hEq]
+  intro s hs
+  exact (List.mem_filter.mp hs).1
+
+theorem SonsSub_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    SonsSub g (unlinkIncompatible g id) := by
+  cases hn : g.node? id with
+  | none => simpa [GPathM.unlinkIncompatible, hn] using SonsSub_refl g
+  | some n₀ =>
+    intro n' hn'
+    have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n₀ id) := by
+      simp only [GPathM.unlinkIncompatible, hn]
+    rw [hshape] at hn'
+    obtain ⟨n, hnmem, hnEq⟩ := List.mem_map.mp hn'
+    refine ⟨n, hnmem, by rw [← hnEq]; exact unlinkMap_id n₀ id n, ?_⟩
+    rw [← hnEq]
+    unfold GPathM.unlinkMap
+    split
+    · intro s hs; exact (List.mem_filter.mp hs).1
+    · split
+      · intro s hs; exact hs
+      · intro s hs; exact (List.mem_filter.mp hs).1
+
+theorem SAbove_filterRequire (g : GPathM) (req : NodeId) (h : SAbove g) :
+    SAbove (filterRequire g req) := h
+
+theorem SAbove_owners_updateAt (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (h : SAbove g) :
+    SAbove (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) :=
+  SAbove_of_SonsSub (SonsSub_updateAt g id _ (fun _ => rfl) (fun _ _ hs => hs)) h
+
+theorem SAbove_removeNode (g : GPathM) (id : PathNodeId) (h : SAbove g) :
+    SAbove (removeNode g id) :=
+  SAbove_of_SonsSub (SonsSub_removeNode g id) h
+
+theorem SAbove_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : SAbove g) :
+    SAbove (unlinkIncompatible g id) :=
+  SAbove_of_SonsSub (SonsSub_unlinkIncompatible g id) h
+
+theorem SAbove_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, SAbove g → SAbove (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ := SAbove_owners_updateAt g id g.gowners h
+      have h₂ := SAbove_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (SAbove_removeNode _ id h₂)
+
+theorem SAbove_cleanInvalid (g : GPathM) (h : SAbove g) : SAbove (cleanInvalid g) :=
+  SAbove_cleanInvalidGo _ g h
+
+theorem SAbove_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
+    (h : SAbove g) : SAbove (reviewNode g nb id) := by
+  simp only [reviewNode]
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h₁ := SAbove_owners_updateAt g id (unionOwnersOf g (nb d)) h
+      have h₂ := SAbove_unlinkIncompatible _ id h₁
+      split
+      · exact h₂
+      · exact SAbove_removeNode _ id h₂
+    · exact SAbove_removeNode g id h
+
+private theorem SAbove_foldl {β : Type} (f : GPathM → β → GPathM)
+    (hf : ∀ g b, SAbove g → SAbove (f g b)) :
+    ∀ (l : List β) (g : GPathM), SAbove g → SAbove (l.foldl f g) := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b bs ih => intro g h; simp only [List.foldl_cons]; exact ih _ (hf g b h)
+
+theorem SAbove_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM)
+    (h : SAbove g) : SAbove (reviewLine g nb k) :=
+  SAbove_foldl (fun g id => reviewNode g nb id) (fun g id => SAbove_reviewNode nb id g) _ g h
+
+theorem SAbove_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, SAbove g → SAbove (reviewSteps g nb ks) := by
+  induction ks with
+  | nil => intro g h; exact h
+  | cons k ks ih =>
+    intro g h
+    simp only [reviewSteps]
+    split
+    · exact ih _ (SAbove_reviewLine nb k g h)
+    · exact h
+
+theorem SAbove_reviewPass (g : GPathM) (h : SAbove g) : SAbove (reviewPass g) := by
+  simp only [reviewPass]
+  exact SAbove_reviewSteps _ _ _ (SAbove_reviewSteps _ _ _ (SAbove_cleanInvalid g h))
+
+theorem SAbove_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SAbove g → SAbove (reviewFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuel]
+    split
+    · split
+      · exact ih _ (SAbove_reviewPass g h)
+      · exact SAbove_reviewPass g h
+    · exact h
+
+theorem SAbove_review (g : GPathM) (h : SAbove g) : SAbove (review g) := SAbove_reviewFuel _ g h
+
+theorem SAbove_filterAll (g : GPathM) (reqs : List NodeId) (h : SAbove g) :
+    SAbove (filterAll g reqs) :=
+  SAbove_review _ (SAbove_foldl filterRequire (fun g r => SAbove_filterRequire g r) reqs g h)
+
+/-- **The only operation with anything to say.** `addNode` hands the new node
+out as a son to exactly the line one step below it — that is `upSons`' guard —
+so the son it creates sits one step above its new parent. -/
+theorem SAbove_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (h : SAbove g) : SAbove (addNode g d title) := by
+  intro n' hn' s hs
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
+    rw [hni]
+    rw [← hEq] at hs
+    simp only [upMap, addOwner, upSons] at hs
+    split at hs
+    · next hc =>
+      rcases List.mem_append.mp hs with h1 | h1
+      · exact h n hn s h1
+      · rcases List.mem_singleton.mp h1 with rfl
+        have hline : n.id ∈ newParents g := List.elem_iff.mp hc
+        unfold newParents at hline
+        split at hline
+        · have hstep := Parents.mem_line_step g (g.current_step - 1) n.id hline
+          show d.step = n.id.id.step + 1
+          rw [hstep, hd]; omega
+        · exact absurd hline List.not_mem_nil
+    · exact h n hn s hs
+  · rcases List.mem_singleton.mp hmem with rfl
+    have hnil : (addOwner (newPid g d) (upNode g d title)).sons = [] := rfl
+    rw [hnil] at hs
+    exact absurd hs List.not_mem_nil
+
+theorem SAbove_up (g : GPathM) (d : NodeId) (title : String) (hd : d.step = g.current_step)
+    (h : SAbove g) : SAbove (up g d title) := by
+  simp only [GPathM.up]
+  split
+  · exact SAbove_addNode g d title hd h
+  · exact h
+
+theorem SAbove_initSeed (d : NodeId) (title : String) : SAbove (GPathM.initSeed d title) := by
+  intro n hn s hs
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  exact absurd hs List.not_mem_nil
+
+theorem SAbove_join (g₁ g₂ : GPathM) (h₁ : SAbove g₁) (h₂ : SAbove g₂) :
+    SAbove (join g₁ g₂) := by
+  intro n' hn' s hs
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    cases hg : g₂.node? n.id with
+    | none => rw [← hEq, hg] at hs ⊢; exact h₁ n hn s hs
+    | some m =>
+      rw [← hEq, hg] at hs ⊢
+      have hson : (mergeNode n m).sons =
+          n.sons ++ m.sons.filter (fun x => !n.sons.contains x) := rfl
+      rw [hson, List.mem_append] at hs
+      have hmid : m.id = n.id := node?_id_eq g₂ n.id m hg
+      show s.id.step = (mergeNode n m).id.id.step + 1
+      have hidm : (mergeNode n m).id = n.id := rfl
+      rw [hidm]
+      rcases hs with hs | hs
+      · exact h₁ n hn s hs
+      · have := h₂ m (List.mem_of_find?_eq_some hg) s (List.mem_filter.mp hs).1
+        rw [hmid] at this; exact this
+  · exact h₂ n' (List.mem_filter.mp hmem).1 s hs
+
+-- ============================================================
 -- `root_shape`: the mirror of `Parents.NotRoot`
 -- ============================================================
 
@@ -444,6 +689,24 @@ theorem RootAtZero_reachable (g : GPathM) (h : Reachable reqOf g) : RootAtZero g
 theorem RootAtZero_reachable_filterAll (g : GPathM) (reqs : List NodeId)
     (h : Reachable reqOf g) : RootAtZero (filterAll g reqs) :=
   RootAtZero_of_pruned (pruned_filterAll g reqs) (RootAtZero_reachable reqOf g h)
+
+/-- **Every son sits one step above, in every state the machine builds.** -/
+theorem SAbove_reachable (g : GPathM) (h : Reachable reqOf g) : SAbove g := by
+  induction h with
+  | seed d title _ _ => exact SAbove_initSeed d title
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    exact SAbove_up _ d title (by rw [hpr.step_eq]; exact hstep)
+      (SAbove_filterAll g (reqOf d) ih)
+  | join g₁ g₂ _ _ _ ih₁ ih₂ => exact SAbove_join g₁ g₂ ih₁ ih₂
+
+theorem SAbove_reachable_filterAll (g : GPathM) (reqs : List NodeId)
+    (h : Reachable reqOf g) : SAbove (filterAll g reqs) :=
+  SAbove_filterAll g reqs (SAbove_reachable reqOf g h)
+
+/-- info: 'AbsSat.GraphPath.Model.Sons.SAbove_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms SAbove_reachable
 
 -- ============================================================
 -- The two `ChainSound` fields

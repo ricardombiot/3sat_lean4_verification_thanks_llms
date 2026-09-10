@@ -1188,15 +1188,16 @@ states have **no** good pick at all.
 
 /-- `(states with a choice, states with no good pick, picks, picks that
 invalidate)`. -/
-abbrev KAcc := Nat × Nat × Nat × Nat
+abbrev KAcc := Nat × Nat × Nat × Nat × Nat
 
 def pickReport (g : GPathM) : KAcc :=
   let ks := (intRange 0 (g.current_step - 1)).filter (fun k => PickInduction.choiceAt g k)
-  if ks.isEmpty then (0, 0, 0, 0)
+  if ks.isEmpty then (0, 0, 0, 0, 0)
   else
     let picks := ks.flatMap (fun k => ownersAt g.gowners k)
     let good := picks.filter (fun q => isValid (filterAll g [q.id]))
-    (1, if good.isEmpty then 1 else 0, picks.length, picks.length - good.length)
+    let atZero := (picks.filter (fun q => q.id.step == 0)).length
+    (1, if good.isEmpty then 1 else 0, picks.length, picks.length - good.length, atZero)
 
 partial def walkPick (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : KAcc) : KAcc :=
   if fuel = 0 || line.isEmpty then acc
@@ -1205,25 +1206,27 @@ partial def walkPick (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : KAcc)
       let g := kv.2
       if !isValid g then a else
         let p := pickReport g
-        (a.1 + p.1, a.2.1 + p.2.1, a.2.2.1 + p.2.2.1, a.2.2.2 + p.2.2.2)) acc
+        (a.1 + p.1, a.2.1 + p.2.1, a.2.2.1 + p.2.2.1, a.2.2.2.1 + p.2.2.2.1,
+         a.2.2.2.2 + p.2.2.2.2)) acc
     walkPick gmap (mirrorAdvance gmap line) (fuel - 1) acc
 
 def showP (t : KAcc) : IO Unit := do
   IO.println s!"  valid states with a choice left           = {t.1}"
   IO.println s!"    of those, NO pick keeps validity (∃)    = {t.2.1}"
   IO.println s!"  individual allowed picks                  = {t.2.2.1}"
-  IO.println s!"    of those, pick invalidates (∀)          = {t.2.2.2}"
+  IO.println s!"    of those, pick invalidates (∀)          = {t.2.2.2.1}"
+  IO.println s!"  picks at step 0 (outside the threading)    = {t.2.2.2.2}"
 
 def reportPick (path : String) : IO Unit := do
   let gmap ← load_import! path
   IO.println s!"{path}"
-  showP (walkPick gmap (mirrorInit gmap) 1000 (0, 0, 0, 0))
+  showP (walkPick gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0))
 
 def runRandomPick (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
   IO.println s!"--- PickValid (∀) vs PickSome (∃): cases={cases} seed={seed} \
 vars={nvMin}..{nvMin + nvSpan - 1} ---"
   let mut rng := Rng.ofSeed seed
-  let mut acc : KAcc := (0, 0, 0, 0)
+  let mut acc : KAcc := (0, 0, 0, 0, 0)
   for idx in [0:cases] do
     let (rng1, nv) := rng.below nvSpan
     let nVars := nvMin + nv
@@ -1238,8 +1241,9 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
     rng := rng3
     IO.FS.writeFile "extend_tmp.cnf" cnf
     let gmap ← load_import! "extend_tmp.cnf"
-    let t := walkPick gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
-    acc := (acc.1 + t.1, acc.2.1 + t.2.1, acc.2.2.1 + t.2.2.1, acc.2.2.2 + t.2.2.2)
+    let t := walkPick gmap (mirrorInit gmap) 1000 (0, 0, 0, 0, 0)
+    acc := (acc.1 + t.1, acc.2.1 + t.2.1, acc.2.2.1 + t.2.2.1, acc.2.2.2.1 + t.2.2.2.1,
+            acc.2.2.2.2 + t.2.2.2.2)
   showP acc
   pure 0
 

@@ -10,6 +10,42 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (z) — `SAbove` demostrado; el enhebrado completo.**
+
+**El invariante que (y) dejó nombrado** (`Model/Sons.lean`, cierre `[propext, Quot.sound]`):
+
+    SAbove h := ∀ n ∈ h.nodes, ∀ s ∈ n.sons, s.id.step = n.id.id.step + 1
+    SAbove_reachable : Reachable reqOf g → SAbove g
+
+Más barato que `SMP` porque `SAbove` es **local**. Un solo lema cubre toda la poda:
+
+    SonsSub g g' := ∀ n' ∈ g'.nodes, ∃ n ∈ g.nodes, n'.id = n.id ∧ ∀ s ∈ n'.sons, s ∈ n.sons
+    SAbove_of_SonsSub : SonsSub g g' → SAbove g → SAbove g'
+
+`updateAt`, `removeNode`, `unlinkIncompatible`, `filterRequire` son `SonsSub`; el resto de la
+review se compone. La única operación con contenido es `addNode`: la guarda de `upSons` reparte
+el nodo nuevo justo a la línea de un paso por debajo.
+
+**El enhebrado completo** (`Model/Threaded.lean`):
+
+    threaded : 1 ≤ a.id.step → ∃ sel, IsChain g sel ∧ ∀ i en rango, a ∈ ownersOf g (sel i)
+    threaded_filterAll : lo mismo sobre los estados de la máquina
+
+Dos mitades con ingredientes distintos: **subir** con `coherent_sons` + `SAbove` (solo
+existencia, sin enlaces — así se esquiva el espejo hijos→padres, que no tenemos), y **bajar**
+con `coherent_parents`, que sí da el enlace que `IsChain` pide.
+
+**Fuera: el paso 0.** `reviewSons` barre `1 .. current_step-2`, nunca el 0, así que
+`coherent_sons` calla ahí y `climb` no puede arrancar. Medido (`extend --pickvalid`):
+**3.090 de 63.314** elecciones permitidas están en el paso 0 — 4,9 %. Cerrarlo pide extender la
+barrida (toca el ejecutable) o el otro espejo de la tabla de hijos (invariante distinto de
+`SAbove`, con la inducción que necesitó `SMP`).
+
+**Y aun con eso**, tener el camino no es `PickValid`: falta la inducción sobre `cleanInvalidGo`
+que demuestre que el camino **sobrevive** a la poda tras el pinchazo. No está escrita.
+
+Documento: `verificacion_inseguridad_autor_v42.md`.
+
 **2026-09-10 (y) — `PickValid`: obligación debilitada, riesgo localizado, y el enhebrado por debajo.**
 
 **No cerrado.** Tres avances:

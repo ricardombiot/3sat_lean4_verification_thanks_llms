@@ -10,25 +10,34 @@ v27 built a path (`exists_isChain`) and said nothing about ownership. v40
 closed `PairwiseOwned` only where the state is pinned. Between the two there is
 a statement that the arc-consistency clauses actually pay for:
 
-> For every surviving node `a`, there is a path from step 0 to the top **every
-> node of which owns `a`**.
+> For every surviving node `a` above step 0, there is a path from step 0 to the
+> top **every node of which owns `a`**.
 
 Not pairwise co-ownership — a single common anchor. That is much weaker than
 `PairwiseOwned`, and unlike it, it follows from what `review`'s fixpoint
 already enforces:
 
 * `coherent_parents` says `d.owners ⊆ ⋃ owners of d's parents`, so if `d` owns
-  `a` then **some parent of `d` owns `a`**. That is the descent.
-* `coherent_sons` says the same through the sons. That is the ascent, for the
-  steps that sweep covers.
-* At step 0, which `reviewSons` never sweeps, the ascent comes from v39's
-  bridge instead: a son of `a`'s own node has `a` as a parent, and every parent
-  is an owner.
+  `a` then **some parent of `d` owns `a`**. That is the descent, and it is what
+  supplies the parent links of the path.
+* `coherent_sons` says the same through the sons, and `Sons.SAbove` — every son
+  sits one step above — turns that into a climb by step number. Only existence
+  is needed here; the links come from the descent afterwards.
+
+So the construction is: climb from `a` to the top, then descend from there.
+
+**What is still out of reach: step 0.** `reviewSons` sweeps steps
+`1 .. current_step-2`, so `coherent_sons` is silent at step 0 and the climb
+cannot start there — hence the hypothesis `1 ≤ a.id.step` on `threaded`.
+Closing it needs either that sweep extended, or the *other* son-table mirror
+(every son has the node as one of its parents), which is a different invariant
+from `SAbove` and would take the induction `Sons.SMP` took. Measured cost:
+`lake exe extend --pickvalid`, **3,090 of 63,314** allowed picks sit at step 0.
 
 The measurement that makes this the right target: `lake exe extend --sweep`,
 39,984 allowed picks, **`cleanInvalid` alone never leaves the graph invalid**,
 and the coherence sweeps remove extra nodes in only 67 of them. So `PickValid`
-is carried by the sweep that the anchor survives.
+is carried by the sweep the anchor survives.
 -/
 
 namespace AbsSat.GraphPath.Model.Threaded
@@ -134,6 +143,9 @@ structure TCtx (g : GPathM) : Prop where
   cson    : ∀ k ∈ intRange 1 (g.current_step - 2), ∀ id ∈ ((g.line k).map (·.id)),
               ∀ d, g.node? id = some d →
                 intersectOwners d.owners (unionOwnersOf g d.sons) = d.owners
+  sabove  : Sons.SAbove g
+  ownerNode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners,
+                0 ≤ q.id.step → q.id.step < g.current_step → (g.node? q).isSome = true
 
 theorem sons_ne_nil_of_isValidNode (g : GPathM) (n : PNodeM)
     (h : isValidNode g n = true) (hlast : ¬ (n.id.id.step = g.current_step - 1)) :
@@ -192,17 +204,66 @@ theorem hop_down (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
   · exact absurd hnil List.not_mem_nil
   · exact hres
 
-/-!
-**Why there is no `hop_up` here.** The mirror argument through `coherent_sons`
-works — if `d` owns `a`, some son of `d` has a node that owns `a` — but it
-delivers a node without a *step*. To turn it into "there is a node at step
-`j+1` owning `a`" one needs the mirror of `Parents.PBelow` for the son table:
-*every son sits one step above*. That invariant does not exist yet, and unlike
-`PBelow` it cannot be had for free: `Pruned` carries an `owners ⊆` clause and a
-`parents ⊆` clause but **no sons clause**, so it needs the per-operation
-induction `Sons.SMP` needed. That, and only that, stands between this module
-and the full threading theorem — a path from step 0 to the *top*.
--/
+/-- **Up.** The mirror of `hop_down` through `coherent_sons`: if `d` owns `a`,
+some son of `d` — a node one step above, by `Sons.SAbove` — owns `a` too.
+
+`SAbove` is what v41 said was missing here, and it is now a theorem
+(`Sons.SAbove_reachable`). What remains out of reach is only step 0:
+`reviewSons` sweeps steps `1 .. current_step-2`, so `coherent_sons` says
+nothing at step 0, and the hypothesis `1 ≤ p.id.step` below is not removable
+by this argument. -/
+theorem hop_up (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
+    (hd : g.node? p = some d) (hlo : 1 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2)
+    (a : PathNodeId) (ha : a ∈ d.owners)
+    (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
+    ∃ c ∈ d.sons, ∃ m, g.node? c = some m ∧ a ∈ m.owners ∧ c.id.step = p.id.step + 1 := by
+  have hmem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hid : d.id = p := node?_id_eq g p d hd
+  have hson := sons_ne_nil_of_isValidNode g d (ctx.nodeval p d hd) (by rw [hid]; omega)
+  obtain ⟨c₀, rest, hcons⟩ : ∃ c rest, d.sons = c :: rest := by
+    cases hl : d.sons with
+    | nil => exact absurd hl hson
+    | cons x xs => exact ⟨x, xs, rfl⟩
+  have hc₀mem : c₀ ∈ d.sons := by rw [hcons]; exact List.mem_cons_self ..
+  -- a witness son, so the union has an entry at `a`'s step
+  have hstep₀ : c₀.id.step = p.id.step + 1 := by
+    have := ctx.sabove d hmem c₀ hc₀mem; rw [hid] at this; exact this
+  have hc₀own : c₀ ∈ d.owners := (ctx.links p d hd).2 c₀ hc₀mem
+  obtain ⟨m₀, hm₀⟩ := Option.isSome_iff_exists.mp
+    (ctx.ownerNode p d hd c₀ hc₀own (by rw [hstep₀]; omega) (by rw [hstep₀]; omega))
+  have hentry : hasStepEntry (unionOwnersOf g d.sons) a.id.step = true :=
+    hasStepEntry_union g d.sons c₀ m₀ hc₀mem hm₀ a.id.step
+      (List.all_eq_true.mp (owners_ok_of_isValidNode g m₀ (ctx.nodeval c₀ m₀ hm₀))
+        a.id.step (mem_intRange halo (by omega)))
+  have hfix := ctx.cson p.id.step (mem_intRange hlo (by omega))
+    p (mem_line_of_node? g p d hd) d hd
+  have hin := mem_union_of_coherent g d d.sons hfix a ha hentry
+  rcases exists_of_mem_union g d.sons [] a hin with hnil | ⟨c, hcmem, m, hm, hmown⟩
+  · exact absurd hnil List.not_mem_nil
+  · refine ⟨c, hcmem, m, hm, hmown, ?_⟩
+    have := ctx.sabove d hmem c hcmem; rw [hid] at this; exact this
+
+/-- **Climb to the top.** Iterating `hop_up`: from an owner-carrying node above
+step 0 there is one at the very top. Only existence is claimed — the *linked*
+path is built afterwards, by descending. -/
+theorem climb (g : GPathM) (ctx : TCtx g) (a : PathNodeId)
+    (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
+    ∀ (fuel : Nat) (j : Int), (g.current_step - 1 - j).toNat ≤ fuel → 1 ≤ j →
+      j < g.current_step → ∀ p n, g.node? p = some n → p.id.step = j → a ∈ n.owners →
+      ∃ p' n', g.node? p' = some n' ∧ p'.id.step = g.current_step - 1 ∧ a ∈ n'.owners := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro j hf _ hjhi p n hn hps ha
+    exact ⟨p, n, hn, by omega, ha⟩
+  | succ fuel ih =>
+    intro j hf hjlo hjhi p n hn hps ha
+    if htop : j = g.current_step - 1 then
+      exact ⟨p, n, hn, by omega, ha⟩
+    else
+      obtain ⟨c, _, m, hm, hmown, hcstep⟩ :=
+        hop_up g ctx p n hn (by omega) (by omega) a ha halo hahi
+      exact ih (j + 1) (by omega) (by omega) (by omega) c m hm (by omega) hmown
 
 -- ============================================================
 -- The descent: a full path below the anchor, all of it owning the anchor
@@ -313,6 +374,11 @@ theorem tctx_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable req
   links := Bridge.linksInOwners_filterAll g reqs hv
   cpar := (Certifies.arcConsistent_filterAll reqOf g reqs hreach hv).coherent_parents
   cson := (Certifies.arcConsistent_filterAll reqOf g reqs hreach hv).coherent_sons
+  sabove := Sons.SAbove_reachable_filterAll reqOf g reqs hreach
+  ownerNode := fun pid n hn q hq hlo hhi =>
+    Candidates.owner_is_node _ hv
+      (GownersNodes.GN_filterAll g reqs (GownersNodes.GN_reachable reqOf g hreach))
+      pid n hn q hq hlo hhi
 
 /-- **Every node of a state the machine holds has a threaded past.** The
 self-ownership comes from v30, so the anchor really is on its own path. -/
@@ -327,5 +393,65 @@ theorem threaded_below_filterAll (g : GPathM) (reqs : List NodeId)
 /-- info: 'AbsSat.GraphPath.Model.Threaded.threaded_below_filterAll' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms threaded_below_filterAll
+
+
+-- ============================================================
+-- The full threading theorem
+-- ============================================================
+
+/-- **Every node above step 0 lies on a full path that owns it.** Climb to the
+top with `hop_up`, then descend with `hop_down`: the descent is what supplies
+the parent links, and both directions preserve the anchor.
+
+This is the statement v41 was one invariant short of. What it is *not* is
+`PairwiseOwned`: the path's nodes all own `a`, and say nothing about owning
+each other.
+
+The hypothesis `1 ≤ a.id.step` is the one thing left. `reviewSons` sweeps
+steps `1 .. current_step-2`, so `coherent_sons` is silent at step 0 and the
+climb cannot start there. Closing it needs either that sweep extended, or the
+*other* son-table mirror — every son has the node as a parent — which is a
+different invariant from `Sons.SAbove` and would take the induction
+`Sons.SMP` took. -/
+theorem threaded (g : GPathM) (ctx : TCtx g) (a : PathNodeId) (n : PNodeM)
+    (hn : g.node? a = some n) (hself : a ∈ n.owners)
+    (h1 : 1 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
+    ∃ sel, IsChain g sel ∧
+      ∀ i, 0 ≤ i → i < g.current_step → a ∈ ownersOf g (sel i) := by
+  obtain ⟨t, nt, hnt, htstep, htown⟩ :=
+    climb g ctx a (by omega) hahi (g.current_step - 1 - a.id.step).toNat a.id.step
+      (Nat.le_refl _) h1 hahi a n hn rfl hself
+  have hseed : TPart g a (fun _ => t) (g.current_step - 1) (g.current_step - 1) := by
+    refine ⟨⟨?_, ?_⟩, ?_⟩
+    · intro i hi1 hi2
+      have : i = g.current_step - 1 := by omega
+      subst this
+      exact ⟨Option.isSome_iff_exists.mpr ⟨nt, hnt⟩, htstep⟩
+    · intro i hi1 hi2; omega
+    · intro i hi1 hi2
+      have : i = g.current_step - 1 := by omega
+      subst this
+      simpa only [ownersOf, hnt] using htown
+  obtain ⟨sel, hpc⟩ :=
+    descend_T g ctx a (by omega) hahi (g.current_step - 1).toNat (fun _ => t)
+      (g.current_step - 1) (g.current_step - 1) (Nat.le_refl _) (by omega) (Int.le_refl _)
+      (by omega) hseed
+  exact ⟨sel, isChain_of_partial g sel hpc.chain,
+    fun i hi1 hi2 => hpc.owns i hi1 (by omega)⟩
+
+/-- The same on the machine's own states. -/
+theorem threaded_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable reqOf g)
+    (hv : isValid (filterAll g reqs) = true)
+    (a : PathNodeId) (n : PNodeM) (hn : (filterAll g reqs).node? a = some n)
+    (h1 : 1 ≤ a.id.step) (hahi : a.id.step < (filterAll g reqs).current_step) :
+    ∃ sel, IsChain (filterAll g reqs) sel ∧
+      ∀ i, 0 ≤ i → i < (filterAll g reqs).current_step →
+        a ∈ ownersOf (filterAll g reqs) (sel i) :=
+  threaded _ (tctx_filterAll reqOf g reqs hreach hv) a n hn
+    (SelfOwn.SelfOwned_filterAll reqOf g reqs hreach hv a n hn) h1 hahi
+
+/-- info: 'AbsSat.GraphPath.Model.Threaded.threaded_filterAll' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms threaded_filterAll
 
 end AbsSat.GraphPath.Model.Threaded
