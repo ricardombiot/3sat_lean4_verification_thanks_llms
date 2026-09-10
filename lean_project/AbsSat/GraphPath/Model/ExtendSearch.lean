@@ -1762,4 +1762,502 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showZ acc
   pure 0
 
+
+-- ============================================================
+-- Is ownership symmetric at a review fixpoint?
+-- ============================================================
+
+/-!
+`--randomowners` reports **185 symmetry violations in 116,330 nodes** — almost
+symmetric, but not symmetric. That "almost" is worth resolving, because
+symmetry is the one property that would flip `Threaded.threaded`.
+
+`threaded a` gives a full chain **all of whose nodes own `a`**. The residue
+`Survive.Closed.support` asks for the opposite direction: at every step, `a`
+has an *owner* there (which is also pinned). With symmetry the two are the same
+statement, and the chain `threaded` already builds is the witness.
+
+So: where do the 185 live? Three splits, each of which would make symmetry a
+*conditional* theorem rather than a false one:
+
+* **after `review`** — if `review` removes them, symmetry is a fixpoint
+  property, provable from the arc-consistency clauses, and the residue is
+  reached at a fixpoint anyway (`filterAll = review ∘ filterRequire`);
+* **linked pairs** — those are already covered by v39's bridge, so a violation
+  there would be a different bug;
+* **distance** — a violation only at distance ≥ 2 puts symmetry in exactly the
+  same place as the rest of the residue.
+-/
+
+structure SymAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  viol : Nat := 0
+  violAfter : Nat := 0
+  linked : Nat := 0
+  far : Nat := 0
+  atZero : Nat := 0
+
+def addSym (a b : SymAcc) : SymAcc :=
+  { states := a.states + b.states, nodes := a.nodes + b.nodes,
+    viol := a.viol + b.viol, violAfter := a.violAfter + b.violAfter,
+    linked := a.linked + b.linked, far := a.far + b.far,
+    atZero := a.atZero + b.atZero }
+
+/-- One state: raw violations split by link, distance and step 0, plus the
+count that survives another `review`. -/
+def symReport (g : GPathM) : SymAcc :=
+  let base : SymAcc :=
+    g.nodes.foldl (fun (a : SymAcc) n =>
+      n.owners.foldl (fun (b : SymAcc) q =>
+        match g.node? q with
+        | some m =>
+          if m.owners.contains n.id then b
+          else
+            let d := n.id.id.step - q.id.step
+            { b with
+              viol := b.viol + 1,
+              linked := b.linked + (if n.parents.contains q || n.sons.contains q then 1 else 0),
+              far := b.far + (if d == 1 || d == -1 then 0 else 1),
+              atZero := b.atZero + (if n.id.id.step == 0 || q.id.step == 0 then 1 else 0) }
+        | none => b) a) {}
+  { base with states := 1, nodes := g.nodes.length, violAfter := symViolations (review g) }
+
+partial def walkSym (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : SymAcc) : SymAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : SymAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addSym a (symReport g)) acc
+    walkSym gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showSym (t : SymAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  nodes                                     = {t.nodes}"
+  IO.println s!"  symmetry violations                       = {t.viol}"
+  IO.println s!"    of those, on a linked pair              = {t.linked}"
+  IO.println s!"    of those, at distance >= 2              = {t.far}"
+  IO.println s!"    of those, touching step 0               = {t.atZero}"
+  IO.println s!"  symmetry violations AFTER another review  = {t.violAfter}"
+
+def runRandomSym (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- symmetry of ownership: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : SymAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addSym acc (walkSym gmap (mirrorInit gmap) 1000 {})
+  showSym acc
+  pure 0
+
+-- ============================================================
+-- Is the chain that `threaded` builds pairwise-owned?
+-- ============================================================
+
+/-!
+Symmetry is dead (`--randomsym`: 185 violations, **all** at distance >= 2, none
+on a linked pair, and another `review` removes none of them). So `threaded`
+cannot be flipped, and the residue has to be attacked where `threaded` already
+stands.
+
+`Threaded.threaded` gives, for every node `a`, a **full chain all of whose
+nodes own `a`** — built by climbing with `hop_up` and descending with
+`hop_down`. What it explicitly does *not* say is that those nodes own **each
+other**, which is what `PairwiseOwned` (and hence `Inhabited`, and hence the
+verdict) needs.
+
+So the question this measures is the constructive one:
+
+> Is the chain `threaded` builds already pairwise-owned?
+
+If it is, the target stops being an existential over all selections and becomes
+an **invariant of the climb**: strengthen `hop_up` / `hop_down` to carry
+pairwise ownership, exactly as `SMP` was mirrored into `PMS`. If it is not, the
+counterexamples say at what distance it first breaks.
+
+The climb here is the greedy executable analogue of the proof's: at each step
+take the *first* son (parent) that owns the anchor.
+-/
+
+def hopUpOne (g : GPathM) (a : PathNodeId) (cur : PathNodeId) : Option PathNodeId :=
+  match g.node? cur with
+  | none => none
+  | some n => n.sons.find? (fun c =>
+      c.id.step == cur.id.step + 1 &&
+      (match g.node? c with
+       | some m => m.owners.contains a
+       | none => false))
+
+def hopDownOne (g : GPathM) (a : PathNodeId) (cur : PathNodeId) : Option PathNodeId :=
+  match g.node? cur with
+  | none => none
+  | some n => n.parents.find? (fun c =>
+      c.id.step + 1 == cur.id.step &&
+      (match g.node? c with
+       | some m => m.owners.contains a
+       | none => false))
+
+partial def climbTo (g : GPathM) (a cur : PathNodeId) (top : Int) (acc : List PathNodeId)
+    : Option (List PathNodeId) :=
+  if cur.id.step ≥ top then some acc.reverse
+  else
+    match hopUpOne g a cur with
+    | none => none
+    | some c => climbTo g a c top (c :: acc)
+
+partial def diveTo (g : GPathM) (a cur : PathNodeId) (acc : List PathNodeId)
+    : Option (List PathNodeId) :=
+  if cur.id.step ≤ 0 then some acc
+  else
+    match hopDownOne g a cur with
+    | none => none
+    | some c => diveTo g a c (c :: acc)
+
+/-- The threaded chain through `a`: descend to step 0, climb to the top. -/
+def threadOf (g : GPathM) (a : PathNodeId) : Option (List PathNodeId) :=
+  match diveTo g a a [], climbTo g a a (g.current_step - 1) [] with
+  | some lo, some hi => some (lo ++ [a] ++ hi)
+  | _, _ => none
+
+/-- Pairs of the chain that fail to own each other, and the smallest step
+distance at which that happens. -/
+def ownFailures (g : GPathM) (ch : List PathNodeId) : Nat × Int :=
+  ch.foldl (fun (a : Nat × Int) p =>
+    match g.node? p with
+    | none => (a.1 + ch.length, a.2)
+    | some n =>
+      ch.foldl (fun (b : Nat × Int) q =>
+        if p == q then b
+        else if n.owners.contains q then b
+        else
+          let d := if p.id.step ≥ q.id.step then p.id.step - q.id.step else q.id.step - p.id.step
+          (b.1 + 1, if b.2 == 0 || d < b.2 then d else b.2)) a) (0, 0)
+
+structure ThAcc where
+  states : Nat := 0
+  anchors : Nat := 0
+  stuck : Nat := 0
+  built : Nat := 0
+  pairwise : Nat := 0
+  badPairs : Nat := 0
+  minDist : Int := 0
+
+def addTh (a b : ThAcc) : ThAcc :=
+  { states := a.states + b.states, anchors := a.anchors + b.anchors,
+    stuck := a.stuck + b.stuck, built := a.built + b.built,
+    pairwise := a.pairwise + b.pairwise, badPairs := a.badPairs + b.badPairs,
+    minDist := if a.minDist == 0 then b.minDist
+               else if b.minDist == 0 then a.minDist
+               else if a.minDist < b.minDist then a.minDist else b.minDist }
+
+def threadReport (g : GPathM) : ThAcc :=
+  g.nodes.foldl (fun (a : ThAcc) n =>
+    if !n.owners.contains n.id then a
+    else
+      match threadOf g n.id with
+      | none =>
+        addTh a { anchors := 1, stuck := 1 }
+      | some ch =>
+        let bd := ownFailures g ch
+        addTh a { anchors := 1, built := 1,
+                  pairwise := (if bd.1 == 0 then 1 else 0),
+                  badPairs := bd.1, minDist := bd.2 })
+    { states := 1 }
+
+partial def walkThread (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : ThAcc) : ThAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : ThAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addTh a (threadReport g)) acc
+    walkThread gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showTh (t : ThAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  anchors (self-owning nodes)               = {t.anchors}"
+  IO.println s!"    greedy climb/dive got stuck             = {t.stuck}"
+  IO.println s!"    full chain built                        = {t.built}"
+  IO.println s!"      of those, PAIRWISE OWNED              = {t.pairwise}"
+  IO.println s!"      of those, NOT pairwise owned          = {t.built - t.pairwise}"
+  IO.println s!"  failing (p,q) pairs in built chains       = {t.badPairs}"
+  IO.println s!"  smallest step distance of a failing pair  = {t.minDist}"
+
+def runRandomThread (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- is the threaded chain pairwise-owned? cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : ThAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addTh acc (walkThread gmap (mirrorInit gmap) 1000 {})
+  showTh acc
+  pure 0
+
+-- ============================================================
+-- When greedy fails, does *any* chain work? (`SupportedAt`, measured)
+-- ============================================================
+
+/-!
+`--randomthread` says the greedy threaded chain is pairwise-owned **7,558 of
+7,586** times, and that the failures start at step distance 4. But
+`Verdict.SupportedAt` is an *existential*: it only asks that **some** chain
+through the node be pairwise-owned. So the failures above are failures of the
+greedy rule, not of the statement.
+
+This mode settles which. For every anchor whose greedy chain is not pairwise
+owned, it runs a depth-first search over all chains through that anchor,
+keeping only candidates that own — and are owned by — the anchor and every
+pick so far, and linked parent -> son. Three outcomes:
+
+* **found** — the greedy rule is what fails, and the proof needs a better
+  choice rule (the `--read` finding says propagation is that rule);
+* **exhausted** — the budget ran out, no conclusion;
+* **none** — a node of a valid state that lies on no pairwise-owned chain.
+  That is a **counterexample to `Supported`**: a zombie.
+-/
+
+def compatWith (g : GPathM) (chosen : List PathNodeId) (c : PathNodeId) : Bool :=
+  match g.node? c with
+  | none => false
+  | some m => chosen.all (fun p =>
+      m.owners.contains p &&
+      (match g.node? p with | some n => n.owners.contains c | none => false))
+
+/-- `(chain, budget left)`; `budget = 0` on return means the search was cut. -/
+partial def dfsChain (g : GPathM) (a : PathNodeId) (k top : Int)
+    (chosen : List PathNodeId) (prev : Option PathNodeId) (budget : Nat)
+    : Option (List PathNodeId) × Nat :=
+  if budget == 0 then (none, 0)
+  else if k > top then (some chosen.reverse, budget)
+  else
+    let raw := if k == a.id.step then [a] else (g.line k).map (·.id)
+    let cands := raw.filter (fun c =>
+      (match prev with
+       | none => true
+       | some p => match g.node? c with
+                   | some m => m.parents.contains p
+                   | none => false)
+      && compatWith g (a :: chosen) c)
+    cands.foldl (fun (acc : Option (List PathNodeId) × Nat) c =>
+      match acc.1 with
+      | some _ => acc
+      | none =>
+        if acc.2 == 0 then acc
+        else dfsChain g a (k + 1) top (c :: chosen) (some c) (acc.2 - 1)) (none, budget)
+
+structure SupAcc where
+  states : Nat := 0
+  anchors : Nat := 0
+  greedyOk : Nat := 0
+  dfsFound : Nat := 0
+  dfsCut : Nat := 0
+  dfsNone : Nat := 0
+
+def addSup (a b : SupAcc) : SupAcc :=
+  { states := a.states + b.states, anchors := a.anchors + b.anchors,
+    greedyOk := a.greedyOk + b.greedyOk, dfsFound := a.dfsFound + b.dfsFound,
+    dfsCut := a.dfsCut + b.dfsCut, dfsNone := a.dfsNone + b.dfsNone }
+
+def supReport (g : GPathM) (budget : Nat) : SupAcc :=
+  g.nodes.foldl (fun (a : SupAcc) n =>
+    if !n.owners.contains n.id then a
+    else
+      let greedy :=
+        match threadOf g n.id with
+        | none => false
+        | some ch => (ownFailures g ch).1 == 0
+      if greedy then addSup a { anchors := 1, greedyOk := 1 }
+      else
+        let r := dfsChain g n.id 0 (g.current_step - 1) [] none budget
+        match r.1 with
+        | some _ => addSup a { anchors := 1, dfsFound := 1 }
+        | none =>
+          if r.2 == 0 then addSup a { anchors := 1, dfsCut := 1 }
+          else addSup a { anchors := 1, dfsNone := 1 })
+    { states := 1 }
+
+partial def walkSup (gmap : GMap) (line : MirrorLine) (fuel budget : Nat)
+    (acc : SupAcc) : SupAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : SupAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addSup a (supReport g budget)) acc
+    walkSup gmap (mirrorAdvance gmap line) (fuel - 1) budget acc
+
+def showSup (t : SupAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  anchors                                   = {t.anchors}"
+  IO.println s!"    greedy chain already pairwise owned     = {t.greedyOk}"
+  IO.println s!"    greedy failed, SEARCH FOUND a chain     = {t.dfsFound}"
+  IO.println s!"    greedy failed, search budget exhausted  = {t.dfsCut}"
+  IO.println s!"    greedy failed, NO chain exists (zombie) = {t.dfsNone}"
+
+def runRandomSup (cases seed nvMin nvSpan budget : Nat) : IO UInt32 := do
+  IO.println s!"--- SupportedAt by search: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} budget={budget} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : SupAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addSup acc (walkSup gmap (mirrorInit gmap) 1000 budget {})
+  showSup acc
+  pure 0
+
+-- ============================================================
+-- Greedy *with history*: is a one-step rule enough?
+-- ============================================================
+
+/-!
+The greedy climb of `--randomthread` only asks that the next node own the
+**anchor**. The search of `--randomsup` shows a good chain always exists. In
+between sits the rule a proof would most like to have: greedy that also keeps
+compatibility with everything already picked, and **never backtracks**.
+
+If that rule never gets stuck, the target is a one-step invariant — the shape
+`hop_up` already has, and the shape an induction can carry. If it does get
+stuck, backtracking is essential and the proof has to go through propagation
+(`--read`), which is `PickValid` again.
+-/
+
+def hopUpH (g : GPathM) (hist : List PathNodeId) (cur : PathNodeId) : Option PathNodeId :=
+  match g.node? cur with
+  | none => none
+  | some n => n.sons.find? (fun c =>
+      c.id.step == cur.id.step + 1 && compatWith g hist c)
+
+def hopDownH (g : GPathM) (hist : List PathNodeId) (cur : PathNodeId) : Option PathNodeId :=
+  match g.node? cur with
+  | none => none
+  | some n => n.parents.find? (fun c =>
+      c.id.step + 1 == cur.id.step && compatWith g hist c)
+
+partial def climbH (g : GPathM) (hist : List PathNodeId) (cur : PathNodeId) (top : Int)
+    (acc : List PathNodeId) : Option (List PathNodeId) :=
+  if cur.id.step ≥ top then some acc.reverse
+  else
+    match hopUpH g hist cur with
+    | none => none
+    | some c => climbH g (c :: hist) c top (c :: acc)
+
+partial def diveH (g : GPathM) (hist : List PathNodeId) (cur : PathNodeId)
+    (acc : List PathNodeId) : Option (List PathNodeId) :=
+  if cur.id.step ≤ 0 then some acc
+  else
+    match hopDownH g hist cur with
+    | none => none
+    | some c => diveH g (c :: hist) c (c :: acc)
+
+structure HAcc where
+  states : Nat := 0
+  anchors : Nat := 0
+  stuckDown : Nat := 0
+  stuckUp : Nat := 0
+  built : Nat := 0
+  pairwise : Nat := 0
+  topAnchors : Nat := 0
+  topBuilt : Nat := 0
+
+def addH (a b : HAcc) : HAcc :=
+  { states := a.states + b.states, anchors := a.anchors + b.anchors,
+    stuckDown := a.stuckDown + b.stuckDown, stuckUp := a.stuckUp + b.stuckUp,
+    built := a.built + b.built, pairwise := a.pairwise + b.pairwise,
+    topAnchors := a.topAnchors + b.topAnchors, topBuilt := a.topBuilt + b.topBuilt }
+
+def histReport (g : GPathM) : HAcc :=
+  g.nodes.foldl (fun (a : HAcc) n =>
+    if !n.owners.contains n.id then a
+    else
+      let isTop := n.id.id.step == g.current_step - 1
+      let top := if isTop then 1 else 0
+      match diveH g [n.id] n.id [] with
+      | none => addH a { anchors := 1, stuckDown := 1, topAnchors := top }
+      | some lo =>
+        match climbH g (n.id :: lo) n.id (g.current_step - 1) [] with
+        | none => addH a { anchors := 1, stuckUp := 1, topAnchors := top }
+        | some hi =>
+          let ch := lo ++ [n.id] ++ hi
+          addH a { anchors := 1, built := 1,
+                   pairwise := (if (ownFailures g ch).1 == 0 then 1 else 0),
+                   topAnchors := top, topBuilt := top })
+    { states := 1 }
+
+partial def walkHist (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : HAcc) : HAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : HAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addH a (histReport g)) acc
+    walkHist gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showH (t : HAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  anchors                                   = {t.anchors}"
+  IO.println s!"    stuck on the way DOWN                   = {t.stuckDown}"
+  IO.println s!"    stuck on the way UP                     = {t.stuckUp}"
+  IO.println s!"    full chain built                        = {t.built}"
+  IO.println s!"      of those, pairwise owned              = {t.pairwise}"
+  IO.println s!"  anchors at the TOP step                   = {t.topAnchors}"
+  IO.println s!"    of those, full pairwise-owned chain     = {t.topBuilt}"
+
+def runRandomHist (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- greedy with history: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : HAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addH acc (walkHist gmap (mirrorInit gmap) 1000 {})
+  showH acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

@@ -125,6 +125,31 @@ def main (args : List String) : IO UInt32 := do
     for path in rest do
       AbsSat.GraphPath.Model.ExtendSearch.reportOwners path
     return 0
+  | "--randomhist" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 10
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 4
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomHist cases seed nvMin nvSpan
+  | "--randomsup" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 8
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 3
+    let budget := (rest[4]?.bind (·.toNat?)).getD 20000
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomSup cases seed nvMin nvSpan budget
+  | "--randomthread" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 10
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 4
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomThread cases seed nvMin nvSpan
+  | "--randomsym" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 40
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 5
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomSym cases seed nvMin nvSpan
   | "--randomowners" :: rest =>
     let cases := (rest[0]?.bind (·.toNat?)).getD 50
     let seed := (rest[1]?.bind (·.toNat?)).getD 2026

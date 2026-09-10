@@ -10,6 +10,37 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (al) — Ruta C atacada por medición: el residuo se reduce al descenso.**
+
+Cuatro modos nuevos en `ExtendSearch.lean` / `ExtendMain.lean`, todos `IO` y sin teoremas:
+
+`--randomsym` — simetría de la propiedad, partida por enlace / distancia / paso 0 / tras otro
+`review`. **185 violaciones en 116.330 nodos, todas a distancia ≥ 2, ninguna en par enlazado, y
+`review` no elimina ninguna.** La simetría es falsa y no es propiedad de punto fijo: la vía de
+voltear `Threaded.threaded` (que da una cadena cuyos nodos poseen el ancla, cuando el residuo pide
+lo contrario) queda cerrada.
+
+`--randomthread` — construye ejecutablemente la cadena de `threaded` (goloso: primer hijo/padre que
+posee el ancla) y comprueba `PairwiseOwned`. Nunca se atasca; co-poseída en 54.947 de 55.838.
+
+`--randomsup` — para cada ancla que falla, DFS sobre todas las cadenas por ella (enlace padre→hijo
++ posesión mutua con el ancla y con lo elegido). **891 recuperadas, 0 presupuestos agotados,
+0 zombis en 55.838 anclas** (2.375 estados válidos, semillas 2026/31337/4242). Primera medición
+directa de `SupportedAt` sobre mapas de CNF reales; `l6search` solo cubría sintéticos.
+
+`--randomhist` — goloso **con historia** (compatibilidad con todo lo ya elegido, sin backtracking).
+Fallos: de 891 a **7**. **Bajando: 0 atascos en 55.838.** Los siete son todos subiendo — coherente
+con que la máquina construya hacia arriba. Y separando las anclas del paso alto: **3.719/3.719**.
+
+Consecuencia, usando que `Verdict.lean` solo necesita `SupportedAt` en **un** nodo: el objetivo
+abierto pasa de `Supported` a **`DownH`** — «en un punto fijo de `review`, un nodo con paso > 0
+tiene un padre mutuamente poseído con toda la historia» — local, de un paso, universal, una sola
+dirección, y con la forma que `Threaded.hop_down` ya tiene demostrada para el ancla sola.
+
+Informe: `verificacion_inseguridad_autor_v54.md`.
+
+---
+
 **2026-09-11 (ak) — El bucle del driver conserva la rama: teorema.**
 
 La contabilidad que (aj) dejó nombrada, cerrada. En `Model/PureDriver.lean`: `StateOk` (clave en
