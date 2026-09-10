@@ -10,6 +10,40 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (af) — Estudio: el paso 0 y la barrida de hijos (pregunta del autor).**
+
+**Origen de los rangos.** El espejo copia al ejecutable y este a Julia:
+`review_owners_parents_sons!` barre `1:S-1`, `review_owners_sons_parents!` barre `S-2:-1:1`.
+Tres cotas están forzadas (el paso 0 no tiene padres; la cima no tiene hijos; la cima sí tiene
+padres). **La cuarta —la inferior de la pasada de hijos— no**: un nodo del paso 0 sí tiene hijos.
+Forma de cota copiada del otro bucle.
+
+**No es fallo de corrección.** La omisión solo agranda `owners`, luego nunca invalida de más y no
+puede dar un UNSAT falso. Medido (`extend --zerosons`): de 3.292 nodos del paso 0, **3** perderían
+owners (15 entradas) y **0** quedarían inválidos; segunda semilla, 7.333 → **51** (317 entradas),
+**0** inválidos. Poda perdida, no error de veredicto.
+
+**Impacto en la demostración, probado aplicándolo.** Con `reviewSons` sobre
+`intRange 0 (current_step - 2)` la reconstrucción de los 74 módulos rompe **exactamente tres
+anotaciones de rango** (`GPathM.reviewSons`, `Fuel.review_owners_coherent_sons` ×2,
+`ArcConsistent.coherent_sons`) y **ninguna demostración**. La razón: el lado de la preservación
+**ya estaba demostrado para el paso 0** — `ChainSound_reviewLine_sons` pide `0 ≤ k` y
+`ChainSound_reviewSteps_sons` pide `∀ k ∈ ks, 0 ≤ k ∧ k+1 < cs`.
+
+Se gana: `Threaded.hop_up`, `Survive.support_above` y **`Survive.son_of_hop_up`** pierden
+`1 ≤ p.id.step` — y lo último **cierra el hueco de (ae)**, dejando `Closed_PinSet` con una sola
+hipótesis. Además las dos cláusulas de arco-consistencia quedan simétricas.
+No se gana: el residuo `support` a distancia ≥ 2 no se mueve (mismas 3.473.942 comprobaciones).
+
+**Comportamiento:** `diffTest` (ejecutable + espejo + fuerza bruta) 150/150 y 400/400 con el
+espejo extendido.
+
+**Revertido.** Aplicarlo de verdad toca el ejecutable (y el original en Julia); dejar solo el
+espejo podando más rompería el contrato de F6. Decisión del autor; las ediciones exactas están
+en el documento.
+
+Documento: `verificacion_inseguridad_autor_v48.md`.
+
 **2026-09-10 (ae) — El espejo inverso (`SN`, `PMS`), y los dos huecos que cerraba.**
 
     SN  h := ∀ n ∈ h.nodes, ∀ s ∈ n.sons, HasNode h s

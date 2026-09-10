@@ -1685,4 +1685,81 @@ seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showE acc
   pure 0
 
+-- ============================================================
+-- What the sons sweep never looks at: step 0
+-- ============================================================
+
+/-!
+`reviewParents` sweeps steps `1 .. current_step-1` and `reviewSons` sweeps
+`current_step-2 .. 1` — the ranges of Julia's
+`review_owners_parents_sons!` / `review_owners_sons_parents!`, copied
+faithfully into the executable and into the mirror.
+
+Three of the four bounds are forced:
+
+* parents, lower bound 1 — a step-0 node **has no parents**, so the union is
+  empty and the pass is a no-op there;
+* parents, upper bound `current_step-1` — that is the top, and it has parents;
+* sons, upper bound `current_step-2` — the top has **no sons**, no-op again.
+
+The fourth is not. A step-0 node **does** have sons, so `reviewSons`' lower
+bound of 1 skips a line the pass would actually act on. It has the shape of a
+bound copied from the other loop without re-deriving it.
+
+This counts what that skipped line would have pruned: step-0 nodes whose owners
+are **not** already inside the union of their sons' owners, and how many owner
+entries the sweep would remove.
+-/
+
+abbrev ZAcc := Nat × Nat × Nat × Nat
+
+def zeroSonsReport (g : GPathM) : ZAcc :=
+  (g.line 0).foldl (fun (a : ZAcc) n =>
+    let uni := unionOwnersOf g n.sons
+    let after := intersectOwners n.owners uni
+    let dropped := n.owners.length - after.length
+    let stillOk := (intRange 0 (g.current_step - 1)).all (fun l => hasStepEntry after l)
+    (a.1 + 1, a.2.1 + (if dropped > 0 then 1 else 0), a.2.2.1 + dropped,
+     a.2.2.2 + (if stillOk then 0 else 1))) (0, 0, 0, 0)
+
+partial def walkZero (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : ZAcc) : ZAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : ZAcc) kv =>
+      let g := kv.2
+      if !isValid g || g.current_step < 2 then a else
+        let z := zeroSonsReport g
+        (a.1 + z.1, a.2.1 + z.2.1, a.2.2.1 + z.2.2.1, a.2.2.2 + z.2.2.2)) acc
+    walkZero gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showZ (t : ZAcc) : IO Unit := do
+  IO.println s!"  step-0 nodes in valid states              = {t.1}"
+  IO.println s!"    would lose owners to a sons sweep       = {t.2.1}"
+  IO.println s!"    owner entries the sweep would remove    = {t.2.2.1}"
+  IO.println s!"    would be invalidated by the sweep       = {t.2.2.2}"
+
+def runRandomZero (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- what a step-0 sons sweep would prune: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : ZAcc := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let z := walkZero gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + z.1, acc.2.1 + z.2.1, acc.2.2.1 + z.2.2.1, acc.2.2.2 + z.2.2.2)
+  showZ acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch
