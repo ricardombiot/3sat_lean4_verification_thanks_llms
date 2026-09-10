@@ -10,6 +10,41 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-10 (x) — `PairwiseOwned` en el régimen pinzado, y el caso base de A′ descargado.**
+
+**Refutado primero:** `Pinned.OwnersTransitive` — la posesión no se propaga por los enlaces.
+`extend --randomtrans`, 20 instancias: global 2.950.784 / 22.521.728; bajando (q padre de n,
+r owner de q por debajo) **15.240 / 420.078**; subiendo (q hijo de n) **18.919 / 416.403**.
+Era la vía natural que abría `Bridge.linksInOwners_review`; queda cerrada.
+
+**La ruta que sí cierra** (`Model/Pinned.lean`, 72 módulos, cierres `[propext, Quot.sound]`):
+
+    PinnedAt h k    := ∀ q r ∈ ownersAt h.gowners k, q.id = r.id
+    FullyPinned h   := ∀ k en rango, PinnedAt h k
+
+    pid_unique                  : FullyPinned → un solo PathNodeId por paso
+    pairwiseOwned_of_fullyPinned: FullyPinned → IsChain → PairwiseOwned
+
+Dos clavos fijan un `PathNodeId`: el **id de mapa** (el filtro pinza `gowners`, la review
+intersecta, `SelfOwned` mete el id propio del nodo en la intersección) y el **`parent_id`**
+(`PMP`: nombra el id de mapa de los padres, que viven en el paso de abajo, también pinzado).
+Con un solo candidato por paso, la co-posesión no se demuestra: no hay otra cosa que el owner
+pueda ser.
+
+**Y eso es el caso base de la ruta A′.** `PickInduction.NoChoice` desplegado *es* `FullyPinned`
+escrito con `Bool`; ambos sentidos demostrados (`fullyPinned_of_noChoice`,
+`noChoice_of_fullyPinned`). De ahí `inhabited_of_noChoice_filterAll`, con el camino puesto por
+`PathExists.exists_isChain`. El `hbase` que v19 dejó pendiente queda **descargado**; a
+`Inhabited_of_pickValid` le queda solo `PickValid`.
+
+**No vacío** (`extend --nochoice`, dos semillas): 1.284 de 4.835 y 2.685 de 15.362 estados
+válidos son `NoChoice`; en **los 3.969** el paso más ancho tiene exactamente **1** id distinto,
+que es lo que `pid_unique` predice.
+
+**Sigue abierto:** `PairwiseOwned` fuera del régimen pinzado, y `PickValid`.
+
+Documento: `verificacion_inseguridad_autor_v40.md`.
+
 **2026-09-10 (w) — El puente, demostrado; el espejo migrado.**
 
 **El teorema** (`Model/Bridge.lean`, cierre `[propext, Quot.sound]`):

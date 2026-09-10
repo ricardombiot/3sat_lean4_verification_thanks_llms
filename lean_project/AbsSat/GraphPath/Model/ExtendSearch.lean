@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/ExtendSearch.lean
 import AbsSat.GraphPath.Model.Extendable
+import AbsSat.GraphPath.Model.Pinned
 import AbsSat.GraphPath.Model.PickInduction
 import AbsSat.GraphPath.Model.Validate
 import AbsSat.GraphPath.Model.MirrorTest
@@ -991,6 +992,177 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"  nodes holding a stale parent (a parent that is not an owner) = {acc.1}"
   IO.println s!"  consecutive pairs on requirement-satisfying chains = {acc.2.1}"
   IO.println s!"  of those, parent NOT an owner = {acc.2.2}"
+  pure 0
+
+-- ============================================================
+-- Is ownership transitive?
+-- ============================================================
+
+/-!
+`Bridge.linksInOwners_review` closes the **adjacent** pairs of `PairwiseOwned`
+in both directions: on a chain `sel k` is a parent of `sel (k+1)` and
+`sel (k+1)` is a son of `sel k`, and every parent and every son is now an
+owner. What is left is the non-adjacent pairs — and a single property closes
+them all by induction along the chain:
+
+    OwnersTransitive : q ∈ n.owners → r ∈ (node? q).owners → r ∈ n.owners
+
+Walk down from `sel j`: its parent `sel (j-1)` is an owner, the induction
+hypothesis puts `sel i` in *that* node's owners, and transitivity carries it
+back up. The same argument upward through the sons.
+
+Before the author's fix this was implausible for a stated reason — a node kept
+structural predecessors that propagation had already ruled out, so "owns every
+ancestor" would have been claiming ownership of pruned-away history. After the
+fix the parents table is clean, so the ancestors reachable through it are
+exactly the compatible ones. That changes the prior, and makes it worth
+measuring.
+
+Two forms are counted, because they are not the same statement:
+
+* **global** — over every node and every owner of it.
+* **on the sons/parents link** — the instance the chain induction actually
+  uses: `q` a parent (or son) of `n`.
+-/
+
+/-- `(pairs checked, violations, link pairs checked, link violations)`. -/
+abbrev TAcc := Nat × Nat × Nat × Nat
+
+def transCountNode (g : GPathM) (n : PNodeM) : TAcc :=
+  n.owners.foldl (fun (a : TAcc) q =>
+    if q == n.id then a else
+    match g.node? q with
+    | none => a
+    | some qn =>
+      let isPar := n.parents.contains q
+      let isSon := n.sons.contains q
+      qn.owners.foldl (fun (b : TAcc) r =>
+        let bad := if n.owners.contains r then 0 else 1
+        let down := isPar && r.id.step < q.id.step
+        let up := isSon && r.id.step > q.id.step
+        (b.1 + (if down then 1 else 0), b.2.1 + (if down then bad else 0),
+         b.2.2.1 + (if up then 1 else 0), b.2.2.2 + (if up then bad else 0))) a)
+    (0, 0, 0, 0)
+
+def transCount (g : GPathM) : TAcc :=
+  g.nodes.foldl (fun (a : TAcc) n =>
+    let t := transCountNode g n
+    (a.1 + t.1, a.2.1 + t.2.1, a.2.2.1 + t.2.2.1, a.2.2.2 + t.2.2.2)) (0, 0, 0, 0)
+
+partial def walkTrans (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : TAcc) : TAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : TAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        let t := transCount g
+        (a.1 + t.1, a.2.1 + t.2.1, a.2.2.1 + t.2.2.1, a.2.2.2 + t.2.2.2)) acc
+    walkTrans gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showT (t : TAcc) : IO Unit := do
+  IO.println s!"  DOWN: q a parent of n, r ∈ owners q below q  = {t.1}"
+  IO.println s!"          of those, r NOT in owners n          = {t.2.1}"
+  IO.println s!"  UP:   q a son of n,    r ∈ owners q above q  = {t.2.2.1}"
+  IO.println s!"          of those, r NOT in owners n          = {t.2.2.2}"
+
+def reportTrans (path : String) : IO Unit := do
+  let gmap ← load_import! path
+  IO.println s!"{path}"
+  showT (walkTrans gmap (mirrorInit gmap) 1000 (0, 0, 0, 0))
+
+def runRandomTrans (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- transitivity of ownership: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : TAcc := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let t := walkTrans gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + t.1, acc.2.1 + t.2.1, acc.2.2.1 + t.2.2.1, acc.2.2.2 + t.2.2.2)
+  showT acc
+  pure 0
+
+-- ============================================================
+-- Are the pinned states real?
+-- ============================================================
+
+/-!
+`Pinned.inhabited_of_noChoice` discharges route A′'s base case: a valid state
+where propagation has left no choice is inhabited, because `Pinned.pid_unique`
+says such a state holds **at most one path node per step**. That is a strong
+structural claim, so it is worth checking that it is not vacuous — that the
+machine really reaches such states, and that they really collapse.
+
+Counted per valid state: whether `hasChoice` is false, and the largest number
+of *distinct* path node ids on any one step. The theorem predicts that number
+is 1 whenever the state is `NoChoice`.
+-/
+
+/-- `(valid states, of them NoChoice, NoChoice states with some step holding
+two distinct ids, largest such width seen)`. -/
+abbrev NAcc := Nat × Nat × Nat × Nat
+
+def widestStep (g : GPathM) : Nat :=
+  (intRange 0 (g.current_step - 1)).foldl (fun w k =>
+    let ids := (g.line k).map (·.id)
+    let uniq := ids.foldl (fun (acc : List PathNodeId) i =>
+      if acc.contains i then acc else acc ++ [i]) []
+    if uniq.length > w then uniq.length else w) 0
+
+partial def walkNoChoice (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : NAcc) : NAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : NAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else
+        if PickInduction.hasChoice g then (a.1 + 1, a.2.1, a.2.2.1, a.2.2.2)
+        else
+          let w := widestStep g
+          (a.1 + 1, a.2.1 + 1, a.2.2.1 + (if w > 1 then 1 else 0),
+           if w > a.2.2.2 then w else a.2.2.2)) acc
+    walkNoChoice gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showN (t : NAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.1}"
+  IO.println s!"  of those, NoChoice (fully pinned)         = {t.2.1}"
+  IO.println s!"  NoChoice states with 2+ ids on some step  = {t.2.2.1}"
+  IO.println s!"  widest step seen in a NoChoice state      = {t.2.2.2}"
+
+def runRandomNoChoice (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- pinned (NoChoice) states: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : NAcc := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    let t := walkNoChoice gmap (mirrorInit gmap) 1000 (0, 0, 0, 0)
+    acc := (acc.1 + t.1, acc.2.1 + t.2.1, acc.2.2.1 + t.2.2.1,
+            if t.2.2.2 > acc.2.2.2 then t.2.2.2 else acc.2.2.2)
+  showN acc
   pure 0
 
 end AbsSat.GraphPath.Model.ExtendSearch
