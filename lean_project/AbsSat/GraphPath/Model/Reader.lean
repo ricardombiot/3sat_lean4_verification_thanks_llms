@@ -415,4 +415,100 @@ theorem PickSome_of_Inhabited (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP
 #guard_msgs in
 #print axioms PickSome_of_Inhabited
 
+
+-- ============================================================
+-- Where symmetry can be lost, and where it cannot
+-- ============================================================
+
+/-!
+`Threaded.OwnSymmetric` is measured to hold at the state the reader is handed
+(`--finalowners`: **0 violations in 11,009 nodes** over 64 final states and five
+seeds) and to fail on partial states (185 in 116,330, v54). Rather than assume
+it, this section asks which of the machine's operations can break it.
+
+The answer is: **exactly one**.
+
+* `addNode` creates ownership *symmetrically*. The newcomer takes every global
+  owner, and — the line the executable comments as
+  `all_previous_nodes_are_owners_of_me!` — every node takes the newcomer. Since
+  a node is always a global owner, the two halves match.
+* `filterRequire` touches only the global owner list; node tables are
+  untouched.
+* `cleanInvalid` intersects **every** node's owners with the *same* list, the
+  global owners. A single step of the sweep is asymmetric, but the completed
+  sweep removes a dropped id from every table at once, and the id's own node
+  loses self-ownership, fails `isValidNode` at its own step and goes. **Argued,
+  not proved** — the sweep changes the global owners as it removes nodes, so
+  the bookkeeping is a piece of work in itself.
+* `reviewNode` intersects a node's owners with the union of **its own
+  neighbours'** owners. That quantity is per-node, so it can remove `q` from
+  `owners p` while leaving `p` in `owners q`. This is the only operation with
+  no symmetric counterpart at all.
+
+The two lemmas below prove the first two bullets. The third is argued, the
+fourth is where the 185 violations on partial states must come from — and what
+a proof of symmetry at full length would have to close.
+-/
+
+theorem OwnSymmetric_filterRequire (g : GPathM) (req : NodeId)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (filterRequire g req) :=
+  fun p n q m hp hq hqn => h p n q m hp hq hqn
+
+/-- **`addNode` cannot break symmetry.** The newcomer is owned by everything
+and owns every global owner, and a node is always a global owner. -/
+theorem OwnSymmetric_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hng : Ownership.NodesAreGowners g)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (addNode g d title) := by
+  -- every node of the extension is either an old one or the newcomer
+  have hcase : ∀ (p : PathNodeId) (n : PNodeM), (addNode g d title).node? p = some n →
+      (∃ n₀, g.node? p = some n₀ ∧ n = upMap g d n₀) ∨
+      (p = newPid g d ∧ n.owners = g.gowners ++ [newPid g d]) := by
+    intro p n hn
+    if hps : p.id.step < g.current_step then
+      exact Or.inl (addNode_node?_below g d title hd p n hn hps)
+    else
+      have hid : n.id = p := node?_id_eq _ p n hn
+      have hmem : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hn
+      rw [addNode_nodes] at hmem
+      rcases List.mem_append.mp hmem with hl | hr
+      · exfalso
+        obtain ⟨n₀, hn₀, hEq⟩ := List.mem_map.mp hl
+        have : n.id = n₀.id := by rw [← hEq, upMap_id]
+        have := hbelow n₀ hn₀
+        rw [← ‹n.id = n₀.id›, hid] at this
+        omega
+      · rcases List.mem_singleton.mp hr with rfl
+        refine Or.inr ⟨?_, ?_⟩
+        · rw [← hid]; rfl
+        · simp only [addOwner, upNode]
+    -- end hcase
+  intro p n q m hp hq hqn
+  rcases hcase p n hp with ⟨n₀, hn₀, rfl⟩ | ⟨rfl, hno⟩
+  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨rfl, hmo⟩
+    · rw [upMap_owners] at hqn ⊢
+      rcases List.mem_append.mp hqn with hq0 | hq1
+      · exact List.mem_append_left _ (h p n₀ q m₀ hn₀ hm₀ hq0)
+      · exfalso
+        rcases List.mem_singleton.mp hq1 with rfl
+        have hmid : m₀.id = newPid g d := node?_id_eq g _ m₀ hm₀
+        have := hbelow m₀ (List.mem_of_find?_eq_some hm₀)
+        rw [hmid] at this
+        simp only [newPid] at this
+        omega
+    · rw [hmo]
+      have := hng n₀ (List.mem_of_find?_eq_some hn₀)
+      rw [node?_id_eq g p n₀ hn₀] at this
+      exact List.mem_append_left _ this
+  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨rfl, hmo⟩
+    · rw [upMap_owners]
+      exact List.mem_append_right _ (List.mem_singleton.mpr rfl)
+    · rw [hmo]
+      exact List.mem_append_right _ (List.mem_singleton.mpr rfl)
+
+/-- info: 'AbsSat.GraphPath.Model.Reader.OwnSymmetric_addNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnSymmetric_addNode
+
 end AbsSat.GraphPath.Model.Reader

@@ -10,6 +10,31 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (at) — Simetría: localizada en una sola operación, no demostrada.**
+
+Intento de demostrar la simetría en longitud completa. **No sale.** Lo obtenido:
+
+Evidencia reforzada: dos campañas más (`--finalowners`, semillas 90210 y 777, hasta 7 variables),
+**0 violaciones en 11.009 nodos** en total sobre cinco semillas.
+
+Localización, en `Reader.lean`: **`OwnSymmetric_addNode`** (el nodo nuevo se lleva todos los gowners
+y todo nodo se lleva el nuevo — `all_previous_nodes_are_owners_of_me!`; con `NodesAreGowners` las dos
+mitades encajan) y **`OwnSymmetric_filterRequire`** (solo toca los gowners). Ambas
+`[propext, Quot.sound]`. `cleanInvalid` no puede romperla —interseca todas las tablas con la misma
+lista y el id que sale de gowners pierde la auto-posesión y su nodo cae por `isValidNode`— pero la
+barrida cambia los gowners al eliminar nodos, así que queda **argumentado, no demostrado**.
+**`reviewNode` es la única operación sin contrapartida simétrica**: interseca con la unión de los
+owners de los vecinos, que es una cantidad por nodo.
+
+Razón de que la demostración directa no salga: una vez `reviewNode` quita `q` de `owners(p)`,
+ninguna operación posterior quita `p` de `owners(q)` por sí sola; que al final coincidan es un hecho
+semántico, no una consecuencia de las cláusulas de coherencia. Es decir, **la simetría es —como la
+exactitud de (ar)— una propiedad del punto fijo, no un invariante arrastrable**.
+
+Informe: `verificacion_inseguridad_autor_v62.md`.
+
+---
+
 **2026-09-11 (as) — La simetría vale en el estado final; `threaded` se da la vuelta.**
 
 Aplicando la lección de (ar) —mirar el estado terminado, no el recorrido— dos modos nuevos:
