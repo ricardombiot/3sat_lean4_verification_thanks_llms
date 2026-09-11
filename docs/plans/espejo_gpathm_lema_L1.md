@@ -10,6 +10,36 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (as) — La simetría vale en el estado final; `threaded` se da la vuelta.**
+
+Aplicando la lección de (ar) —mirar el estado terminado, no el recorrido— dos modos nuevos:
+`--finalowners` y `--finalthread`, ambos sobre `mirrorRun`.
+
+**Simetría**: las 185 violaciones de v54 están **todas** en estados parciales. En la línea final:
+**0 de 3.849 nodos**, 64 estados, semillas 2026/31337/4242. Explicación estructural: `addNode` da al
+nodo nuevo todos los gowners y a nadie le añade el nodo nuevo; al completar el mapa `isValidNode`
+obliga a un owner en el paso más alto y la asimetría se resuelve.
+
+En `Threaded.lean`: `OwnSymmetric`, **`owners_contain_chain`** (la tabla de owners de un nodo
+contiene una cadena completa enlazada padre→hijo, no solo una entrada por paso) y
+**`chain_through_of_symmetric`** (con `SelfOwn.OOS`, esa cadena pasa por el nodo). Ambos
+`[propext, Quot.sound]`, con la simetría como hipótesis explícita.
+
+**Clique de owners**: falsa incluso al final (159.608/624.854, 208.820/1.145.170, 768.088/2.513.802)
+— y es lo correcto: por (ar), los owners de un nodo son las proyecciones de *todas* las soluciones
+que pasan por él, así que dos owners pertenecen a soluciones distintas. El enunciado local tiene que
+ser por solución, no por nodo.
+
+**Residuo al final** (`--finalthread`): cadena golosa co-poseída en 854/857 y 1.558/1.683; los 128
+fallos los recupera la búsqueda; **0 zombis en 2.540 anclas**.
+
+El muro pasa a ser: **el camino que un nodo posee es co-poseído**, con dos sub-objetivos nombrados —
+la simetría en longitud completa (hipótesis medida) y la regla de elección (la golosa falla al 5 %).
+
+Informe: `verificacion_inseguridad_autor_v61.md`.
+
+---
+
 **2026-09-11 (ar) — La conjetura medida semánticamente: exacta al final, no inductiva antes.**
 
 Modo nuevo `lake exe cnfmap --exact`: enumera las 2ⁿ asignaciones, se queda con las que satisfacen φ,

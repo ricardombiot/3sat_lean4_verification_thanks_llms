@@ -533,6 +533,72 @@ theorem threaded_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable
 
 
 -- ============================================================
+-- If ownership is symmetric, the threading turns round
+-- ============================================================
+
+/-!
+`threaded` gives a full path whose nodes all own `a`; the residue always wanted
+the other direction, that `a` **owns** them. The two are the same statement
+exactly when ownership is symmetric — and v54 measured symmetry false, 185
+violations in 116,330 nodes, which closed that door.
+
+v61 reopens it. Those 185 all sit in **partial** states. At the state of full
+length the machine hands the reader, symmetry holds: `lake exe extend
+--finalowners`, three seeds, **0 violations in 3,849 nodes over 64 final
+states**. So the flip below is available exactly where the reader needs it.
+
+Stated with symmetry as a hypothesis, since it is measured and not proved. -/
+def OwnSymmetric (g : GPathM) : Prop :=
+  ∀ p n q m, g.node? p = some n → g.node? q = some m → q ∈ n.owners → p ∈ m.owners
+
+/-- **The owner table of a node contains a whole path.** Not just an entry at
+every step — a parent-linked chain from step 0 to the top, every node of it an
+owner of `a`.
+
+This is strictly stronger than `isValidNode`'s `owners_ok`, and it is what
+`Survive.Closed.support` asks for at the singleton. -/
+theorem owners_contain_chain (g : GPathM) (ctx : TCtx g) (hsym : OwnSymmetric g)
+    (a : PathNodeId) (n : PNodeM) (hn : g.node? a = some n) (hself : a ∈ n.owners)
+    (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
+    ∃ sel, IsChain g sel ∧ ∀ i, 0 ≤ i → i < g.current_step → sel i ∈ n.owners := by
+  obtain ⟨sel, hchain, howns⟩ := threaded g ctx a n hn hself halo hahi
+  refine ⟨sel, hchain, ?_⟩
+  intro i hi0 hi
+  obtain ⟨hs, _⟩ := hchain.1 i hi0 hi
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+  have hown := howns i hi0 hi
+  simp only [ownersOf, hm] at hown
+  exact hsym (sel i) m a n hm hn hown
+
+/-- **And that path goes through the node itself.** `OOS` leaves a node no
+owner at its own step but itself, so the chain inside `owners a` picks `a` at
+`a`'s step.
+
+So under symmetry every node sits on a full path it owns entirely — which is
+`Verdict.SupportedAt` except for one thing: whether the path's nodes own **each
+other**. That is now the whole of the residue. -/
+theorem chain_through_of_symmetric (g : GPathM) (ctx : TCtx g) (hsym : OwnSymmetric g)
+    (hoos : SelfOwn.OOS g) (a : PathNodeId) (n : PNodeM) (hn : g.node? a = some n)
+    (hself : a ∈ n.owners) (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
+    ∃ sel, IsChain g sel ∧ sel a.id.step = a ∧
+      ∀ i, 0 ≤ i → i < g.current_step → sel i ∈ n.owners := by
+  obtain ⟨sel, hchain, hin⟩ := owners_contain_chain g ctx hsym a n hn hself halo hahi
+  refine ⟨sel, hchain, ?_, hin⟩
+  obtain ⟨_, hstep⟩ := hchain.1 a.id.step halo hahi
+  have hnid : n.id = a := node?_id_eq g a n hn
+  have := hoos n (List.mem_of_find?_eq_some hn) (sel a.id.step) (hin a.id.step halo hahi)
+    (by rw [hstep, hnid])
+  rw [this, hnid]
+
+/-- info: 'AbsSat.GraphPath.Model.Threaded.chain_through_of_symmetric' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_through_of_symmetric
+
+/-- info: 'AbsSat.GraphPath.Model.Threaded.owners_contain_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owners_contain_chain
+
+-- ============================================================
 -- Where a node's support below it actually lives
 -- ============================================================
 

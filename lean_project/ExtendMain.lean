@@ -125,6 +125,19 @@ def main (args : List String) : IO UInt32 := do
     for path in rest do
       AbsSat.GraphPath.Model.ExtendSearch.reportOwners path
     return 0
+  | "--finalthread" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 20
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 3
+    let budget := (rest[4]?.bind (·.toNat?)).getD 40000
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomFinalThread cases seed nvMin nvSpan budget
+  | "--finalowners" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 20
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 3
+    AbsSat.GraphPath.Model.ExtendSearch.runRandomFinalOwners cases seed nvMin nvSpan
   | "--randomupdown" :: rest =>
     let cases := (rest[0]?.bind (·.toNat?)).getD 10
     let seed := (rest[1]?.bind (·.toNat?)).getD 2026

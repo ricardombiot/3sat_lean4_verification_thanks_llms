@@ -2736,4 +2736,120 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showUD acc
   pure 0
 
+-- ============================================================
+-- The owner set of one node, at the state the reader starts from
+-- ============================================================
+
+/-!
+v60 measured the conjecture semantically and found the **final** state exact:
+every surviving map node is used by a surviving solution, 0 of 5,681. It also
+found that the same is false mid-run, so the property is established by
+*completing* the run, not carried along it.
+
+That says where to look: at properties of the **final** state that are false
+earlier. One of them decides the whole thing.
+
+Take a surviving owner `q` of a node `n`. `isValidNode` gives `n` an owner at
+**every** step, so reading the variable steps off `n.owners` produces an
+assignment. If those owners are **mutually consistent** — pairwise co-owning —
+then at each clause step the row they name agrees with the literal values they
+name, and since the map omits the all-false row, that clause is satisfied. The
+assignment is a solution, and `q` is on it. **That is exactness.**
+
+So: is a node's owner set a clique? Over *all* states it is massively false
+(`--randomowners`: 18M violations). This mode asks the same question **only of
+the final line** — the state the reader is actually handed.
+-/
+
+structure FOAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  pairs : Nat := 0
+  cliqueViol : Nat := 0
+  symViol : Nat := 0
+
+def addFO (a b : FOAcc) : FOAcc :=
+  { states := a.states + b.states, nodes := a.nodes + b.nodes, pairs := a.pairs + b.pairs,
+    cliqueViol := a.cliqueViol + b.cliqueViol, symViol := a.symViol + b.symViol }
+
+/-- Pairs of owners of one node, at distinct steps, counted and split by
+whether they own each other. -/
+def cliqueCount (g : GPathM) (t : PNodeM) : Nat × Nat :=
+  t.owners.foldl (fun (a : Nat × Nat) q1 =>
+    t.owners.foldl (fun (b : Nat × Nat) q2 =>
+      if q1.id.step == q2.id.step then b
+      else
+        match g.node? q2 with
+        | some m => (b.1 + 1, b.2 + (if m.owners.contains q1 then 0 else 1))
+        | none => (b.1 + 1, b.2 + 1)) a) (0, 0)
+
+def finalOwnersReport (g : GPathM) : FOAcc :=
+  g.nodes.foldl (fun (a : FOAcc) n =>
+    let c := cliqueCount g n
+    addFO a { nodes := 1, pairs := c.1, cliqueViol := c.2,
+              symViol := symViolations g }) { states := 1 }
+
+def runRandomFinalOwners (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- owner sets at the FINAL state: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : FOAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    for kv in mirrorRun gmap do
+      if isValid kv.2 then
+        acc := addFO acc { states := 1, nodes := (finalOwnersReport kv.2).nodes,
+                           pairs := (finalOwnersReport kv.2).pairs,
+                           cliqueViol := (finalOwnersReport kv.2).cliqueViol,
+                           symViol := symViolations kv.2 }
+  IO.println s!"  final valid states                        = {acc.states}"
+  IO.println s!"  nodes                                     = {acc.nodes}"
+  IO.println s!"  owner pairs at distinct steps             = {acc.pairs}"
+  IO.println s!"    NOT owning each other (clique fails)    = {acc.cliqueViol}"
+  IO.println s!"  symmetry violations                       = {acc.symViol}"
+  pure 0
+
+/-- `--randomthread`, restricted to the final line: is the threaded chain
+pairwise-owned at the state the reader is handed? Over all states v54 found 891
+failures in 55,838 anchors. -/
+def runRandomFinalThread (cases seed nvMin nvSpan budget : Nat) : IO UInt32 := do
+  IO.println s!"--- threaded chain at the FINAL state: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : SupAcc := {}
+  let mut th : ThAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    for kv in mirrorRun gmap do
+      if isValid kv.2 then
+        th := addTh th (threadReport kv.2)
+        acc := addSup acc (supReport kv.2 budget)
+  showTh th
+  showSup acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch
