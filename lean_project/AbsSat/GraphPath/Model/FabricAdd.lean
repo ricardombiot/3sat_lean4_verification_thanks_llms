@@ -613,6 +613,98 @@ theorem pinnedCandidate_covers (reqOf : NodeId → List NodeId) (g : GPathM)
       absurd ⟨req, hreq, by rw [← hstep, eq_of_beq hqs]⟩ hpin⟩
 
 -- ============================================================
+-- The narrowing: why nothing is deleted
+-- ============================================================
+
+/-! The candidate covers. The question is whether narrowing it to the greatest
+self-supporting subset can empty a step. The answer, and it is the point of
+this section: **it deletes nothing at all**, because every member already has
+its support inside the candidate.
+
+Take a member `p` of `C = owners(r) ∩ Compat reqs` and a step `l`.
+
+* Symmetry turns `p ∈ owners(r)` into `r ∈ owners(p)` — proved for the
+  symmetric machine in v64.
+* The **triangle** property then gives a node `w` in *both* tables at step `l`.
+  That is exactly what the author's `triClean` pass enforces, and it is why v69
+  was needed before this could work.
+* And `w` is automatically in `C`: it is in `owners(r)` by construction, and it
+  is `Compat` because **every owner of a survivor is a global owner, and the
+  pins filtered the global owners**. No case split on pinned versus free steps
+  is needed — the pin did its work once, on `gowners`, and every table inherits
+  it.
+
+So the residue of v45 — `support` at distance ≥ 2 — is discharged here by the
+triangle. What the section still takes as a hypothesis is `TriProp` itself:
+that the tables of two mutually owning nodes share an entry at every step.
+`triClean` enforces it by construction; extracting it from the fixpoint of
+`reviewTri` is bookkeeping of the kind `Fabric.lean` already does elsewhere. -/
+
+/-- The pins only ever filtered the global owners, and the fold composes. -/
+theorem gowners_foldl_sub : ∀ (reqs : List NodeId) (g : GPathM),
+    ∀ q ∈ (reqs.foldl filterRequire g).gowners, q ∈ g.gowners := by
+  intro reqs
+  induction reqs with
+  | nil => intro g q hq; exact hq
+  | cons req rest ih =>
+    intro g q hq
+    simp only [List.foldl_cons] at hq
+    exact List.mem_filter.mp (ih (filterRequire g req) q hq) |>.1
+
+/-- **The pinned global owners agree with every pin.** -/
+theorem gowners_foldl_compat : ∀ (reqs : List NodeId) (g : GPathM),
+    ∀ q ∈ (reqs.foldl filterRequire g).gowners, Compat reqs q := by
+  intro reqs
+  induction reqs with
+  | nil => intro _ q _ r hr; exact absurd hr List.not_mem_nil
+  | cons req rest ih =>
+    intro g q hq
+    simp only [List.foldl_cons] at hq
+    intro r hr hstep
+    rcases List.mem_cons.mp hr with heq | hrest
+    · -- the head pin: `filterRequire` kept only what agrees with it
+      have hmem := gowners_foldl_sub rest (filterRequire g req) q hq
+      have hfil := List.mem_filter.mp hmem |>.2
+      simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, beq_iff_eq] at hfil
+      rcases hfil with hne | heq2
+      · exact absurd (by rw [hstep, heq]) hne
+      · rw [heq2, heq]
+    · exact ih (filterRequire g req) q hq r hrest hstep
+
+/-- What the triangle pass enforces: two nodes that own each other share an
+entry at every step. -/
+def TriProp (g : GPathM) : Prop :=
+  ∀ a na b nb, g.node? a = some na → g.node? b = some nb → b ∈ na.owners →
+    ∀ l, 0 ≤ l → l < g.current_step →
+      ∃ w, w ∈ na.owners ∧ w ∈ nb.owners ∧ w.id.step = l
+
+/-- **The narrowing deletes nothing.** Every member of the pinned candidate has
+its support *inside* the candidate, at every step — so the greatest
+self-supporting subset is the candidate itself, and it covers. -/
+theorem pinnedCandidate_selfSupporting (reqs : List NodeId) (g : GPathM)
+    (hv : isValid (filterAll g reqs) = true)
+    (htri : TriProp (filterAll g reqs))
+    (hsym : ∀ a na b nb, (filterAll g reqs).node? a = some na →
+      (filterAll g reqs).node? b = some nb → b ∈ na.owners → a ∈ nb.owners)
+    (r : PathNodeId) (n : PNodeM) (hn : (filterAll g reqs).node? r = some n)
+    (p : PathNodeId) (hp : p ∈ n.owners)
+    (np : PNodeM) (hnp : (filterAll g reqs).node? p = some np)
+    (l : Int) (hl0 : 0 ≤ l) (hl : l < (filterAll g reqs).current_step) :
+    ∃ w, w ∈ np.owners ∧ w ∈ n.owners ∧ Compat reqs w ∧ w.id.step = l := by
+  -- symmetry: `r` owns `p` back
+  have hrp : r ∈ np.owners := hsym r n p np hn hnp hp
+  -- the triangle: a shared entry at step `l`
+  obtain ⟨w, hwp, hwr, hws⟩ := htri p np r n hnp hn hrp l hl0 hl
+  refine ⟨w, hwp, hwr, ?_, hws⟩
+  -- and it is compatible, because it is a global owner and the pins filtered those
+  have hwlo : 0 ≤ w.id.step := by rw [hws]; exact hl0
+  have hwhi : w.id.step < (filterAll g reqs).current_step := by rw [hws]; exact hl
+  have hgow : w ∈ (filterAll g reqs).gowners :=
+    Candidates.owner_mem_gowners (reqs.foldl filterRequire g) hv r n hn w hwr hwlo hwhi
+  exact gowners_foldl_compat reqs g w
+    ((pruned_review (reqs.foldl filterRequire g)).gowners_sub w hgow)
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -659,6 +751,14 @@ theorem pinnedCandidate_covers (reqOf : NodeId → List NodeId) (g : GPathM)
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_covers' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pinnedCandidate_covers
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.gowners_foldl_compat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gowners_foldl_compat
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_selfSupporting' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinnedCandidate_selfSupporting
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

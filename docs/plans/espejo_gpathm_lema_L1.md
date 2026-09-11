@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bp) — El estrechado no borra nada: P3 cerrada módulo extraer `TriProp`.**
+
+`FabricAdd.lean`: `gowners_foldl_sub`, **`gowners_foldl_compat`** (todo owner global superviviente
+hereda los pines, aplicados una sola vez por `filterRequire`), `TriProp`, y
+**`pinnedCandidate_selfSupporting`** — todo miembro del candidato pinzado tiene soporte dentro del
+candidato en cada paso, luego el mayor auto-sostenido es el candidato entero y el estrechado no
+borra. Con `pinnedCandidate_covers` (v83) eso es P3. La prueba usa tres decisiones de diseño del
+autor y ninguna sobra: simetría del review (v64) para girar `p ∈ owners(r)` → `r ∈ owners(p)`;
+triángulo (v69) para el nodo presente en ambas tablas en cada paso; y el pinchazo sobre `gowners`,
+que evita distinguir pasos pinzados de libres. Cierres `[propext, Quot.sound]`. **Pendiente**:
+`TriProp` es hipótesis — lo impone `triClean` por construcción, falta extraerlo del punto fijo de
+`reviewTri` (contabilidad, como la que `Fabric.lean` hace para las otras pasadas). **Comprobado que
+no prueba de más**: usa `owns_required`, teorema del filtro de cláusula, que no vale para el pinchazo
+del lector, luego no transfiere a `PinNonEmpty` (v82); P3 es invariante de construcción, no decisión.
+
+Informe: `verificacion_inseguridad_autor_v84.md`.
+
 **2026-09-11 (bo) — P3 medida en su forma fuerte; corrección a v82; media demostración.**
 
 Corrige v82: `PinNonEmpty ⟺ isValid` vale para P4 (un pinchazo suelto), **no** para P3 (tejido en
