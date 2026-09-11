@@ -10,6 +10,24 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ay) — El invariante de nodo, demostrado salvo el filtro de cláusulas.**
+
+`NodeInvariant.lean`: `NodeInv g := isValid g → SupportedS g`. `NodeInv_reachable` por inducción sobre
+`Reachable`, con una sola hipótesis (`HardStepExact`): seed, join (`SupportedS_join`), addNode
+(`SupportedS_addNode`), review (`SupportedS_review`), y los filtros fáciles (`SupportedS_filterAll_easy`:
+sin requisitos, o uno sobre la cima; `TopKey_reachable` prueba que la cima lleva el id de la clave).
+`easy_of_not_clause`: en un mapa 3SAT los pasos difíciles son exactamente los de cláusula
+(`ClauseStepExact`, `NodeInv_of_ClauseStepExact`). `owns_required`: un superviviente del filtro de
+cláusula es compatible con cada literal requerido por separado — el hueco con `ClauseStepExact` es
+conjunto frente a pares (Helly). `Decision.lean`: `decides_of_ClauseStepExact` — satisfacible ⟺
+`pureRun` acaba con un estado válido. Con la máquina polinómica, `ClauseStepExact ∀φ` ⇒ 3SAT ∈ P.
+
+Medido: `cnfmap --insert` (640 fórmulas, cláusula insertada tras el estado del caso 17): 0 violaciones,
+0 veredictos zombie. `cnfmap --tseitin`: K4, K3,3, prisma, cubo, 13 versiones UNSAT refutadas, 0
+zombies (Petersen no terminó con la implementación en listas).
+
+Informe: `verificacion_inseguridad_autor_v67.md`.
+
 **2026-09-11 (ax) — El muro, releído con la definición de owners del autor; corrección a v60.**
 
 El autor: los owners globales contienen todos los nodos mientras el grafo es válido, y los owners de un

@@ -83,3 +83,5 @@ import AbsSat.GraphPath.Model.ExtendSearch
 import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphMap.SymCampaign
 import AbsSat.GraphPath.Model.Fabric
+import AbsSat.GraphPath.Model.NodeInvariant
+import AbsSat.GraphPath.Model.Decision

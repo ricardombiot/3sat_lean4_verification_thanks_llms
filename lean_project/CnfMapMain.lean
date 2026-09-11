@@ -6,6 +6,15 @@ import AbsSat.GraphMap.SymCampaign
 arithmetic map (`CnfMap`) against the map `ImportCnf` actually builds. -/
 def main (args : List String) : IO UInt32 := do
   match args with
+  | "--insert" :: rest =>
+    let lo := (rest[0]?.bind (·.toNat?)).getD 3
+    let hi := (rest[1]?.bind (·.toNat?)).getD 7
+    AbsSat.GraphMap.SymCampaign.runInsert lo hi
+  | "--tseitin" :: rest =>
+    let perms := (rest[0]?.bind (·.toNat?)).getD 5
+    let seed := (rest[1]?.bind (·.toNat?)).getD 1
+    let maxG := (rest[2]?.bind (·.toNat?)).getD 5
+    AbsSat.GraphMap.SymCampaign.runTseitin perms seed maxG
   | "--hunt" :: rest =>
     let trials := (rest[0]?.bind (·.toNat?)).getD 200
     let maxExtra := (rest[1]?.bind (·.toNat?)).getD 4

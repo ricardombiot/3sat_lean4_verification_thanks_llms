@@ -849,4 +849,185 @@ trials={trials} extra≤{maxExtra} ---"
   IO.println s!"  final-state owner entries / inexact       = {entries} / {inexact}"
   pure 0
 
+
+-- ------------------------------------------------------------
+-- Tseitin formulas on 3-regular graphs
+-- ------------------------------------------------------------
+
+/-- Parity constraint `e₁ ⊕ e₂ ⊕ e₃ = c` as the four 3-clauses that forbid
+the wrong-parity rows. Variables are edge indices. -/
+def xorClauses (e1 e2 e3 : Nat) (c : Bool) : List Clause :=
+  (List.range 8).filterMap (fun m =>
+    let b1 := m % 2 == 1
+    let b2 := (m / 2) % 2 == 1
+    let b3 := (m / 4) % 2 == 1
+    let parity := (b1 != b2) != b3
+    if parity == c then none
+    else some { l1 := { v := e1, pos := !b1 }, l2 := { v := e2, pos := !b2 },
+                l3 := { v := e3, pos := !b3 } })
+
+/-- Tseitin formula of a 3-regular graph given by its edge list; `odd` puts
+charge 1 on vertex 0 (total parity odd ⇒ UNSAT), otherwise all charges 0 (SAT). -/
+def tseitin (nV : Nat) (edges : List (Nat × Nat)) (odd : Bool) : Option Cnf := do
+  let mut cls : List Clause := []
+  for v in List.range nV do
+    let inc := (List.range edges.length).filter (fun i =>
+      match edges[i]? with
+      | some (a, b) => a == v || b == v
+      | none => false)
+    match inc with
+    | [e1, e2, e3] => cls := cls ++ xorClauses e1 e2 e3 (odd && v == 0)
+    | _ => none
+  return { nVars := edges.length, clauses := cls }
+
+def k4 : List (Nat × Nat) := [(0,1),(0,2),(0,3),(1,2),(1,3),(2,3)]
+def k33 : List (Nat × Nat) := [(0,3),(0,4),(0,5),(1,3),(1,4),(1,5),(2,3),(2,4),(2,5)]
+def prism : List (Nat × Nat) := [(0,1),(1,2),(2,0),(3,4),(4,5),(5,3),(0,3),(1,4),(2,5)]
+def cube : List (Nat × Nat) :=
+  [(0,1),(1,3),(3,2),(2,0),(4,5),(5,7),(7,6),(6,4),(0,4),(1,5),(2,6),(3,7)]
+def petersen : List (Nat × Nat) :=
+  [(0,1),(1,2),(2,3),(3,4),(4,0),(0,5),(1,6),(2,7),(3,8),(4,9),(5,7),(7,9),(9,6),(6,8),(8,5)]
+
+/-- Relabel edges (variables) by a permutation drawn from `rng`, and shuffle
+the clause order: the machine's map depends on both. -/
+def shuffleList {α : Type} (rng : AbsSat.SatMachine.DiffTest.Rng) (l : List α) :
+    AbsSat.SatMachine.DiffTest.Rng × List α := Id.run do
+  let mut r := rng
+  let mut src := l
+  let mut out : List α := []
+  while !src.isEmpty do
+    let (r1, i) := r.below src.length
+    r := r1
+    match src[i]? with
+    | some x =>
+      out := out ++ [x]
+      src := src.eraseIdx i
+    | none => src := []
+  return (r, out)
+
+def machineSat (φ : Cnf) (sym : Bool) : Bool := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  for _ in [0:steps] do
+    line := if sym then pureAdvanceSym φ line else pureAdvance φ line
+  return line.any (fun kv => isValid kv.2)
+
+def runTseitin (perms seed maxGraphs : Nat) : IO UInt32 := do
+  IO.println s!"--- Tseitin formulas on 3-regular graphs: {perms} orderings each, seed={seed} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut zombies := 0
+  let graphs := [("K4", 4, k4), ("K3,3", 6, k33), ("prism", 6, prism),
+                 ("cube", 8, cube), ("Petersen", 10, petersen)]
+  for (name, nV, edges) in graphs.take maxGraphs do
+    let mut oddSat := 0
+    let mut oddSatSym := 0
+    let mut evenSat := 0
+    let mut tested := 0
+    for _ in [0:perms] do
+      let (r1, perm) := shuffleList rng (List.range edges.length)
+      rng := r1
+      let edges' := (List.range edges.length).filterMap (fun i => edges[perm[i]!]?)
+      for odd in [true, false] do
+        match tseitin nV edges' odd with
+        | none => pure ()
+        | some φ0 =>
+          let (r2, cls) := shuffleList rng φ0.clauses
+          rng := r2
+          let φ : Cnf := { φ0 with clauses := cls }
+          if AbsSat.Cnf.Dimacs.wfB φ then
+            if odd then
+              tested := tested + 1
+              if machineSat φ false then oddSat := oddSat + 1
+              if machineSat φ true then oddSatSym := oddSatSym + 1
+            else
+              if machineSat φ false then evenSat := evenSat + 1
+    zombies := zombies + oddSat + oddSatSym
+    IO.println s!"  {name}: vars={edges.length} clauses={4 * nV}  UNSAT versions={tested}  \
+machine says SAT (ZOMBIE): original={oddSat} symmetric={oddSatSym}  \
+SAT versions answered SAT={evenSat}/{perms}"
+    (← IO.getStdout).flush
+  IO.println s!"--- zombie verdicts: {zombies} ---"
+  pure 0
+
+
+/-- Nodes of `g` on no solution (of the clauses seen so far) living inside it. -/
+def nodeZombies (φ : Cnf) (alls : List Assign) (g : GPathM) : Nat :=
+  let seen := alls.filter (fun a => prefixOk φ a g.current_step)
+  let inside := (seen.map (fun a => solPath φ a g.current_step)).filter (solInside g)
+  (g.nodes.filter (fun n => !inside.any (fun path => path.contains n.id))).length
+
+/-- **Aimed at the clause filter.** Take the formula whose partial state held
+pairwise-compatible-but-not-joint entries (seed 90210, case 17), insert one
+3-clause at each position in `[lo, hi)`, over every triple of variables and
+every sign pattern, and run the ORIGINAL machine: count states with a node on
+no solution of the clauses seen so far — a direct violation of
+`ClauseStepExact` — and zombie verdicts. -/
+def runInsert (lo hi : Nat) : IO UInt32 := do
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed 90210
+  let mut base : Option Cnf := none
+  for idx in [0:18] do
+    let (rng1, nv) := rng.below 3
+    let nVars := 4 + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    if idx == 17 then
+      match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+      | .ok φ => base := some φ
+      | .error _ => pure ()
+  match base with
+  | none => IO.println "base not found"; pure 1
+  | some φ0 =>
+  let n := φ0.nVars
+  let alls := (List.range (Nat.pow 2 n)).map assignOfNat
+  IO.println s!"--- clause insertion at positions [{lo},{hi}) of seed 90210 case 17 \
+(nVars={n}, clauses={φ0.clauses.length}) ---"
+  let mut runs := 0
+  let mut badStates := 0
+  let mut badNodes := 0
+  let mut zverdict := 0
+  for j in [lo:hi] do
+    for a in [0:n] do
+      for b in [a+1:n] do
+        for c in [b+1:n] do
+          for s in [0:8] do
+            let C : Clause := { l1 := { v := a, pos := s % 2 == 0 },
+                                l2 := { v := b, pos := (s / 2) % 2 == 0 },
+                                l3 := { v := c, pos := (s / 4) % 2 == 0 } }
+            let φ : Cnf := { φ0 with clauses := φ0.clauses.take j ++ [C] ++ φ0.clauses.drop j }
+            if AbsSat.Cnf.Dimacs.wfB φ then
+              runs := runs + 1
+              let truth := alls.any (fun x => satB x φ)
+              let steps := (stepCount φ - 1).toNat
+              let mut line := pureInit φ
+              let mut bad := false
+              for _ in [0:steps] do
+                line := pureAdvance φ line
+                for kv in line do
+                  if isValid kv.2 then
+                    let z := nodeZombies φ alls kv.2
+                    if z > 0 then
+                      badStates := badStates + 1
+                      badNodes := badNodes + z
+                      if !bad then
+                        IO.println s!"  VIOLATION: insert at {j} clause {repr C} → state \
+cs={kv.2.current_step} key={kv.1.step},{kv.1.index}: {z} node(s) on no solution"
+                        (← IO.getStdout).flush
+                      bad := true
+              let v := line.any (fun kv => isValid kv.2)
+              if v && !truth then
+                zverdict := zverdict + 1
+                IO.println s!"  ZOMBIE VERDICT: insert at {j} clause {repr C}"
+                (← IO.getStdout).flush
+  IO.println s!"  formulas run                              = {runs}"
+  IO.println s!"  states with a node on no solution         = {badStates} ({badNodes} nodes)"
+  IO.println s!"  zombie verdicts                           = {zverdict}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign
