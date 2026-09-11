@@ -10,6 +10,22 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bk) — `join` cerrado; y P3 resulta ser `CoreCovers`.**
+
+`FabricAdd.lean`: **`Fabric_of_grown`** (un tejido sobrevive a cualquier crecimiento — todas sus
+cláusulas son pertenencias o existencias), y de ahí `Fabric_join_left` y `Fabric_join_right` usando
+`Grown`/`grown_join_left`/`grown_join_right` de `Join.lean`. Cierres `[propext, Quot.sound]`. Libro
+mayor de la inducción sobre `Reachable` completo en lo estructural: semilla ✅, `addNode` ✅ (v78),
+`join` ✅ (hoy), review y filtros de literal ✅ (v65). **Hallazgo**: `FOk_filterAll` (v65) exige
+`∀ r ∈ reqs, ∀ p, S p → p.id.step = r.step → p.id = r`; en un paso de cláusula eso falla de entrada
+porque el tejido de `addNode` contiene todos los gowners y por tanto ambos valores del paso pinzado.
+Luego **P3 no es preservación sino estrechamiento**: estrechar el tejido a los miembros que concuerdan
+con los tres requisitos y probar que sigue teniendo entrada en cada paso — que es el `CoreCovers` de
+v44 reencontrado por otra vía, y lo que v77 midió (124.246 nodos, 0 fallos). Siguiente: P3, con la
+expectativa declarada de que ahí entre la hipótesis de clase (P3 general = 3SAT en P).
+
+Informe: `verificacion_inseguridad_autor_v79.md`.
+
 **2026-09-11 (bj) — P1: el tejido nace en la semilla y en `addNode`.**
 
 `FabricAdd.lean` (módulo nuevo, registrado en `AbsSat.lean`): `addS`, `addT`, y los teoremas

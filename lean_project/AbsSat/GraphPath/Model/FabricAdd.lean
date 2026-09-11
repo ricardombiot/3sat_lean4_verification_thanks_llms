@@ -2,11 +2,12 @@
 import AbsSat.GraphPath.Model.Fabric
 
 /-!
-# The fabric is born at `addNode`
+# Where the fabric comes from: the seed, `addNode`, and `join`
 
-`Fabric.lean` (v65) proved the fabric **survives** every operation: the review,
-the pins, the removals. What it never said is where a fabric *comes from*. This
-module says it: `addNode` creates one, and it creates it complete.
+`Fabric.lean` (v65) proved the fabric **survives** the review, the pins and the
+removals. What it never said is where a fabric *comes from* — and it never
+mentioned `join` at all. This module supplies both: the seed already is a
+fabric, `addNode` extends one, and any growth preserves one, `join` included.
 
 That is not a coincidence of the encoding, it is the author's
 `all_previous_nodes_are_owners_of_me!` doing exactly what it was written to do.
@@ -336,6 +337,68 @@ theorem isValid_readStepSym_addNode_new (title : String) (h : Fabric g S T)
     (FabricAt_addNode_new (S := S) (T := T) title h hd hbelow hne hpos hsmp hnr)
 
 -- ============================================================
+-- The case the ledger was missing: `join`
+-- ============================================================
+
+/-! v78 found that `Fabric.lean` never mentions `join`, so the induction over
+`Reachable` had a hole where its fourth case should be. It closes in one lemma,
+and not by accident: **a fabric only ever asks for things to be *there***. Every
+clause is an existence or a membership — an entry at each step, a carrier among
+the parents, an owner in a table — and `Grown` says exactly that nothing goes
+away. So a fabric survives any growth, and `join` is growth on both sides. -/
+
+/-- **A fabric survives growth.** Nothing a fabric asserts can be broken by
+adding nodes, parents, sons or owners. -/
+theorem Fabric_of_grown {g g' : GPathM} (hgr : Grown g g')
+    (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop) (h : Fabric g S T) :
+    Fabric g' S T := by
+  -- every member's node grows into the member's node of `g'`
+  have hgrow : ∀ p, S p → ∃ n n', g.node? p = some n ∧ g'.node? p = some n' ∧
+      (∀ q ∈ n.owners, q ∈ n'.owners) ∧ (∀ c ∈ n.parents, c ∈ n'.parents) := by
+    intro p hp
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    obtain ⟨n', hn', ho, hpar, _⟩ := hgr.node?_grown p n hn
+    exact ⟨n, n', hn, hn', ho, hpar⟩
+  refine
+    { gow := fun p hp => hgr.gowners_grown p (h.gow p hp),
+      node := ?_, inS := h.inS, symm := h.symm, self := h.self,
+      sub := ?_, support := ?_, up := ?_, down := ?_ }
+  · intro p hp
+    obtain ⟨_, _, _, hn', _, _⟩ := hgrow p hp
+    rw [hn']; rfl
+  · intro p n hn hp v hT
+    obtain ⟨n₀, n', hn₀, hn', ho, _⟩ := hgrow p hp
+    rw [hn'] at hn
+    rw [← Option.some.inj hn]
+    exact ho v (h.sub p n₀ hn₀ hp v hT)
+  · intro p hp l hl0 hl
+    rw [hgr.step_eq] at hl
+    exact h.support p hp l hl0 hl
+  · intro p n hn hp hpnr v hT
+    obtain ⟨n₀, n', hn₀, hn', _, hpar⟩ := hgrow p hp
+    rw [hn'] at hn
+    obtain ⟨c, hc, hpc, hcv⟩ := h.up p n₀ hn₀ hp hpnr v hT
+    rw [← Option.some.inj hn]
+    exact ⟨c, hpar c hc, hpc, hcv⟩
+  · intro p hp hptop v hT
+    rw [hgr.step_eq] at hptop
+    obtain ⟨c, m, hcm, hpm, hpc, hcv⟩ := h.down p hp hptop v hT
+    obtain ⟨m', hm', _, hpar, _⟩ := hgr.node?_grown c m hcm
+    exact ⟨c, m', hm', hpar p hpm, hpc, hcv⟩
+
+/-- **The join keeps the left side's fabric.** -/
+theorem Fabric_join_left (g₁ g₂ : GPathM) (S : PathNodeId → Prop)
+    (T : PathNodeId → PathNodeId → Prop) (h : Fabric g₁ S T) :
+    Fabric (join g₁ g₂) S T :=
+  Fabric_of_grown (grown_join_left g₁ g₂) S T h
+
+/-- **And the right side's.** -/
+theorem Fabric_join_right (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop) (h : Fabric g₂ S T) :
+    Fabric (join g₁ g₂) S T :=
+  Fabric_of_grown (grown_join_right g₁ g₂ hok) S T h
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -346,6 +409,18 @@ theorem isValid_readStepSym_addNode_new (title : String) (h : Fabric g S T)
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.Fabric_initSeed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Fabric_initSeed
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.Fabric_of_grown' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Fabric_of_grown
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.Fabric_join_left' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Fabric_join_left
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.Fabric_join_right' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Fabric_join_right
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
