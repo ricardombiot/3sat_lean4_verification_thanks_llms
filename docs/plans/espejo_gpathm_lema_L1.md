@@ -10,6 +10,40 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ap) — El lector del diseño original, ensamblado.**
+
+Corrección del autor: el lector no comprueba posesión dos a dos, **pina y propaga**. Leído
+`src/graph_path/reader/path_reader.jl` y `graph_path_filter.jl`: `select_id!` toma `first(ids)` y
+se queda con su **id de mapa**; `filter_require!` elimina en ese paso todo owner global que nombre
+otro nodo de mapa; `make_review_owners!` es **recursivo** hasta que la bandera deja de levantarse;
+el lector lanza `throw("GRAVE ERROR READER")` si el grafo deja de ser válido; termina con un nodo
+de mapa por paso.
+
+Eso ya era `PickInduction.Inhabited_of_pickSome` + `Pinned.inhabited_of_noChoice`. Lo que faltaba:
+la inducción pide una clase cerrada bajo `filterAll`, y **todos** los invariantes estaban
+enunciados para *un* `filterAll` sobre un `Reachable`.
+
+`Model/NodeIds.lean` (nuevo): `Ids`, `ids_map`/`ids_filter` y la cadena completa
+(`updateAt`, `unlinkIncompatible`, `removeNode`, `cleanInvalidGo`, `reviewNode`, `reviewLine`,
+`reviewSteps`, `reviewPass`, `reviewFuel`, `review`, `filterRequire`, `filterAll`) hasta
+**`NodupIds_filterAll`** — la hipótesis que `Filter.lean` y `PickInduction.lean` piden y nadie
+descargaba.
+
+`Model/Reader.lean` (nuevo): `RCtx` (OOS, SNN, GN, Shape, RootAtZero, PMP, NodupIds) con
+`RCtx_reachable` y **`RCtx_filterAll`**; `Readable g := ∃ g₀ reqs, RCtx g₀ ∧ g = filterAll g₀ reqs`,
+cerrada bajo pinado; `Ctx_of_readable`, `exists_isChain_of_readable` (sin hipótesis de
+positividad), `inhabited_of_noChoice_readable`; **`Inhabited_of_pickSome_readable`**. Y
+`nodup_addNode` / `nodup_up` / `nodup_join` / **`NodupIds_reachable`**, que descargan la última
+hipótesis y dan **`Inhabited_of_pickSome_machine`**: el bucle del lector sobre los estados de la
+máquina, con `PickSome` como única hipótesis. Todo `[propext, Quot.sound]`.
+
+Mediciones: `--randomread` 40/40 (3.808 estados, 116.330 nodos, 0 inconclusos); `--pickvalid`
+semilla 31337: 0 de 2.759 estados sin selección buena, 0 de 64.144 selecciones invalidan.
+
+87 módulos. Informe: `verificacion_inseguridad_autor_v58.md`.
+
+---
+
 **2026-09-11 (ao) — Ataque a `GoodParentOnCliques`: tres atajos caídos, dos teoremas.**
 
 Intento de demostración. **No cayó.** Lo obtenido:
