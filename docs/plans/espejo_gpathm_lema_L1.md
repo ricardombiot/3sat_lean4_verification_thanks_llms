@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bq) — `TriProp` extraído del punto fijo de `reviewTri`.**
+
+`FabricAdd.lean`: `filter_eq_self_of_length`, `weight_triMap_le`, `sum_map_le`, `sum_eq_pointwise`,
+**`triClean_eq_of_measure_ge`**, **`measure_reviewFuel_le`**/`measure_review_le` (no existían),
+**`TriProp_of_triClean_fixpoint`** (el corazón: el test de `triClean` *es* `TriProp`),
+`TriProp_reviewTriFuel` y **`TriProp_reviewTri`** — sin hipótesis. Además,
+`pinnedCandidate_selfSupporting` generalizado a un estado cualquiera con cuatro hipótesis (owners ⊆
+gowners, gowners con los pines, `TriProp`, simetría) y **pasa a no depender de ningún axioma**;
+`gowners_compat_filterAll` descarga la segunda para el filtro original. Falta: transportar a
+`reviewTri` los lemas de owners ⊆ gowners y simetría que existen para `review` (mismo argumento,
+`triClean` no toca `gowners` ni enlaces). Estado: P1 ✅, P2 ✅, P3 (cubre ✅ v83, estrechado ✅ v84,
+`TriProp` ✅ hoy, falta el transporte), P4 formal ✅ pero equivalente a la validez (v82), P5 libre.
+Se mantiene la comprobación de v84: el argumento usa `owns_required`, del filtro de cláusula, que no
+vale para el pinchazo del lector — P3 es invariante de construcción, no decisión.
+
+Informe: `verificacion_inseguridad_autor_v85.md`.
+
 **2026-09-11 (bp) — El estrechado no borra nada: P3 cerrada módulo extraer `TriProp`.**
 
 `FabricAdd.lean`: `gowners_foldl_sub`, **`gowners_foldl_compat`** (todo owner global superviviente

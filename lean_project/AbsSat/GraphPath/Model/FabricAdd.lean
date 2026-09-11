@@ -2,6 +2,7 @@
 import AbsSat.GraphPath.Model.Fabric
 import AbsSat.GraphPath.Model.Reader
 import AbsSat.GraphPath.Model.NodeInvariant
+import AbsSat.GraphPath.Model.TriReview
 
 /-!
 # Where the fabric comes from, and what it buys
@@ -49,6 +50,7 @@ open AbsSat.Utils.Alias
 open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.Fabric
+open AbsSat.GraphPath.Model.TriReview
 
 variable (g : GPathM) (d : NodeId) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
 
@@ -681,15 +683,17 @@ def TriProp (g : GPathM) : Prop :=
 /-- **The narrowing deletes nothing.** Every member of the pinned candidate has
 its support *inside* the candidate, at every step — so the greatest
 self-supporting subset is the candidate itself, and it covers. -/
-theorem pinnedCandidate_selfSupporting (reqs : List NodeId) (g : GPathM)
-    (hv : isValid (filterAll g reqs) = true)
-    (htri : TriProp (filterAll g reqs))
-    (hsym : ∀ a na b nb, (filterAll g reqs).node? a = some na →
-      (filterAll g reqs).node? b = some nb → b ∈ na.owners → a ∈ nb.owners)
-    (r : PathNodeId) (n : PNodeM) (hn : (filterAll g reqs).node? r = some n)
+theorem pinnedCandidate_selfSupporting (reqs : List NodeId) (G : GPathM)
+    (hown : ∀ r n, G.node? r = some n → ∀ w ∈ n.owners,
+      0 ≤ w.id.step → w.id.step < G.current_step → w ∈ G.gowners)
+    (hgow : ∀ q ∈ G.gowners, Compat reqs q)
+    (htri : TriProp G)
+    (hsym : ∀ a na b nb, G.node? a = some na → G.node? b = some nb →
+      b ∈ na.owners → a ∈ nb.owners)
+    (r : PathNodeId) (n : PNodeM) (hn : G.node? r = some n)
     (p : PathNodeId) (hp : p ∈ n.owners)
-    (np : PNodeM) (hnp : (filterAll g reqs).node? p = some np)
-    (l : Int) (hl0 : 0 ≤ l) (hl : l < (filterAll g reqs).current_step) :
+    (np : PNodeM) (hnp : G.node? p = some np)
+    (l : Int) (hl0 : 0 ≤ l) (hl : l < G.current_step) :
     ∃ w, w ∈ np.owners ∧ w ∈ n.owners ∧ Compat reqs w ∧ w.id.step = l := by
   -- symmetry: `r` owns `p` back
   have hrp : r ∈ np.owners := hsym r n p np hn hnp hp
@@ -697,12 +701,168 @@ theorem pinnedCandidate_selfSupporting (reqs : List NodeId) (g : GPathM)
   obtain ⟨w, hwp, hwr, hws⟩ := htri p np r n hnp hn hrp l hl0 hl
   refine ⟨w, hwp, hwr, ?_, hws⟩
   -- and it is compatible, because it is a global owner and the pins filtered those
-  have hwlo : 0 ≤ w.id.step := by rw [hws]; exact hl0
-  have hwhi : w.id.step < (filterAll g reqs).current_step := by rw [hws]; exact hl
-  have hgow : w ∈ (filterAll g reqs).gowners :=
-    Candidates.owner_mem_gowners (reqs.foldl filterRequire g) hv r n hn w hwr hwlo hwhi
-  exact gowners_foldl_compat reqs g w
-    ((pruned_review (reqs.foldl filterRequire g)).gowners_sub w hgow)
+  exact hgow w (hown r n hn w hwr (by rw [hws]; exact hl0) (by rw [hws]; exact hl))
+
+/-- The hypotheses of the previous theorem, discharged for the machine's own
+clause filter: owners are global owners, and the global owners carry the
+pins. -/
+theorem gowners_compat_filterAll (g : GPathM) (reqs : List NodeId) :
+    ∀ q ∈ (filterAll g reqs).gowners, Compat reqs q := fun q hq =>
+  gowners_foldl_compat reqs g q
+    ((pruned_review (reqs.foldl filterRequire g)).gowners_sub q hq)
+
+-- ============================================================
+-- `TriProp`, extracted from the triangle pass
+-- ============================================================
+
+/-! v84 took `TriProp` as a hypothesis and said extracting it was bookkeeping.
+Here it is. The heart is one line of reading: at a fixpoint of `triClean`, an
+entry that survived the sweep survived it **because** the sweep's own test held
+— and that test *is* `TriProp`. The rest is showing the pass reaches a
+fixpoint, which it does as soon as it stops removing anything. -/
+
+/-- A filter that drops nothing is the identity. -/
+theorem filter_eq_self_of_length {α : Type} (p : α → Bool) (l : List α)
+    (h : l.length ≤ (l.filter p).length) : l.filter p = l :=
+  List.filter_sublist.eq_of_length
+    (Nat.le_antisymm (List.Sublist.length_le List.filter_sublist) h)
+
+theorem weight_triMap_le (g : GPathM) (n : PNodeM) :
+    PNodeM.weight (triMap g n) ≤ PNodeM.weight n := by
+  simp only [PNodeM.weight, triMap]
+  exact Nat.add_le_add_left (List.Sublist.length_le List.filter_sublist) _
+
+theorem sum_map_le {α : Type} (f h : α → Nat) (hle : ∀ x, f x ≤ h x) :
+    ∀ l : List α, (l.map f).sum ≤ (l.map h).sum := by
+  intro l
+  induction l with
+  | nil => exact Nat.le_refl _
+  | cons y ys ih =>
+    simp only [List.map_cons, List.sum_cons]
+    exact Nat.add_le_add (hle y) ih
+
+theorem sum_eq_pointwise {α : Type} (f h : α → Nat) (hle : ∀ x, f x ≤ h x) :
+    ∀ l : List α, (l.map h).sum ≤ (l.map f).sum → ∀ x ∈ l, f x = h x := by
+  intro l
+  induction l with
+  | nil => intro _ x hx; exact absurd hx List.not_mem_nil
+  | cons y ys ih =>
+    intro hsum x hx
+    simp only [List.map_cons, List.sum_cons] at hsum
+    have hts := sum_map_le f h hle ys
+    have hy := hle y
+    rcases List.mem_cons.mp hx with rfl | hx'
+    · omega
+    · exact ih (by omega) x hx'
+
+/-- **A triangle sweep that removes nothing is the identity.** -/
+theorem triClean_eq_of_measure_ge (g : GPathM)
+    (h : GPathM.measure g ≤ GPathM.measure (triClean g)) : triClean g = g := by
+  have hsum : (g.nodes.map PNodeM.weight).sum
+      ≤ (g.nodes.map (fun n => PNodeM.weight (triMap g n))).sum := by
+    simp only [GPathM.measure, triClean, List.map_map, Function.comp_def] at h
+    omega
+  have hpt := sum_eq_pointwise (fun n => PNodeM.weight (triMap g n)) PNodeM.weight
+    (weight_triMap_le g) g.nodes hsum
+  have hid : ∀ n ∈ g.nodes, triMap g n = n := by
+    intro n hn
+    have hw := hpt n hn
+    simp only [PNodeM.weight, triMap] at hw
+    have hlen : n.owners.length
+        ≤ (n.owners.filter (fun q => commonAtAll g n.owners q)).length := by omega
+    simp only [triMap]
+    rw [filter_eq_self_of_length _ _ hlen]
+  have hnodes : ∀ l : List PNodeM, (∀ n ∈ l, triMap g n = n) → l.map (triMap g) = l := by
+    intro l
+    induction l with
+    | nil => intro _; rfl
+    | cons y ys ihl =>
+      intro hl
+      simp only [List.map_cons, hl y List.mem_cons_self]
+      rw [ihl (fun n hn => hl n (List.mem_cons_of_mem _ hn))]
+  simp only [triClean, hnodes g.nodes hid]
+
+/-- The review never grows the measure — the fuel loop only ever runs passes
+that do not, and stops where they stop. -/
+theorem measure_reviewFuel_le : ∀ (fuel : Nat) (g : GPathM),
+    GPathM.measure (reviewFuel fuel g) ≤ GPathM.measure g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Nat.le_refl _
+  | succ f ih =>
+    intro g
+    simp only [reviewFuel]
+    if hval : isValid g = true then
+      if hlt : GPathM.measure (reviewPass g) < GPathM.measure g then
+        simp only [if_pos hval, if_pos hlt]
+        exact Nat.le_trans (ih (reviewPass g)) (Nat.le_of_lt hlt)
+      else
+        simp only [if_pos hval, if_neg hlt]
+        exact measure_reviewPass_le g
+    else
+      simp only [if_neg hval]
+      exact Nat.le_refl _
+
+theorem measure_review_le (g : GPathM) : GPathM.measure (review g) ≤ GPathM.measure g :=
+  measure_reviewFuel_le _ g
+
+/-- **The fixpoint of the triangle pass satisfies `TriProp`.** An entry that
+survived the sweep survived it because the sweep's test held, and that test is
+`TriProp` itself. -/
+theorem TriProp_of_triClean_fixpoint (g : GPathM) (hfix : triClean g = g) : TriProp g := by
+  intro a na b nb hna hnb hb l hl0 hl
+  have hmap : some na = some (triMap g na) := by
+    have h1 := triClean_node? g a
+    rw [hfix, hna] at h1
+    simpa using h1
+  have heq : na = triMap g na := Option.some.inj hmap
+  have hna' : na.owners = na.owners.filter (fun q => commonAtAll g na.owners q) :=
+    congrArg PNodeM.owners heq
+  have hbf : b ∈ na.owners.filter (fun q => commonAtAll g na.owners q) := by
+    rw [← hna']; exact hb
+  have hcom : commonAtAll g na.owners b = true := (List.mem_filter.mp hbf).2
+  simp only [commonAtAll, hnb, List.all_eq_true] at hcom
+  have hk : l ∈ intRange 0 (g.current_step - 1) := mem_intRange hl0 (by omega)
+  obtain ⟨w, hw, hwp⟩ := List.any_eq_true.mp (hcom l hk)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hwp
+  exact ⟨w, hw, List.mem_of_elem_eq_true hwp.2, hwp.1⟩
+
+/-- **And so the triangle review delivers it**, as soon as the loop has fuel to
+reach the point where the sweep stops removing anything. -/
+theorem TriProp_reviewTriFuel (hrev : ∀ h : GPathM, GPathM.measure (review h) ≤ GPathM.measure h) :
+    ∀ (fuel : Nat) (g : GPathM), GPathM.measure g ≤ fuel →
+      isValid (reviewTriFuel fuel g) = true → TriProp (reviewTriFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro g hm hv
+    simp only [reviewTriFuel] at hv ⊢
+    intro a na b nb _ _ _ l hl0 hl
+    have hgow : g.gowners = [] := by
+      simp only [GPathM.measure] at hm
+      exact List.eq_nil_of_length_eq_zero (by omega)
+    have hk : l ∈ intRange 0 (g.current_step - 1) := mem_intRange hl0 (by omega)
+    have hstep := List.all_eq_true.mp hv l hk
+    simp only [hasStepEntry, hgow, List.any_nil] at hstep
+    exact absurd hstep (by simp)
+  | succ f ih =>
+    intro g hm hv
+    simp only [reviewTriFuel] at hv ⊢
+    if hval : isValid (review g) = true then
+      if hlt : GPathM.measure (triClean (review g)) < GPathM.measure (review g) then
+        simp only [if_pos hval, if_pos hlt] at hv ⊢
+        exact ih _ (by have := hrev g; omega) hv
+      else
+        simp only [if_pos hval, if_neg hlt] at hv ⊢
+        exact TriProp_of_triClean_fixpoint _ (triClean_eq_of_measure_ge _ (by omega))
+    else
+      simp only [if_neg hval] at hv ⊢
+      exact absurd hv hval
+
+/-- **`TriProp` for the triangle review itself.** -/
+theorem TriProp_reviewTri (g : GPathM) (hv : isValid (reviewTri g) = true) :
+    TriProp (reviewTri g) :=
+  TriProp_reviewTriFuel measure_review_le _ g (Nat.le_succ _) hv
 
 -- ============================================================
 -- Axiom guards
@@ -756,9 +916,21 @@ theorem pinnedCandidate_selfSupporting (reqs : List NodeId) (g : GPathM)
 #guard_msgs in
 #print axioms gowners_foldl_compat
 
-/-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_selfSupporting' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_selfSupporting' does not depend on any axioms -/
 #guard_msgs in
 #print axioms pinnedCandidate_selfSupporting
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.TriProp_of_triClean_fixpoint' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms TriProp_of_triClean_fixpoint
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.TriProp_reviewTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms TriProp_reviewTri
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.gowners_compat_filterAll' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gowners_compat_filterAll
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
