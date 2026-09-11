@@ -10,6 +10,30 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bc) — La clase de alcance acotado: definida y estable; la reparación, corregida dos veces por la medición.**
+
+`CnfHypergraph.lean`: `clauseEdge`, `cnfEdges`, `gyoIter`, `gyoRounds`, `prefixEdges`, `PrefixAcyclic`,
+`BoundedScope φ K` (α-acíclico y ≤ `K` rondas GYO **en todos los prefijos** — la α-aciclicidad no es
+hereditaria; testigo `{0,1},{1,2},{0,2},{0,1,2}` acíclico y su subfórmula no). Demostrados
+`gyoIter_gyoRoundsGo`/`gyoIter_gyoRounds` (sin axiomas), `boundedScopeB_iff` + `Decidable`,
+`gyoIter_eq_nil_of_BoundedScope`, `alphaAcyclic_of_BoundedScope`, `prefixEdges_take`,
+`BoundedScope_prefix` (cerrada bajo prefijos). Cuatro ejemplos `decide`: 12 variables con la misma
+`K = 2` que 3 (la clase no es «fórmulas pequeñas»), triángulo fuera a toda `K`. Tseitin (K4, K3,3,
+prisma, cubo, Petersen, ambas paridades): fuera, núcleo cíclico de una arista por vértice. Medido
+(`cnfmap --flipscope`, 5 semillas, 400 fórmulas, 3–6 vars, todos los prefijos, solo instancias con
+solución reparada existente): reparación por **variable** 484 atascos de 47.663 dentro de la clase
+(la Pieza 1 planeada era falsa); los casos son fórmulas con todas las cláusulas sobre un mismo
+ámbito — una arista, varias relaciones — y la unidad correcta es la **fila**, que es lo que la
+máquina mueve; por fila 25; los restantes son filas localmente válidas y globalmente muertas, que
+elimina el **semi-join**; por fila tras el reductor **0 de 47.663** dentro, 1.192 de 415.984 fuera,
+607 de 111.547 en los controles. Correspondencia término a término con la máquina (filas = nodos de
+cláusula, semi-joins = pasadas de `review`, arco-consistencia ya demostrada en `ArcConsistency.lean`).
+`FlipCore` para la clase **no** demostrado. Siguiente: relaciones y semi-join en el modelo puro, el
+teorema de no-retroceso por inducción sobre las `K` rondas, y el puente de asignación reparada a
+cadena de *ese* estado.
+
+Informe: `verificacion_inseguridad_autor_v71.md`.
+
 **2026-09-11 (bb) — El caso general: tríos, inserciones apuntadas, y la decodificación por prefijo.**
 
 `cnfmap --triples` (máquina con triángulo, tres semillas): 905.506 tríos co-poseídos; 0 con un par sin

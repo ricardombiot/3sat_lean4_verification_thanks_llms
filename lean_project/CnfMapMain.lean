@@ -10,6 +10,10 @@ def main (args : List String) : IO UInt32 := do
     let g := fun (i : Nat) (d : Nat) => (rest[i]?.bind (·.toNat?)).getD d
     AbsSat.GraphMap.SymCampaign.runInsertGen (g 0 2026) (g 1 5) (g 2 2) (g 3 4) (g 4 2) (g 5 3)
       ((rest[6]?.getD "tri") == "tri")
+  | "--flipscope" :: rest =>
+    let g := fun (i : Nat) (d : Nat) => (rest[i]?.bind (·.toNat?)).getD d
+    AbsSat.GraphMap.SymCampaign.runFlipScope (g 0 40) (g 1 2026) (g 2 3) (g 3 3) (g 4 8) (g 5 2)
+      (g 6 4)
   | "--triples" :: rest =>
     let cases := (rest[0]?.bind (·.toNat?)).getD 20
     let seed := (rest[1]?.bind (·.toNat?)).getD 2026

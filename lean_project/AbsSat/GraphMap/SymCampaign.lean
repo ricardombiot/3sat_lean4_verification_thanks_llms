@@ -2,6 +2,7 @@
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphPath.Model.TriReview
+import AbsSat.GraphMap.CnfHypergraph
 
 /-!
 `lake exe cnfmap --symreview`: the original machine against the symmetric one
@@ -1421,6 +1422,371 @@ cs={kv.2.current_step} key=({kv.1.step},{kv.1.index}): {z} node(s) on no solutio
   IO.println s!"  formulas run                              = {runs}"
   IO.println s!"  states with a node on no solution         = {badStates}"
   IO.println s!"  zombie verdicts                           = {zverdict}"
+  pure 0
+
+
+-- ------------------------------------------------------------
+-- The bounded-scope class: does the constructive repair work?
+-- ------------------------------------------------------------
+
+/-! What `FlipCore` needs, stripped of the machine, is a **repair**: given a
+solution of the clauses seen so far that respects some pins, and one more
+literal to satisfy, produce another solution respecting the pins *and* the new
+literal. The proof planned for the bounded-scope class does it constructively —
+flip the target, then walk the broken clauses in GYO ear order, fixing one
+variable at a time — so what has to be measured before writing any Lean is not
+whether a repaired solution *exists* (v68 already measured that: 0 failures)
+but whether **this construction finds it**, and whether the class is what
+separates the cases where it does from the cases where it does not.
+
+The control is built in: the same procedure runs on the Tseitin formulas, which
+are outside the class, and it must fail there. A procedure that succeeds
+everywhere would be measuring nothing. -/
+
+def setVar (a : Assign) (v : Nat) (b : Bool) : Assign := fun u => if u == v then b else a u
+
+def satClauseB (a : Assign) (c : Clause) : Bool :=
+  litVal a c.l1 || litVal a c.l2 || litVal a c.l3
+
+/-- The first clause the assignment breaks. -/
+def brokenClause (C : List Clause) (a : Assign) : Option Clause :=
+  C.find? (fun c => !(satClauseB a c))
+
+/-- How many clauses a variable occurs in. The GYO ear order prefers the
+least-occurring variable: occurring once *is* being an ear. -/
+def varOccurs (C : List Clause) (v : Nat) : Nat :=
+  (C.filter (fun c => c.l1.v == v || c.l2.v == v || c.l3.v == v)).length
+
+/-- **The constructive repair.** Each step takes a broken clause and sets one
+of its unlocked variables to satisfy it, locking that variable. `ear` picks the
+least-occurring variable (the GYO order), otherwise the leftmost. A step that
+finds every variable of a broken clause already locked FAILS — that is exactly
+the case the bounded-scope hypothesis has to rule out. Terminates because every
+step locks one more variable. -/
+def repairGo (C : List Clause) (ear : Bool) : Nat → List Nat → Assign → Option Assign
+  | 0, _, _ => none
+  | fuel + 1, locked, a =>
+    match brokenClause C a with
+    | none => some a
+    | some c =>
+      let cands := [c.l1, c.l2, c.l3].filter (fun l => !locked.contains l.v)
+      let pick :=
+        if ear then
+          cands.foldl (fun best l =>
+            match best with
+            | none => some l
+            | some w => if varOccurs C l.v < varOccurs C w.v then some l else some w) none
+        else cands.head?
+      match pick with
+      | none => none
+      | some l => repairGo C ear fuel (l.v :: locked) (setVar a l.v l.pos)
+
+/-- Flip `v` to `b` and repair, keeping `pins` (and `v`) fixed throughout. -/
+def repairFlip (C : List Clause) (nVars : Nat) (ear : Bool) (a : Assign) (pins : List Nat)
+    (v : Nat) (b : Bool) : Option Assign :=
+  repairGo C ear (nVars + 1) (v :: pins) (setVar a v b)
+
+/-! ### The repair by **rows**
+
+The variable-at-a-time repair above gets stuck, and the stuck cases say why:
+they are formulas whose clauses all range over the *same* variables. As a
+hypergraph that is a single edge — trivially α-acyclic — but as a constraint it
+is the intersection of several relations over that scope, and no amount of
+acyclicity helps a procedure that fixes one variable at a time and never
+reconsiders.
+
+The machine does not work that way, and neither does the classical algorithm
+for acyclic CSPs. A clause node of the map encodes its **three literals at
+once**: the unit the machine moves is a *row*, not a variable. So the repair
+has to move rows too — pick, for a violated scope, a whole row of the relation
+that scope carries. -/
+
+/-- A scope: the distinct variables a clause ranges over, sorted. -/
+def clauseScope (c : Clause) : List Nat :=
+  ([c.l1.v, c.l2.v, c.l3.v].foldl (fun acc v =>
+    if acc.contains v then acc else acc ++ [v]) []).mergeSort (fun x y => x ≤ y)
+
+/-- The distinct scopes of `C`. Two clauses over the same variables are one
+relation, not two — which is exactly what the hypergraph already says, since
+`dropSubsumed` dedups identical edges. -/
+def scopesOf (C : List Clause) : List (List Nat) :=
+  C.foldl (fun acc c =>
+    let s := clauseScope c
+    if acc.contains s then acc else acc ++ [s]) []
+
+/-- The rows a scope allows: assignments to its variables satisfying **every**
+clause of `C` with that scope. Represented as the list of values, aligned with
+the scope's variable list. -/
+def rowsOf (C : List Clause) (s : List Nat) : List (List Bool) :=
+  let cls := C.filter (fun c => clauseScope c == s)
+  (List.range (Nat.pow 2 s.length)).filterMap (fun m =>
+    let vals := (List.range s.length).map (fun i => m.testBit i)
+    let a : Assign := fun u =>
+      match s.idxOf? u with
+      | some i => vals[i]!
+      | none => false
+    if cls.all (satClauseB a) then some vals else none)
+
+def applyRow (a : Assign) (s : List Nat) (vals : List Bool) : Assign := fun u =>
+  match s.idxOf? u with
+  | some i => vals[i]!
+  | none => a u
+
+/-- A scope some clause of which the assignment breaks. -/
+def brokenScope (C : List Clause) (a : Assign) : Option (List Nat) :=
+  (C.find? (fun c => !(satClauseB a c))).map clauseScope
+
+/-- **The repair, by rows.** Each step takes a violated scope and installs a
+whole row of its relation that agrees with everything locked so far, locking
+the scope's variables. Stuck when the violated scope has no such row — the case
+the class has to rule out. Terminates: a violated scope always contains an
+unlocked variable (if all were locked, its values would already be a locked
+row), so every step locks one more. -/
+def repairRowGo (C : List Clause) : Nat → List Nat → Assign → Option Assign
+  | 0, _, _ => none
+  | fuel + 1, locked, a =>
+    match brokenScope C a with
+    | none => some a
+    | some s =>
+      let ok := (rowsOf C s).filter (fun vals =>
+        (List.range s.length).all (fun i =>
+          match s[i]? with
+          | some u => !locked.contains u || vals[i]! == a u
+          | none => true))
+      match ok.head? with
+      | none => none
+      | some vals => repairRowGo C fuel (locked ++ s) (applyRow a s vals)
+
+def repairFlipRow (C : List Clause) (nVars : Nat) (a : Assign) (pins : List Nat)
+    (v : Nat) (b : Bool) : Option Assign :=
+  repairRowGo C (nVars + 1) (v :: pins) (setVar a v b)
+
+/-! ### The repair by rows, **after the reducer**
+
+The row repair still gets stuck, and again the stuck cases say why. Two scopes
+sharing two variables: the greedy picks a row of the first that is locally fine
+and globally dead — no row of the second agrees with it — and there is no way
+back. What removes such rows is the **semi-join**: drop from each relation
+every row unsupported by a neighbour, to the fixpoint. That is arc consistency
+on the relations, and it is exactly what the machine's `review` passes do to
+the owners tables (`ArcConsistency.review_arcConsistent`). The classical
+theorem is that on an α-acyclic hypergraph the reduced relations can then be
+picked greedily with no backtracking — so this, and not the bare greedy, is the
+procedure the bounded-scope proof has to mirror. -/
+
+structure Rel where
+  scope : List Nat
+  rows : List (List Bool)
+
+def rowVal (s : List Nat) (vals : List Bool) (u : Nat) : Option Bool :=
+  match s.idxOf? u with
+  | some i => vals[i]?
+  | none => none
+
+/-- Two rows agree wherever their scopes overlap. -/
+def rowsAgree (s : List Nat) (vals : List Bool) (t : List Nat) (w : List Bool) : Bool :=
+  s.all (fun u =>
+    match rowVal s vals u, rowVal t w u with
+    | some x, some y => x == y
+    | _, _ => true)
+
+/-- One semi-join sweep: a row survives only if every other relation has a row
+agreeing with it. -/
+def reduceOnce (rels : List Rel) : List Rel :=
+  rels.map (fun r =>
+    { r with rows := r.rows.filter (fun vals =>
+        rels.all (fun q => q.scope == r.scope ||
+          q.rows.any (fun w => rowsAgree r.scope vals q.scope w))) })
+
+def reduceGo : Nat → List Rel → List Rel
+  | 0, rels => rels
+  | n + 1, rels =>
+    let rels' := reduceOnce rels
+    if rels'.map (·.rows) == rels.map (·.rows) then rels else reduceGo n rels'
+
+/-- Narrow every relation by the variables already fixed. -/
+def pinRels (locked : List (Nat × Bool)) (rels : List Rel) : List Rel :=
+  rels.map (fun r =>
+    { r with rows := r.rows.filter (fun vals =>
+        locked.all (fun p =>
+          match rowVal r.scope vals p.1 with
+          | some x => x == p.2
+          | none => true)) })
+
+/-- **The repair the proof would mirror.** Pin the target and the pins, reduce
+to the arc-consistent fixpoint, then take relations one at a time: install the
+first surviving row, re-pin, re-reduce. Stuck when some relation empties. -/
+def repairReduceGo : Nat → Nat → List Rel → List (Nat × Bool) → List Rel →
+    Option (List (Nat × Bool))
+  | 0, _, _, locked, _ => some locked
+  | n + 1, fuel, rels, locked, all =>
+    match rels with
+    | [] => some locked
+    | r :: rest =>
+      match r.rows.head? with
+      | none => none
+      | some vals =>
+        let locked' := locked ++ (List.range r.scope.length).filterMap (fun i =>
+          match r.scope[i]?, vals[i]? with
+          | some u, some x => some (u, x)
+          | _, _ => none)
+        let all' := reduceGo fuel (pinRels locked' all)
+        if all'.any (fun q => q.rows.isEmpty) then none
+        else
+          let rest' := rest.filterMap (fun q => all'.find? (fun w => w.scope == q.scope))
+          repairReduceGo n fuel rest' locked' all'
+
+def repairFlipReduce (C : List Clause) (a : Assign) (pins : List Nat)
+    (v : Nat) (b : Bool) : Option Assign :=
+  let rels := (scopesOf C).map (fun s => { scope := s, rows := rowsOf C s : Rel })
+  let locked := (v, b) :: pins.map (fun u => (u, a u))
+  let fuel := rels.length + 2
+  let rels0 := reduceGo fuel (pinRels locked rels)
+  if rels0.any (fun q => q.rows.isEmpty) then none
+  else
+    match repairReduceGo (rels0.length + 1) fuel rels0 locked rels0 with
+    | none => none
+    | some final => some (fun u =>
+        match final.find? (fun p => p.1 == u) with
+        | some p => p.2
+        | none => a u)
+
+structure RAcc where
+  formulas : Nat := 0
+  instances : Nat := 0
+  repaired : Nat := 0
+  failedStuck : Nat := 0
+  failedWrong : Nat := 0
+
+def RAcc.add (x : RAcc) (y : RAcc) : RAcc :=
+  { formulas := x.formulas + y.formulas, instances := x.instances + y.instances,
+    repaired := x.repaired + y.repaired, failedStuck := x.failedStuck + y.failedStuck,
+    failedWrong := x.failedWrong + y.failedWrong }
+
+/-- The three repair strategies measured: by variable in GYO ear order, by
+variable leftmost-first, and by row. -/
+inductive RepairMode where
+  | ear | first | row | reduce
+
+def runRepair (mode : RepairMode) (C : List Clause) (nVars : Nat) (a : Assign)
+    (pins : List Nat) (v : Nat) (b : Bool) : Option Assign :=
+  match mode with
+  | .ear => repairFlip C nVars true a pins v b
+  | .first => repairFlip C nVars false a pins v b
+  | .row => repairFlipRow C nVars a pins v b
+  | .reduce => repairFlipReduce C a pins v b
+
+/-- Run the repair on every prefix of one formula, over sampled (solution,
+pins, target) triples for which a repaired solution is known to exist. The
+three modes see the *same* triples: the rng is threaded once and replayed. -/
+def scoreFormula (φ : Cnf) (mode : RepairMode) (solCap pinTries : Nat)
+    (rng0 : AbsSat.SatMachine.DiffTest.Rng) :
+    AbsSat.SatMachine.DiffTest.Rng × RAcc := Id.run do
+  let mut rng := rng0
+  let mut acc : RAcc := { formulas := 1 }
+  let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+  for m in [0:φ.clauses.length + 1] do
+    let C := φ.clauses.take m
+    let sols := alls.filter (fun a => C.all (satClauseB a))
+    for a in sols.take solCap do
+      for v in [0:φ.nVars] do
+        let b := !(a v)
+        for _ in [0:pinTries] do
+          let (r1, mask) := rng.below (Nat.pow 2 φ.nVars)
+          rng := r1
+          let pins := ((List.range φ.nVars).filter
+            (fun u => u != v && mask.testBit u)).take 5
+          -- only ask the question where a repaired solution exists at all
+          let exists_ := sols.any (fun a' => a' v == b && pins.all (fun u => a' u == a u))
+          if exists_ then
+            acc := { acc with instances := acc.instances + 1 }
+            match runRepair mode C φ.nVars a pins v b with
+            | none => acc := { acc with failedStuck := acc.failedStuck + 1 }
+            | some a' =>
+              if C.all (satClauseB a') && a' v == b && pins.all (fun u => a' u == a u) then
+                acc := { acc with repaired := acc.repaired + 1 }
+              else
+                acc := { acc with failedWrong := acc.failedWrong + 1 }
+  return (rng, acc)
+
+def reportRAcc (label : String) (x : RAcc) : IO Unit := do
+  IO.println s!"  {label}: formulas={x.formulas} instances={x.instances} \
+repaired={x.repaired} STUCK={x.failedStuck} WRONG={x.failedWrong}"
+
+/-- `lake exe cnfmap --flipscope [cases] [seed] [nvMin] [nvSpan] [solCap] [pinTries]` —
+the constructive repair, inside and outside the bounded-scope class, with the
+Tseitin families as the control that must fail. -/
+def runFlipScope (cases seed nvMin nvSpan solCap pinTries K : Nat) : IO UInt32 := do
+  IO.println s!"--- the constructive repair vs the bounded-scope class: cases={cases} \
+seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} K={K} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut inEar : RAcc := {}
+  let mut outEar : RAcc := {}
+  let mut inFirst : RAcc := {}
+  let mut outFirst : RAcc := {}
+  let mut inRow : RAcc := {}
+  let mut outRow : RAcc := {}
+  let mut inRed : RAcc := {}
+  let mut outRed : RAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let inClass := AbsSat.GraphMap.CnfHypergraph.boundedScopeB φ K
+        -- the same rng start for each mode, so the three see the same triples
+        let (_, accEar) := scoreFormula φ .ear solCap pinTries rng
+        let (_, accFirst) := scoreFormula φ .first solCap pinTries rng
+        let (r4, accRow) := scoreFormula φ .row solCap pinTries rng
+        let (_, accRed) := scoreFormula φ .reduce solCap pinTries rng
+        rng := r4
+        if inClass then
+          inEar := inEar.add accEar
+          inFirst := inFirst.add accFirst
+          inRow := inRow.add accRow
+          inRed := inRed.add accRed
+        else
+          outEar := outEar.add accEar
+          outFirst := outFirst.add accFirst
+          outRow := outRow.add accRow
+          outRed := outRed.add accRed
+  IO.println "by VARIABLE, GYO ear order:"
+  reportRAcc "in the class    " inEar
+  reportRAcc "outside it      " outEar
+  IO.println "by VARIABLE, leftmost first:"
+  reportRAcc "in the class    " inFirst
+  reportRAcc "outside it      " outFirst
+  IO.println "by ROW (the unit the machine moves):"
+  reportRAcc "in the class    " inRow
+  reportRAcc "outside it      " outRow
+  IO.println "by ROW, after the semi-join reducer (arc consistency):"
+  reportRAcc "in the class    " inRed
+  reportRAcc "outside it      " outRed
+  IO.println "control — the Tseitin families (all outside the class), reduced:"
+  let mut ctl : RAcc := {}
+  for (name, nV, edges) in [("K4", 4, k4), ("K3,3", 6, k33), ("prism", 6, prism)] do
+    for odd in [true, false] do
+      match tseitin nV edges odd with
+      | none => pure ()
+      | some φ =>
+        let inClass := AbsSat.GraphMap.CnfHypergraph.boundedScopeB φ K
+        let (r6, acc) := scoreFormula φ .reduce solCap pinTries rng
+        rng := r6
+        ctl := ctl.add acc
+        IO.println s!"    {name} odd={odd}: inClass={inClass} instances={acc.instances} \
+repaired={acc.repaired} STUCK={acc.failedStuck}"
+  reportRAcc "control total   " ctl
   pure 0
 
 end AbsSat.GraphMap.SymCampaign
