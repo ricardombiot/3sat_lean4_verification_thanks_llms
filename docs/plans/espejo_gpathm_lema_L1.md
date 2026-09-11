@@ -10,6 +10,27 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bi) — El tejido en los pasos de cláusula; y el veredicto no necesita `PairwiseOwned`.**
+
+`cnfmap --fabclause` (`fabricCover`, `scoreFabricClause`, `runFabricClause`): para cada nodo de cada
+estado válido **en los pasos de cláusula**, el mayor tejido dentro de `owners(n)`. **124.246 nodos**
+(84.538 aleatorios 3–6 vars en 4 semillas; 39.708 en controles Tseitin K4/K3,3/prisma, ambas
+paridades): miembros conservados, **cobertura de todos los pasos** y auto-pertenencia en **todos**,
+0 fallos; original y simétrica idénticas. Recorte solo de **entradas** (permitido por `Fabric`, que
+guarda subtablas): 0 % en aleatorias 3–5 y en K4, 0,003 % en 4–6, 0,9–2,0 % en K3,3/prisma —
+fenómeno de ciclicidad. **Hallazgo**: verificadas las firmas, el veredicto solo consume `Inhabited`
+(`L7.satisfiable_of_inhabited`), que v58 reduce a `PickSome` y v65 a `FabricAt` — así que hay ruta
+sin `PairwiseOwned` ni `ClauseStepExact`. Plan en cinco piezas: P1 `FabricAt` en `addNode` (v62 da la
+simetría de creación), P2 review (**hecho**, v65), P3 filtro de cláusula (**nueva**, medida hoy),
+P4 puente `FabricAt ⟹ PickSome` con desajuste declarado (`filterAll g [q.id]` vs
+`readStepSym = reviewSym ∘ pinOwners`), P5 cierre con `L7`. Esquiva v43 (caminos), v40
+(transitividad) y v28 (clique), y la simetría es teorema desde v64. Límite: las cinco cerrando para
+toda φ sería P=NP, luego se espera que **P3 pida la hipótesis de clase** (anchura acotada de v76,
+sobre las estructuras propias). Siguiente: P1, y empujar la medición de P3 a tamaños mayores
+buscando el primer tejido que pierda un paso.
+
+Informe: `verificacion_inseguridad_autor_v77.md`.
+
 **2026-09-11 (bh) — El mapa: qué falta para demostrar que el algoritmo decide 3SAT.**
 
 Análisis sin código, a petición del autor. El diseño (construir el conjunto de **todos** los

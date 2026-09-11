@@ -2144,4 +2144,118 @@ vars={nvMin}..{nvMin + nvSpan - 1} K={K} ---"
 mach-only={x.machExtra} red-only={x.redExtra} machLOST={x.machLost} redLOST={x.redLost}"
   pure 0
 
+-- ------------------------------------------------------------
+-- The fabric at the clause steps
+-- ------------------------------------------------------------
+
+/-! v65 measured the greatest fabric inside `owners(r)` at **full length**, on
+the reader's own choices. The route to `PairwiseOwned` that is still alive
+needs it somewhere else: at the **clause steps**, the intermediate states where
+the filter narrows the tables, and it needs a different property.
+
+Size is not what matters — **coverage** is. `Closed`/`CoreCovers` (v44) asks
+that the self-sustaining set reach *every* step. A fabric that is small but
+covers every step still carries a chain; one that is large but empty at some
+step carries nothing. So this band reports coverage first, and a fabric that
+misses a step is the counterexample that would kill the route. -/
+
+structure FCell where
+  members : Nat
+  kept : Nat
+  covers : Bool
+  hasSelf : Bool
+  entries : Nat
+  entriesKept : Nat
+
+def fabricCover (g : GPathM) (rn : PNodeM) : FCell :=
+  let S0 := g.nodes.filter (fun n => rn.owners.contains n.id)
+  let T0 : Tab := S0.map (fun n => (n.id, n.owners.filter (fun v => rn.owners.contains v &&
+    (g.nodes.any (fun m => m.id == v)))))
+  let Tf := gfabric g T0 1000
+  { members := S0.length, kept := Tf.length,
+    covers := (intRange 0 (g.current_step - 1)).all (fun k => Tf.any (fun e => e.1.id.step == k)),
+    hasSelf := Tf.any (fun e => e.1 == rn.id),
+    entries := (T0.map (·.2.length)).foldl (· + ·) 0,
+    entriesKept := (Tf.map (·.2.length)).foldl (· + ·) 0 }
+
+structure FCAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  full : Nat := 0
+  covers : Nat := 0
+  missesAStep : Nat := 0
+  losesSelf : Nat := 0
+  entries : Nat := 0
+  entriesKept : Nat := 0
+
+def FCAcc.add (x y : FCAcc) : FCAcc :=
+  { states := x.states + y.states, nodes := x.nodes + y.nodes, full := x.full + y.full,
+    covers := x.covers + y.covers, missesAStep := x.missesAStep + y.missesAStep,
+    losesSelf := x.losesSelf + y.losesSelf, entries := x.entries + y.entries,
+    entriesKept := x.entriesKept + y.entriesKept }
+
+def scoreFabricClause (φ : Cnf) (sym : Bool) : FCAcc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : FCAcc := {}
+  for s in [0:steps + 1] do
+    let k : Int := (s : Int)
+    if litBlock φ < k && k < fusionTop φ then
+      for kv in line do
+        let g := kv.2
+        if isValid g then
+          acc := { acc with states := acc.states + 1 }
+          for n in g.nodes do
+            let t := fabricCover g n
+            acc := { acc with nodes := acc.nodes + 1, entries := acc.entries + t.entries, entriesKept := acc.entriesKept + t.entriesKept }
+            if t.members == t.kept then acc := { acc with full := acc.full + 1 }
+            if t.covers then acc := { acc with covers := acc.covers + 1 }
+            else acc := { acc with missesAStep := acc.missesAStep + 1 }
+            if !t.hasSelf then acc := { acc with losesSelf := acc.losesSelf + 1 }
+    if s < steps then line := if sym then pureAdvanceSym φ line else pureAdvance φ line
+  return acc
+
+/-- `lake exe cnfmap --fabclause [cases] [seed] [nvMin] [nvSpan]` -/
+def runFabricClause (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- the fabric inside owners(n) at the CLAUSE steps: cases={cases} \
+seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut orig : FCAcc := {}
+  let mut symm : FCAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        orig := orig.add (scoreFabricClause φ false)
+        symm := symm.add (scoreFabricClause φ true)
+  let line := fun (name : String) (x : FCAcc) =>
+    IO.println s!"  {name}: states={x.states} nodes={x.nodes} fabric=ALL owners={x.full} \
+COVERS-every-step={x.covers} MISSES-a-step={x.missesAStep} loses-itself={x.losesSelf} \
+entries {x.entriesKept}/{x.entries}"
+  line "original machine " orig
+  line "symmetric machine" symm
+  IO.println "control — the Tseitin families:"
+  for (name, nV, edges) in [("K4", 4, k4), ("K3,3", 6, k33), ("prism", 6, prism)] do
+    for odd in [true, false] do
+      match tseitin nV edges odd with
+      | none => pure ()
+      | some φ =>
+        let x := scoreFabricClause φ true
+        IO.println s!"    {name} odd={odd}: states={x.states} nodes={x.nodes} \
+ALL={x.full} COVERS={x.covers} MISSES={x.missesAStep} loses-itself={x.losesSelf} \
+entries {x.entriesKept}/{x.entries}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign
