@@ -10,6 +10,22 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bm) — P4 cerrada; el desajuste `readStepSym` vs `filterAll` no había que resolverlo.**
+
+`FabricAdd.lean`: `PinNonEmpty`, **`isValid_filterAll_of_PinNonEmpty`**,
+**`PickSome_of_PinNonEmpty`**, **`Inhabited_of_PinNonEmpty`**. La clave: v65 ya tenía para la máquina
+**original** `FOk_filterAll` (el tejido compatible con los pines sobrevive al filtro entero) e
+`isValid_of_Fabric` (tejido no vacío ⟹ grafo válido, porque `support` alcanza todos los pasos), así
+que con `Fabric_core` (v80) en medio el puente son tres líneas y **no hace falta la variante
+simétrica**. Ensamblado hasta `Inhabited`, que es lo que consume `L7.satisfiable_of_inhabited`.
+Estado de la ruta: P1 ✅ (v78), P2 ✅ (v65 + join v79), P3 reducida a `PinReaches` (v80), P4 ✅,
+P5 libre. Observación: `PinReaches` y `PinNonEmpty` son **el mismo enunciado** — el mayor tejido
+compatible con unos pines no está vacío —, luego toda la mitad abierta se condensa en una sola forma
+de frase sobre `owners` y el filtro. Límite: esa frase general = 3SAT en P; queda demostrarla bajo la
+hipótesis de clase de v76.
+
+Informe: `verificacion_inseguridad_autor_v81.md`.
+
 **2026-09-11 (bl) — P3 reducida a una existencia: `PinReaches`.**
 
 `FabricAdd.lean`: `Compat`, `CoreS`, `CoreT`, `CoreS_of_mem`, `CoreS_sat`, **`Fabric_core`**

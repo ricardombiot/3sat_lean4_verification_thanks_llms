@@ -1,13 +1,21 @@
 -- lean_project/AbsSat/GraphPath/Model/FabricAdd.lean
 import AbsSat.GraphPath.Model.Fabric
+import AbsSat.GraphPath.Model.Reader
 
 /-!
-# Where the fabric comes from: the seed, `addNode`, and `join`
+# Where the fabric comes from, and what it buys
 
 `Fabric.lean` (v65) proved the fabric **survives** the review, the pins and the
 removals. What it never said is where a fabric *comes from* — and it never
-mentioned `join` at all. This module supplies both: the seed already is a
-fabric, `addNode` extends one, and any growth preserves one, `join` included.
+mentioned `join` at all. This module supplies the missing half and then spends
+it: the seed already is a fabric, `addNode` extends one, any growth preserves
+one (`join` included), the greatest fabric inside a constraint is a fabric, and
+from that the reader's obligation `PickSome` follows — on the **original**
+machine, with no detour through the symmetric variant.
+
+What is left over, after all of it, is a single existence: that the greatest
+fabric agreeing with a clause's pins is non-empty. Everything else between the
+construction and the verdict is a theorem.
 
 That is not a coincidence of the encoding, it is the author's
 `all_previous_nodes_are_owners_of_me!` doing exactly what it was written to do.
@@ -490,6 +498,67 @@ theorem FabricAt_filterAll_of_PinReaches (g : GPathM) (reqs : List NodeId)
   · exact fun p hp => (CoreS_sat p hp).2
 
 -- ============================================================
+-- P4: the bridge to `PickSome`, without the symmetric detour
+-- ============================================================
+
+/-! v77 flagged a mismatch: `PickSome` asks for `isValid (filterAll g [q.id])`
+— the **original** pin and review — while v65's fabric theorem answers about
+`readStepSym = reviewSym ∘ pinOwners`. Two different operations, and bridging
+them looked like real work.
+
+It is not needed. v65 also proved the two facts that matter for the *original*
+machine: `FOk_filterAll`, that a fabric agreeing with the pins survives the
+whole filter, and `isValid_of_Fabric`, that a non-empty fabric makes a graph
+valid — its `support` clause reaches every step, which is exactly what
+`isValid` counts. Put them either side of `Fabric_core` and the bridge is
+three lines.
+
+So the route never has to commit to the symmetric variant. That matters: it
+keeps everything downstream about the machine as it is written. -/
+
+/-- What one pick needs: some fabric agreeing with that pin is non-empty. -/
+def PinNonEmpty (g : GPathM) (q : PathNodeId) : Prop :=
+  ∃ p, CoreS g (Compat [q.id]) p
+
+/-- **Pinning an owner whose core is non-empty leaves the state valid.** -/
+theorem isValid_filterAll_of_PinNonEmpty (g : GPathM) (q : PathNodeId)
+    (hsmp : Sons.SMP g) (hnr : Parents.NotRoot g) (h : PinNonEmpty g q) :
+    isValid (filterAll g [q.id]) = true := by
+  have hok : FOk (filterAll g [q.id]) (CoreS g (Compat [q.id])) (CoreT g (Compat [q.id])) :=
+    FOk_filterAll g _ _ ⟨Fabric_core g _, hsmp, hnr⟩ [q.id]
+      (fun req hreq p hp hstep => CoreS_sat p hp req hreq hstep)
+  exact isValid_of_Fabric _ _ _ hok.fab h
+
+/-- **P4.** The reader's obligation follows from the fabric, on the original
+machine: at a step that still offers a choice, an owner whose core is non-empty
+is an owner the pick can take. -/
+theorem PickSome_of_PinNonEmpty (g : GPathM) (hsmp : Sons.SMP g) (hnr : Parents.NotRoot g)
+    (h : PickInduction.hasChoice g = true → ∃ k, 0 ≤ k ∧ k < g.current_step ∧
+      PickInduction.choiceAt g k = true ∧
+      ∃ q ∈ ownersAt g.gowners k, PinNonEmpty g q) :
+    PickInduction.PickSome g := by
+  intro hch
+  obtain ⟨k, hk0, hk1, hck, q, hq, hne⟩ := h hch
+  exact ⟨k, hk0, hk1, hck, q, hq, isValid_filterAll_of_PinNonEmpty g q hsmp hnr hne⟩
+
+/-- **The route, assembled.** One obligation, stated on the machine's own
+structures, and the reader's loop reaches a denotation — which is what the
+verdict consumes (`L7.satisfiable_of_inhabited`). Everything between here and
+there is already a theorem. -/
+theorem Inhabited_of_PinNonEmpty (reqOf : NodeId → List NodeId) (g : GPathM)
+    (reqs : List NodeId) (hreach : Reachable reqOf g)
+    (hv : isValid (filterAll g reqs) = true)
+    (hinv : ∀ h' : GPathM, Reader.Readable h' → isValid h' = true →
+      Sons.SMP h' ∧ Parents.NotRoot h')
+    (hpins : ∀ h' : GPathM, Reader.Readable h' → isValid h' = true →
+      PickInduction.hasChoice h' = true → ∃ k, 0 ≤ k ∧ k < h'.current_step ∧
+        PickInduction.choiceAt h' k = true ∧ ∃ q ∈ ownersAt h'.gowners k, PinNonEmpty h' q) :
+    AbsSat.GraphPath.Model.Inhabited (filterAll g reqs) :=
+  Reader.Inhabited_of_pickSome_machine reqOf g reqs hreach hv
+    (fun h' hr hvv =>
+      PickSome_of_PinNonEmpty h' (hinv h' hr hvv).1 (hinv h' hr hvv).2 (hpins h' hr hvv))
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -520,6 +589,18 @@ theorem FabricAt_filterAll_of_PinReaches (g : GPathM) (reqs : List NodeId)
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_filterAll_of_PinReaches' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms FabricAt_filterAll_of_PinReaches
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.isValid_filterAll_of_PinNonEmpty' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_filterAll_of_PinNonEmpty
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.PickSome_of_PinNonEmpty' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms PickSome_of_PinNonEmpty
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.Inhabited_of_PinNonEmpty' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Inhabited_of_PinNonEmpty
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
