@@ -10,6 +10,9 @@ def main (args : List String) : IO UInt32 := do
     let g := fun (i : Nat) (d : Nat) => (rest[i]?.bind (·.toNat?)).getD d
     AbsSat.GraphMap.SymCampaign.runInsertGen (g 0 2026) (g 1 5) (g 2 2) (g 3 4) (g 4 2) (g 5 3)
       ((rest[6]?.getD "tri") == "tri")
+  | "--tauto" :: rest =>
+    let g := fun (i : Nat) (d : Nat) => (rest[i]?.bind (·.toNat?)).getD d
+    AbsSat.GraphMap.SymCampaign.runTauto (g 0 10) (g 1 2026) (g 2 3) (g 3 3)
   | "--fabclause" :: rest =>
     let g := fun (i : Nat) (d : Nat) => (rest[i]?.bind (·.toNat?)).getD d
     AbsSat.GraphMap.SymCampaign.runFabricClause (g 0 15) (g 1 2026) (g 2 3) (g 3 3)

@@ -2258,4 +2258,86 @@ ALL={x.full} COVERS={x.covers} MISSES={x.missesAStep} loses-itself={x.losesSelf}
 entries {x.entriesKept}/{x.entries}"
   pure 0
 
+/-! ### Is `PinNonEmpty` anything more than `isValid`?
+
+v81 proved `PinNonEmpty g q → isValid (filterAll g [q.id])`. If the converse
+also holds, the reduction is a restatement and the fabric buys nothing. This
+band decides it: for every owner `q` at a step that still offers a choice,
+compute the greatest fabric among the nodes compatible with pinning `q`, and
+compare "that fabric is non-empty" against "the machine says the pinned state
+is valid". -/
+
+def compatNodes (g : GPathM) (q : PathNodeId) : List PNodeM :=
+  g.nodes.filter (fun n => n.id.id.step != q.id.step || n.id.id == q.id)
+
+/-- The greatest fabric among the nodes compatible with the pin. -/
+def pinFabricNonEmpty (g : GPathM) (q : PathNodeId) : Bool :=
+  let S0 := compatNodes g q
+  let ids := S0.map (·.id)
+  let T0 : Tab := S0.map (fun n => (n.id, n.owners.filter (fun v => ids.contains v)))
+  !(gfabric g T0 1000).isEmpty
+
+structure TAcc where
+  pins : Nat := 0
+  bothYes : Nat := 0
+  bothNo : Nat := 0
+  fabYesValidNo : Nat := 0
+  fabNoValidYes : Nat := 0
+
+def TAcc.add (x y : TAcc) : TAcc :=
+  { pins := x.pins + y.pins, bothYes := x.bothYes + y.bothYes, bothNo := x.bothNo + y.bothNo,
+    fabYesValidNo := x.fabYesValidNo + y.fabYesValidNo,
+    fabNoValidYes := x.fabNoValidYes + y.fabNoValidYes }
+
+def scoreTauto (φ : Cnf) : TAcc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : TAcc := {}
+  for s in [0:steps + 1] do
+    let k : Int := (s : Int)
+    if litBlock φ < k && k < fusionTop φ then
+      for kv in line do
+        let g := kv.2
+        if isValid g then
+          for j in intRange 0 (g.current_step - 1) do
+            if PickInduction.choiceAt g j then
+              for q in ownersAt g.gowners j do
+                let fab := pinFabricNonEmpty g q
+                let val := isValid (filterAll g [q.id])
+                acc := { acc with pins := acc.pins + 1 }
+                if fab && val then acc := { acc with bothYes := acc.bothYes + 1 }
+                if !fab && !val then acc := { acc with bothNo := acc.bothNo + 1 }
+                if fab && !val then acc := { acc with fabYesValidNo := acc.fabYesValidNo + 1 }
+                if !fab && val then acc := { acc with fabNoValidYes := acc.fabNoValidYes + 1 }
+    if s < steps then line := pureAdvanceSym φ line
+  return acc
+
+/-- `lake exe cnfmap --tauto [cases] [seed] [nvMin] [nvSpan]` -/
+def runTauto (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- is PinNonEmpty more than isValid? cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : TAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then acc := acc.add (scoreTauto φ)
+  IO.println s!"  pins examined                 = {acc.pins}"
+  IO.println s!"  fabric YES and valid YES      = {acc.bothYes}"
+  IO.println s!"  fabric NO  and valid NO       = {acc.bothNo}"
+  IO.println s!"  fabric YES but NOT valid      = {acc.fabYesValidNo}"
+  IO.println s!"  NO fabric but VALID (the gap) = {acc.fabNoValidYes}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign

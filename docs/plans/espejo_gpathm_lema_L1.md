@@ -10,6 +10,24 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bn) — CORRECCIÓN: P4 era una reformulación; y `review` calcula el mayor tejido.**
+
+Intento, a petición del autor, de demostrar `PinNonEmpty`/`PinReaches` sin clase. La construcción
+natural del mayor tejido compatible (borrar iterativamente los nodos sin miembro-owner en algún paso
+hasta el punto fijo) **es `review` + `cleanInvalid`**. Medido (`cnfmap --tauto`, `pinFabricNonEmpty`,
+`scoreTauto`, `runTauto`; semillas 2026/31337/777, **9.926 pinchazos**): `PinNonEmpty g q` ⟺
+`isValid (filterAll g [q.id])`, coincidencia perfecta en ambas direcciones, 0 discrepancias. Luego
+**P4 (v81) es reformulación, no reducción**; la obligación final equivale a la inicial. No se retira
+ningún teorema (P1, join, `Fabric_core`, puentes siguen correctos), solo la afirmación de que lo
+restante fuera más simple. **Caracterización positiva**: `review`+`cleanInvalid` computa exactamente
+el mayor tejido — explica v65 (tejido = todo `owners(r)`, 4.888/4.888) y v77 (cobertura siempre,
+124.246 nodos): se medía la máquina contra sí misma. Consecuencia sin sesgo: pedir «mayor tejido no
+vacío ⟹ existe solución» es pedir que la consistencia local decida. Vías vivas: (1) la clase de v76;
+(2) subir el nivel de consistencia, como hizo el autor en v69 con el triángulo — punto fijo distinto,
+con la escalera siguiente medida en v70 (38 huecos de tríos, 7 genuinos).
+
+Informe: `verificacion_inseguridad_autor_v82.md`.
+
 **2026-09-11 (bm) — P4 cerrada; el desajuste `readStepSym` vs `filterAll` no había que resolverlo.**
 
 `FabricAdd.lean`: `PinNonEmpty`, **`isValid_filterAll_of_PinNonEmpty`**,
