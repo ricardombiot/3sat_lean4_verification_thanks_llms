@@ -435,19 +435,29 @@ The answer is: **exactly one**.
 * `filterRequire` touches only the global owner list; node tables are
   untouched.
 * `cleanInvalid` intersects **every** node's owners with the *same* list, the
-  global owners. A single step of the sweep is asymmetric, but the completed
-  sweep removes a dropped id from every table at once, and the id's own node
-  loses self-ownership, fails `isValidNode` at its own step and goes. **Argued,
-  not proved** — the sweep changes the global owners as it removes nodes, so
-  the bookkeeping is a piece of work in itself.
+  global owners. So it removes from a table only ids that are **not** global
+  owners — and while every node is one, a node is never removed from anybody's
+  table. **Proved** (`OwnSymmetric_cleanInvalid`), with
+  `Ownership.NodesAreGowners` as the hypothesis, in the section after next.
 * `reviewNode` intersects a node's owners with the union of **its own
   neighbours'** owners. That quantity is per-node, so it can remove `q` from
   `owners p` while leaving `p` in `owners q`. This is the only operation with
   no symmetric counterpart at all.
 
-The two lemmas below prove the first two bullets. The third is argued, the
-fourth is where the 185 violations on partial states must come from — and what
-a proof of symmetry at full length would have to close.
+The two lemmas below prove the first two bullets; the section after next proves
+the third. The fourth is the one that breaks symmetry, and `lake exe extend
+--gowscope` now shows it doing so, on the reader's own first step (five seeds,
+76 final states, 64 pins):
+
+    non-gowner nodes after the pin           64     (one per pin)
+    after cleanInvalid                        0     symmetry violations 0
+    after + reviewParents                     -     symmetry violations 236
+    after review to the fixpoint              0     symmetry violations 51
+    at the read's end                         -     symmetry violations 0
+
+So symmetry is lost *inside* a read and is back at the end of it. Like v60's
+exactness, it is a property of the states with nothing left to choose, not an
+invariant the machine carries between them.
 -/
 
 theorem OwnSymmetric_filterRequire (g : GPathM) (req : NodeId)
@@ -510,5 +520,310 @@ theorem OwnSymmetric_addNode (g : GPathM) (d : NodeId) (title : String)
 /-- info: 'AbsSat.GraphPath.Model.Reader.OwnSymmetric_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms OwnSymmetric_addNode
+
+
+-- ============================================================
+-- The sweep cannot break symmetry — now a theorem, under one hypothesis
+-- ============================================================
+
+/-!
+The bullet above left `cleanInvalid` as an argument. This section discharges it,
+and names exactly what the argument was hiding.
+
+The sweep does three things per node: intersect its owners with the **global**
+owners, unlink what that leaves incompatible, and drop the node if it came out
+invalid. The last two leave every surviving node's owners *untouched*, so they
+carry symmetry across for free (`OwnSymmetric_of_ownersEq`). Only the
+intersection removes anything from an owner table — and it removes only ids
+that are **not global owners**.
+
+So the whole question is whether an id that owners tables lose can itself still
+be a node. If every node is a global owner it cannot, and symmetry survives the
+sweep whole. That hypothesis is `Ownership.NodesAreGowners`, measured at 0
+violations over 259,187 nodes — and broken by exactly one operation,
+`filterRequire`, which is the reader's own pin. What is *not* proved here is the
+recovery: that the sweep, handed the broken state a pin leaves, removes every
+node the pin demoted before the sweep ends. `not_gowner_invalid` below proves
+the node is indeed invalid at its own turn; what is missing is that the sweep
+still sees it as invalid then, since the global owners shrink underneath it.
+
+`--gowscope` measures the recovery rather than assuming it: over five seeds a
+pin demoted 64 nodes and `cleanInvalid` removed **all 64**, leaving **0**
+symmetry violations. So the gap between this theorem and the sweep as the reader
+actually runs it is a counting argument that the numbers say is true.
+-/
+
+/-- A narrowing that leaves every surviving node's owners **exactly** as they
+were carries symmetry across unchanged. -/
+theorem OwnSymmetric_of_ownersEq (g g' : GPathM)
+    (hEq : ∀ p n', g'.node? p = some n' → ∃ n, g.node? p = some n ∧ n'.owners = n.owners)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric g' := by
+  intro p n' q m' hp hq hqn
+  obtain ⟨n, hn, hno⟩ := hEq p n' hp
+  obtain ⟨m, hm, hmo⟩ := hEq q m' hq
+  rw [hno] at hqn
+  rw [hmo]
+  exact h p n q m hn hm hqn
+
+/-- Inversion for `updateAt`: a node of the updated graph comes from a node of
+the original with the same id. -/
+theorem updateAt_node?_inv (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (p : PathNodeId) (n' : PNodeM)
+    (hp : (updateAt g id f).node? p = some n') :
+    ∃ n, g.node? p = some n ∧ n' = (match n.id == id with | true => f n | false => n) := by
+  have hg : ∀ n : PNodeM, (match n.id == id with | true => f n | false => n).id = n.id := by
+    intro n; cases n.id == id with | true => exact hf n | false => rfl
+  have hmem : n' ∈ (updateAt g id f).nodes := List.mem_of_find?_eq_some hp
+  have hshape : (updateAt g id f).nodes
+      = g.nodes.map (fun n => match n.id == id with | true => f n | false => n) := rfl
+  rw [hshape] at hmem
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+  have hn'id : n'.id = p := node?_id_eq _ p n' hp
+  have hnid : n.id = p := by rw [← hn'id, ← hEq]; exact (hg n).symm
+  have hsome : (g.node? p).isSome := by
+    have := node?_isSome_of_mem g n hn; rw [hnid] at this; exact this
+  obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp hsome
+  have heq := updateAt_node? g id f hf p n₀ hn₀
+  rw [hp] at heq
+  injection heq with heq'
+  exact ⟨n₀, hn₀, heq'⟩
+
+/-- The unlink leaves owners alone. -/
+theorem ownersEq_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    ∀ p n', (unlinkIncompatible g id).node? p = some n' →
+      ∃ n, g.node? p = some n ∧ n'.owners = n.owners := by
+  intro p n' hp
+  cases hid : g.node? id with
+  | none =>
+      have hself : unlinkIncompatible g id = g := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      rw [hself] at hp
+      exact ⟨n', hp, rfl⟩
+  | some d =>
+      have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap d id) := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      have hmem : n' ∈ (unlinkIncompatible g id).nodes := List.mem_of_find?_eq_some hp
+      rw [hshape] at hmem
+      obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+      have hn'id : n'.id = p := node?_id_eq _ p n' hp
+      have hnid : n.id = p := by rw [← hn'id, ← hEq]; exact (unlinkMap_id d id n).symm
+      have hsome : (g.node? p).isSome := by
+        have := node?_isSome_of_mem g n hn; rw [hnid] at this; exact this
+      obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp hsome
+      have heq := unlinkIncompatible_node? g id d hid p n₀ hn₀
+      rw [hp] at heq
+      injection heq with heq'
+      exact ⟨n₀, hn₀, by rw [heq']; exact unlinkMap_owners d id n₀⟩
+
+/-- Physical removal leaves every *surviving* node's owners alone. -/
+theorem ownersEq_removeNode (g : GPathM) (id : PathNodeId) :
+    ∀ p n', (removeNode g id).node? p = some n' →
+      ∃ n, g.node? p = some n ∧ n'.owners = n.owners := by
+  intro p n' hp
+  have hmem : n' ∈ (removeNode g id).nodes := List.mem_of_find?_eq_some hp
+  rw [removeNode_nodes] at hmem
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+  have hn'id : n'.id = p := node?_id_eq _ p n' hp
+  have hnid : n.id = p := by rw [← hn'id, ← hEq]; rfl
+  have hfil := List.mem_filter.mp hn
+  have hne : p ≠ id := by
+    intro hpe
+    rw [hnid, hpe] at hfil
+    simp at hfil
+  have hsome : (g.node? p).isSome := by
+    have := node?_isSome_of_mem g n hfil.1; rw [hnid] at this; exact this
+  obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp hsome
+  have heq := removeNode_node? g id p n₀ hn₀ hne
+  rw [hp] at heq
+  injection heq with heq'
+  exact ⟨n₀, hn₀, by rw [heq']; rfl⟩
+
+-- ------------------------------------------------------------
+-- `NodesAreGowners` through the sweep
+-- ------------------------------------------------------------
+
+theorem NG_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (updateAt g id f) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  have hid : n'.id = n.id := by
+    rw [← hEq]; cases n.id == id with | true => exact hf n | false => rfl
+  show n'.id ∈ g.gowners
+  rw [hid]
+  exact h n hn
+
+theorem NG_unlinkIncompatible (g : GPathM) (id : PathNodeId)
+    (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (unlinkIncompatible g id) := by
+  intro n' hn'
+  rw [unlinkIncompatible_gowners]
+  cases hid : g.node? id with
+  | none =>
+      have hself : unlinkIncompatible g id = g := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      rw [hself] at hn'
+      exact h n' hn'
+  | some d =>
+      have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap d id) := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      rw [hshape] at hn'
+      obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+      rw [← hEq, unlinkMap_id]
+      exact h n hn
+
+theorem NG_removeNode (g : GPathM) (id : PathNodeId)
+    (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (removeNode g id) := by
+  intro n' hn'
+  rw [removeNode_nodes] at hn'
+  rw [removeNode_gowners]
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  have hid : n'.id = n.id := by rw [← hEq]; rfl
+  have hfil := List.mem_filter.mp hn
+  rw [hid]
+  exact List.mem_filter.mpr ⟨h n hfil.1, hfil.2⟩
+
+theorem NG_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, Ownership.NodesAreGowners g →
+      Ownership.NodesAreGowners (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ := NG_updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) h
+      have h₂ := NG_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (NG_removeNode _ id h₂)
+
+theorem NG_cleanInvalid (g : GPathM) (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (cleanInvalid g) :=
+  NG_cleanInvalidGo _ g h
+
+-- ------------------------------------------------------------
+-- The one asymmetric step, and why it is not
+-- ------------------------------------------------------------
+
+/-- **The intersection against the global owners cannot break symmetry**, as
+long as every node is a global owner. It removes `q` from a table only when `q`
+is missing from the global owners, and a node never is. -/
+theorem OwnSymmetric_updateAt_gowners (g : GPathM) (id : PathNodeId)
+    (hng : Ownership.NodesAreGowners g) (h : Threaded.OwnSymmetric g) :
+    Threaded.OwnSymmetric
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners g.gowners })) := by
+  intro p n' q m' hp hq hqn
+  obtain ⟨n, hn, rfl⟩ := updateAt_node?_inv g id
+    (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) p n' hp
+  obtain ⟨m, hm, rfl⟩ := updateAt_node?_inv g id
+    (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) q m' hq
+  have hpg : p ∈ g.gowners := by
+    have := hng n (List.mem_of_find?_eq_some hn)
+    rw [node?_id_eq g p n hn] at this; exact this
+  have hsub : q ∈ n.owners := by
+    cases hb : n.id == id with
+    | true => rw [hb] at hqn; exact (List.mem_filter.mp hqn).1
+    | false => rw [hb] at hqn; exact hqn
+  have hpm : p ∈ m.owners := h p n q m hn hm hsub
+  have hc : g.gowners.contains p = true := List.elem_eq_true_of_mem hpg
+  cases hb : m.id == id with
+  | true => exact List.mem_filter.mpr ⟨hpm, by simp only [hc, Bool.or_true]⟩
+  | false => exact hpm
+
+theorem OwnSymmetric_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, Ownership.NodesAreGowners g → Threaded.OwnSymmetric g →
+      Threaded.OwnSymmetric (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g _ h; exact h
+  | cons id rest ih =>
+    intro g hng h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g hng h
+    · next d _ =>
+      have hng₁ := NG_updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) hng
+      have h₁ := OwnSymmetric_updateAt_gowners g id hng h
+      have hng₂ := NG_unlinkIncompatible _ id hng₁
+      have h₂ := OwnSymmetric_of_ownersEq _ _ (ownersEq_unlinkIncompatible _ id) h₁
+      split
+      · exact ih _ hng₂ h₂
+      · exact ih _ (NG_removeNode _ id hng₂)
+          (OwnSymmetric_of_ownersEq _ _ (ownersEq_removeNode _ id) h₂)
+
+/-- **`cleanInvalid` cannot break symmetry.** The third bullet of the
+localisation, no longer an argument. -/
+theorem OwnSymmetric_cleanInvalid (g : GPathM) (hng : Ownership.NodesAreGowners g)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (cleanInvalid g) :=
+  OwnSymmetric_cleanInvalidGo _ g hng h
+
+/-- info: 'AbsSat.GraphPath.Model.Reader.OwnSymmetric_cleanInvalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnSymmetric_cleanInvalid
+
+/-- info: 'AbsSat.GraphPath.Model.Reader.NG_cleanInvalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms NG_cleanInvalid
+
+
+/-- **A node that is not a global owner is invalid at its own turn.** The sweep
+intersects its table with the global owners; `OOS` says the only owner it has at
+its own step is itself; and itself is exactly what the intersection removes. So
+it is left with no owner at its own step, `owners_ok` fails, and the sweep drops
+it.
+
+This is the half of the recovery argument that is provable as it stands. The
+half that is not is the *timing*: the sweep reaches this node only at its own
+turn, and the global owners shrink in between, so `hstep` — the hypothesis that
+the global owners still cover this node's step — is not carried by anything. -/
+theorem not_gowner_invalid (g g' : GPathM) (hoos : SelfOwn.OOS g) (id : PathNodeId)
+    (d : PNodeM) (hd : g.node? id = some d) (hout : id ∉ g.gowners)
+    (hstep : hasStepEntry g.gowners id.id.step = true)
+    (h0 : 0 ≤ id.id.step) (hlt : id.id.step < g'.current_step) :
+    isValidNode g' (relink (intersectOwners d.owners g.gowners) d) = false := by
+  have hdmem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hdid : d.id = id := node?_id_eq g id d hd
+  have hno : hasStepEntry (intersectOwners d.owners g.gowners) id.id.step = false := by
+    cases hb : hasStepEntry (intersectOwners d.owners g.gowners) id.id.step with
+    | false => rfl
+    | true =>
+        exfalso
+        obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp hb
+        have hqf := List.mem_filter.mp hq
+        have hqe : q = d.id :=
+          hoos d hdmem q hqf.1 (by rw [hdid]; exact eq_of_beq hqs)
+        have h2 := hqf.2
+        rw [hqe, hdid] at h2
+        simp [hstep] at h2
+        exact hout h2
+  have hk : id.id.step ∈ intRange 0 (g'.current_step - 1) := mem_intRange h0 (by omega)
+  have hall : (intRange 0 (g'.current_step - 1)).all
+      (fun k => hasStepEntry (relink (intersectOwners d.owners g.gowners) d).owners k)
+      = false := by
+    cases hb : (intRange 0 (g'.current_step - 1)).all
+        (fun k => hasStepEntry (relink (intersectOwners d.owners g.gowners) d).owners k) with
+    | false => rfl
+    | true =>
+        have := List.all_eq_true.mp hb id.id.step hk
+        rw [show (relink (intersectOwners d.owners g.gowners) d).owners
+              = intersectOwners d.owners g.gowners from rfl, hno] at this
+        exact absurd this (by simp)
+  simp only [isValidNode, hall, Bool.false_and]
+  split
+  · split
+    · rfl
+    · rfl
+  · split
+    · rfl
+    · rfl
+
+/-- info: 'AbsSat.GraphPath.Model.Reader.not_gowner_invalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms not_gowner_invalid
 
 end AbsSat.GraphPath.Model.Reader

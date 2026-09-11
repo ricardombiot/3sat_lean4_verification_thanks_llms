@@ -544,8 +544,16 @@ violations in 116,330 nodes, which closed that door.
 
 v61 reopens it. Those 185 all sit in **partial** states. At the state of full
 length the machine hands the reader, symmetry holds: `lake exe extend
---finalowners`, three seeds, **0 violations in 3,849 nodes over 64 final
-states**. So the flip below is available exactly where the reader needs it.
+--finalowners`, five seeds, **0 violations in 11,009 nodes**. So the flip below
+is available exactly where the reader needs it.
+
+⚠ **But only there.** v63 measured the reader's own first step
+(`lake exe extend --gowscope`): the pin's sweep keeps symmetry at 0, the
+coherence pass then breaks it (236 violations over five seeds), the review
+fixpoint does not always restore it (51), and the *completed* read is back at 0.
+So symmetry is available at the two ends of a read and not in between — enough
+for the flip on the state the reader is handed, not enough to carry it along a
+read.
 
 Stated with symmetry as a hypothesis, since it is measured and not proved. -/
 def OwnSymmetric (g : GPathM) : Prop :=

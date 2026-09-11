@@ -10,6 +10,45 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (au) — La barrida, demostrada; y la simetría resulta ser cosa de los extremos.**
+
+Cierra el cuarto punto que (at) dejó como argumento, y al medir su alcance encuentra el resultado
+que de verdad importa.
+
+**Demostrado** (`Reader.lean`, `[propext, Quot.sound]`): `OwnSymmetric_cleanInvalid` — la barrida no
+puede romper la simetría, bajo `Ownership.NodesAreGowners`. El argumento en una línea: `cleanInvalid`
+solo quita de una tabla ids que **no son owners globales**, y mientras todo nodo lo sea, un nodo no
+se quita nunca de ninguna tabla. Con él: `NG_cleanInvalid` (la barrida conserva `NodesAreGowners`),
+`OwnSymmetric_of_ownersEq` (todo estrechamiento que no toque las tablas transporta la simetría), las
+inversiones de `node?` para `updateAt` / `unlinkIncompatible` / `removeNode`, y `not_gowner_invalid`
+(un nodo degradado pierde la auto-posesión al intersecar, se queda sin owner en su propio paso y
+falla `owners_ok`) — la mitad provable de la recuperación.
+
+**Medido** (`lake exe extend --gowscope`, modo nuevo; cinco semillas, 76 estados finales, 5.864
+nodos, 64 pinchazos):
+
+| etapa | no-owners-globales | violaciones de simetría |
+|---|---|---|
+| estado final | 0 | 0 |
+| tras `filterRequire` | 64 | — |
+| tras `cleanInvalid` | **0** | **0** |
+| tras `+ reviewParents` | — | **236** |
+| punto fijo del review | 0 | **51** |
+| final de la lectura | — | **0** |
+
+Tres lecturas. (i) La **recuperación ocurre**: el pinchazo degrada 64 nodos y la barrida se lleva los
+64, simetría 0 — el hueco entre el teorema y la barrida real es contabilidad que los números
+confirman. (ii) La **coherencia la rompe**, pillada en el acto: 236 violaciones en una sola pasada.
+(iii) **La simetría está en los dos extremos y no en el medio** — vale en el estado que la máquina
+entrega y en el final de la lectura, no entre ellos. Misma forma que la exactitud de (v60): propiedad
+de los estados sin elección pendiente, no invariante arrastrable.
+
+**Consecuencia para la ruta de (as)/v61:** `chain_through_of_symmetric` sigue disponible sobre el
+estado que la máquina entrega, pero **no se puede arrastrar a lo largo de una lectura**. Cualquier
+plan que induzca sobre los pasos de lectura usando simetría en cada uno no funciona tal cual.
+
+Informe: `verificacion_inseguridad_autor_v63.md`. Build verde, 87 módulos, 0 `sorry`, 0 axiomas.
+
 **2026-09-11 (at) — Simetría: localizada en una sola operación, no demostrada.**
 
 Intento de demostrar la simetría en longitud completa. **No sale.** Lo obtenido:

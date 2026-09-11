@@ -2852,4 +2852,112 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   showSup acc
   pure 0
 
+
+-- ============================================================
+-- How far the `NodesAreGowners` hypothesis reaches
+-- ============================================================
+
+/-!
+`Reader.OwnSymmetric_cleanInvalid` proves the sweep cannot break symmetry —
+given `Ownership.NodesAreGowners`, every node still a global owner. Exactly one
+operation breaks that hypothesis, and it is the reader's own pin,
+`filterRequire`. This mode measures the damage and whether the sweep repairs it:
+
+1. at the final state, before any pin — how many nodes are not global owners;
+2. right after one pin — the same count, which is what the pin demotes;
+3. after `filterAll` has reviewed to the fixpoint — whether the sweep removed
+   every demoted node, and whether symmetry survived.
+
+Step 3 at zero is the numerical content of the recovery argument
+`not_gowner_invalid` states but does not close.
+-/
+
+structure GSAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  outBefore : Nat := 0
+  pinned : Nat := 0
+  outAfterPin : Nat := 0
+  outAfterReview : Nat := 0
+  symAfterReview : Nat := 0
+  symAfterClean : Nat := 0
+  symAfterParents : Nat := 0
+  outAfterClean : Nat := 0
+  ends : Nat := 0
+  symAtEnd : Nat := 0
+  deadAfterReview : Nat := 0
+
+def addGS (a b : GSAcc) : GSAcc :=
+  { states := a.states + b.states, nodes := a.nodes + b.nodes,
+    outBefore := a.outBefore + b.outBefore, pinned := a.pinned + b.pinned,
+    outAfterPin := a.outAfterPin + b.outAfterPin,
+    outAfterReview := a.outAfterReview + b.outAfterReview,
+    symAfterReview := a.symAfterReview + b.symAfterReview,
+    symAfterClean := a.symAfterClean + b.symAfterClean,
+    symAfterParents := a.symAfterParents + b.symAfterParents,
+    outAfterClean := a.outAfterClean + b.outAfterClean,
+    ends := a.ends + b.ends, symAtEnd := a.symAtEnd + b.symAtEnd,
+    deadAfterReview := a.deadAfterReview + b.deadAfterReview }
+
+/-- Nodes that are not global owners — the violations of
+`Ownership.NodesAreGowners`. -/
+def notGowners (g : GPathM) : Nat :=
+  (g.nodes.filter (fun n => !g.gowners.contains n.id)).length
+
+def gowScopeReport (g : GPathM) : GSAcc :=
+  match firstChoice g with
+  | none => { states := 1, nodes := g.nodes.length, outBefore := notGowners g }
+  | some pid =>
+    let gp := filterRequire g pid.id
+    let gc := cleanInvalid gp
+    let gpar := reviewParents gc
+    let gr := filterAll g [pid.id]
+    { states := 1, nodes := g.nodes.length, outBefore := notGowners g,
+      pinned := 1, outAfterPin := notGowners gp,
+      outAfterReview := notGowners gr,
+      symAfterReview := symViolations gr,
+      symAfterClean := symViolations gc,
+      symAfterParents := symViolations gpar,
+      outAfterClean := notGowners gc,
+      ends := match descend g 1000 with | .ok _ => 1 | .error _ => 0,
+      symAtEnd := match descend g 1000 with | .ok ge => symViolations ge | .error _ => 0,
+      deadAfterReview := if isValid gr then 0 else 1 }
+
+def runGowScope (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- NodesAreGowners around one pin: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : GSAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    for kv in mirrorRun gmap do
+      if isValid kv.2 then
+        acc := addGS acc (gowScopeReport kv.2)
+  IO.println s!"  final valid states                        = {acc.states}"
+  IO.println s!"  nodes                                     = {acc.nodes}"
+  IO.println s!"  non-gowner nodes BEFORE the pin           = {acc.outBefore}"
+  IO.println s!"  states where a pin was available          = {acc.pinned}"
+  IO.println s!"  non-gowner nodes AFTER the pin            = {acc.outAfterPin}"
+  IO.println s!"  non-gowner nodes AFTER cleanInvalid       = {acc.outAfterClean}"
+  IO.println s!"  non-gowner nodes AFTER review             = {acc.outAfterReview}"
+  IO.println s!"  symmetry violations AFTER cleanInvalid    = {acc.symAfterClean}"
+  IO.println s!"  symmetry violations AFTER +reviewParents  = {acc.symAfterParents}"
+  IO.println s!"  symmetry violations AFTER review          = {acc.symAfterReview}"
+  IO.println s!"  reads that ran to the end                 = {acc.ends}"
+  IO.println s!"  symmetry violations AT THE READ'S END     = {acc.symAtEnd}"
+  IO.println s!"  states the pin killed                     = {acc.deadAfterReview}"
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch
