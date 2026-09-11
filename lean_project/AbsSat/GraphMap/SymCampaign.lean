@@ -2340,4 +2340,95 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"  NO fabric but VALID (the gap) = {acc.fabNoValidYes}"
   pure 0
 
+/-! ### P3 itself, measured
+
+v77 computed the greatest fabric inside `owners(r)` and found it always covers.
+But that is the **unpinned** question. What P3 needs is the fabric inside
+`owners(r)` *and* agreeing with the clause's three requirements — a **triple**
+intersection at every step, which is exactly the shape v70 found triple gaps
+in. This band asks P3's own question. -/
+
+def compatWith (reqs : List NodeId) (p : PathNodeId) : Bool :=
+  reqs.all (fun r => p.id.step != r.step || p.id == r)
+
+/-- The greatest fabric inside `owners(rn)` whose members agree with `reqs`:
+members kept, whether it covers every step, whether it still holds `r`. -/
+def pinnedFabric (g : GPathM) (rn : PNodeM) (reqs : List NodeId) : Nat × Bool × Bool :=
+  let S0 := g.nodes.filter (fun n => rn.owners.contains n.id && compatWith reqs n.id)
+  let ids := S0.map (·.id)
+  let T0 : Tab := S0.map (fun n => (n.id, n.owners.filter (fun v => ids.contains v)))
+  let Tf := gfabric g T0 1000
+  (Tf.length,
+   (intRange 0 (g.current_step - 1)).all (fun k => Tf.any (fun e => e.1.id.step == k)),
+   Tf.any (fun e => e.1 == rn.id))
+
+structure P3Acc where
+  filters : Nat := 0
+  survivors : Nat := 0
+  covers : Nat := 0
+  missesAStep : Nat := 0
+  losesR : Nat := 0
+  empties : Nat := 0
+
+def P3Acc.add (x y : P3Acc) : P3Acc :=
+  { filters := x.filters + y.filters, survivors := x.survivors + y.survivors,
+    covers := x.covers + y.covers, missesAStep := x.missesAStep + y.missesAStep,
+    losesR := x.losesR + y.losesR, empties := x.empties + y.empties }
+
+def scoreP3 (φ : Cnf) : P3Acc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : P3Acc := {}
+  for _ in [0:steps] do
+    for kv in line do
+      let g := kv.2
+      if isValid g then
+        for d in mapSons φ kv.1.step kv.1.index do
+          if litBlock φ < d.step && d.step < fusionTop φ then
+            let reqs := reqOfCnf φ d
+            let h := filterAll g reqs
+            if isValid h then
+              acc := { acc with filters := acc.filters + 1 }
+              for n in h.nodes do
+                match g.node? n.id with
+                | none => pure ()
+                | some rn =>
+                  acc := { acc with survivors := acc.survivors + 1 }
+                  let t := pinnedFabric g rn reqs
+                  if t.1 == 0 then acc := { acc with empties := acc.empties + 1 }
+                  if t.2.1 then acc := { acc with covers := acc.covers + 1 }
+                  else acc := { acc with missesAStep := acc.missesAStep + 1 }
+                  if !t.2.2 then acc := { acc with losesR := acc.losesR + 1 }
+    line := pureAdvanceSym φ line
+  return acc
+
+/-- `lake exe cnfmap --p3 [cases] [seed] [nvMin] [nvSpan]` -/
+def runP3 (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- P3 itself: the fabric inside owners(r) AND agreeing with the pins: \
+cases={cases} seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : P3Acc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then acc := acc.add (scoreP3 φ)
+  IO.println s!"  clause filters (valid)            = {acc.filters}"
+  IO.println s!"  survivors r examined              = {acc.survivors}"
+  IO.println s!"    pinned fabric COVERS every step = {acc.covers}"
+  IO.println s!"    MISSES a step                   = {acc.missesAStep}"
+  IO.println s!"    is EMPTY                        = {acc.empties}"
+  IO.println s!"    does not contain r              = {acc.losesR}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign

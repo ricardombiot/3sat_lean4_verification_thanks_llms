@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bo) — P3 medida en su forma fuerte; corrección a v82; media demostración.**
+
+Corrige v82: `PinNonEmpty ⟺ isValid` vale para P4 (un pinchazo suelto), **no** para P3 (tejido en
+`owners(r)` ∧ compatible con los **tres** requisitos), que la máquina no computa. `cnfmap --p3`
+(`compatWith`, `pinnedFabric`, `scoreP3`, `runP3`), cuatro semillas: **39.450 supervivientes**, 0
+pérdidas de paso, 0 vacíos, 0 pérdidas de `r` — y eso pese a que v70 halló 38 huecos de tríos (7
+genuinos): un hueco entre dos nodos no vacía un paso porque el tejido encamina por otros miembros,
+luego **el tejido es más robusto que las tablas por pares**. Demostrado en `FabricAdd.lean`:
+**`pinnedCandidate_covers`** — el candidato pinzado cubre todo paso, vía `owns_required` en los pasos
+nombrados por un requisito (único nodo compatible = el requisito) y `owners_ok_of_isValidNode` en los
+demás; hipótesis: rangos y funcionalidad de `reqs`. Sin pagar: el **estrechado** (el mayor
+auto-sostenido de un candidato que cubre puede no cubrir) = residuo de v45 (`support` a distancia
+≥ 2), alcanzado desde una tercera dirección. Vía del tejido **abierta**; sus piezas estructurales
+(v78 semilla/`addNode`, v79 `join`/crecimiento, v80 mayor tejido) siguen demostradas.
+
+Informe: `verificacion_inseguridad_autor_v83.md`.
+
 **2026-09-11 (bn) — CORRECCIÓN: P4 era una reformulación; y `review` calcula el mayor tejido.**
 
 Intento, a petición del autor, de demostrar `PinNonEmpty`/`PinReaches` sin clase. La construcción

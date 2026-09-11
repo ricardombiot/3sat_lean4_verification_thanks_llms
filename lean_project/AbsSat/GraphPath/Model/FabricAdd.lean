@@ -1,6 +1,7 @@
 -- lean_project/AbsSat/GraphPath/Model/FabricAdd.lean
 import AbsSat.GraphPath.Model.Fabric
 import AbsSat.GraphPath.Model.Reader
+import AbsSat.GraphPath.Model.NodeInvariant
 
 /-!
 # Where the fabric comes from, and what it buys
@@ -559,6 +560,59 @@ theorem Inhabited_of_PinNonEmpty (reqOf : NodeId → List NodeId) (g : GPathM)
       PickSome_of_PinNonEmpty h' (hinv h' hr hvv).1 (hinv h' hr hvv).2 (hpins h' hr hvv))
 
 -- ============================================================
+-- P3, the half that is provable: the pinned candidate covers
+-- ============================================================
+
+/-! The fabric P3 needs is the greatest **self-supporting** subset of
+`owners(r)` agreeing with the clause's pins, and it is built by narrowing a
+candidate. The candidate is `owners(r) ∩ Compat reqs`, and **that it covers
+every step is a theorem** — it needs nothing open:
+
+* at a step some requirement names, the only compatible node is the
+  requirement itself, and `owns_required` says a survivor of the filter owns
+  it. That is the author's own filter doing the work;
+* at every other step, `Compat` constrains nothing and `isValidNode`'s owners
+  clause supplies an owner.
+
+So the first half of P3 is paid. What is **not** paid is the narrowing: the
+greatest self-supporting subset of a covering candidate need not cover. That is
+v45's residue, `support` at distance ≥ 2, reached here from a third direction —
+and `cnfmap --p3` measures precisely it (39.450 survivors, 0 losses). -/
+
+/-- **The pinned candidate covers every step.** -/
+theorem pinnedCandidate_covers (reqOf : NodeId → List NodeId) (g : GPathM)
+    (reqs : List NodeId) (hreach : Reachable reqOf g)
+    (hv : isValid (filterAll g reqs) = true)
+    (hreqs : ∀ r ∈ reqs, 0 ≤ r.step ∧ r.step < g.current_step)
+    (hfun : ∀ r₁ ∈ reqs, ∀ r₂ ∈ reqs, r₁.step = r₂.step → r₁ = r₂)
+    (r : PathNodeId) (n : PNodeM) (hn : (filterAll g reqs).node? r = some n)
+    (l : Int) (hl0 : 0 ≤ l) (hl : l < g.current_step) :
+    ∃ q ∈ n.owners, q.id.step = l ∧ Compat reqs q := by
+  if hpin : ∃ req ∈ reqs, req.step = l then
+    -- a pinned step: the requirement itself is an owner, and it is the only
+    -- compatible node there
+    obtain ⟨req, hreq, hreqstep⟩ := hpin
+    obtain ⟨hr0, hr1⟩ := hreqs req hreq
+    obtain ⟨q, hq, hqid⟩ :=
+      NodeInvariant.owns_required reqOf g reqs hreach hv r n hn req hreq hr0 hr1
+    refine ⟨q, hq, by rw [hqid]; exact hreqstep, ?_⟩
+    intro req' hreq' hstep'
+    -- two requirements naming the same step must coincide
+    rw [hqid]
+    exact (hfun req hreq req' hreq' (by rw [← hstep', hqid])).symm ▸ rfl
+  else
+    -- an unpinned step: `Compat` says nothing, and validity supplies an owner
+    have hcs : (filterAll g reqs).current_step = g.current_step :=
+      (pruned_filterAll g reqs).step_eq
+    have hok := owners_ok_of_isValidNode _ n
+      ((Pinned.ctx_filterAll reqOf g reqs hreach hv).nodeval r n hn)
+    have hk : l ∈ intRange 0 ((filterAll g reqs).current_step - 1) :=
+      mem_intRange hl0 (by rw [hcs]; omega)
+    obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (List.all_eq_true.mp hok l hk)
+    exact ⟨q, hq, eq_of_beq hqs, fun req hreq hstep =>
+      absurd ⟨req, hreq, by rw [← hstep, eq_of_beq hqs]⟩ hpin⟩
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -601,6 +655,10 @@ theorem Inhabited_of_PinNonEmpty (reqOf : NodeId → List NodeId) (g : GPathM)
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.Inhabited_of_PinNonEmpty' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Inhabited_of_PinNonEmpty
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_covers' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinnedCandidate_covers
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
