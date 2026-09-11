@@ -10,6 +10,20 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ba) — El caso 17, el triángulo, y la conservación por prefijo.**
+
+Caso 17 (`cnfmap --case17`): clave (17,4) fija x1=x4=x5=0; tres soluciones dentro; las 18 entradas son
+x0=0 × x2=1, prohibido por la cláusula 1 una vez x5=0; sin owner común en los pasos 13–15. El review
+solo mira un nodo cada vez. `TriReview.lean`: `triClean` (quita `q` de `owners(p)` si algún paso no
+tiene owner común), `reviewTri`, `filterAllTri`; `ChainSound_triClean`, `ChainSound_reviewTri`.
+`cnfmap --tri` (cinco semillas): entradas espurias 216 → 0 de 5.575.860, veredictos idénticos, 0
+perdidas. `PrefixConservation.lean`: `SatUpTo`, `selOfAssign_onMap_of`, `chainSound_along_prefix`,
+`selOfAssign_son_of`, `advance_target_prefix`, `Carries_pureAdvance_prefix`, `pureSteps_succ`,
+`pureSteps_carries_prefix` — la conservación por prefijo en el driver. Siguiente: la dirección
+contraria por prefijo (descodificar cadenas intermedias), para enunciar `FlipCore` sin grafo.
+
+Informe: `verificacion_inseguridad_autor_v69.md`.
+
 **2026-09-11 (az) — El filtro de cláusula, en piezas pequeñas.**
 
 `ClauseFilter.lean`: `ClauseStepExact ⇐ OneReqStep` (un requisito cada vez; `SupportedS_filterAll_of_

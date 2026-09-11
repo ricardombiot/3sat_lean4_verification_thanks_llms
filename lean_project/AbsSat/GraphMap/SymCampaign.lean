@@ -1,6 +1,7 @@
 -- lean_project/AbsSat/GraphMap/SymCampaign.lean
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.SymReview
+import AbsSat.GraphPath.Model.TriReview
 
 /-!
 `lake exe cnfmap --symreview`: the original machine against the symmetric one
@@ -1120,6 +1121,148 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"    (b) every chain already carries it      = {acc.caseBonly}"
   IO.println s!"    (d) core needed, and a flip exists      = {acc.caseD}"
   IO.println s!"    (d) core needed, NO flip exists (FAIL)  = {acc.caseDfail}"
+  pure 0
+
+
+/-- Dump of seed 90210 case 17 at the state where the 18 entries appear. -/
+def runCase17 : IO UInt32 := do
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed 90210
+  let mut base : Option Cnf := none
+  for idx in [0:18] do
+    let (rng1, nv) := rng.below 3
+    let nVars := 4 + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    if idx == 17 then
+      match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+      | .ok φ => base := some φ
+      | .error _ => pure ()
+  match base with
+  | none => pure 1
+  | some φ =>
+  let lit (l : Lit) : String := (if l.pos then "x" else "¬x") ++ toString l.v
+  IO.println s!"nVars={φ.nVars} clauses={φ.clauses.length} litBlock={litBlock φ}"
+  for i in [0:5] do
+    match φ.clauses[i]? with
+    | some c => IO.println s!"  clause {i} (step {litBlock φ + 1 + i}): {lit c.l1} ∨ {lit c.l2} ∨ {lit c.l3}"
+    | none => pure ()
+  let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+  for sym in [true, false] do
+    IO.println s!"=== {if sym then "symmetric" else "original"} machine ==="
+    let mut line := pureInit φ
+    for _ in [0:17] do
+      line := if sym then pureAdvanceSym φ line else pureAdvance φ line
+    for kv in line do
+      let g := kv.2
+      if isValid g && kv.1.step == 17 && kv.1.index == 4 then
+        let seen := alls.filter (fun a => prefixOk φ a g.current_step)
+        let inside := seen.filter (fun a => solInside g (solPath φ a g.current_step))
+        IO.println s!"state key=(17,4) cs={g.current_step} nodes={g.nodes.length}"
+        IO.println s!"  seen-so-far solutions: {seen.length}; inside this state: {inside.length}"
+        for a in inside do
+          IO.println s!"    x0..x5 = {(List.range φ.nVars).map (fun v => if a v then 1 else 0)}"
+        let t := triangle g
+        IO.println s!"  triangle: pairs={t.1} gaps={t.2}"
+        -- spurious entries and their witnesses
+        let paths := inside.map (fun a => solPath φ a g.current_step)
+        for n in g.nodes do
+          for q in n.owners do
+            if n.id.id.step < q.id.step && (g.node? q).isSome &&
+               !paths.any (fun pa => pa.contains n.id && pa.contains q) then
+              let pp := match n.id.parent_id with | some x => s!"{x.step},{x.index}" | none => "-"
+              let qp := match q.parent_id with | some x => s!"{x.step},{x.index}" | none => "-"
+              -- which steps have no common owner of p and q?
+              let gapSteps := (intRange 0 (g.current_step - 1)).filter (fun k =>
+                match g.node? q with
+                | some qn => !(n.owners.any (fun w => w.id.step == k && qn.owners.contains w))
+                | none => true)
+              IO.println s!"  spurious: p=({n.id.id.step},{n.id.id.index}|{pp}) \
+q=({q.id.step},{q.id.index}|{qp})  steps with no common owner: {gapSteps}"
+  pure 0
+
+
+-- ------------------------------------------------------------
+-- The machine with the triangle pass
+-- ------------------------------------------------------------
+
+def sendToTri (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
+  let g' := TriReview.upFilteringTri g (reqOfCnf φ d) d ""
+  if isValid g' then insertPure next d g' else next
+
+def pureAdvanceTri (φ : Cnf) (line : PureLine) : PureLine :=
+  line.foldl (fun next kv =>
+    (mapSons φ kv.1.step kv.1.index).foldl (sendToTri φ kv.2) next) []
+
+/-- Original machine against the machine with the triangle pass: verdicts, and
+exactness of the tables against the clauses seen so far, at every state. -/
+def runTri (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- triangle pass: cases={cases} seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut sat := 0
+  let mut agree := 0
+  let mut lost := 0
+  let mut zomb := 0
+  let mut o : XAcc := {}
+  let mut t : XAcc := {}
+  let mut oGaps := 0
+  let mut tGaps := 0
+  let mut inst := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        inst := inst + 1
+        let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+        let truth := alls.any (fun a => satB a φ)
+        if truth then sat := sat + 1
+        let steps := (stepCount φ - 1).toNat
+        let mut lo := pureInit φ
+        let mut lt := pureInit φ
+        for _ in [0:steps] do
+          lo := pureAdvance φ lo
+          lt := pureAdvanceTri φ lt
+          for kv in lo do
+            if isValid kv.2 then
+              let seen := alls.filter (fun a => prefixOk φ a kv.2.current_step)
+              o := addX o (tableExact φ seen kv.2)
+              oGaps := oGaps + (triangle kv.2).2
+          for kv in lt do
+            if isValid kv.2 then
+              let seen := alls.filter (fun a => prefixOk φ a kv.2.current_step)
+              t := addX t (tableExact φ seen kv.2)
+              tGaps := tGaps + (triangle kv.2).2
+        let vo := lo.any (fun kv => isValid kv.2)
+        let vt := lt.any (fun kv => isValid kv.2)
+        if vo == vt then agree := agree + 1
+        if truth && !vt then lost := lost + 1
+        if !truth && vt then zomb := zomb + 1
+  IO.println s!"  formulas / satisfiable                    = {inst} / {sat}"
+  IO.println s!"  verdicts equal to the original's          = {agree}"
+  IO.println s!"  LOST A SOLUTION / ZOMBIE VERDICT (tri)    = {lost} / {zomb}"
+  IO.println s!"  --- every state after the first, against the clauses seen so far ---"
+  IO.println s!"  original: states={o.states} nodes={o.nodes} zombieNodes={o.zombieNodes} \
+entries={o.entries} spurious={o.spurious} triangleGaps={oGaps}"
+  IO.println s!"  triangle: states={t.states} nodes={t.nodes} zombieNodes={t.zombieNodes} \
+entries={t.entries} spurious={t.spurious} triangleGaps={tGaps}"
   pure 0
 
 end AbsSat.GraphMap.SymCampaign
