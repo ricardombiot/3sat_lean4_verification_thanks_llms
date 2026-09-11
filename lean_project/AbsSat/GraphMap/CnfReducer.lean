@@ -10,14 +10,27 @@ instances inside the class — was the classical procedure for acyclic CSPs:
 **reduce by semi-joins to the fixpoint, then pick**. This module builds the
 first half of that in the pure model.
 
-## The unit is the row, and it is the map's own row
+## Scope: this is a procedure over **formulas**, not over the machine
+
+**Nothing in this module mentions `owners`, `GPathM`, `filterAll` or `review`,
+and nothing here is proved about them.** The reducer below is the classical
+semi-join procedure over clause relations; the machine decides which nodes
+survive by pruning `owners` tables, with the parents/sons coherence passes.
+The two have the same *shape*, and v74 retracts the claim that they are the
+same thing: that they compute the same survivors is exactly the inclusion
+`owners ⊆ support` that `ArcConsistency.lean` states and leaves open since v11.
+Read every comparison with the machine below as an analogy awaiting a bridge.
+
+## The unit is the row
 
 The first correction the measurement forced was that the repair cannot move one
 *variable* at a time. A clause node of the map carries its three literals at
 once, and so does the classical relation: the object that moves is a **row**.
-So the rows here are not a new encoding — they are `CnfMap`'s, the indices
-`1..7` with `b1`/`b2`/`b3` reading off which literal each bit names true. Row
-`0`, the all-false row, is the one the map omits and the one no solution uses.
+The rows here reuse `CnfMap`'s numbering — the indices `1..7` with
+`b1`/`b2`/`b3` reading off which literal each bit names true — so that a future
+bridge has one translation less to do. Row `0`, the all-false row, is the one
+the map omits and the one no solution uses. Reusing the numbering is *not* a
+claim that the surviving rows coincide with the machine's surviving nodes.
 
 ## What a sweep does, and what is proved about it
 
@@ -33,8 +46,9 @@ and neither needs acyclicity:
   an empty relation.
 * **Arc consistency of the fixpoint** (`arcConsistent_of_sweep_eq`): at the
   fixpoint every surviving row has a partner everywhere. This is the premise
-  Beeri–Fagin–Maier–Yannakakis needs, and it is the same statement
-  `ArcConsistency.review_arcConsistent` proves for the machine's own tables.
+  Beeri–Fagin–Maier–Yannakakis needs. `ArcConsistency.review_arcConsistent`
+  proves a statement of the same shape for the machine's owners tables; the two
+  are about different objects and neither implies the other.
 
 What is **not** here is the other half — that on an α-acyclic hypergraph the
 reduced relations can then be picked greedily without backtracking. That is
@@ -353,8 +367,9 @@ theorem sweep_reduce (rels : Rels) : sweep (reduce rels) = reduce rels :=
 
 /-- **Arc consistency, in the reducer's own terms.** At a fixpoint of the
 sweep, every surviving row of every relation has a partner in every relation.
-This is the premise BFMY asks for, and the same statement
-`ArcConsistency.review_arcConsistent` proves of the machine's owners tables. -/
+This is the premise BFMY asks for. `ArcConsistency.review_arcConsistent` proves
+a statement of the same shape about the machine's owners tables — a different
+object, and no implication either way is proved. -/
 theorem arcConsistent_of_sweep_eq (rels : Rels) (hfix : sweep rels = rels) :
     ∀ cr ∈ rels, ∀ r ∈ cr.2, ∀ q ∈ rels,
       ∃ w ∈ q.2, pairsAgree (rowPairs cr.1 r) (rowPairs q.1 w) = true := by
@@ -371,8 +386,8 @@ theorem arcConsistent_of_sweep_eq (rels : Rels) (hfix : sweep rels = rels) :
 
 /-- **The reducer's own theorem, with nothing left hanging.** It terminates,
 and where it stops every surviving row of every relation has a partner in every
-relation. No acyclicity, no hypotheses — the same unconditional footing
-`review_arcConsistent` gives the machine. -/
+relation. No acyclicity and no hypotheses — about the relations of a formula,
+not about the machine's tables. -/
 theorem arcConsistent_reduce (rels : Rels) :
     ∀ cr ∈ reduce rels, ∀ r ∈ cr.2, ∀ q ∈ reduce rels,
       ∃ w ∈ q.2, pairsAgree (rowPairs cr.1 r) (rowPairs q.1 w) = true :=

@@ -29,10 +29,17 @@ graphs in it:
 > agreeing selection.
 
 That is Beeri–Fagin–Maier–Yannakakis, and `NoBacktrack` below states it. It is
-the only thing between this file and `FlipCore` for the class — and it is
 where acyclicity has to be spent, because arc consistency alone does not give
 it: v72 measured three Tseitin families whose odd-parity formulas keep every
 relation non-empty and have no solution at all.
+
+**It is not, however, all that stands between this file and `FlipCore`** — v74
+retracts that claim. Everything here is about the relations of a formula;
+`FlipCore` is about a machine state, a surviving node and a chain sound in its
+`owners` tables. The bridge between the two does not exist yet, and it carries
+the inclusion `owners ⊆ support` left open since v11. Proving `NoBacktrack`
+alone would give the 1983 result that acyclic CSPs are tractable, and would say
+nothing about the machine.
 -/
 
 namespace AbsSat.GraphMap.CnfSelection
@@ -305,8 +312,9 @@ theorem satisfiable_iff_nonempty_of_NoBacktrack (C : List Clause) (h : NoBacktra
 before it — a case with no choice, and a case with one. v19 and v40 did exactly
 this for the machine (`NoChoice`, then `pairwiseOwned_of_fullyPinned`: in a
 fully pinned state there is one node per step, and pairwise ownership follows
-for free). The same thing happens here, for the same reason, and it is the
-base case of the descent the next piece has to build. -/
+for free). The same thing happens here — as a resemblance of arguments, not as
+a transfer of results — and it is the base case of the descent the next piece
+has to build. -/
 
 /-- The selection a relation set forces, when each relation offers one row. -/
 def forcedSel (rels : Rels) : List (Clause × Int) :=

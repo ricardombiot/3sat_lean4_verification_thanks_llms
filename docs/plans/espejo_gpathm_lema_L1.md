@@ -10,6 +10,25 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bf) — CORRECCIÓN: v71–v73 no toca la máquina.**
+
+A pregunta del autor («¿por qué han desaparecido los owners?, ¿el modelo se ajusta a mi algoritmo?»),
+comprobado sobre el repositorio: `CnfHypergraph.lean`, `CnfReducer.lean` y `CnfSelection.lean` tienen
+**0 apariciones en código** de `owners`/`gowners`/`GPathM`/`PathNodeId`/`isValid`/`filterAll`/`review`/
+`ChainSound` (4 en comentarios), y **ningún teorema** conecta `reduce`/`NoBacktrack` con
+`FlipCore`/`ClauseStepExact`. Las campañas `--flipscope`, `--reducer` y `--pickstep` **no ejecutan la
+máquina** (0 llamadas a `pureAdvance`; las de v66–v70, 20). Retiradas: la «correspondencia término a
+término» (v71), «la fila que el reductor conserva *es* el índice del nodo superviviente» (v72), «ya no
+es una analogía» (v72) y «`NoBacktrack` es lo único que queda para `FlipCore`» (v73 y docstring de
+`CnfSelection`). Docstrings de los módulos corregidos. Diagnóstico: que los supervivientes del
+semi-join coincidan con los de la poda de `owners` **es** `owners ⊆ support`, abierta desde v11 — la
+ruta no rodea el muro, lo reencuentra en el puente; y `NoBacktrack` a solas daría BFMY 1983, mudo
+sobre el algoritmo. Los teoremas de v71–v73 siguen válidos, sobre el reductor de fórmulas. Decisión
+pendiente del autor: (1) medir la banda máquina↔reductor sobre estados reales, o (2) rehacer el
+reductor sobre `owners`/`filterAll`/`review`.
+
+Informe: `verificacion_inseguridad_autor_v74.md`.
+
 **2026-09-11 (be) — La pieza 2, partida: el caso base demostrado, la diana medida, el teorema abierto.**
 
 `CnfSelection.lean`: `allPairs`, `PairsCoherent`, `Agreeing`, `assignOfSel`, `selOfAssign`,
