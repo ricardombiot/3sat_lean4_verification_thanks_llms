@@ -82,3 +82,4 @@ import AbsSat.GraphPath.Model.Survive
 import AbsSat.GraphPath.Model.ExtendSearch
 import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphMap.SymCampaign
+import AbsSat.GraphPath.Model.Fabric

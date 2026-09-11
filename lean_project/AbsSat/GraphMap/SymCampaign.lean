@@ -503,4 +503,101 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"    (c) an owner not carried by such a link = {acc.2.2}"
   pure 0
 
+
+-- ------------------------------------------------------------
+-- The greatest fabric inside owners(r)
+-- ------------------------------------------------------------
+
+abbrev Tab := List (PathNodeId × List PathNodeId)
+
+def tabOf (T : Tab) (p : PathNodeId) : List PathNodeId :=
+  ((T.find? (fun e => e.1 == p)).map (·.2)).getD []
+
+/-- One trimming round of the fabric conditions: drop table entries that are not
+symmetric or not carried by a parent and a son inside the table, then drop
+members whose table misses a step or no longer holds themselves. -/
+def trimFabric (g : GPathM) (T : Tab) : Tab :=
+  let top := g.current_step - 1
+  let T1 : Tab := T.map (fun e =>
+    let p := e.1
+    let tp := e.2
+    match g.node? p with
+    | none => (p, [])
+    | some n =>
+      (p, tp.filter (fun v =>
+        let tv := tabOf T v
+        tv.contains p &&
+        (p.id.step == 0 || n.parents.any (fun c => tp.contains c && (tabOf T c).contains v)) &&
+        (p.id.step == top || n.sons.any (fun s => tp.contains s && (tabOf T s).contains v)))))
+  let alive (e : PathNodeId × List PathNodeId) : Bool :=
+    e.2.contains e.1 &&
+    (intRange 0 (g.current_step - 1)).all (fun k => e.2.any (fun v => v.id.step == k))
+  let S2 := (T1.filter alive).map (·.1)
+  (T1.filter alive).map (fun e => (e.1, e.2.filter (fun v => S2.contains v)))
+
+partial def gfabric (g : GPathM) (T : Tab) (fuel : Nat) : Tab :=
+  let T' := trimFabric g T
+  if fuel == 0 || T'.length == T.length &&
+      (T'.map (·.2.length)).foldl (· + ·) 0 == (T.map (·.2.length)).foldl (· + ·) 0 then T'
+  else gfabric g T' (fuel - 1)
+
+/-- `(members of owners(r), members of the greatest fabric inside it,
+entries of owners(p) ∩ owners(r), entries kept)` -/
+def fabricInside (g : GPathM) (rn : PNodeM) : Nat × Nat × Nat × Nat :=
+  let S0 := g.nodes.filter (fun n => rn.owners.contains n.id)
+  let T0 : Tab := S0.map (fun n => (n.id, n.owners.filter (fun v => rn.owners.contains v &&
+    (g.nodes.any (fun m => m.id == v)))))
+  let Tf := gfabric g T0 1000
+  (S0.length, Tf.length, (T0.map (·.2.length)).foldl (· + ·) 0,
+   (Tf.map (·.2.length)).foldl (· + ·) 0)
+
+def runFabric (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- the greatest fabric inside owners(r): cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut choices := 0
+  let mut full := 0
+  let mut acc : Nat × Nat × Nat × Nat := (0, 0, 0, 0)
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let steps := (stepCount φ - 1).toNat
+        let mut line := pureInit φ
+        for _ in [0:steps] do
+          line := pureAdvanceSym φ line
+        for kv in line do
+          let g := kv.2
+          if isValid g then
+            for k in intRange 0 (g.current_step - 1) do
+              if PickInduction.choiceAt g k then
+                for r in ownersAt g.gowners k do
+                  match g.node? r with
+                  | none => pure ()
+                  | some rn =>
+                    choices := choices + 1
+                    let t := fabricInside g rn
+                    if t.1 == t.2.1 then full := full + 1
+                    acc := (acc.1 + t.1, acc.2.1 + t.2.1, acc.2.2.1 + t.2.2.1,
+                            acc.2.2.2 + t.2.2.2)
+  IO.println s!"  choices r examined                        = {choices}"
+  IO.println s!"  nodes in owners(r)                        = {acc.1}"
+  IO.println s!"  of those, in the greatest fabric          = {acc.2.1}"
+  IO.println s!"  choices where the fabric is ALL owners(r) = {full}"
+  IO.println s!"  table entries owners(p) ∩ owners(r)       = {acc.2.2.1}"
+  IO.println s!"    kept by the greatest fabric             = {acc.2.2.2}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign

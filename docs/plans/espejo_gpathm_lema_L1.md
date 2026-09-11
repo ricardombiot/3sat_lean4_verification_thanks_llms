@@ -10,6 +10,26 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (aw) — `Survive.Woven` generalizado: el tejido.**
+
+`Fabric.lean` (nuevo). `Fabric g S T`: cada miembro conserva una subtabla `T p` de sus owners — simétrica,
+dentro de `S`, con `p` en ella, con entrada en cada paso, y cada entrada respaldada por un padre y un
+hijo del tejido (`up` / `down`). `Woven` es el caso `T p v := S v` (`Fabric_of_Woven`).
+
+**Demostrado** (`[propext, Quot.sound]`): `Fabric_updateAt` / `_symmetrize` / `_unlink` / `_removeNode`;
+`isValidNode_of_Fabric(_self)`; el bucle original entero (`FOk_review`, `isValid_filterAll_of_Fabric`,
+generaliza `isValid_filterAll_of_Woven` y la cobertura sale de `support`); el simétrico con el pinchazo
+por owners (`FOk_reviewSym`, `FOk_readStepSym`, `isValid_readStepSym_of_Fabric`); y
+`isValid_readStepSym_of_FabricAt`.
+
+**Medido** (`cnfmap --fabric`, cinco semillas): el mayor tejido dentro de `owners(r)` es **todo**
+`owners(r)` en 4.888/4.888 elecciones (159.621 nodos), recortando 15.792 de 4.548.107 entradas (0,35 %).
+
+**El muro, ahora estático:** *`owners(r)` contiene un tejido que pasa por `r`*. Candidato:
+`owners(p) ∩ owners(r)` menos un 0,35 %; hay que demostrar que el recorte nunca vacía un paso (tipo Helly).
+
+Informe: `verificacion_inseguridad_autor_v65.md`.
+
 **2026-09-11 (av) — El review simétrico; y la lectura del autor, medida al pie de la letra.**
 
 `SymReview.lean` (nuevo): `symmetrize` —cuando la tabla de `id` encoge, todo nodo fuera de ella pierde
