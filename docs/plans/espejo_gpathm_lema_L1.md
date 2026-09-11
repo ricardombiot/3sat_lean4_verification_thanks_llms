@@ -10,6 +10,26 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bh) — El mapa: qué falta para demostrar que el algoritmo decide 3SAT.**
+
+Análisis sin código, a petición del autor. El diseño (construir el conjunto de **todos** los
+certificados) son dos inclusiones: ⊇ demostrada entera (v50–v53), ⊆ abierta (`ClauseStepExact`), y
+`decides_of_ClauseStepExact` ya hecho. Traducción del diseño: variables = pasos, dominios = nodos
+(valores de variable / filas de cláusula), `owners` = soportes por **pares** = 2-consistencia
+(`ZeroOneAll.lean`, v20), `review` = su punto fijo, triángulo (v69) = un nivel más. Por Freuder
+(consistencia fuerte de nivel k + anchura inducida < k ⟹ sin retroceso): ningún k fijo vale para
+toda φ (⊆ general = P=NP, v14/v67); sí vale en anchura acotada; **subir el nivel del filtro ensancha
+la clase, no cierra el general** — respuesta a la pregunta sobre correcciones del filtrado. Huecos
+medidos por nivel: pares 0 tras el triángulo (v69), tríos 38/905.506 con 7 genuinos (v70), nodos
+zombie 0 y veredictos malos 0 (v66/v70/v75): la exactitud de tabla ya falla en tríos y aun así la
+propagación por filas cierra a tiempo — margen medido, no teorema. Rutas: R1 clase por anchura sobre
+las estructuras propias (objetivo `decides_on_class`), R2 pasada de nivel 4 (ensancha la clase), R3
+caso general = P=NP (aplazado). Siguiente concreto: enunciar y demostrar el puente (A) de v75 sobre
+`owners`, vía `L1`/`ReqFiltered` + coherencia de padres e hijos en los pasos de literal; alcance
+advertido: (A) da exactitud a nivel de **clave**, y de clave a **nodo** falta un escalón (v67).
+
+Informe: `verificacion_inseguridad_autor_v76.md`.
+
 **2026-09-11 (bg) — La banda máquina↔reductor: la máquina es más fuerte, y el puente cambia de sentido.**
 
 `cnfmap --band` (`scoreBand`, `runBand` en `SymCampaign.lean`): en cada paso de cláusula de una
