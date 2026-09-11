@@ -313,4 +313,156 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
     IO.println "The pure driver runs the same timeline as the real one. ✅"
     return 0
 
+
+-- ============================================================
+-- Does a valid state always still contain a solution?
+-- ============================================================
+
+open AbsSat.GraphMap.CnfSel
+open AbsSat.GraphPath.Model
+open AbsSat.GraphPath.Model.GPathM
+
+/-!
+The author's statement, which is the conjecture itself:
+
+> if the set is valid, even as it shrinks, as long as it does not break it
+> contains at least one valid solution — so a path of owners must remain that
+> can be read off.
+
+The conservation law proves one direction: a solution that is in the state
+keeps the state valid. This band measures the other one, directly and without
+any graph reasoning: enumerate **all** assignments, keep the satisfying ones,
+and ask which of them are still *inside* a state — every step's chosen map
+node still among the global owners.
+
+Three numbers per valid state:
+
+* **solutions inside** — satisfying assignments whose whole branch survives;
+* **zombies** — valid states with none. One of these would be a counterexample
+  to the conjecture, found without any of the machinery;
+* **spurious owners** — surviving map nodes that no surviving solution uses.
+  Zero of these would mean the owners are *exactly* the projection of the
+  solution set, which is far stronger than the conjecture and would make it a
+  corollary.
+-/
+
+def assignOfNat (m : Nat) : Assign := fun v => m.testBit v
+
+/-- Is every step of `a`'s branch still among the global owners? -/
+def branchInside (φ : Cnf) (a : Assign) (g : GPathM) : Bool :=
+  (intRange 0 (g.current_step - 1)).all (fun k =>
+    (ownersAt g.gowners k).any
+      (fun q => q.id == selOfAssign φ a k))
+
+structure EAcc where
+  states : Nat := 0
+  valid : Nat := 0
+  zombies : Nat := 0
+  ownerIds : Nat := 0
+  spurious : Nat := 0
+  finals : Nat := 0
+  finalZombies : Nat := 0
+  finalIds : Nat := 0
+  finalSpurious : Nat := 0
+  live : Nat := 0
+  liveIds : Nat := 0
+  liveSpurious : Nat := 0
+
+def addE (x y : EAcc) : EAcc :=
+  { states := x.states + y.states, valid := x.valid + y.valid,
+    zombies := x.zombies + y.zombies, ownerIds := x.ownerIds + y.ownerIds,
+    spurious := x.spurious + y.spurious,
+    finals := x.finals + y.finals, finalZombies := x.finalZombies + y.finalZombies,
+    finalIds := x.finalIds + y.finalIds, finalSpurious := x.finalSpurious + y.finalSpurious,
+    live := x.live + y.live, liveIds := x.liveIds + y.liveIds,
+    liveSpurious := x.liveSpurious + y.liveSpurious }
+
+def exactReport (φ : Cnf) (g : GPathM) : EAcc := Id.run do
+  if !isValid g then
+    return { states := 1 }
+  let total := Nat.pow 2 φ.nVars
+  let mut inside : List Assign := []
+  for m in [0:total] do
+    let a := assignOfNat m
+    if satB a φ && branchInside φ a g then
+      inside := a :: inside
+  let mut ids : Nat := 0
+  let mut sp : Nat := 0
+  for k in intRange 0 (g.current_step - 1) do
+    let mut seen : List NodeId := []
+    for q in ownersAt g.gowners k do
+      if !seen.contains q.id then
+        seen := q.id :: seen
+        ids := ids + 1
+        if !inside.any (fun a => selOfAssign φ a k == q.id) then
+          sp := sp + 1
+  let isFinal := g.current_step == stepCount φ
+  return { states := 1, valid := 1,
+           zombies := if inside.isEmpty then 1 else 0,
+           ownerIds := ids, spurious := sp,
+           finals := if isFinal then 1 else 0,
+           finalZombies := if isFinal && inside.isEmpty then 1 else 0,
+           finalIds := if isFinal then ids else 0,
+           finalSpurious := if isFinal then sp else 0,
+           live := if inside.isEmpty then 0 else 1,
+           liveIds := if inside.isEmpty then 0 else ids,
+           liveSpurious := if inside.isEmpty then 0 else sp }
+
+def exactRun (φ : Cnf) : EAcc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := AbsSat.GraphPath.Model.PureDriver.pureInit φ
+  let mut acc : EAcc := {}
+  for kv in line do
+    acc := addE acc (exactReport φ kv.2)
+  for _ in [0:steps] do
+    line := AbsSat.GraphPath.Model.PureDriver.pureAdvance φ line
+    for kv in line do
+      acc := addE acc (exactReport φ kv.2)
+  return acc
+
+def runExact (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- does a valid state still contain a solution? cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : EAcc := {}
+  let mut skipped := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => skipped := skipped + 1
+    | .ok φ =>
+      if !AbsSat.Cnf.Dimacs.wfB φ then skipped := skipped + 1
+      else acc := addE acc (exactRun φ)
+  IO.println s!"  states seen                               = {acc.states}"
+  IO.println s!"  of those, valid                           = {acc.valid}"
+  IO.println s!"  VALID WITH NO SOLUTION INSIDE (zombies)   = {acc.zombies}"
+  IO.println s!"  surviving map nodes (step, id)            = {acc.ownerIds}"
+  IO.println s!"    of those, used by NO surviving solution = {acc.spurious}"
+  IO.println s!"  --- states that still contain a solution ---"
+  IO.println s!"  live valid states                         = {acc.live}"
+  IO.println s!"  surviving map nodes there                 = {acc.liveIds}"
+  IO.println s!"    used by NO surviving solution           = {acc.liveSpurious}"
+  IO.println s!"  --- final states only (the reader's input) ---"
+  IO.println s!"  final valid states                        = {acc.finals}"
+  IO.println s!"    WITH NO SOLUTION INSIDE (real zombies)  = {acc.finalZombies}"
+  IO.println s!"  surviving map nodes there                 = {acc.finalIds}"
+  IO.println s!"    used by NO surviving solution           = {acc.finalSpurious}"
+  IO.println s!"  skipped (not well formed)                 = {skipped}"
+  if acc.finalZombies == 0 then
+    IO.println "No final valid state was empty of solutions. ✅"
+    pure 0
+  else
+    IO.println "A final valid state with no solution inside. ❌"
+    pure 1
+
 end AbsSat.GraphMap.CnfMapDiff

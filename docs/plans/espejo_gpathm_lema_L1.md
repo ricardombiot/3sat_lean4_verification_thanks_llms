@@ -10,6 +10,30 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ar) — La conjetura medida semánticamente: exacta al final, no inductiva antes.**
+
+Modo nuevo `lake exe cnfmap --exact`: enumera las 2ⁿ asignaciones, se queda con las que satisfacen φ,
+y comprueba cuáles siguen «dentro» de cada estado (su nodo de mapa sigue entre los owners globales en
+cada paso). Sin cadenas ni `Closed`.
+
+Estados **finales**: 115 válidos en tres campañas (2026/31337/4242, 3..6 vars), **0 sin solución
+dentro**, y 5.681 nodos de mapa supervivientes con **0 espurios** — los supervivientes son
+*exactamente* los usados por soluciones supervivientes. Es la exactitud, no solo la no vacuidad.
+
+Estados **intermedios que aún contienen solución**: 912 espurios de 10.239 (8,9 %) y 1.852 de 17.932
+(10,3 %). **La exactitud no es un invariante arrastrable**: es falsa durante el recorrido y solo se
+vuelve cierta al completarlo.
+
+Consecuencia estratégica: la propiedad que uno querría inducir sobre la construcción **es falsa hasta
+el último paso**, lo que explica el fracaso de v12, de `Inhabited_of_descent`, de la ruta A y de la
+línea v54–v57. El objetivo pasa a ser un argumento de **punto fijo** sobre el estado terminado:
+«todo owner global superviviente es usado por alguna solución superviviente», cuyo ⊇ es la ley de
+conservación (demostrada) y cuyo ⊆ es el muro.
+
+Informe: `verificacion_inseguridad_autor_v60.md`.
+
+---
+
 **2026-09-11 (aq) — `Woven`: las pasadas de coherencia cubiertas, y el pinchazo sobre la cadena.**
 
 Cierra el hueco de v44. Aquel informe ya había desenrollado `share` hasta su punto fijo
