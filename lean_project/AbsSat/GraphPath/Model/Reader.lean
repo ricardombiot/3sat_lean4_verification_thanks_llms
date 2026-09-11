@@ -2,6 +2,7 @@
 import AbsSat.GraphPath.Model.Pinned
 import AbsSat.GraphPath.Model.NodeIds
 import AbsSat.GraphPath.Model.PathExists
+import AbsSat.GraphPath.Model.Survive
 
 /-!
 # The reader, as the author designed it
@@ -291,5 +292,127 @@ theorem Inhabited_of_pickSome_machine (g : GPathM) (reqs : List NodeId)
 /-- info: 'AbsSat.GraphPath.Model.Reader.Inhabited_of_pickSome_machine' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Inhabited_of_pickSome_machine
+
+
+-- ============================================================
+-- A chain is a woven set, so the reader can follow it
+-- ============================================================
+
+/-- The nodes a chain picks. -/
+def ChainSet (g : GPathM) (sel : Int → PathNodeId) : PathNodeId → Prop :=
+  fun p => ∃ k, 0 ≤ k ∧ k < g.current_step ∧ sel k = p
+
+/-- **A pairwise-owned chain is woven.** Every clause of `Survive.Closed` is
+one clause of `IsChain` or `PairwiseOwned`, and the mutual-ownership clause —
+the `share` condition the coherence sweeps need — *is* `PairwiseOwned`. -/
+theorem WOk_chainSet (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (sel : Int → PathNodeId)
+    (hchain : IsChain g sel) (howned : PairwiseOwned g sel) :
+    Survive.WOk g (ChainSet g sel) := by
+  have hmem : ∀ k, 0 ≤ k → k < g.current_step → ∀ n, g.node? (sel k) = some n →
+      ∀ l, 0 ≤ l → l < g.current_step → sel l ∈ n.owners := by
+    intro k hk0 hk n hn l hl0 hl
+    if hlk : l = k then
+      have := ctx.self (sel k) n hn
+      rw [hlk]; exact this
+    else
+      have h := howned l k hl0 hk0 hl hk hlk
+      have : ownersOf g (sel k) = n.owners := by simp only [ownersOf, hn]
+      rw [this] at h
+      exact (List.mem_filter.mp h).1
+  have hown : ∀ p n, ChainSet g sel p → g.node? p = some n →
+      ∀ v, ChainSet g sel v → v ∈ n.owners := by
+    rintro p n ⟨k, hk0, hk, rfl⟩ hn v ⟨l, hl0, hl, rfl⟩
+    exact hmem k hk0 hk n hn l hl0 hl
+  refine ⟨⟨⟨?_, ?_, ?_, ?_, ?_, Survive.coown_of_bridge g hsmp hlink _⟩, hown⟩, hsmp, ctx.shape.notroot⟩
+  · -- gow
+    rintro p ⟨k, hk0, hk, rfl⟩
+    obtain ⟨hs, hstep⟩ := hchain.1 k hk0 hk
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hs
+    exact ctx.ownGow (sel k) n hn (sel k) (ctx.self (sel k) n hn)
+      (by rw [hstep]; exact hk0) (by rw [hstep]; exact hk)
+  · -- node
+    rintro p ⟨k, hk0, hk, rfl⟩
+    exact (hchain.1 k hk0 hk).1
+  · -- support
+    rintro p n hn ⟨k, hk0, hk, rfl⟩ l hl0 hl
+    obtain ⟨_, hstep⟩ := hchain.1 l hl0 hl
+    exact ⟨sel l, hmem k hk0 hk n hn l hl0 hl, ⟨l, hl0, hl, rfl⟩, hstep⟩
+  · -- parent
+    rintro p n hn ⟨k, hk0, hk, rfl⟩ hroot
+    obtain ⟨hs, hstep⟩ := hchain.1 k hk0 hk
+    have hkpos : 0 < k := by
+      rcases Int.lt_or_lt_of_ne (fun he : k = 0 => hroot (by
+        have := ctx.rootz n (List.mem_of_find?_eq_some hn)
+          (by rw [node?_id_eq g (sel k) n hn, hstep]; exact he)
+        rw [node?_id_eq g (sel k) n hn] at this; exact this)) with h | h
+      · omega
+      · exact h
+    have hlink' := hchain.2 (k - 1) (by omega) (by omega)
+    have hkk : k - 1 + 1 = k := by omega
+    rw [hkk, hn] at hlink'
+    exact ⟨sel (k - 1), hlink', ⟨k - 1, by omega, by omega, rfl⟩⟩
+  · -- son
+    rintro p ⟨k, hk0, hk, rfl⟩ hlast
+    obtain ⟨_, hstep⟩ := hchain.1 k hk0 hk
+    have hk1 : k + 1 < g.current_step := by
+      rw [hstep] at hlast; omega
+    obtain ⟨hs1, _⟩ := hchain.1 (k + 1) (by omega) hk1
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs1
+    have hlink' := hchain.2 k hk0 hk1
+    rw [hm] at hlink'
+    exact ⟨sel (k + 1), m, ⟨k + 1, by omega, hk1, rfl⟩, hm, hlink'⟩
+
+/-- **The reader can always follow a chain that exists.** Pinning on the map
+node the chain picks at a step keeps the graph valid — through the pin, the
+`cleanInvalid` sweep *and* both coherence sweeps. -/
+theorem isValid_pin_of_chain (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (sel : Int → PathNodeId)
+    (hchain : IsChain g sel) (howned : PairwiseOwned g sel)
+    (k : Int) (hk0 : 0 ≤ k) (hk : k < g.current_step) :
+    isValid (filterAll g [(sel k).id]) = true := by
+  have hw := WOk_chainSet g ctx hsmp hlink sel hchain howned
+  refine Survive.isValid_filterAll_of_Woven g _ hw [(sel k).id] ?_ ?_
+  · rintro r hr p ⟨l, hl0, hl, rfl⟩ hs
+    rcases List.mem_singleton.mp hr with rfl
+    obtain ⟨_, hstepl⟩ := hchain.1 l hl0 hl
+    obtain ⟨_, hstepk⟩ := hchain.1 k hk0 hk
+    have : l = k := by rw [hstepl] at hs; rw [hs, hstepk]
+    rw [this]
+  · intro l hl0 hl
+    obtain ⟨_, hstep⟩ := hchain.1 l hl0 hl
+    exact ⟨sel l, ⟨l, hl0, hl, rfl⟩, hstep⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Reader.isValid_pin_of_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_pin_of_chain
+
+
+/-- **The reader's obligation is exactly the verdict.** If the state denotes
+anything, the reader has a good pick at every step that still has a choice —
+namely the map node the chain itself picks.
+
+With `Inhabited_of_pickSome_readable` in the other direction, `PickSome` and
+`Inhabited` stand or fall together. So the reader's `throw("GRAVE ERROR")` is
+not a weaker foothold than "no zombies": it is the same statement. -/
+theorem PickSome_of_Inhabited (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (h : AbsSat.GraphPath.Model.Inhabited g) :
+    PickInduction.PickSome g := by
+  intro hch
+  obtain ⟨_, sel, hchain, howned, _⟩ := h
+  obtain ⟨k, hkmem, hck⟩ := List.any_eq_true.mp hch
+  obtain ⟨hk0, hk1⟩ := PickInduction.intRange_bounds hkmem
+  have hk : k < g.current_step := by omega
+  obtain ⟨hs, hstep⟩ := hchain.1 k hk0 hk
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hs
+  have hgow : sel k ∈ g.gowners :=
+    ctx.ownGow (sel k) n hn (sel k) (ctx.self (sel k) n hn)
+      (by rw [hstep]; exact hk0) (by rw [hstep]; exact hk)
+  exact ⟨k, hk0, hk, hck, sel k, Extendable.mem_ownersAt hgow hstep,
+    isValid_pin_of_chain g ctx hsmp hlink sel hchain howned k hk0 hk⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Reader.PickSome_of_Inhabited' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms PickSome_of_Inhabited
 
 end AbsSat.GraphPath.Model.Reader

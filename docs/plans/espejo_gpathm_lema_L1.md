@@ -10,6 +10,34 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (aq) — `Woven`: las pasadas de coherencia cubiertas, y el pinchazo sobre la cadena.**
+
+Cierra el hueco de v44. Aquel informe ya había desenrollado `share` hasta su punto fijo
+(«una selección poseída por todos los miembros … eso es `PairwiseOwned`») pero la perseguía cadena
+abajo. `Woven g S := Closed g S ∧ (∀ p n, S p → node? p = some n → ∀ v, S v → v ∈ n.owners)` la pide
+directamente, y así **se mantiene sola**: las pasadas solo intersecan con listas que ya contienen a
+todos los miembros.
+
+Generalizadas: `Closed_updateAt_of` y `isValidNode_of_Closed_of` (contra cualquier lista `b` con
+`S id → ∀ v, S v → v ∈ b`), más `isValidNode_of_Closed_self` (un miembro pasa el test tal cual).
+Nuevas: `Woven.share_parents` / `share_sons`, `own_updateAt` / `own_unlink` / `own_removeNode` /
+`own_cleanInvalidGo`, `Closed_reviewNode`, `Woven_reviewNode`, el bundle `WOk` (woven + SMP +
+NotRoot) y toda la cadena calcada de `Sons.SMP_*`: `WOk_reviewNode_{parents,sons}`,
+`WOk_reviewLine_{parents,sons}`, `WOk_reviewSteps_*`, `WOk_reviewParents`, `WOk_reviewSons`,
+`WOk_cleanInvalid`, `WOk_reviewPass`, `WOk_reviewFuel`, `WOk_review`, `WOk_filterRequire`,
+`WOk_filterAll`, y **`isValid_filterAll_of_Woven`**.
+
+En `Reader.lean`: `ChainSet`, **`WOk_chainSet`** (cada cláusula de `Closed` es una de `IsChain` o
+`PairwiseOwned`; la de posesión mutua **es** `PairwiseOwned`), **`isValid_pin_of_chain`** (pinchar
+en el nodo que la cadena elige deja el grafo válido, pasadas incluidas) y **`PickSome_of_Inhabited`**.
+
+Con `Inhabited_of_pickSome_readable` de (ap): **`PickSome` ⟺ `Inhabited`**. El muro queda solo:
+existe una cadena co-poseída en todo estado válido. Todo `[propext, Quot.sound]`.
+
+`diffTest` 200/200, `validate` 40/40. Informe: `verificacion_inseguridad_autor_v59.md`.
+
+---
+
 **2026-09-11 (ap) — El lector del diseño original, ensamblado.**
 
 Corrección del autor: el lector no comprueba posesión dos a dos, **pina y propaga**. Leído

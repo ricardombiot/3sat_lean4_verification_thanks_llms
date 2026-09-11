@@ -74,29 +74,39 @@ structure Closed (g : GPathM) (S : PathNodeId → Prop) : Prop where
 private abbrev fow (b : List PathNodeId) : PNodeM → PNodeM :=
   fun n => { n with owners := intersectOwners n.owners b }
 
-theorem Closed_updateAt (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
-    (h : Closed g S) : Closed (updateAt g id (fow g.gowners)) S where
+/-- **The owners intersection, against any list the members already sit in.**
+`cleanInvalid` intersects with the global owners; the coherence sweeps
+intersect with a neighbour union. Both are covered by asking only that every
+member of `S` is in the list. -/
+theorem Closed_updateAt_of (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
+    (b : List PathNodeId) (hb : S id → ∀ v, S v → v ∈ b)
+    (h : Closed g S) : Closed (updateAt g id (fow b)) S where
   gow := h.gow
   node := by
     intro p hp
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
-    rw [updateAt_node? g id (fow g.gowners) (fun _ => rfl) p n hn]
+    rw [updateAt_node? g id (fow b) (fun _ => rfl) p n hn]
     rfl
   support := by
     intro p n' hn' hp l hlo hhi
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
-    rw [updateAt_node? g id (fow g.gowners) (fun _ => rfl) p n hn] at hn'
+    rw [updateAt_node? g id (fow b) (fun _ => rfl) p n hn] at hn'
     obtain ⟨v, hv, hSv, hvs⟩ := h.support p n hn hp l hlo hhi
     refine ⟨v, ?_, hSv, hvs⟩
     have := Option.some.inj hn'
     rw [← this]
-    cases n.id == id with
-    | true => exact mem_intersectOwners_of_mem _ _ v hv (h.gow v hSv)
+    cases hh : n.id == id with
+    | true =>
+      have hSid : S id := by
+        have hnp : n.id = p := node?_id_eq g p n hn
+        have hip : id = p := by rw [← eq_of_beq hh, hnp]
+        rw [hip]; exact hp
+      exact mem_intersectOwners_of_mem _ _ v hv (hb hSid v hSv)
     | false => exact hv
   parent := by
     intro p n' hn' hp hroot
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
-    rw [updateAt_node? g id (fow g.gowners) (fun _ => rfl) p n hn] at hn'
+    rw [updateAt_node? g id (fow b) (fun _ => rfl) p n hn] at hn'
     obtain ⟨c, hc, hSc⟩ := h.parent p n hn hp hroot
     refine ⟨c, ?_, hSc⟩
     have := Option.some.inj hn'
@@ -105,33 +115,48 @@ theorem Closed_updateAt (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
   son := by
     intro p hp hlast
     obtain ⟨c, m, hSc, hm, hpm⟩ := h.son p hp hlast
-    refine ⟨c, _, hSc, updateAt_node? g id (fow g.gowners) (fun _ => rfl) c m hm, ?_⟩
+    refine ⟨c, _, hSc, updateAt_node? g id (fow b) (fun _ => rfl) c m hm, ?_⟩
     cases m.id == id with | true => exact hpm | false => exact hpm
   coown := by
     intro p c n' m' hSp hSc hn' hm' hcp
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hSp)
     obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node c hSc)
-    rw [updateAt_node? g id (fow g.gowners) (fun _ => rfl) p n hn] at hn'
-    rw [updateAt_node? g id (fow g.gowners) (fun _ => rfl) c m hm] at hm'
-    have hne : n' = (match n.id == id with | true => fow g.gowners n | false => n) :=
+    rw [updateAt_node? g id (fow b) (fun _ => rfl) p n hn] at hn'
+    rw [updateAt_node? g id (fow b) (fun _ => rfl) c m hm] at hm'
+    have hne : n' = (match n.id == id with | true => fow b n | false => n) :=
       (Option.some.inj hn').symm
-    have hme : m' = (match m.id == id with | true => fow g.gowners m | false => m) :=
+    have hme : m' = (match m.id == id with | true => fow b m | false => m) :=
       (Option.some.inj hm').symm
     have hpar_eq : (match n.id == id with
-        | true => fow g.gowners n | false => n).parents = n.parents := by
+        | true => fow b n | false => n).parents = n.parents := by
       cases n.id == id <;> rfl
     have hcp' : c ∈ n.parents := by rw [hne, hpar_eq] at hcp; exact hcp
     obtain ⟨h1, h2⟩ := h.coown p c n m hSp hSc hn hm hcp'
     constructor
     · rw [hne]
-      cases n.id == id with
-      | true => exact mem_intersectOwners_of_mem _ _ c h1 (h.gow c hSc)
+      cases hh : n.id == id with
+      | true =>
+        have hSid : S id := by
+          have hnp : n.id = p := node?_id_eq g p n hn
+          have hip : id = p := by rw [← eq_of_beq hh, hnp]
+          rw [hip]; exact hSp
+        exact mem_intersectOwners_of_mem _ _ c h1 (hb hSid c hSc)
       | false => exact h1
     · rw [hme]
-      cases m.id == id with
-      | true => exact mem_intersectOwners_of_mem _ _ p h2 (h.gow p hSp)
+      cases hh : m.id == id with
+      | true =>
+        have hSid : S id := by
+          have hmc : m.id = c := node?_id_eq g c m hm
+          have hic : id = c := by rw [← eq_of_beq hh, hmc]
+          rw [hic]; exact hSc
+        exact mem_intersectOwners_of_mem _ _ p h2 (hb hSid p hSp)
       | false => exact h2
 
+
+/-- The `cleanInvalid` case: the members are global owners by `gow`. -/
+theorem Closed_updateAt (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
+    (h : Closed g S) : Closed (updateAt g id (fow g.gowners)) S :=
+  Closed_updateAt_of g id S g.gowners (fun _ => h.gow) h
 
 -- ============================================================
 -- The unlink
@@ -289,37 +314,38 @@ the global intersection, so the sweep cannot drop it. Every clause of
 `isValidNode` is answered by a clause of `Closed`: the support table by
 `support`, the parents by `parent`, the sons by `son` turned round with
 `Sons.SMP`. -/
-theorem isValidNode_of_Closed (g : GPathM) (S : PathNodeId → Prop) (h : Closed g S)
-    (hsmp : Sons.SMP g) (id : PathNodeId) (d₀ : PNodeM) (hd : g.node? id = some d₀)
+theorem isValidNode_of_Closed_of (g : GPathM) (S : PathNodeId → Prop) (h : Closed g S)
+    (hsmp : Sons.SMP g) (b : List PathNodeId) (hb : ∀ v, S v → v ∈ b)
+    (id : PathNodeId) (d₀ : PNodeM) (hd : g.node? id = some d₀)
     (hS : S id) (g₂ : GPathM) (hstep : g₂.current_step = g.current_step) :
-    isValidNode g₂ (relink (intersectOwners d₀.owners g.gowners) d₀) = true := by
+    isValidNode g₂ (relink (intersectOwners d₀.owners b) d₀) = true := by
   have hdid : d₀.id = id := node?_id_eq g id d₀ hd
-  have hid : (relink (intersectOwners d₀.owners g.gowners) d₀).id = id := by
+  have hid : (relink (intersectOwners d₀.owners b) d₀).id = id := by
     rw [← hdid]; rfl
   have hown : (intRange 0 (g₂.current_step - 1)).all
-      (fun k => hasStepEntry (relink (intersectOwners d₀.owners g.gowners) d₀).owners k)
+      (fun k => hasStepEntry (relink (intersectOwners d₀.owners b) d₀).owners k)
       = true := by
     refine List.all_eq_true.mpr ?_
     intro k hk
     obtain ⟨hlo, hhi⟩ := PickInduction.intRange_bounds hk
     obtain ⟨v, hv, hSv, hvs⟩ := h.support id d₀ hd hS k hlo (by omega)
     exact List.any_eq_true.mpr
-      ⟨v, mem_intersectOwners_of_mem _ _ v hv (h.gow v hSv), beq_iff_eq.mpr hvs⟩
+      ⟨v, mem_intersectOwners_of_mem _ _ v hv (hb v hSv), beq_iff_eq.mpr hvs⟩
   have hpar : id.parent_id ≠ none →
-      (!(relink (intersectOwners d₀.owners g.gowners) d₀).parents.isEmpty) = true := by
+      (!(relink (intersectOwners d₀.owners b) d₀).parents.isEmpty) = true := by
     intro hroot
     obtain ⟨c, hc, hSc⟩ := h.parent id d₀ hd hS hroot
     obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node c hSc)
     obtain ⟨h1, _⟩ := h.coown id c d₀ m hS hSc hd hm hc
     refine not_isEmpty_of_ne_nil _ ?_
     intro hnil
-    have hmem : c ∈ (relink (intersectOwners d₀.owners g.gowners) d₀).parents :=
+    have hmem : c ∈ (relink (intersectOwners d₀.owners b) d₀).parents :=
       List.mem_filter.mpr ⟨hc, List.elem_eq_true_of_mem
-        (mem_intersectOwners_of_mem _ _ c h1 (h.gow c hSc))⟩
+        (mem_intersectOwners_of_mem _ _ c h1 (hb c hSc))⟩
     rw [hnil] at hmem
     exact absurd hmem List.not_mem_nil
   have hsons : id.id.step ≠ g.current_step - 1 →
-      (!(relink (intersectOwners d₀.owners g.gowners) d₀).sons.isEmpty) = true := by
+      (!(relink (intersectOwners d₀.owners b) d₀).sons.isEmpty) = true := by
     intro hlast
     obtain ⟨c, m, hSc, hm, hpm⟩ := h.son id hS hlast
     obtain ⟨_, h2⟩ := h.coown c id m d₀ hSc hS hm hd hpm
@@ -330,9 +356,9 @@ theorem isValidNode_of_Closed (g : GPathM) (S : PathNodeId → Prop) (h : Closed
       rw [hmid] at this; exact this
     refine not_isEmpty_of_ne_nil _ ?_
     intro hnil
-    have hmem : c ∈ (relink (intersectOwners d₀.owners g.gowners) d₀).sons :=
+    have hmem : c ∈ (relink (intersectOwners d₀.owners b) d₀).sons :=
       List.mem_filter.mpr ⟨hcs, List.elem_eq_true_of_mem
-        (mem_intersectOwners_of_mem _ _ c h2 (h.gow c hSc))⟩
+        (mem_intersectOwners_of_mem _ _ c h2 (hb c hSc))⟩
     rw [hnil] at hmem
     exact absurd hmem List.not_mem_nil
   simp only [isValidNode]
@@ -353,6 +379,58 @@ theorem isValidNode_of_Closed (g : GPathM) (S : PathNodeId → Prop) (h : Closed
       refine hsons ?_
       intro he
       exact hl (by rw [hid, he, hstep]; exact beq_iff_eq.mpr rfl)
+
+/-- The `cleanInvalid` case. -/
+theorem isValidNode_of_Closed (g : GPathM) (S : PathNodeId → Prop) (h : Closed g S)
+    (hsmp : Sons.SMP g) (id : PathNodeId) (d₀ : PNodeM) (hd : g.node? id = some d₀)
+    (hS : S id) (g₂ : GPathM) (hstep : g₂.current_step = g.current_step) :
+    isValidNode g₂ (relink (intersectOwners d₀.owners g.gowners) d₀) = true :=
+  isValidNode_of_Closed_of g S h hsmp g.gowners h.gow id d₀ hd hS g₂ hstep
+
+/-- **A member passes the test as it stands**, before any intersection: the
+support table is its own owners, and the links are the ones `Closed` names. -/
+theorem isValidNode_of_Closed_self (g : GPathM) (S : PathNodeId → Prop) (h : Closed g S)
+    (hsmp : Sons.SMP g) (id : PathNodeId) (d₀ : PNodeM) (hd : g.node? id = some d₀)
+    (hS : S id) : isValidNode g d₀ = true := by
+  have hdid : d₀.id = id := node?_id_eq g id d₀ hd
+  have hown : (intRange 0 (g.current_step - 1)).all
+      (fun k => hasStepEntry d₀.owners k) = true := by
+    refine List.all_eq_true.mpr ?_
+    intro k hk
+    obtain ⟨hlo, hhi⟩ := PickInduction.intRange_bounds hk
+    obtain ⟨v, hv, _, hvs⟩ := h.support id d₀ hd hS k hlo (by omega)
+    exact List.any_eq_true.mpr ⟨v, hv, beq_iff_eq.mpr hvs⟩
+  have hpar : id.parent_id ≠ none → (!d₀.parents.isEmpty) = true := by
+    intro hroot
+    obtain ⟨c, hc, _⟩ := h.parent id d₀ hd hS hroot
+    refine not_isEmpty_of_ne_nil _ ?_
+    intro hnil; rw [hnil] at hc; exact absurd hc List.not_mem_nil
+  have hsons : id.id.step ≠ g.current_step - 1 → (!d₀.sons.isEmpty) = true := by
+    intro hlast
+    obtain ⟨c, m, _, hm, hpm⟩ := h.son id hS hlast
+    have hmid : m.id = c := node?_id_eq g c m hm
+    have hcs : c ∈ d₀.sons := by
+      have := hsmp m (List.mem_of_find?_eq_some hm) id hpm d₀
+        (List.mem_of_find?_eq_some hd) hdid
+      rw [hmid] at this; exact this
+    refine not_isEmpty_of_ne_nil _ ?_
+    intro hnil; rw [hnil] at hcs; exact absurd hcs List.not_mem_nil
+  simp only [isValidNode]
+  split
+  · split
+    · exact hown
+    · next hl =>
+      refine (Bool.and_eq_true _ _).mpr ⟨hown, hsons ?_⟩
+      intro he
+      exact hl (by rw [hdid, he]; exact beq_iff_eq.mpr rfl)
+  · next hr =>
+    split
+    · exact (Bool.and_eq_true _ _).mpr ⟨hown, hpar (by rw [hdid] at hr; simpa using hr)⟩
+    · next hl =>
+      refine (Bool.and_eq_true _ _).mpr ⟨(Bool.and_eq_true _ _).mpr
+        ⟨hown, hpar (by rw [hdid] at hr; simpa using hr)⟩, hsons ?_⟩
+      intro he
+      exact hl (by rw [hdid, he]; exact beq_iff_eq.mpr rfl)
 
 -- ============================================================
 -- The sweep
@@ -384,6 +462,42 @@ theorem Closed_cleanInvalidGo (S : PathNodeId → Prop) :
         refine ih _ (Sons.SMP_removeNode _ id hsmp₂) (Closed_removeNode _ id S h₂ ?_)
         intro hSid
         exact hbad (isValidNode_of_Closed g S h hsmp id d₀ hd hSid _ hstep₂)
+
+/-- **The coherence sweeps, covered.** `reviewNode` is the same three
+operations as one `cleanInvalid` step — intersect, unlink, maybe remove — with
+the neighbour union in place of the global owners. So the only thing it asks
+beyond `Closed` is that the members sit in that union: the `share` clause v44
+named.
+
+`Sons.SMP` is what turns `Closed.son` into a son link, exactly as in
+`Closed_cleanInvalidGo`. -/
+theorem Closed_reviewNode (g : GPathM) (S : PathNodeId → Prop)
+    (nb : PNodeM → List PathNodeId) (hsmp : Sons.SMP g) (h : Closed g S)
+    (id : PathNodeId)
+    (hsh : ∀ d, g.node? id = some d → S id → ∀ v, S v → v ∈ unionOwnersOf g (nb d)) :
+    Closed (reviewNode g nb id) S := by
+  unfold reviewNode
+  cases hd : g.node? id with
+  | none => exact h
+  | some d =>
+    simp only
+    split
+    · have h₁ : Closed (updateAt g id (fow (unionOwnersOf g (nb d)))) S :=
+        Closed_updateAt_of g id S _ (fun hSid => hsh d hd hSid) h
+      have h₂ := Closed_unlink _ id S h₁
+      have hstep₂ : (unlinkIncompatible (updateAt g id (fow (unionOwnersOf g (nb d)))) id).current_step
+          = g.current_step := by rw [unlinkIncompatible_current]; rfl
+      split
+      · exact h₂
+      · next hbad =>
+        refine Closed_removeNode _ id S h₂ ?_
+        intro hSid
+        exact hbad (isValidNode_of_Closed_of g S h hsmp _ (fun v hv => hsh d hd hSid v hv)
+        id d hd hSid _ hstep₂)
+    · next hbad =>
+      refine Closed_removeNode g id S h ?_
+      intro hSid
+      exact hbad (isValidNode_of_Closed_self g S h hsmp id d hd hSid)
 
 theorem Closed_cleanInvalid (g : GPathM) (S : PathNodeId → Prop) (hsmp : Sons.SMP g)
     (h : Closed g S) : Closed (cleanInvalid g) S :=
@@ -477,6 +591,371 @@ exactly what the machine's propagation computes, which is the honest reason
 this is where the difficulty concentrates — but it is one statement about one
 object, not a family of conditions about a chain.
 -/
+
+-- ============================================================
+-- Woven sets: the `share` clause, made self-maintaining
+-- ============================================================
+
+/-!
+v44 named what the coherence sweeps need beyond `Closed`:
+
+> `share` — a member and its member-parent own a common member at every step,
+
+and observed that unwinding it along the member chain adds up to *one
+selection owned by every member* — `PairwiseOwned`. So instead of chasing
+`share` down the chain, ask for its fixed point directly:
+
+> **`Woven`** — `Closed`, and every member owns every member.
+
+That is `share` in one line, and unlike `share` it is **self-maintaining**: the
+sweeps only ever intersect a node's owners with a list that already contains
+every member, so the mutual ownership survives each step.
+-/
+
+/-- `Closed`, with the members owning each other. -/
+structure Woven (g : GPathM) (S : PathNodeId → Prop) : Prop where
+  closed : Closed g S
+  own : ∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners
+
+/-- The `share` condition for the top-down pass: a member above step 0 has a
+member parent, and that parent carries the whole family. -/
+theorem Woven.share_parents (g : GPathM) (S : PathNodeId → Prop) (hw : Woven g S)
+    (id : PathNodeId) (d : PNodeM) (hd : g.node? id = some d) (hS : S id)
+    (hroot : id.parent_id ≠ none) : ∀ v, S v → v ∈ unionOwnersOf g d.parents := by
+  obtain ⟨c, hc, hSc⟩ := hw.closed.parent id d hd hS hroot
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (hw.closed.node c hSc)
+  intro v hv
+  exact mem_unionOwnersOf g d.parents c m v hc hm (hw.own c m hSc hm v hv)
+
+/-- The same for the bottom-up pass, with `Sons.SMP` turning the member link
+round. -/
+theorem Woven.share_sons (g : GPathM) (S : PathNodeId → Prop) (hw : Woven g S)
+    (hsmp : Sons.SMP g) (id : PathNodeId) (d : PNodeM) (hd : g.node? id = some d) (hS : S id)
+    (hlast : id.id.step ≠ g.current_step - 1) :
+    ∀ v, S v → v ∈ unionOwnersOf g d.sons := by
+  obtain ⟨c, m, hSc, hm, hpm⟩ := hw.closed.son id hS hlast
+  have hmid : m.id = c := node?_id_eq g c m hm
+  have hdid : d.id = id := node?_id_eq g id d hd
+  have hcs : c ∈ d.sons := by
+    have := hsmp m (List.mem_of_find?_eq_some hm) id hpm d (List.mem_of_find?_eq_some hd) hdid
+    rw [hmid] at this; exact this
+  intro v hv
+  exact mem_unionOwnersOf g d.sons c m v hcs hm (hw.own c m hSc hm v hv)
+
+theorem own_updateAt (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
+    (b : List PathNodeId) (hb : S id → ∀ v, S v → v ∈ b) (hc : Closed g S)
+    (hm : ∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners) :
+    ∀ p n, S p → (updateAt g id (fow b)).node? p = some n → ∀ v, S v → v ∈ n.owners := by
+  intro p n' hp hn' v hv
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hc.node p hp)
+  rw [updateAt_node? g id (fow b) (fun _ => rfl) p n hn] at hn'
+  have heq := Option.some.inj hn'
+  rw [← heq]
+  cases hh : n.id == id with
+  | true =>
+    have hSid : S id := by
+      have hnp : n.id = p := node?_id_eq g p n hn
+      have hip : id = p := by rw [← eq_of_beq hh, hnp]
+      rw [hip]; exact hp
+    exact mem_intersectOwners_of_mem _ _ v (hm p n hp hn v hv) (hb hSid v hv)
+  | false => exact hm p n hp hn v hv
+
+theorem own_unlink (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop) (hc : Closed g S)
+    (hm : ∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners) :
+    ∀ p n, S p → (unlinkIncompatible g id).node? p = some n → ∀ v, S v → v ∈ n.owners := by
+  intro p n' hp hn' v hv
+  cases hid : g.node? id with
+  | none =>
+    rw [GPathM.unlinkIncompatible, hid] at hn'
+    exact hm p n' hp hn' v hv
+  | some n₀ =>
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hc.node p hp)
+    rw [unlinkIncompatible_node? g id n₀ hid p n hn] at hn'
+    have heq := Option.some.inj hn'
+    rw [← heq, unlinkMap_owners]
+    exact hm p n hp hn v hv
+
+theorem own_removeNode (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
+    (hc : Closed g S) (hns : ¬ S id)
+    (hm : ∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners) :
+    ∀ p n, S p → (removeNode g id).node? p = some n → ∀ v, S v → v ∈ n.owners := by
+  intro p n' hp hn' v hv
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hc.node p hp)
+  have hne : p ≠ id := fun he => hns (he ▸ hp)
+  rw [removeNode_node? g id p n hn hne] at hn'
+  have heq := Option.some.inj hn'
+  rw [← heq]
+  exact hm p n hp hn v hv
+
+/-- A woven set survives one coherence review of one node, given the `share`
+condition for that node. -/
+theorem Woven_reviewNode (g : GPathM) (S : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
+    (hsmp : Sons.SMP g) (hw : Woven g S) (id : PathNodeId)
+    (hsh : ∀ d, g.node? id = some d → S id → ∀ v, S v → v ∈ unionOwnersOf g (nb d)) :
+    Woven (reviewNode g nb id) S := by
+  refine ⟨Closed_reviewNode g S nb hsmp hw.closed id hsh, ?_⟩
+  unfold reviewNode
+  cases hd : g.node? id with
+  | none => exact hw.own
+  | some d =>
+    simp only
+    split
+    · have hb : S id → ∀ v, S v → v ∈ unionOwnersOf g (nb d) := fun hS => hsh d hd hS
+      have hc₁ : Closed (updateAt g id (fow (unionOwnersOf g (nb d)))) S :=
+        Closed_updateAt_of g id S _ hb hw.closed
+      have ho₁ := own_updateAt g id S _ hb hw.closed hw.own
+      have hc₂ := Closed_unlink _ id S hc₁
+      have ho₂ := own_unlink _ id S hc₁ ho₁
+      split
+      · exact ho₂
+      · next hbad =>
+        refine own_removeNode _ id S hc₂ ?_ ho₂
+        intro hSid
+        exact hbad (isValidNode_of_Closed_of g S hw.closed hsmp _
+          (fun v hv => hsh d hd hSid v hv) id d hd hSid _
+          (by rw [unlinkIncompatible_current]; rfl))
+    · next hbad =>
+      refine own_removeNode g id S hw.closed ?_ hw.own
+      intro hSid
+      exact hbad (isValidNode_of_Closed_self g S hw.closed hsmp id d hd hSid)
+
+/-- The bundle the sweeps need: woven, plus the two structural invariants that
+make the `share` condition derivable. -/
+structure WOk (g : GPathM) (S : PathNodeId → Prop) : Prop where
+  wov : Woven g S
+  smp : Sons.SMP g
+  nr  : Parents.NotRoot g
+
+theorem WOk_reviewNode_parents (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S)
+    (id : PathNodeId) (hz : 0 < id.id.step) :
+    WOk (reviewNode g (·.parents) id) S where
+  wov := by
+    refine Woven_reviewNode g S _ h.smp h.wov id ?_
+    intro d hd hS
+    have hdid : d.id = id := node?_id_eq g id d hd
+    have hnr := h.nr d (List.mem_of_find?_eq_some hd) (by rw [hdid]; exact hz)
+    rw [hdid] at hnr
+    exact Woven.share_parents g S h.wov id d hd hS hnr
+  smp := Sons.SMP_reviewNode _ id g h.smp
+  nr := Parents.NotRoot_of_pruned (pruned_reviewNode _ id g) h.nr
+
+theorem WOk_reviewNode_sons (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S)
+    (id : PathNodeId) (hl : id.id.step ≠ g.current_step - 1) :
+    WOk (reviewNode g (·.sons) id) S where
+  wov := by
+    refine Woven_reviewNode g S _ h.smp h.wov id ?_
+    intro d hd hS
+    exact Woven.share_sons g S h.wov h.smp id d hd hS hl
+  smp := Sons.SMP_reviewNode _ id g h.smp
+  nr := Parents.NotRoot_of_pruned (pruned_reviewNode _ id g) h.nr
+
+theorem step_of_mem_line (g : GPathM) (k : Int) (id : PathNodeId)
+    (h : id ∈ ((g.line k).map (·.id))) : id.id.step = k := by
+  obtain ⟨n, hn, hid⟩ := List.mem_map.mp h
+  have := (List.mem_filter.mp hn).2
+  rw [← hid]
+  exact eq_of_beq this
+
+theorem WOk_reviewLine_parents (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S)
+    (k : Int) (hk : 0 < k) : WOk (reviewLine g (·.parents) k) S := by
+  have main : ∀ (ids : List PathNodeId), (∀ id ∈ ids, 0 < id.id.step) →
+      ∀ h' : GPathM, WOk h' S →
+        WOk (ids.foldl (fun h'' i => reviewNode h'' (·.parents) i) h') S := by
+    intro ids
+    induction ids with
+    | nil => intro _ h' hw; exact hw
+    | cons x xs ih =>
+      intro hx h' hw
+      simp only [List.foldl_cons]
+      exact ih (fun i hi => hx i (List.mem_cons_of_mem _ hi)) _
+        (WOk_reviewNode_parents h' S hw x (hx x List.mem_cons_self))
+  exact main _ (fun id hid => by rw [step_of_mem_line g k id hid]; exact hk) g h
+
+theorem WOk_reviewLine_sons (g : GPathM) (S : PathNodeId → Prop) (cs : Int)
+    (hcs : g.current_step = cs) (h : WOk g S) (k : Int) (hk : k ≠ cs - 1) :
+    WOk (reviewLine g (·.sons) k) S ∧ (reviewLine g (·.sons) k).current_step = cs := by
+  have main : ∀ (ids : List PathNodeId), (∀ id ∈ ids, id.id.step ≠ cs - 1) →
+      ∀ h' : GPathM, h'.current_step = cs → WOk h' S →
+        WOk (ids.foldl (fun h'' i => reviewNode h'' (·.sons) i) h') S ∧
+        (ids.foldl (fun h'' i => reviewNode h'' (·.sons) i) h').current_step = cs := by
+    intro ids
+    induction ids with
+    | nil => intro _ h' hc hw; exact ⟨hw, hc⟩
+    | cons x xs ih =>
+      intro hx h' hc hw
+      simp only [List.foldl_cons]
+      refine ih (fun i hi => hx i (List.mem_cons_of_mem _ hi)) _ ?_
+        (WOk_reviewNode_sons h' S hw x (by rw [hc]; exact hx x List.mem_cons_self))
+      rw [(pruned_reviewNode _ x h').step_eq]; exact hc
+  exact main _ (fun id hid => by rw [step_of_mem_line g k id hid]; exact hk) g hcs h
+
+theorem WOk_reviewSteps_parents (S : PathNodeId → Prop) :
+    ∀ (ks : List Int), (∀ k ∈ ks, 0 < k) → ∀ g : GPathM, WOk g S →
+      WOk (reviewSteps g (·.parents) ks) S := by
+  intro ks
+  induction ks with
+  | nil => intro _ g h; exact h
+  | cons k rest ih =>
+    intro hk g h
+    simp only [reviewSteps]
+    split
+    · exact ih (fun j hj => hk j (List.mem_cons_of_mem _ hj)) _
+        (WOk_reviewLine_parents g S h k (hk k List.mem_cons_self))
+    · exact h
+
+theorem WOk_reviewSteps_sons (S : PathNodeId → Prop) (cs : Int) :
+    ∀ (ks : List Int), (∀ k ∈ ks, k ≠ cs - 1) → ∀ g : GPathM, g.current_step = cs → WOk g S →
+      WOk (reviewSteps g (·.sons) ks) S ∧ (reviewSteps g (·.sons) ks).current_step = cs := by
+  intro ks
+  induction ks with
+  | nil => intro _ g hc h; exact ⟨h, hc⟩
+  | cons k rest ih =>
+    intro hk g hc h
+    simp only [reviewSteps]
+    split
+    · obtain ⟨hw', hc'⟩ := WOk_reviewLine_sons g S cs hc h k (hk k List.mem_cons_self)
+      exact ih (fun j hj => hk j (List.mem_cons_of_mem _ hj)) _ hc' hw'
+    · exact ⟨h, hc⟩
+
+theorem WOk_reviewParents (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) :
+    WOk (reviewParents g) S :=
+  WOk_reviewSteps_parents S _ (fun _ hk => (PickInduction.intRange_bounds hk).1) g h
+
+theorem WOk_reviewSons (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) :
+    WOk (reviewSons g) S ∧ (reviewSons g).current_step = g.current_step :=
+  WOk_reviewSteps_sons S g.current_step _
+    (fun k hk => by
+      have := (PickInduction.intRange_bounds (List.mem_reverse.mp hk)).2
+      omega)
+    g rfl h
+
+theorem own_cleanInvalidGo (S : PathNodeId → Prop) :
+    ∀ (ids : List PathNodeId) (g : GPathM), Sons.SMP g → Closed g S →
+      (∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners) →
+      ∀ p n, S p → (cleanInvalidGo g ids).node? p = some n → ∀ v, S v → v ∈ n.owners := by
+  intro ids
+  induction ids with
+  | nil => intro g _ _ hm; exact hm
+  | cons id rest ih =>
+    intro g hsmp h hm
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g hsmp h hm
+    · next d₀ hd =>
+      have hsmp₁ := Sons.SMP_updateAt g id (fow g.gowners) (fun _ => rfl) (fun _ => rfl)
+        (fun _ => rfl) hsmp
+      have hsmp₂ := Sons.SMP_unlinkIncompatible _ id hsmp₁
+      have h₁ := Closed_updateAt g id S h
+      have ho₁ := own_updateAt g id S g.gowners (fun _ => h.gow) h hm
+      have h₂ := Closed_unlink _ id S h₁
+      have ho₂ := own_unlink _ id S h₁ ho₁
+      have hstep₂ : (unlinkIncompatible (updateAt g id (fow g.gowners)) id).current_step
+          = g.current_step := by rw [unlinkIncompatible_current]; rfl
+      split
+      · exact ih _ hsmp₂ h₂ ho₂
+      · next hbad =>
+        have hns : ¬ S id := by
+          intro hSid
+          exact hbad (isValidNode_of_Closed g S h hsmp id d₀ hd hSid _ hstep₂)
+        exact ih _ (Sons.SMP_removeNode _ id hsmp₂) (Closed_removeNode _ id S h₂ hns)
+          (own_removeNode _ id S h₂ hns ho₂)
+
+theorem WOk_cleanInvalid (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) :
+    WOk (cleanInvalid g) S where
+  wov := ⟨Closed_cleanInvalid g S h.smp h.wov.closed,
+    own_cleanInvalidGo S _ g h.smp h.wov.closed h.wov.own⟩
+  smp := Sons.SMP_cleanInvalid g h.smp
+  nr := Parents.NotRoot_of_pruned (pruned_cleanInvalid g) h.nr
+
+theorem WOk_reviewPass (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) :
+    WOk (reviewPass g) S ∧ (reviewPass g).current_step = g.current_step := by
+  simp only [reviewPass]
+  have h1 := WOk_cleanInvalid g S h
+  have hc1 : (cleanInvalid g).current_step = g.current_step := (pruned_cleanInvalid g).step_eq
+  have h2 := WOk_reviewParents _ S h1
+  have hc2 : (reviewParents (cleanInvalid g)).current_step = g.current_step := by
+    rw [(pruned_reviewParents (cleanInvalid g)).step_eq]; exact hc1
+  obtain ⟨h3, hc3⟩ := WOk_reviewSons _ S h2
+  exact ⟨h3, by rw [hc3]; exact hc2⟩
+
+theorem WOk_reviewFuel (S : PathNodeId → Prop) : ∀ (fuel : Nat) (g : GPathM), WOk g S →
+    WOk (reviewFuel fuel g) S := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuel]
+    split
+    · split
+      · exact ih _ (WOk_reviewPass g S h).1
+      · exact (WOk_reviewPass g S h).1
+    · exact h
+
+theorem WOk_review (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) : WOk (review g) S :=
+  WOk_reviewFuel S _ g h
+
+/-- Pinning drops global owners only. A member survives as long as the pin
+does not contradict it: at the pinned step the member *is* the pinned map
+node. -/
+theorem WOk_filterRequire (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) (req : NodeId)
+    (hpin : ∀ p, S p → p.id.step = req.step → p.id = req) :
+    WOk (filterRequire g req) S where
+  wov :=
+    { closed :=
+        { gow := by
+            intro p hp
+            refine List.mem_filter.mpr ⟨h.wov.closed.gow p hp, ?_⟩
+            simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, beq_iff_eq]
+            by_cases hs : p.id.step = req.step
+            · exact Or.inr (hpin p hp hs)
+            · exact Or.inl hs
+          node := h.wov.closed.node
+          support := h.wov.closed.support
+          parent := h.wov.closed.parent
+          son := h.wov.closed.son
+          coown := h.wov.closed.coown }
+      own := h.wov.own }
+  smp := Sons.SMP_filterRequire g req h.smp
+  nr := Parents.NotRoot_of_pruned (pruned_filterRequire g req) h.nr
+
+theorem WOk_filterAll (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S)
+    (reqs : List NodeId)
+    (hpin : ∀ r ∈ reqs, ∀ p, S p → p.id.step = r.step → p.id = r) :
+    WOk (filterAll g reqs) S := by
+  unfold filterAll
+  refine WOk_review _ S ?_
+  have main : ∀ (l : List NodeId), (∀ r ∈ l, ∀ p, S p → p.id.step = r.step → p.id = r) →
+      ∀ h' : GPathM, WOk h' S → WOk (l.foldl filterRequire h') S := by
+    intro l
+    induction l with
+    | nil => intro _ h' hw; exact hw
+    | cons x xs ih =>
+      intro hx h' hw
+      simp only [List.foldl_cons]
+      exact ih (fun r hr => hx r (List.mem_cons_of_mem _ hr)) _
+        (WOk_filterRequire h' S hw x (hx x List.mem_cons_self))
+  exact main reqs hpin g h
+
+/-- **A woven, covering set keeps the pin valid — review loop and all.**
+
+This is `isValid_cleanInvalid_of_Closed` with the coherence sweeps no longer
+excluded: `Woven` supplies the `share` clause that v44 said was missing, and
+supplies it in a form that survives its own propagation. -/
+theorem isValid_filterAll_of_Woven (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S)
+    (reqs : List NodeId)
+    (hpin : ∀ r ∈ reqs, ∀ p, S p → p.id.step = r.step → p.id = r)
+    (hcov : ∀ l, 0 ≤ l → l < g.current_step → ∃ p, S p ∧ p.id.step = l) :
+    isValid (filterAll g reqs) = true := by
+  have hw := WOk_filterAll g S h reqs hpin
+  refine PickInduction.isValid_of_gowner _ ?_
+  intro k hlo hhi
+  obtain ⟨p, hSp, hps⟩ := hcov k hlo (by rw [(pruned_filterAll g reqs).step_eq] at hhi; exact hhi)
+  exact ⟨p, hw.wov.closed.gow p hSp, hps⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Survive.isValid_filterAll_of_Woven' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_filterAll_of_Woven
 
 /-- The **arc-consistent core**: the union of every self-supporting set. -/
 def Core (g : GPathM) : PathNodeId → Prop := fun p => ∃ S, Closed g S ∧ S p
