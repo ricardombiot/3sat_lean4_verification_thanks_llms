@@ -10,6 +10,24 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bj) — P1: el tejido nace en la semilla y en `addNode`.**
+
+`FabricAdd.lean` (módulo nuevo, registrado en `AbsSat.lean`): `addS`, `addT`, y los teoremas
+`not_S_newPid`, `step_lt_of_S`, `mem_newParents_of_S`, `exists_S_at`, `carrier_for`,
+**`Fabric_initSeed`**, **`Fabric_addNode`**, **`FabricAt_addNode_new`**,
+**`isValid_readStepSym_addNode_new`**; todos `[propext, Quot.sound]`. La cláusula difícil es `up`
+del nodo nuevo: su tabla contiene a todos los miembros y `up` pide un padre suyo en la tabla que
+respalde cada entrada; como sus padres son toda la línea anterior, el portador es el testigo de
+`support` de la entrada, girado con `symm` y hecho miembro por `inS` — la simetría es portante
+(de ahí el valor de `OwnSymmetric_read`, v64). Hipótesis: `d.step = g.current_step`, nodos por
+debajo, `S` no vacío, `0 < current_step`. **Corrección a v77**: `Fabric.lean` no menciona `join`
+(0 ocurrencias), luego «sobrevive a las cuatro operaciones» era inexacto. Libro mayor de la
+inducción sobre `Reachable`: semilla ✅, `addNode` ✅, review y filtros ✅ (v65), **`join` abierto**.
+Ruta de v77: P1 cerrada, P2 cerrada salvo `join`, P3 abierta (medida en v77), P4 abierta (desajuste
+`readStepSym` vs `filterAll g [q.id]`), P5 libre. Siguiente: `join`, y después P4.
+
+Informe: `verificacion_inseguridad_autor_v78.md`.
+
 **2026-09-11 (bi) — El tejido en los pasos de cláusula; y el veredicto no necesita `PairwiseOwned`.**
 
 `cnfmap --fabclause` (`fabricCover`, `scoreFabricClause`, `runFabricClause`): para cada nodo de cada

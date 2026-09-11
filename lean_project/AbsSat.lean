@@ -89,6 +89,7 @@ import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.PrefixConservation
 import AbsSat.GraphPath.Model.PrefixDecode
+import AbsSat.GraphPath.Model.FabricAdd
 import AbsSat.GraphMap.CnfHypergraph
 import AbsSat.GraphMap.CnfReducer
 import AbsSat.GraphMap.CnfSelection
