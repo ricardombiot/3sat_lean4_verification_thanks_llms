@@ -10,6 +10,28 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bd) — El reductor de semi-joins, formalizado en el modelo puro.**
+
+`CnfReducer.lean`, sobre la codificación de filas de `CnfMap` (índices `1..7`, `b1`/`b2`/`b3`), no sobre
+una representación nueva: `bitOf`, `varOfLit`, `rowPairs`, `pairsAgree`, `rowOk` (descarta filas que
+fijan una variable dos veces de forma contradictoria — `WF` pide pasos distintos, no variables
+distintas), `allRows`, `initRows`, `rowOfAssign`, `Rels`, `initRels`, `supported`, `sweep`,
+`sweepWith`, `totalRows`, `reduceGo`/`reduce`. Demostrados sin hipótesis ni aciclicidad:
+`b1_bits`/`b2_bits`/`b3_bits`, `varOfLit_bitOf`, `mem_rowPairs_rowOfAssign`, `pairsAgree_rowOfAssign`,
+`mem_allRows_of_bits`; **conservación** `Carries_sweep` → `Carries_reduce` → `rowOfAssign_mem_reduce`
+y `reduce_ne_nil_of_sat`; **terminación** `length_filter_lt`, `totalRows_sweepWith_le/_lt`,
+`sweep_reduceGo`, `sweep_reduce`; **arco-consistencia** `eq_of_map_eq_self`,
+`arcConsistent_of_sweep_eq`, `arcConsistent_reduce`, y `reduce_sound` juntando las dos mitades.
+Cierres `[propext, Quot.sound]`: `reduceGo` usa igualdad decidible porque `beq_self_eq_true` arrastra
+`Classical.choice` en este tipo compuesto. Medido (`cnfmap --reducer`, corre el reductor *del modelo*,
+cinco semillas, 1.000 fórmulas, 16.349 prefijos): 0 prefijos SAT con relación vaciada (banda del
+teorema); dentro de la clase 39/39 prefijos UNSAT detectados, fuera 9 de 688 sin detectar; control
+Tseitin de paridad impar, exactamente 1 prefijo sin detectar cada una (la fórmula entera — la
+consistencia de arcos no ve la paridad). Siguiente: pieza 2, el no-retroceso bajo `BoundedScope`
+(inducción sobre `gyoIter_eq_nil_of_BoundedScope`), y pieza 3, el puente de vuelta a la cadena.
+
+Informe: `verificacion_inseguridad_autor_v72.md`.
+
 **2026-09-11 (bc) — La clase de alcance acotado: definida y estable; la reparación, corregida dos veces por la medición.**
 
 `CnfHypergraph.lean`: `clauseEdge`, `cnfEdges`, `gyoIter`, `gyoRounds`, `prefixEdges`, `PrefixAcyclic`,

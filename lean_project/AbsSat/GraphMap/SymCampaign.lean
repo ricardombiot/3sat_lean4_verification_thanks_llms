@@ -3,6 +3,7 @@ import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphMap.CnfHypergraph
+import AbsSat.GraphMap.CnfReducer
 
 /-!
 `lake exe cnfmap --symreview`: the original machine against the symmetric one
@@ -1787,6 +1788,95 @@ seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} K={K} ---"
         IO.println s!"    {name} odd={odd}: inClass={inClass} instances={acc.instances} \
 repaired={acc.repaired} STUCK={acc.failedStuck}"
   reportRAcc "control total   " ctl
+  pure 0
+
+-- ------------------------------------------------------------
+-- The pure-model reducer, measured against brute force
+-- ------------------------------------------------------------
+
+/-! This band runs the reducer **of the model** — `CnfReducer.reduce`, the one
+the theorems are about — rather than a second implementation, and asks two
+questions of every clause prefix.
+
+*Does it ever empty a relation of a satisfiable prefix?* It must not, and
+`CnfReducer.reduce_ne_nil_of_sat` proves it must not, so a non-zero count here
+would mean the definitions do not say what the theorems think they say.
+
+*Does an empty relation catch every unsatisfiable prefix?* In general no —
+arc consistency is not a decision procedure. **Inside the bounded-scope class
+it should**, and that is exactly what the next piece has to prove. -/
+
+structure DAcc where
+  prefixes : Nat := 0
+  sat : Nat := 0
+  emptyOnSat : Nat := 0
+  missedUnsat : Nat := 0
+
+def DAcc.add (x y : DAcc) : DAcc :=
+  { prefixes := x.prefixes + y.prefixes, sat := x.sat + y.sat,
+    emptyOnSat := x.emptyOnSat + y.emptyOnSat, missedUnsat := x.missedUnsat + y.missedUnsat }
+
+def scoreReducer (φ : Cnf) : DAcc := Id.run do
+  let mut acc : DAcc := {}
+  let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+  for m in [0:φ.clauses.length + 1] do
+    let C := φ.clauses.take m
+    let rels := AbsSat.GraphMap.CnfReducer.reduce (AbsSat.GraphMap.CnfReducer.initRels C)
+    let emptied := rels.any (fun cr => cr.2.isEmpty)
+    let satisfiable := alls.any (fun a => C.all (satClauseB a))
+    acc := { acc with prefixes := acc.prefixes + 1 }
+    if satisfiable then
+      acc := { acc with sat := acc.sat + 1 }
+      if emptied then acc := { acc with emptyOnSat := acc.emptyOnSat + 1 }
+    else
+      if !emptied then acc := { acc with missedUnsat := acc.missedUnsat + 1 }
+  return acc
+
+/-- `lake exe cnfmap --reducer [cases] [seed] [nvMin] [nvSpan] [K]` -/
+def runReducer (cases seed nvMin nvSpan K : Nat) : IO UInt32 := do
+  IO.println s!"--- the model's reducer vs brute force: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} K={K} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut inAcc : DAcc := {}
+  let mut outAcc : DAcc := {}
+  let mut inF := 0
+  let mut outF := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let acc := scoreReducer φ
+        if AbsSat.GraphMap.CnfHypergraph.boundedScopeB φ K then
+          inAcc := inAcc.add acc
+          inF := inF + 1
+        else
+          outAcc := outAcc.add acc
+          outF := outF + 1
+  IO.println s!"  in the class : formulas={inF} prefixes={inAcc.prefixes} (sat={inAcc.sat}) \
+EMPTIED-A-SAT-PREFIX={inAcc.emptyOnSat} unsat-not-caught={inAcc.missedUnsat}"
+  IO.println s!"  outside it   : formulas={outF} prefixes={outAcc.prefixes} (sat={outAcc.sat}) \
+EMPTIED-A-SAT-PREFIX={outAcc.emptyOnSat} unsat-not-caught={outAcc.missedUnsat}"
+  IO.println "control — the Tseitin families:"
+  for (name, nV, edges) in [("K4", 4, k4), ("K3,3", 6, k33), ("prism", 6, prism)] do
+    for odd in [true, false] do
+      match tseitin nV edges odd with
+      | none => pure ()
+      | some φ =>
+        let acc := scoreReducer φ
+        IO.println s!"    {name} odd={odd}: prefixes={acc.prefixes} (sat={acc.sat}) \
+EMPTIED-A-SAT-PREFIX={acc.emptyOnSat} unsat-not-caught={acc.missedUnsat}"
   pure 0
 
 end AbsSat.GraphMap.SymCampaign
