@@ -80,3 +80,5 @@ import AbsSat.GraphPath.Model.Pinned
 import AbsSat.GraphPath.Model.Threaded
 import AbsSat.GraphPath.Model.Survive
 import AbsSat.GraphPath.Model.ExtendSearch
+import AbsSat.GraphPath.Model.SymReview
+import AbsSat.GraphMap.SymCampaign

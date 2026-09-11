@@ -10,6 +10,31 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (av) — El review simétrico; y la lectura del autor, medida al pie de la letra.**
+
+`SymReview.lean` (nuevo): `symmetrize` —cuando la tabla de `id` encoge, todo nodo fuera de ella pierde
+`id` de la suya— detrás de cada intersección, en coherencia y barrida; `reviewSym`, `filterAllSym`,
+y la lectura del autor, `pinOwners` (gowners ∩ owners(r), todos los pasos a la vez) + `reviewSym`.
+
+**Demostrado** (`[propext, Quot.sound]`): `OwnSymmetric_symmetrize_updateAt` sin hipótesis más que la
+simetría; de ahí `OwnSymmetric_reviewSym`, `_filterAllSym`, `_readStepSym`, `_read`. Conservación:
+`ChainSound_symmetrize` (si una solución pasa por `id` y `m`, `m ∈ owners(id)`, así que el espejo no
+toca entradas de soluciones), `ChainSound_reviewSym`, `ChainSound_pinOwners`, `ChainSound_readStepSym`.
+
+**Medido** (`lake exe cnfmap`, `SymCampaign.lean`): `--symreview` 100 fórmulas, veredictos idénticos,
+0 soluciones perdidas, asimetrías 132 (original) / 0 (simétrica, join y addNode incluidos), 0 fallos de
+`PickValid` en 5.260 elecciones, 86/86 lecturas certificadas. `--pinexact`: **elegir `r` conserva
+exactamente `owners(r)`** — 0 muertos de 195.167, 0 supervivientes fuera, 6.244 elecciones.
+`--triangle`: 0 huecos en ~197.000 pares a longitud completa; 9 en >1M a longitud parcial (ambas
+máquinas). `--selfsupport`: (b) padre/hijo dentro de `owners(r)` 0 fallos; (c) coherencia con tabla
+intacta falla 1–2 % — las tablas encogen tras elegir aunque nadie muera.
+
+**El muro, con forma:** *en un estado de longitud completa del review simétrico, elegir un nodo no mata
+a ninguno de sus owners*. Ruta: generalizar `Survive.Woven` de cadenas co-poseídas a `owners(r)`, con
+subtablas que encogen. Salvedad: el triángulo es 3-consistencia; cada paso de lectura pide un nivel más.
+
+No se ha tocado la máquina original, el ejecutable ni Julia. Informe: `verificacion_inseguridad_autor_v64.md`.
+
 **2026-09-11 (au) — La barrida, demostrada; y la simetría resulta ser cosa de los extremos.**
 
 Cierra el cuarto punto que (at) dejó como argumento, y al medir su alcance encuentra el resultado
