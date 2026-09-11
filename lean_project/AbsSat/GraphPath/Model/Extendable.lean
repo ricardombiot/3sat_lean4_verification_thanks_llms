@@ -361,4 +361,142 @@ theorem SupportedAt_top_of_ExtendDownTop (g : GPathM) (hdown : ExtendDownTop g)
   refine ⟨sel, isChain_of_partial g sel hc, pairwiseOwned_of_partial g sel ho, ?_⟩
   rw [htop, hagree (g.current_step - 1) (Int.le_refl _) (Int.le_refl _)]
 
+-- ============================================================
+-- The local statement the descent rests on
+-- ============================================================
+
+/-!
+`ExtendDownTop` asks for a parent good for a whole history. `Threaded.hop_down`
+delivers, for **each** owner of a node, **some** parent that owns it. The gap
+is the swap ∀∃ -> ∃∀, and `lake exe extend --randomgoodparent` says it cannot
+be closed by brute force: asking a parent to cover *every* owner above fails
+for 134 of 6,947 nodes.
+
+But the histories a chain can present are not arbitrary sets of owners. They
+are **transversal cliques**: at most one node per step, pairwise mutually
+owned. Restricted to those, the same measurement finds no failure at all — and
+the exhaustive enumeration (`--randomclique`) checks every such set, not only
+the maximal ones:
+
+| campaign | nodes above step 0 | coherent demands | with no good parent |
+|---|---|---|---|
+| 8 cases, 2026, 3..5 vars | 6,947 | 154,635,941 | **0** |
+
+(315 of the 6,947 enumerations were cut by the per-node budget.)
+
+Two structural facts came out of the same run and are worth recording: the
+parents of a node **always** share one map id (0 of 6,947 span two, which is
+`parent_id` doing its job), but sibling parents do **not** share owner sets
+(908 differing pairs) — so the swap is not free, and a proof has to use the
+coherence of the demand.
+-/
+
+/-- A set of picks some chain could contain: distinct steps, pairwise mutual
+ownership. -/
+def Coherent (g : GPathM) (S : PathNodeId → Prop) : Prop :=
+  ∀ a b, S a → S b → a ≠ b →
+    a.id.step ≠ b.id.step ∧ a ∈ ownersOf g b ∧ b ∈ ownersOf g a
+
+/-- **`GoodParentOnCliques`** — the local statement. Every node above step 0
+has, for every coherent demand made of its own owners strictly above its step,
+a parent mutually owned with the node *and* with the whole demand.
+
+One node, its parents, its owners. No chains, no induction on the
+construction, no global existential. -/
+def GoodParentOnCliques (g : GPathM) : Prop :=
+  ∀ (p : PathNodeId) (n : PNodeM), g.node? p = some n → 0 < p.id.step →
+    ∀ S : PathNodeId → Prop,
+      (∀ a, S a → p.id.step < a.id.step ∧ a ∈ ownersOf g p ∧ p ∈ ownersOf g a) →
+      Coherent g S →
+      ∃ c ∈ n.parents, c.id.step = p.id.step - 1 ∧
+        (p ∈ ownersOf g c ∧ c ∈ ownersOf g p) ∧
+        ∀ a, S a → (a ∈ ownersOf g c ∧ c ∈ ownersOf g a)
+
+theorem mem_ownersAt {l : List PathNodeId} {q : PathNodeId} {k : Int}
+    (hq : q ∈ l) (hs : q.id.step = k) : q ∈ ownersAt l k :=
+  List.mem_filter.mpr ⟨hq, beq_iff_eq.mpr hs⟩
+
+theorem node?_isSome_of_mem_ownersOf {g : GPathM} {c q : PathNodeId}
+    (h : q ∈ ownersOf g c) : (g.node? c).isSome = true := by
+  cases hcn : g.node? c with
+  | none => rw [ownersOf, hcn] at h; exact absurd h List.not_mem_nil
+  | some _ => rfl
+
+/-- **The local statement gives the descent.** A partial chain's history is
+exactly a coherent demand made of `sel lo`'s own owners, so the parent the
+local statement produces is the extension. -/
+theorem ExtendDownTop_of_GoodParentOnCliques (g : GPathM) (h : GoodParentOnCliques g) :
+    ExtendDownTop g := by
+  intro sel lo hpos hhi hc ho
+  obtain ⟨hsome, hstep⟩ := hc.1 lo (Int.le_refl _) hhi
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have habove : ∀ a, (∃ j, lo < j ∧ j ≤ g.current_step - 1 ∧ sel j = a) →
+      (sel lo).id.step < a.id.step ∧ a ∈ ownersOf g (sel lo) ∧ (sel lo) ∈ ownersOf g a := by
+    rintro a ⟨j, hj1, hj2, rfl⟩
+    obtain ⟨_, hjs⟩ := hc.1 j (by omega) hj2
+    refine ⟨by rw [hstep, hjs]; exact hj1, ?_, ?_⟩
+    · exact (List.mem_filter.mp (ho j lo (by omega) (Int.le_refl _) hj2 hhi (by omega))).1
+    · exact (List.mem_filter.mp (ho lo j (Int.le_refl _) (by omega) hhi hj2 (by omega))).1
+  have hcoh : Coherent g (fun a => ∃ j, lo < j ∧ j ≤ g.current_step - 1 ∧ sel j = a) := by
+    rintro a b ⟨i, hi1, hi2, rfl⟩ ⟨j, hj1, hj2, rfl⟩ hne
+    obtain ⟨_, his⟩ := hc.1 i (by omega) hi2
+    obtain ⟨_, hjs⟩ := hc.1 j (by omega) hj2
+    have hij : i ≠ j := fun heq => hne (by rw [heq])
+    refine ⟨by rw [his, hjs]; exact hij, ?_, ?_⟩
+    · exact (List.mem_filter.mp (ho i j (by omega) (by omega) hi2 hj2 hij)).1
+    · exact (List.mem_filter.mp (ho j i (by omega) (by omega) hj2 hi2 (fun hh => hij hh.symm))).1
+  obtain ⟨c, hcpar, hcstep, hcp, hcS⟩ :=
+    h (sel lo) n hn (by omega) _ habove hcoh
+  have hcstep' : c.id.step = lo - 1 := by rw [hcstep, hstep]
+  have hcnode : (g.node? c).isSome = true := node?_isSome_of_mem_ownersOf hcp.1
+  -- membership of the history's owners, by step
+  have hown_c : ∀ j, lo ≤ j → j ≤ g.current_step - 1 → sel j ∈ ownersOf g c := by
+    intro j hj1 hj2
+    if hje : j = lo then rw [hje]; exact hcp.1
+    else exact (hcS (sel j) ⟨j, by omega, hj2, rfl⟩).1
+  have hc_own : ∀ j, lo ≤ j → j ≤ g.current_step - 1 → c ∈ ownersOf g (sel j) := by
+    intro j hj1 hj2
+    if hje : j = lo then rw [hje]; exact hcp.2
+    else exact (hcS (sel j) ⟨j, by omega, hj2, rfl⟩).2
+  refine ⟨c, ⟨?_, ?_⟩, ?_⟩
+  · intro i hi1 hi2
+    if hie : i = lo - 1 then
+      subst hie
+      rw [upd_self]
+      exact ⟨hcnode, hcstep'⟩
+    else
+      rw [upd_other sel (lo - 1) c hie]
+      exact hc.1 i (by omega) hi2
+  · intro i hi1 hi2
+    if hie : i = lo - 1 then
+      subst hie
+      rw [upd_self, upd_other sel (lo - 1) c (by omega)]
+      have : lo - 1 + 1 = lo := by omega
+      rw [this, hn]
+      exact hcpar
+    else
+      rw [upd_other sel (lo - 1) c hie, upd_other sel (lo - 1) c (by omega)]
+      exact hc.2 i (by omega) hi2
+  · intro i j hi1 hj1 hi2 hj2 hne
+    if hie : i = lo - 1 then
+      subst hie
+      have hjne : j ≠ lo - 1 := fun hh => hne hh.symm
+      rw [upd_self, upd_other sel (lo - 1) c hjne]
+      exact mem_ownersAt (hc_own j (by omega) hj2) hcstep'
+    else
+      rw [upd_other sel (lo - 1) c hie]
+      obtain ⟨_, his⟩ := hc.1 i (by omega) hi2
+      if hje : j = lo - 1 then
+        subst hje
+        rw [upd_self]
+        exact mem_ownersAt (hown_c i (by omega) hi2) his
+      else
+        rw [upd_other sel (lo - 1) c hje]
+        exact ho i j (by omega) (by omega) hi2 hj2 hne
+
+/-- info: 'AbsSat.GraphPath.Model.Extendable.ExtendDownTop_of_GoodParentOnCliques' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ExtendDownTop_of_GoodParentOnCliques
+
+
 end AbsSat.GraphPath.Model.Extendable

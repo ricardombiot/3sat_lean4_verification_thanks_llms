@@ -49,4 +49,21 @@ theorem Inhabited_of_ExtendDownTop (g : GPathM) (hgn : GownersNodes.GN g)
 #guard_msgs in
 #print axioms Inhabited_of_ExtendDownTop
 
+
+/-- **The verdict from the local statement.** Chaining
+`ExtendDownTop_of_GoodParentOnCliques` with the reduction above: one node, its
+parents and its owners decide the whole thing.
+
+This is the shortest route from an open statement to the verdict the
+development has: `GoodParentOnCliques` is universally quantified, node-local,
+one step wide, and says nothing about chains. -/
+theorem Inhabited_of_GoodParentOnCliques (g : GPathM) (hgn : GownersNodes.GN g)
+    (hpos : 0 < g.current_step) (hval : isValid g = true)
+    (hgp : GoodParentOnCliques g) : AbsSat.GraphPath.Model.Inhabited g :=
+  Inhabited_of_ExtendDownTop g hgn hpos hval (ExtendDownTop_of_GoodParentOnCliques g hgp)
+
+/-- info: 'AbsSat.GraphPath.Model.DownVerdict.Inhabited_of_GoodParentOnCliques' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Inhabited_of_GoodParentOnCliques
+
 end AbsSat.GraphPath.Model.DownVerdict

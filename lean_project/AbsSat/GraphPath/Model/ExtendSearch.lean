@@ -2361,4 +2361,257 @@ vars={nvMin}..{nvMin + nvSpan - 1} budget={budget} ---"
   showDT acc
   pure 0
 
+-- ============================================================
+-- The swap, measured at one node: is there a parent good for *everything*?
+-- ============================================================
+
+/-!
+`ExtendDownTop` needs, from a chain `sel` over `[lo, top]`, a parent `c` of
+`sel lo` mutually owned with **every** `sel j`. `Threaded.hop_down` gives, for
+**each** owner of `sel lo`, **some** parent that owns it. The gap is the swap
+∀∃ -> ∃∀.
+
+But the history is not arbitrary: `PartialOwned` forces every `sel j` to be an
+owner of `sel lo`. So the whole hypothesis follows from a **local** statement
+about one node and its own owner set:
+
+> **`GoodParent`** — every node `p` above step 0 has a parent `c` such that
+> every owner of `p` at a step **at or above** `p`'s is mutually owned with `c`.
+
+If that holds, the same `c` serves any history whatsoever, and the swap is
+free. It is universally quantified, node-local, and about one step — the shape
+this development can carry through `addNode` / `filter` / `join`.
+
+This mode measures it, and two structural facts that would explain it: whether
+the parents of a node all share one map id (`parent_id` says they should), and
+whether sibling parents have the *same* owner set (which would make the choice
+irrelevant outright).
+-/
+
+def realOwnersAbove (g : GPathM) (p : PathNodeId) (n : PNodeM) : List PathNodeId :=
+  n.owners.filter (fun a => decide (a.id.step ≥ p.id.step) && (g.node? a).isSome)
+
+def goodParent (g : GPathM) (p : PathNodeId) (n : PNodeM) (c : PathNodeId) : Bool :=
+  match g.node? c with
+  | none => false
+  | some m => (realOwnersAbove g p n).all (fun a =>
+      m.owners.contains a &&
+      (match g.node? a with | some na => na.owners.contains c | none => false))
+
+/-- Distinct map ids among a node's parents. -/
+def parentMapIds (ps : List PathNodeId) : List NodeId :=
+  ps.foldl (fun acc c => if acc.contains c.id then acc else acc ++ [c.id]) []
+
+/-- Pairs of parents whose owner sets differ. -/
+def siblingOwnerDiffs (g : GPathM) (ps : List PathNodeId) : Nat :=
+  ps.foldl (fun acc c1 =>
+    acc + (ps.filter (fun c2 =>
+      match g.node? c1, g.node? c2 with
+      | some m1, some m2 =>
+        !(m1.owners.all (fun a => m2.owners.contains a)
+          && m2.owners.all (fun a => m1.owners.contains a))
+      | _, _ => false)).length) 0
+
+/-- Is the demand even coherent? A set that a single chain could contain has at
+most one node per step and is pairwise mutually owned. -/
+def isTransversalClique (g : GPathM) (l : List PathNodeId) : Bool :=
+  l.all (fun a => l.all (fun b =>
+    if a == b then true
+    else if a.id.step == b.id.step then false
+    else
+      match g.node? a, g.node? b with
+      | some na, some nb => na.owners.contains b && nb.owners.contains a
+      | _, _ => false))
+
+structure GPAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  branching : Nat := 0
+  manyMapIds : Nat := 0
+  sibDiffs : Nat := 0
+  noGood : Nat := 0
+  coherent : Nat := 0
+  noGoodCoherent : Nat := 0
+
+def addGP (a b : GPAcc) : GPAcc :=
+  { states := a.states + b.states, nodes := a.nodes + b.nodes,
+    branching := a.branching + b.branching, manyMapIds := a.manyMapIds + b.manyMapIds,
+    sibDiffs := a.sibDiffs + b.sibDiffs, noGood := a.noGood + b.noGood,
+    coherent := a.coherent + b.coherent, noGoodCoherent := a.noGoodCoherent + b.noGoodCoherent }
+
+def goodParentReport (g : GPathM) : GPAcc :=
+  g.nodes.foldl (fun (a : GPAcc) n =>
+    if n.id.id.step ≤ 0 then a
+    else
+      let good := n.parents.any (goodParent g n.id n)
+      let coh := isTransversalClique g (realOwnersAbove g n.id n)
+      addGP a
+        { nodes := 1,
+          branching := (if n.parents.length ≥ 2 then 1 else 0),
+          manyMapIds := (if (parentMapIds n.parents).length ≥ 2 then 1 else 0),
+          sibDiffs := siblingOwnerDiffs g n.parents,
+          noGood := (if good then 0 else 1),
+          coherent := (if coh then 1 else 0),
+          noGoodCoherent := (if !good && coh then 1 else 0) })
+    { states := 1 }
+
+partial def walkGP (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : GPAcc) : GPAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : GPAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addGP a (goodParentReport g)) acc
+    walkGP gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showGP (t : GPAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  nodes above step 0                        = {t.nodes}"
+  IO.println s!"    with 2 or more parents                  = {t.branching}"
+  IO.println s!"    whose parents span 2+ map ids           = {t.manyMapIds}"
+  IO.println s!"  sibling parent pairs with DIFFERENT owners= {t.sibDiffs}"
+  IO.println s!"  nodes with NO good parent                 = {t.noGood}"
+  IO.println s!"  nodes whose owners-above ARE a transversal = {t.coherent}"
+  IO.println s!"    of those, NO good parent                 = {t.noGoodCoherent}"
+
+def runRandomGP (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- is there a parent good for every owner above? cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : GPAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addGP acc (walkGP gmap (mirrorInit gmap) 1000 {})
+  showGP acc
+  pure 0
+
+-- ============================================================
+-- The exact local statement: every coherent demand has a good parent
+-- ============================================================
+
+/-!
+`--randomgoodparent` says two things. The parents of a node **always** share one
+map id (0 of 6,947 span two), so `parent_id` really does decide the parent's map
+node — but sibling parents do **not** have the same owners (908 differing
+pairs), so the decoration is not irrelevant and the swap is not free that way.
+
+And asking a parent to cover *every* owner above is too much: 134 of 6,947
+nodes have no such parent. But of the 5,739 nodes whose owners-above are a
+**transversal clique** — at most one per step, pairwise mutually owned, i.e. a
+set a chain could actually contain — **all** of them have one. The failures are
+demands no history could ever make.
+
+That suggests the statement `ExtendDownTop` really rests on, which is local to
+one node and quantified over *coherent* demands only:
+
+> **`GoodParentOnCliques`** — for every transversal clique `S` of owners of `p`
+> at steps at or above `p`'s, `p` has a parent mutually owned with all of `S`.
+
+The history of `ExtendDownTop` is such an `S`, so this implies it. And because
+a parent good for `S'` is good for every `S ⊆ S'`, it is enough to check the
+maximal ones — this mode checks them all anyway, by DFS with a budget.
+-/
+
+def compatTrans (g : GPathM) (S : List PathNodeId) (x : PathNodeId) : Bool :=
+  S.all (fun a =>
+    a.id.step != x.id.step &&
+    (match g.node? a, g.node? x with
+     | some na, some nx => na.owners.contains x && nx.owners.contains a
+     | _, _ => false))
+
+def goodFor (g : GPathM) (p : PathNodeId) (S : List PathNodeId) : Bool :=
+  let ps : List PathNodeId := match g.node? p with | some n => n.parents | none => []
+  ps.any (fun c =>
+    match g.node? c with
+    | none => false
+    | some m => S.all (fun a =>
+        m.owners.contains a &&
+        (match g.node? a with | some na => na.owners.contains c | none => false)))
+
+/-- `(budget left, cliques visited, cliques with no good parent)`. -/
+partial def cliqueWalk (g : GPathM) (p : PathNodeId) (S : List PathNodeId)
+    (rest : List PathNodeId) (budget : Nat) : Nat × Nat × Nat :=
+  if budget == 0 then (0, 0, 0)
+  else
+    let fail := if goodFor g p S then 0 else 1
+    match rest with
+    | [] => (budget - 1, 1, fail)
+    | x :: xs =>
+      let r1 := cliqueWalk g p S xs (budget - 1)
+      if compatTrans g S x then
+        let r2 := cliqueWalk g p (x :: S) xs r1.1
+        (r2.1, 1 + r1.2.1 + r2.2.1, fail + r1.2.2 + r2.2.2)
+      else (r1.1, 1 + r1.2.1, fail + r1.2.2)
+
+structure CQAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  cut : Nat := 0
+  cliques : Nat := 0
+  bad : Nat := 0
+
+def addCQ (a b : CQAcc) : CQAcc :=
+  { states := a.states + b.states, nodes := a.nodes + b.nodes, cut := a.cut + b.cut,
+    cliques := a.cliques + b.cliques, bad := a.bad + b.bad }
+
+def cliqueReport (g : GPathM) (budget : Nat) : CQAcc :=
+  g.nodes.foldl (fun (a : CQAcc) n =>
+    if n.id.id.step ≤ 0 then a
+    else
+      let above := (realOwnersAbove g n.id n).filter (fun q => q != n.id)
+      let r := cliqueWalk g n.id [n.id] above budget
+      addCQ a { nodes := 1, cut := (if r.1 == 0 then 1 else 0),
+                cliques := r.2.1, bad := r.2.2 })
+    { states := 1 }
+
+partial def walkCQ (gmap : GMap) (line : MirrorLine) (fuel budget : Nat)
+    (acc : CQAcc) : CQAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : CQAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addCQ a (cliqueReport g budget)) acc
+    walkCQ gmap (mirrorAdvance gmap line) (fuel - 1) budget acc
+
+def showCQ (t : CQAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  nodes above step 0                        = {t.nodes}"
+  IO.println s!"    enumerations cut by budget              = {t.cut}"
+  IO.println s!"  coherent demands (transversal cliques)    = {t.cliques}"
+  IO.println s!"  demands with NO good parent               = {t.bad}"
+
+def runRandomCQ (cases seed nvMin nvSpan budget : Nat) : IO UInt32 := do
+  IO.println s!"--- every coherent demand: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} budget={budget} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : CQAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addCQ acc (walkCQ gmap (mirrorInit gmap) 1000 budget {})
+  showCQ acc
+  pure 0
+
 end AbsSat.GraphPath.Model.ExtendSearch

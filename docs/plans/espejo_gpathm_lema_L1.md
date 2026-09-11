@@ -10,6 +10,32 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (an) — `GoodParentOnCliques`: el residuo deja de hablar de caminos.**
+
+Dos modos nuevos. `--randomgoodparent`: los padres de un nodo **nunca** abarcan dos ids de mapa
+(0 de 26.878 nodos, dos semillas) — `parent_id` decide el nodo de mapa del padre; pero hermanos con
+ese mismo id tienen owners distintos en 5.182 pares, así que la decoración importa y el atajo se
+cae. Pedirle a un padre que cubra *todos* los owners de arriba es falso: 948 de 26.878. Restringido
+a los nodos cuyos owners-de-arriba forman una **transversal clique** (≤1 por paso, mutuamente
+poseídos): 18.760 nodos, **0 fallos**.
+
+`--randomclique`: enumeración exhaustiva de **todas** las sub-cliques por nodo (basta con las
+maximales, pero se recorren todas). Semilla 2026, 3..5 vars: **154.635.941 exigencias coherentes,
+0 sin padre bueno**, 315 de 6.947 enumeraciones cortadas por presupuesto.
+
+En `Extendable.lean`: `Coherent`, **`GoodParentOnCliques`**, `mem_ownersAt`,
+`node?_isSome_of_mem_ownersOf` y **`ExtendDownTop_of_GoodParentOnCliques`** — la historia de una
+cadena parcial *es* una exigencia coherente hecha de los owners de `sel lo`, así que el padre que
+el enunciado local produce es la extensión. En `DownVerdict.lean`:
+**`Inhabited_of_GoodParentOnCliques`**. Todo `[propext, Quot.sound]`.
+
+El residuo queda **local, de un paso, universal y sin cadenas**: falta intercambiar ∀∃ → ∃∀
+*usando la coherencia de la exigencia*, que es justo la hipótesis que las mediciones señalan.
+
+Informe: `verificacion_inseguridad_autor_v56.md`.
+
+---
+
 **2026-09-11 (am) — `ExtendDownTop`: el veredicto sin la mitad refutada.**
 
 Reparo primero: `Extendable.ExtendDown` en general **también** está refutado (57 de los 1.574
