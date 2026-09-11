@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bl) — P3 reducida a una existencia: `PinReaches`.**
+
+`FabricAdd.lean`: `Compat`, `CoreS`, `CoreT`, `CoreS_of_mem`, `CoreS_sat`, **`Fabric_core`**
+(el mayor tejido que cumple una restricción es un tejido; **sin axiomas**), `PinReaches`,
+**`FabricAt_filterAll_of_PinReaches`**. Hallazgo de base: `filterRequire` toca **solo `gowners`**
+(las tablas por nodo las estrecha el review), luego de las nueve cláusulas el pinchazo amenaza solo
+`gow` — que es exactamente la hipótesis de `FOk_filterAll` (v65) y por eso falla en el paso de
+cláusula, ya que el tejido de `addNode` contiene todos los gowners. Solución: el movimiento de v44
+(las cláusulas se conservan bajo unión porque cada una se atestigua dentro de un solo tejido), de
+donde sale `Fabric_core` por construcción. Queda **una sola existencia**: `PinReaches g reqs r rn` =
+`CoreS g (Compat reqs ∧ ∈ owners(r)) r` — el `CoreCovers` de v44, y lo medido en v77 (124.246 nodos,
+0 fallos). Ruta: P1 ✅ (v78), P2 ✅ (v65 + join v79), P3 reducida, P4 abierta (desajuste
+`readStepSym` vs `filterAll g [q.id]`), P5 libre. Límite: `PinReaches` general = 3SAT en P; ahí entra
+la clase, ya sobre `owners` y no sobre un modelo paralelo.
+
+Informe: `verificacion_inseguridad_autor_v80.md`.
+
 **2026-09-11 (bk) — `join` cerrado; y P3 resulta ser `CoreCovers`.**
 
 `FabricAdd.lean`: **`Fabric_of_grown`** (un tejido sobrevive a cualquier crecimiento — todas sus

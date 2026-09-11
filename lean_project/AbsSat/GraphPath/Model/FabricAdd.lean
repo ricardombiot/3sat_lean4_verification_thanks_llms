@@ -399,6 +399,97 @@ theorem Fabric_join_right (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
   Fabric_of_grown (grown_join_right g₁ g₂ hok) S T h
 
 -- ============================================================
+-- P3: narrowing the fabric to the pins
+-- ============================================================
+
+/-! `filterRequire` touches **only `gowners`** — the per-node tables are left
+alone, and it is the review that narrows those afterwards. So of the nine
+clauses, the pin threatens exactly one: `gow`, that members are global owners.
+Everything else is untouched.
+
+That is why v65's `FOk_filterAll` asks its members to agree with the pins: it
+is `gow`, and nothing more. And at a clause step the fabric `addNode` builds
+fails it at once, because that fabric holds *all* the global owners and so both
+values of a pinned step.
+
+So the work is not preservation, it is **narrowing** — and narrowing is where
+v44's move applies. The clauses of a fabric are closed under union, because
+every one of them is witnessed inside a single fabric. Hence **the greatest
+fabric satisfying any constraint is itself a fabric**, and the whole of P3
+collapses to one question: *does that greatest one still reach the node we
+care about?* -/
+
+/-- The members that survive a pin. -/
+def Compat (reqs : List NodeId) (p : PathNodeId) : Prop :=
+  ∀ r ∈ reqs, p.id.step = r.step → p.id = r
+
+/-- **The greatest fabric inside a constraint** — members. -/
+def CoreS (g : GPathM) (P : PathNodeId → Prop) : PathNodeId → Prop :=
+  fun p => ∃ S T, Fabric g S T ∧ (∀ q, S q → P q) ∧ S p
+
+/-- **The greatest fabric inside a constraint** — tables. -/
+def CoreT (g : GPathM) (P : PathNodeId → Prop) : PathNodeId → PathNodeId → Prop :=
+  fun p v => ∃ S T, Fabric g S T ∧ (∀ q, S q → P q) ∧ S p ∧ T p v
+
+theorem CoreS_of_mem {g : GPathM} {P : PathNodeId → Prop} {S T}
+    (hf : Fabric g S T) (hP : ∀ q, S q → P q) {p} (hp : S p) : CoreS g P p :=
+  ⟨S, T, hf, hP, hp⟩
+
+/-- Every member of the core satisfies the constraint. -/
+theorem CoreS_sat {g : GPathM} {P : PathNodeId → Prop} (p : PathNodeId)
+    (hp : CoreS g P p) : P p := by
+  obtain ⟨_, _, _, hP, hSp⟩ := hp
+  exact hP _ hSp
+
+/-- **The greatest fabric inside a constraint is a fabric.** Each clause is
+witnessed inside one component, so the union carries them all. -/
+theorem Fabric_core (g : GPathM) (P : PathNodeId → Prop) :
+    Fabric g (CoreS g P) (CoreT g P) := by
+  refine { gow := ?_, node := ?_, inS := ?_, symm := ?_, self := ?_, sub := ?_,
+           support := ?_, up := ?_, down := ?_ }
+  · rintro p ⟨S, T, hf, _, hSp⟩; exact hf.gow p hSp
+  · rintro p ⟨S, T, hf, _, hSp⟩; exact hf.node p hSp
+  · rintro p v _ ⟨S, T, hf, hP, hSp, hT⟩; exact ⟨S, T, hf, hP, hf.inS p v hSp hT⟩
+  · rintro p v _ ⟨S, T, hf, hP, hSp, hT⟩
+    exact ⟨S, T, hf, hP, hf.inS p v hSp hT, hf.symm p v hSp hT⟩
+  · rintro p ⟨S, T, hf, hP, hSp⟩; exact ⟨S, T, hf, hP, hSp, hf.self p hSp⟩
+  · rintro p n hn _ v ⟨S, T, hf, _, hSp, hT⟩; exact hf.sub p n hn hSp v hT
+  · rintro p ⟨S, T, hf, hP, hSp⟩ l hl0 hl
+    obtain ⟨v, hv, hvs⟩ := hf.support p hSp l hl0 hl
+    exact ⟨v, ⟨S, T, hf, hP, hSp, hv⟩, hvs⟩
+  · rintro p n hn _ hpnr v ⟨S, T, hf, hP, hSp, hT⟩
+    obtain ⟨c, hc, hpc, hcv⟩ := hf.up p n hn hSp hpnr v hT
+    exact ⟨c, hc, ⟨S, T, hf, hP, hSp, hpc⟩,
+      ⟨S, T, hf, hP, hf.inS p c hSp hpc, hcv⟩⟩
+  · rintro p ⟨S, T, hf, hP, hSp⟩ hptop v ⟨S', T', hf', hP', hSp', hT'⟩
+    obtain ⟨c, m, hcm, hpm, hpc, hcv⟩ := hf'.down p hSp' hptop v hT'
+    exact ⟨c, m, hcm, hpm, ⟨S', T', hf', hP', hSp', hpc⟩,
+      ⟨S', T', hf', hP', hf'.inS p c hSp' hpc, hcv⟩⟩
+
+/-- **P3, reduced to one question.** With the core in hand, the fabric that
+survives a clause's pins is the greatest one whose members agree with them and
+lie inside `owners(r)` — and the only thing left to establish is that this
+greatest one still reaches `r`. That is v44's `CoreCovers`, in the fabric's
+vocabulary. -/
+def PinReaches (g : GPathM) (reqs : List NodeId) (r : PathNodeId) (rn : PNodeM) : Prop :=
+  CoreS g (fun q => Compat reqs q ∧ q ∈ rn.owners) r
+
+/-- **And with it, the pinned state carries a fabric through `r`.** The `gow`
+clause is the only one the pin threatens, and the core's members satisfy it by
+construction; `FOk_filterAll` then carries the fabric through the whole clause
+filter, review included. -/
+theorem FabricAt_filterAll_of_PinReaches (g : GPathM) (reqs : List NodeId)
+    (r : PathNodeId) (rn : PNodeM) (hr : (filterAll g reqs).node? r = some rn)
+    (hsmp : Sons.SMP g) (hnr : Parents.NotRoot g)
+    (h : PinReaches g reqs r rn) :
+    FabricAt (filterAll g reqs) r := by
+  refine ⟨rn, CoreS g (fun q => Compat reqs q ∧ q ∈ rn.owners),
+    CoreT g (fun q => Compat reqs q ∧ q ∈ rn.owners), hr, ?_, h, ?_⟩
+  · exact FOk_filterAll g _ _ ⟨Fabric_core g _, hsmp, hnr⟩ reqs
+      (fun req hreq p hp hstep => (CoreS_sat p hp).1 req hreq hstep)
+  · exact fun p hp => (CoreS_sat p hp).2
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -421,6 +512,14 @@ theorem Fabric_join_right (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.Fabric_join_right' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Fabric_join_right
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.Fabric_core' does not depend on any axioms -/
+#guard_msgs in
+#print axioms Fabric_core
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_filterAll_of_PinReaches' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms FabricAt_filterAll_of_PinReaches
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
