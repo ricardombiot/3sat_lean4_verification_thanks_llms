@@ -4,6 +4,7 @@ import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphMap.CnfHypergraph
 import AbsSat.GraphMap.CnfReducer
+import AbsSat.GraphMap.CnfSelection
 
 /-!
 `lake exe cnfmap --symreview`: the original machine against the symmetric one
@@ -1877,6 +1878,139 @@ EMPTIED-A-SAT-PREFIX={outAcc.emptyOnSat} unsat-not-caught={outAcc.missedUnsat}"
         let acc := scoreReducer φ
         IO.println s!"    {name} odd={odd}: prefixes={acc.prefixes} (sat={acc.sat}) \
 EMPTIED-A-SAT-PREFIX={acc.emptyOnSat} unsat-not-caught={acc.missedUnsat}"
+  pure 0
+
+-- ------------------------------------------------------------
+-- The choosing step: how much the base case covers, and what is left
+-- ------------------------------------------------------------
+
+/-! `CnfSelection` proves the obligation where the reducer leaves one row per
+relation — the no-choice case, the same base case v19 and v40 discharged for
+the machine. What is left is the step: pin one relation to one of its rows,
+re-reduce, and never empty anything.
+
+Two forms, and the difference is the one v41 already drew for the machine:
+`∃` a good row per relation (`PickSome`) is what the descent needs; `∀` rows
+good (`PickValid`) is stronger and would be more comfortable. This band
+measures both. -/
+
+open AbsSat.GraphMap.CnfReducer in
+def pinAt (rels : Rels) (i : Nat) (r : Int) : Rels :=
+  match rels[i]? with
+  | none => rels
+  | some cr => rels.set i (cr.1, [r])
+
+structure PAcc where
+  prefixes : Nat := 0
+  pinnedAll : Nat := 0
+  instances : Nat := 0
+  someGood : Nat := 0
+  allGood : Nat := 0
+  descents : Nat := 0
+  descentOk : Nat := 0
+  descentFailOnSat : Nat := 0
+  descentOkOnUnsat : Nat := 0
+
+def PAcc.add (x y : PAcc) : PAcc :=
+  { prefixes := x.prefixes + y.prefixes, pinnedAll := x.pinnedAll + y.pinnedAll,
+    instances := x.instances + y.instances, someGood := x.someGood + y.someGood,
+    allGood := x.allGood + y.allGood, descents := x.descents + y.descents,
+    descentOk := x.descentOk + y.descentOk,
+    descentFailOnSat := x.descentFailOnSat + y.descentFailOnSat,
+    descentOkOnUnsat := x.descentOkOnUnsat + y.descentOkOnUnsat }
+
+open AbsSat.GraphMap.CnfReducer in
+/-- The greedy descent: pin the first row of the first relation that still
+offers a choice, re-reduce, repeat. `true` when it reaches one row per relation
+with nothing emptied. -/
+def descend : Nat → Rels → Bool
+  | 0, _ => false
+  | n + 1, rels =>
+    match (List.range rels.length).find? (fun i =>
+      match rels[i]? with
+      | some cr => cr.2.length > 1
+      | none => false) with
+    | none => true
+    | some i =>
+      match rels[i]?.bind (fun cr => cr.2.head?) with
+      | none => false
+      | some r =>
+        let rels' := reduce (pinAt rels i r)
+        if rels'.any (fun q => q.2.isEmpty) then false else descend n rels'
+
+open AbsSat.GraphMap.CnfReducer in
+def scorePick (φ : Cnf) : PAcc := Id.run do
+  let mut acc : PAcc := {}
+  for m in [0:φ.clauses.length + 1] do
+    let C := φ.clauses.take m
+    let rels := reduce (initRels C)
+    if rels.all (fun cr => !cr.2.isEmpty) then
+      acc := { acc with prefixes := acc.prefixes + 1 }
+      if rels.all (fun cr => cr.2.length == 1) then
+        acc := { acc with pinnedAll := acc.pinnedAll + 1 }
+      for i in [0:rels.length] do
+        match rels[i]? with
+        | none => pure ()
+        | some cr =>
+          if cr.2.length > 1 then
+            acc := { acc with instances := acc.instances + 1 }
+            let good := cr.2.filter (fun r =>
+              (reduce (pinAt rels i r)).all (fun q => !q.2.isEmpty))
+            if good.length > 0 then acc := { acc with someGood := acc.someGood + 1 }
+            if good.length == cr.2.length then acc := { acc with allGood := acc.allGood + 1 }
+      -- the full greedy descent, and what it means against brute force
+      let ok := descend (totalRows rels + 1) rels
+      let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+      let satisfiable := alls.any (fun a => C.all (satClauseB a))
+      acc := { acc with descents := acc.descents + 1 }
+      if ok then acc := { acc with descentOk := acc.descentOk + 1 }
+      if ok && !satisfiable then acc := { acc with descentOkOnUnsat := acc.descentOkOnUnsat + 1 }
+      if !ok && satisfiable then acc := { acc with descentFailOnSat := acc.descentFailOnSat + 1 }
+  return acc
+
+/-- `lake exe cnfmap --pickstep [cases] [seed] [nvMin] [nvSpan] [K]` -/
+def runPickStep (cases seed nvMin nvSpan K : Nat) : IO UInt32 := do
+  IO.println s!"--- the choosing step after the reducer: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} K={K} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut inAcc : PAcc := {}
+  let mut outAcc : PAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let acc := scorePick φ
+        if AbsSat.GraphMap.CnfHypergraph.boundedScopeB φ K then inAcc := inAcc.add acc
+        else outAcc := outAcc.add acc
+  let line := fun (name : String) (x : PAcc) =>
+    IO.println s!"  {name}: prefixes={x.prefixes} pinned-by-the-reducer={x.pinnedAll} \
+choices={x.instances} SOME-row-works={x.someGood} EVERY-row-works={x.allGood}\n\
+      descents={x.descents} reached-a-selection={x.descentOk} \
+FAILED-ON-A-SAT-PREFIX={x.descentFailOnSat} succeeded-on-UNSAT={x.descentOkOnUnsat}"
+  line "in the class " inAcc
+  line "outside it   " outAcc
+  IO.println "control — the Tseitin families:"
+  for (name, nV, edges) in [("K4", 4, k4), ("K3,3", 6, k33), ("prism", 6, prism)] do
+    for odd in [true, false] do
+      match tseitin nV edges odd with
+      | none => pure ()
+      | some φ =>
+        let x := scorePick φ
+        IO.println s!"    {name} odd={odd}: prefixes={x.prefixes} choices={x.instances} \
+SOME={x.someGood} EVERY={x.allGood} descents={x.descents} reached={x.descentOk} \
+FAIL-ON-SAT={x.descentFailOnSat} OK-ON-UNSAT={x.descentOkOnUnsat}"
   pure 0
 
 end AbsSat.GraphMap.SymCampaign

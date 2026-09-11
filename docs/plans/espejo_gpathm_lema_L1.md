@@ -10,6 +10,26 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (be) — La pieza 2, partida: el caso base demostrado, la diana medida, el teorema abierto.**
+
+`CnfSelection.lean`: `allPairs`, `PairsCoherent`, `Agreeing`, `assignOfSel`, `selOfAssign`,
+`forcedSel`, `RowsInAll`, `NoBacktrack`. Demostrados `Agreeing_of_pairwise`, `assignOfSel_eq`,
+`sat_of_agreeing` (Helly en moneda de fórmulas, sin aciclicidad), `RowsInAll_*`, `clauses_reduceGo`,
+`map_fst_initRels`/`_selOfAssign`/`_forcedSel`, `Agreeing_selOfAssign`,
+**`satisfiable_iff_agreeing_in_reduce`** (el reductor no pierde nada),
+`satisfiable_iff_nonempty_of_NoBacktrack`, y el caso base **`Agreeing_forcedSel`** →
+**`NoBacktrack_of_singletons`** → `satisfiable_iff_nonempty_of_singletons`. Cierres
+`[propext, Quot.sound]`; `beq_self_eq_true` vuelve a arrastrar `Classical` (se usa
+`beq_iff_eq.mpr rfl`). Medido (`cnfmap --pickstep`, cinco semillas, 600 fórmulas): el reductor pinza
+solo el 20 % de los prefijos de la clase (275/1.368); el paso de UNA elección es la obligación
+equivocada — dentro de la clase 5.690/5.690 con toda fila válida, pero **Tseitin impar también da
+736/736 y es UNSAT**; la diana correcta es el descenso completo: **dentro de la clase 1.368/1.368
+llegan a una selección**, fuera 603 fallos sobre prefijos satisfacibles, y 0 éxitos sobre UNSAT en
+todas partes (banda del caso base). Abierto: `NoBacktrack` bajo `BoundedScope`, por inducción sobre
+las `K` rondas de `gyoIter_eq_nil_of_BoundedScope` — BFMY sin Mathlib, la parte cara.
+
+Informe: `verificacion_inseguridad_autor_v73.md`.
+
 **2026-09-11 (bd) — El reductor de semi-joins, formalizado en el modelo puro.**
 
 `CnfReducer.lean`, sobre la codificación de filas de `CnfMap` (índices `1..7`, `b1`/`b2`/`b3`), no sobre

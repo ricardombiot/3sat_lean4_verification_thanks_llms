@@ -91,3 +91,4 @@ import AbsSat.GraphPath.Model.PrefixConservation
 import AbsSat.GraphPath.Model.PrefixDecode
 import AbsSat.GraphMap.CnfHypergraph
 import AbsSat.GraphMap.CnfReducer
+import AbsSat.GraphMap.CnfSelection
