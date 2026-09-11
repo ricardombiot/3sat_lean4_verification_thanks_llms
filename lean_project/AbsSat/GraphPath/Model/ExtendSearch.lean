@@ -2402,6 +2402,19 @@ def goodParent (g : GPathM) (p : PathNodeId) (n : PNodeM) (c : PathNodeId) : Boo
 def parentMapIds (ps : List PathNodeId) : List NodeId :=
   ps.foldl (fun acc c => if acc.contains c.id then acc else acc ++ [c.id]) []
 
+/-- Pairs of parents whose owner sets are **incomparable**: neither contains
+the other. If this is always zero, the parents are totally ordered by
+inclusion, there is a maximum one, and the `down` half holds for every demand
+at once. -/
+def siblingIncomparable (g : GPathM) (ps : List PathNodeId) : Nat :=
+  ps.foldl (fun acc c1 =>
+    acc + (ps.filter (fun c2 =>
+      match g.node? c1, g.node? c2 with
+      | some m1, some m2 =>
+        !(m1.owners.all (fun a => m2.owners.contains a))
+          && !(m2.owners.all (fun a => m1.owners.contains a))
+      | _, _ => false)).length) 0
+
 /-- Pairs of parents whose owner sets differ. -/
 def siblingOwnerDiffs (g : GPathM) (ps : List PathNodeId) : Nat :=
   ps.foldl (fun acc c1 =>
@@ -2429,6 +2442,9 @@ structure GPAcc where
   branching : Nat := 0
   manyMapIds : Nat := 0
   sibDiffs : Nat := 0
+  sibIncomp : Nat := 0
+  maxParents : Nat := 0
+  three : Nat := 0
   noGood : Nat := 0
   coherent : Nat := 0
   noGoodCoherent : Nat := 0
@@ -2436,7 +2452,9 @@ structure GPAcc where
 def addGP (a b : GPAcc) : GPAcc :=
   { states := a.states + b.states, nodes := a.nodes + b.nodes,
     branching := a.branching + b.branching, manyMapIds := a.manyMapIds + b.manyMapIds,
-    sibDiffs := a.sibDiffs + b.sibDiffs, noGood := a.noGood + b.noGood,
+    sibDiffs := a.sibDiffs + b.sibDiffs, sibIncomp := a.sibIncomp + b.sibIncomp,
+    maxParents := Nat.max a.maxParents b.maxParents, three := a.three + b.three,
+    noGood := a.noGood + b.noGood,
     coherent := a.coherent + b.coherent, noGoodCoherent := a.noGoodCoherent + b.noGoodCoherent }
 
 def goodParentReport (g : GPathM) : GPAcc :=
@@ -2450,6 +2468,9 @@ def goodParentReport (g : GPathM) : GPAcc :=
           branching := (if n.parents.length ≥ 2 then 1 else 0),
           manyMapIds := (if (parentMapIds n.parents).length ≥ 2 then 1 else 0),
           sibDiffs := siblingOwnerDiffs g n.parents,
+          sibIncomp := siblingIncomparable g n.parents,
+          maxParents := n.parents.length,
+          three := (if n.parents.length ≥ 3 then 1 else 0),
           noGood := (if good then 0 else 1),
           coherent := (if coh then 1 else 0),
           noGoodCoherent := (if !good && coh then 1 else 0) })
@@ -2469,6 +2490,9 @@ def showGP (t : GPAcc) : IO Unit := do
   IO.println s!"    with 2 or more parents                  = {t.branching}"
   IO.println s!"    whose parents span 2+ map ids           = {t.manyMapIds}"
   IO.println s!"  sibling parent pairs with DIFFERENT owners= {t.sibDiffs}"
+  IO.println s!"    of those, INCOMPARABLE (neither ⊆)      = {t.sibIncomp}"
+  IO.println s!"  MOST parents any node has                 = {t.maxParents}"
+  IO.println s!"    nodes with 3 or more parents            = {t.three}"
   IO.println s!"  nodes with NO good parent                 = {t.noGood}"
   IO.println s!"  nodes whose owners-above ARE a transversal = {t.coherent}"
   IO.println s!"    of those, NO good parent                 = {t.noGoodCoherent}"
@@ -2612,6 +2636,104 @@ vars={nvMin}..{nvMin + nvSpan - 1} budget={budget} ---"
     let gmap ← load_import! "extend_tmp.cnf"
     acc := addCQ acc (walkCQ gmap (mirrorInit gmap) 1000 budget {})
   showCQ acc
+  pure 0
+
+-- ============================================================
+-- Is the "demand sees the parent" half free?
+-- ============================================================
+
+/-!
+`GoodParentOnCliques` asks for a parent `c` of `p` with two things for every
+`a` in the demand: `a ∈ owners c` (**down** — the parent sees the demand) and
+`c ∈ owners a` (**up** — the demand sees the parent).
+
+**Down is provable when `p` has one parent**: `cpar` plus
+`owners_ok_of_isValidNode` give `owners p ⊆ owners c` outright, because the
+union over parents *is* `owners c`. Up has no such route — and `owners` is not
+symmetric (185 violations).
+
+But those 185 are unconstrained pairs. Here the pair sits in a very specific
+configuration: `c` is a parent of `p`, `a` owns `p` and is owned by `p`, and
+`a ∈ owners c`. This mode asks whether symmetry holds *there* — i.e. whether
+**up follows from down**, in which case half the statement disappears.
+-/
+
+structure UDAcc where
+  states : Nat := 0
+  configs : Nat := 0
+  upViol : Nat := 0
+  farViol : Nat := 0
+  uniqConfigs : Nat := 0
+  uniqViol : Nat := 0
+
+def addUD (a b : UDAcc) : UDAcc :=
+  { states := a.states + b.states, configs := a.configs + b.configs,
+    upViol := a.upViol + b.upViol, farViol := a.farViol + b.farViol,
+    uniqConfigs := a.uniqConfigs + b.uniqConfigs, uniqViol := a.uniqViol + b.uniqViol }
+
+def upDownReport (g : GPathM) : UDAcc :=
+  g.nodes.foldl (fun (a : UDAcc) n =>
+    if n.id.id.step ≤ 0 then a
+    else
+      n.parents.foldl (fun (b : UDAcc) c =>
+        match g.node? c with
+        | none => b
+        | some m =>
+          m.owners.foldl (fun (d : UDAcc) q =>
+            if !(decide (q.id.step > n.id.id.step)) then d
+            else if !(n.owners.contains q) then d
+            else
+              match g.node? q with
+              | none => d
+              | some nq =>
+                if !(nq.owners.contains n.id) then d
+                else
+                  let bad := !(nq.owners.contains c)
+                  let uniq := n.parents.length == 1
+                  addUD d { configs := 1, upViol := (if bad then 1 else 0),
+                            farViol := (if bad && decide (q.id.step > n.id.id.step + 1)
+                                        then 1 else 0),
+                            uniqConfigs := (if uniq then 1 else 0),
+                            uniqViol := (if bad && uniq then 1 else 0) }) b) a)
+    { states := 1 }
+
+partial def walkUD (gmap : GMap) (line : MirrorLine) (fuel : Nat) (acc : UDAcc) : UDAcc :=
+  if fuel = 0 || line.isEmpty then acc
+  else
+    let acc := line.foldl (fun (a : UDAcc) kv =>
+      let g := kv.2
+      if !isValid g then a else addUD a (upDownReport g)) acc
+    walkUD gmap (mirrorAdvance gmap line) (fuel - 1) acc
+
+def showUD (t : UDAcc) : IO Unit := do
+  IO.println s!"  valid states                              = {t.states}"
+  IO.println s!"  configurations (c parent of p, a mutual)  = {t.configs}"
+  IO.println s!"    with c NOT an owner of a (up fails)     = {t.upViol}"
+  IO.println s!"    of those, at distance >= 2 above p      = {t.farViol}"
+  IO.println s!"  configurations at a node with ONE parent  = {t.uniqConfigs}"
+  IO.println s!"    of those, up fails                      = {t.uniqViol}"
+
+def runRandomUD (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- does 'up' follow from 'down'? cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := Rng.ofSeed seed
+  let mut acc : UDAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := gen_cnf rng2 nVars nClauses
+    rng := rng3
+    IO.FS.writeFile "extend_tmp.cnf" cnf
+    let gmap ← load_import! "extend_tmp.cnf"
+    acc := addUD acc (walkUD gmap (mirrorInit gmap) 1000 {})
+  showUD acc
   pure 0
 
 end AbsSat.GraphPath.Model.ExtendSearch

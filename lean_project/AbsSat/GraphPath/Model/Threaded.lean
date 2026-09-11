@@ -206,6 +206,34 @@ theorem hop_down (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
   · exact absurd hnil List.not_mem_nil
   · exact hres
 
+/-- **A node that does not branch hands its parent everything.** `hop_down`
+says each owner of `p` is an owner of *some* parent. With exactly one parent
+there is nothing to choose, so the whole owner set transfers at once:
+
+    parents p = [c]  ⟹  owners p ⊆ owners c   (in range)
+
+This is the `down` half of `Extendable.GoodParentOnCliques` at every node that
+does not branch — which `lake exe extend --randomupdown` puts at 473,730 of
+594,332 configurations. What it does **not** settle is the branching case:
+sibling parents have different owner sets (4,274 pairs), and every one of those
+pairs is *incomparable*, so there is no maximum parent to fall back on. -/
+theorem owners_subset_of_unique_parent (g : GPathM) (ctx : TCtx g)
+    (p : PathNodeId) (d : PNodeM) (hd : g.node? p = some d)
+    (hlo : 0 < p.id.step) (hhi : p.id.step < g.current_step)
+    (c : PathNodeId) (hpar : d.parents = [c]) (m : PNodeM) (hm : g.node? c = some m)
+    (q : PathNodeId) (hq : q ∈ d.owners)
+    (hqlo : 0 ≤ q.id.step) (hqhi : q.id.step < g.current_step) :
+    q ∈ m.owners := by
+  obtain ⟨c', hc', m', hm', hqm⟩ := hop_down g ctx p d hd hlo hhi q hq hqlo hqhi
+  rw [hpar] at hc'
+  rcases List.mem_singleton.mp hc' with rfl
+  have hmm : m' = m := Option.some.inj (hm'.symm.trans hm)
+  rw [← hmm]; exact hqm
+
+/-- info: 'AbsSat.GraphPath.Model.Threaded.owners_subset_of_unique_parent' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owners_subset_of_unique_parent
+
 /-- **Up.** The mirror of `hop_down` through `coherent_sons`: if `d` owns `a`,
 some son of `d` — a node one step above, by `Sons.SAbove` — owns `a` too.
 

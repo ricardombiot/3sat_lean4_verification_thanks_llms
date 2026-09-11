@@ -10,6 +10,37 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ao) — Ataque a `GoodParentOnCliques`: tres atajos caídos, dos teoremas.**
+
+Intento de demostración. **No cayó.** Lo obtenido:
+
+Atajo 1 (padres hermanos anidados por inclusión ⟹ hay un padre máximo ⟹ la mitad *abajo* sale
+gratis): **refutado** — de los pares de hermanos con owners distintos, **todos** son incomparables
+(4.274/4.274 y 4.980/4.980, `--randomgoodparent`).
+
+Atajo 2 (la mitad *arriba* se sigue de la de *abajo* en la configuración concreta): **refutado** —
+0 fallos con semilla 2026 (175.294 configuraciones) pero **38 de 594.332** con semilla 31337
+(`--randomupdown`), 37 de ellos a distancia ≥2. Recordatorio de correr dos semillas antes de
+escribir Lean. Pero los 38 están **todos en nodos que ramifican**: en nodos con un solo padre,
+**0 de 473.730**.
+
+Atajo 3 (todo nodo tiene ≤2 padres ⟹ Helly trivial ⟹ el caso general se reduce a pares):
+**refutado en general** — máximo 4 padres — pero ≥3 es **19 de 19.931** y **27 de ~20.000**, el
+0,1 %.
+
+Teoremas nuevos: `Threaded.owners_subset_of_unique_parent` (con `parents = [c]`, `hop_down` no deja
+elección y `owners p ⊆ owners c` entero — la mitad *abajo* en el 80 % de las configuraciones) y
+`Extendable.good_of_pairwise_two` (Helly sobre dos padres: bueno para cada par ⟹ bueno para toda
+la exigencia), más `exists_false_of_all_false`. Todo `[propext, Quot.sound]`.
+
+Residuo partido: mitad *abajo* con padre único **demostrada**; mitad *arriba* con padre único
+0/473.730 sin demostrar; nodos de dos padres **reducidos a pares**; nodos de 3-4 padres (0,1 %)
+necesitan Helly de verdad.
+
+Informe: `verificacion_inseguridad_autor_v57.md`.
+
+---
+
 **2026-09-11 (an) — `GoodParentOnCliques`: el residuo deja de hablar de caminos.**
 
 Dos modos nuevos. `--randomgoodparent`: los padres de un nodo **nunca** abarcan dos ids de mapa

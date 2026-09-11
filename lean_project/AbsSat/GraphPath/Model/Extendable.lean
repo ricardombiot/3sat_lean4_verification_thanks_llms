@@ -499,4 +499,64 @@ theorem ExtendDownTop_of_GoodParentOnCliques (g : GPathM) (h : GoodParentOnCliqu
 #print axioms ExtendDownTop_of_GoodParentOnCliques
 
 
+
+-- ============================================================
+-- Two parents: pairwise good is globally good
+-- ============================================================
+
+/-!
+The measurement puts the branching case in perspective. A node has **at most
+four** parents, and three or more is rare: 19 of 19,931 on one seed, 27 of
+~20,000 on another. Practically every branching node has exactly two.
+
+That matters, because the family of "parents good for `a`", as `a` ranges over
+a demand, lives inside the parent set. On a **two-element** set, a family of
+non-empty subsets that intersects pairwise intersects globally — the Helly
+property, trivially. So at a two-parent node the whole demand reduces to its
+**pairs**, and `GoodParentOnCliques` becomes a statement about two owners at a
+time.
+
+Three or more parents is where a real Helly argument would be needed
+(`{c₁,c₂}`, `{c₂,c₃}`, `{c₁,c₃}` intersect pairwise and have empty
+intersection), and that is 0.1% of the branching nodes.
+-/
+
+theorem exists_false_of_all_false {α : Type} (p : α → Bool) :
+    ∀ l : List α, l.all p = false → ∃ a ∈ l, p a = false := by
+  intro l
+  induction l with
+  | nil => intro h; exact absurd h (by simp)
+  | cons x xs ih =>
+    intro h
+    simp only [List.all_cons, Bool.and_eq_false_iff] at h
+    rcases h with h | h
+    · exact ⟨x, List.mem_cons_self .., h⟩
+    · obtain ⟨a, ha, hpa⟩ := ih h
+      exact ⟨a, List.mem_cons_of_mem _ ha, hpa⟩
+
+/-- **Helly on two parents.** If every *pair* drawn from the demand has a
+parent good for both, then one parent is good for the whole demand.
+
+The proof is the whole content of the two-element case: if `c₁` fails anywhere,
+every pair through that point must be carried by `c₂`, so `c₂` carries
+everything. -/
+theorem good_of_pairwise_two {α : Type} (good : PathNodeId → α → Bool)
+    (c₁ c₂ : PathNodeId) (l : List α)
+    (hpair : ∀ a ∈ l, ∀ b ∈ l,
+      ((good c₁ a && good c₁ b) || (good c₂ a && good c₂ b)) = true) :
+    (∀ a ∈ l, good c₁ a = true) ∨ (∀ a ∈ l, good c₂ a = true) := by
+  cases h : l.all (fun a => good c₁ a) with
+  | true => exact Or.inl (fun a ha => List.all_eq_true.mp h a ha)
+  | false =>
+    refine Or.inr ?_
+    obtain ⟨a, hal, hfa⟩ := exists_false_of_all_false (fun a => good c₁ a) l h
+    intro b hb
+    rcases Bool.or_eq_true_iff.mp (hpair a hal b hb) with h1 | h2
+    · exact absurd (Bool.and_eq_true_iff.mp h1).1 (by rw [hfa]; exact Bool.noConfusion)
+    · exact (Bool.and_eq_true_iff.mp h2).2
+
+/-- info: 'AbsSat.GraphPath.Model.Extendable.good_of_pairwise_two' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms good_of_pairwise_two
+
 end AbsSat.GraphPath.Model.Extendable
