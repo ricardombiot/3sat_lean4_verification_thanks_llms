@@ -10,6 +10,19 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bb) — El caso general: tríos, inserciones apuntadas, y la decodificación por prefijo.**
+
+`cnfmap --triples` (máquina con triángulo, tres semillas): 905.506 tríos co-poseídos; 0 con un par sin
+solución común; 38 sin solución común para los tres; 7 genuinos entre valores del mapa, todos ausentes de
+toda solución vista (no es cosa de una clave). `cnfmap --insertgen` apuntado a los 7 (800 fórmulas) y al
+hueco final de 777/3 (240 × 2 máquinas): 0 nodos zombie, 0 veredictos equivocados — fijar dos valores
+propaga por las filas de cláusula hasta el tercero. `PrefixDecode.lean`: `litVal_of_reqSat_prefix`,
+`satClause_of_reqSat_prefix`, `satUpTo_of_chain` (toda cadena de un estado intermedio satisface lo visto).
+Caso general no demostrado; siguiente: teorema para una clase de alcance acotado, o búsqueda con paridad
+sobre expansores (requiere implementación más rápida).
+
+Informe: `verificacion_inseguridad_autor_v70.md`.
+
 **2026-09-11 (ba) — El caso 17, el triángulo, y la conservación por prefijo.**
 
 Caso 17 (`cnfmap --case17`): clave (17,4) fija x1=x4=x5=0; tres soluciones dentro; las 18 entradas son

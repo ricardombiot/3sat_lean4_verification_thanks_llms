@@ -1265,4 +1265,162 @@ entries={o.entries} spurious={o.spurious} triangleGaps={oGaps}"
 entries={t.entries} spurious={t.spurious} triangleGaps={tGaps}"
   pure 0
 
+
+/-- Triple exactness in the triangle machine's states: sample triples of nodes
+that pairwise own each other and ask whether one solution (of the clauses seen
+so far, living in the state) passes all three. -/
+def runTriples (cases seed nvMin nvSpan samples : Nat) : IO UInt32 := do
+  IO.println s!"--- triples in the triangle machine: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} samples/state={samples} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut states := 0
+  let mut tested := 0
+  let mut gaps := 0
+  let mut pairGaps := 0
+  let mut mapGaps := 0
+  let mut shown := 0
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+        let steps := (stepCount φ - 1).toNat
+        let mut lt := pureInit φ
+        let mut r := AbsSat.SatMachine.DiffTest.Rng.ofSeed (seed * 7919 + idx)
+        for _ in [0:steps] do
+          lt := pureAdvanceTri φ lt
+          for kv in lt do
+            let g := kv.2
+            if isValid g then
+              states := states + 1
+              let seen := alls.filter (fun a => prefixOk φ a g.current_step)
+              let inside := (seen.map (fun a => solPath φ a g.current_step)).filter (solInside g)
+              let ns := g.nodes.toArray
+              if ns.size ≥ 3 then
+                for _ in [0:samples] do
+                  let (r1, i) := r.below ns.size
+                  let (r2, j) := r1.below ns.size
+                  let (r3, k) := r2.below ns.size
+                  r := r3
+                  match ns[i]?, ns[j]?, ns[k]? with
+                  | some a, some b, some c =>
+                    let steps3 := [a.id.id.step, b.id.id.step, c.id.id.step]
+                    if steps3.eraseDups.length == 3 &&
+                       a.owners.contains b.id && a.owners.contains c.id &&
+                       b.owners.contains a.id && b.owners.contains c.id &&
+                       c.owners.contains a.id && c.owners.contains b.id then
+                      tested := tested + 1
+                      let both (x y : PathNodeId) := inside.any (fun p => p.contains x && p.contains y)
+                      if !(both a.id b.id && both a.id c.id && both b.id c.id) then
+                        pairGaps := pairGaps + 1
+                      else if !inside.any (fun p => p.contains a.id && p.contains b.id && p.contains c.id) then
+                        gaps := gaps + 1
+                        -- is the gap already there between the map values (ignoring parents)?
+                        let hasId (p : List PathNodeId) (x : PathNodeId) : Bool :=
+                          p.any (fun y => y.id == x.id)
+                        if !inside.any (fun p => hasId p a.id && hasId p b.id && hasId p c.id) then
+                          mapGaps := mapGaps + 1
+                          let seenPaths := seen.map (fun a => solPath φ a g.current_step)
+                          let global := seenPaths.any (fun p => hasId p a.id && hasId p b.id && hasId p c.id)
+                          IO.println s!"  MAP GAP (combination {if global then "EXISTS elsewhere" else "ABSENT everywhere"}): case={idx} nVars={φ.nVars} clauses={φ.clauses.length} \
+cs={g.current_step} key=({kv.1.step},{kv.1.index}) \
+({a.id.id.step},{a.id.id.index}) ({b.id.id.step},{b.id.id.index}) ({c.id.id.step},{c.id.id.index})"
+                        if shown < 5 then
+                          shown := shown + 1
+                          IO.println s!"  TRIPLE GAP: case={idx} nVars={φ.nVars} clauses={φ.clauses.length} cs={g.current_step} \
+({a.id.id.step},{a.id.id.index}) ({b.id.id.step},{b.id.id.index}) ({c.id.id.step},{c.id.id.index})"
+                  | _, _, _ => pure ()
+  IO.println s!"  states                                    = {states}"
+  IO.println s!"  co-owned triples tested                   = {tested}"
+  IO.println s!"    with a pair on no common solution       = {pairGaps}"
+  IO.println s!"    pairwise fine, NO common solution (gap) = {gaps}"
+  IO.println s!"      of which also a gap between map values = {mapGaps}"
+  pure 0
+
+
+/-- The `idx`-th formula of the standard campaign generator. -/
+def genCase (seed nvMin nvSpan idx : Nat) : Option Cnf := Id.run do
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut out : Option Cnf := none
+  for i in [0:idx + 1] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if i % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    if i == idx then
+      match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+      | .ok φ => out := some φ
+      | .error _ => pure ()
+  return out
+
+/-- Insert one 3-clause (every triple, every sign pattern) at each position in
+`[lo, hi)` of a chosen formula, run the chosen machine, and count states with a
+node on no solution of the clauses seen so far, and zombie verdicts. -/
+def runInsertGen (seed nvMin nvSpan idx lo hi : Nat) (tri : Bool) : IO UInt32 := do
+  match genCase seed nvMin nvSpan idx with
+  | none => IO.println "no formula"; pure 1
+  | some φ0 =>
+  let n := φ0.nVars
+  let alls := (List.range (Nat.pow 2 n)).map assignOfNat
+  IO.println s!"--- insertion into seed {seed} case {idx} (nVars={n}, clauses={φ0.clauses.length}) \
+positions [{lo},{hi}), machine={if tri then "triangle" else "original"} ---"
+  (← IO.getStdout).flush
+  let mut runs := 0
+  let mut badStates := 0
+  let mut zverdict := 0
+  let mut shown := 0
+  for j in [lo:hi] do
+    for a in [0:n] do
+      for b in [a+1:n] do
+        for c in [b+1:n] do
+          for s in [0:8] do
+            let C : Clause := { l1 := { v := a, pos := s % 2 == 0 },
+                                l2 := { v := b, pos := (s / 2) % 2 == 0 },
+                                l3 := { v := c, pos := (s / 4) % 2 == 0 } }
+            let φ : Cnf := { φ0 with clauses := φ0.clauses.take j ++ [C] ++ φ0.clauses.drop j }
+            if AbsSat.Cnf.Dimacs.wfB φ then
+              runs := runs + 1
+              let truth := alls.any (fun x => satB x φ)
+              let steps := (stepCount φ - 1).toNat
+              let mut line := pureInit φ
+              for _ in [0:steps] do
+                line := if tri then pureAdvanceTri φ line else pureAdvance φ line
+                for kv in line do
+                  if isValid kv.2 then
+                    let z := nodeZombies φ alls kv.2
+                    if z > 0 then
+                      badStates := badStates + 1
+                      if shown < 8 then
+                        shown := shown + 1
+                        IO.println s!"  NODE ZOMBIE: insert at {j} clause {repr C} → \
+cs={kv.2.current_step} key=({kv.1.step},{kv.1.index}): {z} node(s) on no solution"
+                        (← IO.getStdout).flush
+              if !truth && line.any (fun kv => isValid kv.2) then
+                zverdict := zverdict + 1
+                IO.println s!"  ZOMBIE VERDICT: insert at {j} clause {repr C}"
+                (← IO.getStdout).flush
+  IO.println s!"  formulas run                              = {runs}"
+  IO.println s!"  states with a node on no solution         = {badStates}"
+  IO.println s!"  zombie verdicts                           = {zverdict}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign

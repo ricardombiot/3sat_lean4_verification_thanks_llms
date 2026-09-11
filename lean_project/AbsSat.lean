@@ -88,3 +88,4 @@ import AbsSat.GraphPath.Model.Decision
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.PrefixConservation
+import AbsSat.GraphPath.Model.PrefixDecode
