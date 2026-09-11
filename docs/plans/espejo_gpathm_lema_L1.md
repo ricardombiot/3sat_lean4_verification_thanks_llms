@@ -10,6 +10,18 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (az) — El filtro de cláusula, en piezas pequeñas.**
+
+`ClauseFilter.lean`: `ClauseStepExact ⇐ OneReqStep` (un requisito cada vez; `SupportedS_filterAll_of_
+OneReqStep`) `⇐` casos (a) `step_case_self`, (b) trivial, (c) `step_case_pinned`, todos demostrados, más
+(d) `FlipCore` (cambiar un literal), el núcleo. `decides_of_FlipCore`. Medido (`cnfmap --flipcases`,
+cinco semillas, 9.703 filtros, 593.472 instancias): (c) 58,0 %, (b) 12,8 %, (a) 5,2 %, (d) 24,0 %
+resuelto, 0 fallos. Refutado: partir el núcleo en «dos supervivientes co-poseídos están en una cadena
+común» — es la exactitud por pares, falsa por las 18 entradas del caso 17. Siguiente pieza demostrable:
+conservación por prefijo, para enunciar `FlipCore` sin grafo.
+
+Informe: `verificacion_inseguridad_autor_v68.md`.
+
 **2026-09-11 (ay) — El invariante de nodo, demostrado salvo el filtro de cláusulas.**
 
 `NodeInvariant.lean`: `NodeInv g := isValid g → SupportedS g`. `NodeInv_reachable` por inducción sobre

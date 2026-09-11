@@ -85,3 +85,4 @@ import AbsSat.GraphMap.SymCampaign
 import AbsSat.GraphPath.Model.Fabric
 import AbsSat.GraphPath.Model.NodeInvariant
 import AbsSat.GraphPath.Model.Decision
+import AbsSat.GraphPath.Model.ClauseFilter

@@ -1030,4 +1030,96 @@ cs={kv.2.current_step} key={kv.1.step},{kv.1.index}: {z} node(s) on no solution"
   IO.println s!"  zombie verdicts                           = {zverdict}"
   pure 0
 
+
+-- ------------------------------------------------------------
+-- How often each case of the clause filter's decomposition fires
+-- ------------------------------------------------------------
+
+structure FAcc where
+  filters : Nat := 0
+  instances : Nat := 0
+  caseA : Nat := 0
+  caseC : Nat := 0
+  caseBonly : Nat := 0
+  caseD : Nat := 0
+  caseDfail : Nat := 0
+
+/-- For every clause-step filter of the ORIGINAL machine, every surviving node
+`p` and every requirement `r` (in order, `S` = the ones before it), classify the
+step of `ClauseFilter.OneReqStep_of_FlipCore`:
+(a) `p` at `r`'s step; (c) `r`'s step already pinned; otherwise look at the
+solutions of `g` through `p` carrying `S`: if all carry `r`, case (b) always
+applies; if some carry the other value, the core (d) can be invoked — resolved
+when some solution carries `r`, FAILED when none does. -/
+def runFlipCases (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- the cases of the clause filter: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : FAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+        let steps := (stepCount φ - 1).toNat
+        let mut line := pureInit φ
+        for _ in [0:steps] do
+          for kv in line do
+            let g := kv.2
+            if isValid g then
+              for d in mapSons φ kv.1.step kv.1.index do
+                if litBlock φ < d.step && d.step < fusionTop φ then
+                  let reqs := reqOfCnf φ d
+                  let h := filterAll g reqs
+                  if isValid h then
+                    acc := { acc with filters := acc.filters + 1 }
+                    let seen := alls.filter (fun a => prefixOk φ a g.current_step)
+                    let inside := (seen.map (fun a => solPath φ a g.current_step)).filter (solInside g)
+                    for n in h.nodes do
+                      let p := n.id
+                      for i in [0:reqs.length] do
+                        match reqs[i]? with
+                        | none => pure ()
+                        | some r =>
+                          let S := reqs.take i
+                          acc := { acc with instances := acc.instances + 1 }
+                          let carries (path : List PathNodeId) (x : NodeId) : Bool :=
+                            match path[x.step.toNat]? with
+                            | some y => y.id == x
+                            | none => false
+                          if p.id.step == r.step then
+                            acc := { acc with caseA := acc.caseA + 1 }
+                          else if g.gowners.all (fun q => q.id.step != r.step || q.id == r) then
+                            acc := { acc with caseC := acc.caseC + 1 }
+                          else
+                            let through := inside.filter (fun path =>
+                              path.contains p && S.all (fun x => carries path x))
+                            if through.all (fun path => carries path r) then
+                              acc := { acc with caseBonly := acc.caseBonly + 1 }
+                            else if through.any (fun path => carries path r) then
+                              acc := { acc with caseD := acc.caseD + 1 }
+                            else
+                              acc := { acc with caseDfail := acc.caseDfail + 1 }
+          line := pureAdvance φ line
+  IO.println s!"  clause-step filters (valid)               = {acc.filters}"
+  IO.println s!"  (survivor, requirement) instances         = {acc.instances}"
+  IO.println s!"    (a) survivor at the requirement's step  = {acc.caseA}"
+  IO.println s!"    (c) step already pinned                 = {acc.caseC}"
+  IO.println s!"    (b) every chain already carries it      = {acc.caseBonly}"
+  IO.println s!"    (d) core needed, and a flip exists      = {acc.caseD}"
+  IO.println s!"    (d) core needed, NO flip exists (FAIL)  = {acc.caseDfail}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign
