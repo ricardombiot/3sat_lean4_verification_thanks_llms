@@ -2013,4 +2013,135 @@ SOME={x.someGood} EVERY={x.allGood} descents={x.descents} reached={x.descentOk} 
 FAIL-ON-SAT={x.descentFailOnSat} OK-ON-UNSAT={x.descentOkOnUnsat}"
   pure 0
 
+-- ------------------------------------------------------------
+-- The band v74 asked for: the machine's surviving rows vs the reducer's
+-- ------------------------------------------------------------
+
+/-! v71–v73 built a reducer over clause relations and compared it to the
+machine **in prose only**. This band does it with numbers, on real runs.
+
+At every clause step of a real execution there are three sets of rows:
+
+* what **the machine** leaves alive — the keys at that step whose state is
+  still valid;
+* what **the reducer** leaves alive — the rows of that clause in
+  `CnfReducer.reduce` of the prefix seen so far;
+* the **truth** — the rows some assignment satisfying that prefix actually
+  uses, by brute force.
+
+`lost` counts rows the truth uses and the procedure killed: it must be zero for
+both (that is conservation, proved on the reducer side). `spurious` counts rows
+kept that no solution uses. And `extra` counts where the two procedures
+disagree, which is the question v74 left open. -/
+
+def sortU (l : List Int) : List Int :=
+  (l.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []).mergeSort (fun a b => a ≤ b)
+
+def minusL (a b : List Int) : List Int := (sortU a).filter (fun x => !b.contains x)
+
+structure BAcc where
+  steps : Nat := 0
+  agree : Nat := 0
+  machExtra : Nat := 0
+  redExtra : Nat := 0
+  machSpurious : Nat := 0
+  redSpurious : Nat := 0
+  machLost : Nat := 0
+  redLost : Nat := 0
+
+def BAcc.add (x y : BAcc) : BAcc :=
+  { steps := x.steps + y.steps, agree := x.agree + y.agree,
+    machExtra := x.machExtra + y.machExtra, redExtra := x.redExtra + y.redExtra,
+    machSpurious := x.machSpurious + y.machSpurious, redSpurious := x.redSpurious + y.redSpurious,
+    machLost := x.machLost + y.machLost, redLost := x.redLost + y.redLost }
+
+open AbsSat.GraphMap.CnfReducer in
+def scoreBand (φ : Cnf) (tri : Bool) : BAcc := Id.run do
+  let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : BAcc := {}
+  for s in [0:steps + 1] do
+    let k : Int := (s : Int)
+    if litBlock φ < k && k < fusionTop φ then
+      let j := (k - litBlock φ - 1).toNat
+      match φ.clauses[j]? with
+      | none => pure ()
+      | some cj =>
+        -- the machine's surviving rows at this clause step
+        let machRows := (line.filter (fun kv => kv.1.step == k && isValid kv.2)).map
+          (fun kv => kv.1.index)
+        -- the reducer's surviving rows for the same clause, on the prefix seen
+        let C := φ.clauses.take (j + 1)
+        let rels := reduce (initRels C)
+        let redRows := match rels[j]? with | some cr => cr.2 | none => []
+        -- the truth
+        let truth := allRows.filter (fun r =>
+          alls.any (fun a => C.all (satClauseB a) && rowOfAssign a cj == r))
+        acc := { acc with steps := acc.steps + 1 }
+        if (sortU machRows) == (sortU redRows) then acc := { acc with agree := acc.agree + 1 }
+        acc := { acc with
+          machExtra := acc.machExtra + (minusL machRows redRows).length,
+          redExtra := acc.redExtra + (minusL redRows machRows).length,
+          machSpurious := acc.machSpurious + (minusL machRows truth).length,
+          redSpurious := acc.redSpurious + (minusL redRows truth).length,
+          machLost := acc.machLost + (minusL truth machRows).length,
+          redLost := acc.redLost + (minusL truth redRows).length }
+    if s < steps then line := if tri then pureAdvanceTri φ line else pureAdvance φ line
+  return acc
+
+def reportBand (name : String) (x : BAcc) : IO Unit := do
+  IO.println s!"  {name}: clause steps={x.steps} same-set={x.agree} \
+(machine-only rows={x.machExtra}, reducer-only rows={x.redExtra})"
+  IO.println s!"    vs the truth: machine spurious={x.machSpurious} LOST={x.machLost} | \
+reducer spurious={x.redSpurious} LOST={x.redLost}"
+
+/-- `lake exe cnfmap --band [cases] [seed] [nvMin] [nvSpan] [K]` -/
+def runBand (cases seed nvMin nvSpan K : Nat) : IO UInt32 := do
+  IO.println s!"--- the machine's surviving rows vs the reducer's: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} K={K} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut inOrig : BAcc := {}
+  let mut outOrig : BAcc := {}
+  let mut inTri : BAcc := {}
+  let mut outTri : BAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let o := scoreBand φ false
+        let t := scoreBand φ true
+        if AbsSat.GraphMap.CnfHypergraph.boundedScopeB φ K then
+          inOrig := inOrig.add o; inTri := inTri.add t
+        else
+          outOrig := outOrig.add o; outTri := outTri.add t
+  IO.println "ORIGINAL machine:"
+  reportBand "in the class " inOrig
+  reportBand "outside it   " outOrig
+  IO.println "machine with the TRIANGLE pass:"
+  reportBand "in the class " inTri
+  reportBand "outside it   " outTri
+  IO.println "control — the Tseitin families (original machine):"
+  for (name, nV, edges) in [("K4", 4, k4), ("K3,3", 6, k33), ("prism", 6, prism)] do
+    for odd in [true, false] do
+      match tseitin nV edges odd with
+      | none => pure ()
+      | some φ =>
+        let x := scoreBand φ false
+        IO.println s!"    {name} odd={odd}: steps={x.steps} same-set={x.agree} \
+mach-only={x.machExtra} red-only={x.redExtra} machLOST={x.machLost} redLOST={x.redLost}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign

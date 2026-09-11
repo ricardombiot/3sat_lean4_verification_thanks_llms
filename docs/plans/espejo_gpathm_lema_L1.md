@@ -10,6 +10,24 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (bg) — La banda máquina↔reductor: la máquina es más fuerte, y el puente cambia de sentido.**
+
+`cnfmap --band` (`scoreBand`, `runBand` en `SymCampaign.lean`): en cada paso de cláusula de una
+ejecución real compara tres conjuntos de filas — las vivas en la máquina (claves válidas en la línea
+a ese paso), las vivas en `CnfReducer.reduce (initRels (take (j+1)))`, y la verdad por fuerza bruta.
+Dos campañas (5 semillas 3–6 vars; 4 semillas 5–8 vars, estas para intentar romperlo), **5.203 pasos
+de cláusula**: filas solo de la máquina = **0** sin excepción; espurias de la máquina = **0**;
+espurias del reductor = **2.166**; perdidas = 0 en ambos. Dentro de la clase (426 pasos) los
+conjuntos coinciden exactamente. Controles Tseitin: mismo patrón. Con `pureAdvanceTri`, idéntico.
+Consecuencia: el reductor es **cota superior más débil** que la máquina, no su modelo; el puente va
+al revés — (A) `máquina ⊆ reductor` + (B) reductor exacto en la clase ⟹ máquina exacta en la clase.
+Ninguna demostrada. Alcance (v74): (A)+(B) darían exactitud a nivel de clave (sabor `OwnersExactAt`),
+**no** `ClauseStepExact` (que es sobre nodos). Siguiente: enunciar y demostrar (A) sobre estados
+alcanzables, vía `L1`/`ReqFiltered` + las dos pasadas de coherencia en los pasos de literal — el
+primer trabajo de esta rama que toca `owners` de verdad.
+
+Informe: `verificacion_inseguridad_autor_v75.md`.
+
 **2026-09-11 (bf) — CORRECCIÓN: v71–v73 no toca la máquina.**
 
 A pregunta del autor («¿por qué han desaparecido los owners?, ¿el modelo se ajusta a mi algoritmo?»),
