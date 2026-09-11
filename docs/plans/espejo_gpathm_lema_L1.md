@@ -10,6 +10,28 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-11 (ax) — El muro, releído con la definición de owners del autor; corrección a v60.**
+
+El autor: los owners globales contienen todos los nodos mientras el grafo es válido, y los owners de un
+nodo son los nodos compatibles con él, por paso. Formalizado como `OwnersExactAt` («todo owner de `r`
+está en una solución común con `r`»). **Demostrado**: `Fabric_sol` (las soluciones por `r` forman un
+tejido), `FabricAt_of_chain`, `alive_readStepSym_of_OwnersExactAt` (la definición implica que elegir `r`
+no mata a ninguno de sus owners).
+
+**Medido** (`cnfmap --tableexact`, cinco semillas): a longitud completa, 0 de 395.149 entradas espurias,
+0 nodos sin solución, 0 nodos fuera de gowners, en finales y en lecturas. **Corrección a v60**: contra
+las cláusulas vistas hasta cada paso (no la fórmula completa), los 7.790 estados intermedios dan 0 nodos
+zombie de 188.435 y 18 entradas espurias de 4.362.215, todas en un estado (semilla 90210, caso 17, paso
+18/40): nueve pares simétricos compatibles uno a uno sin solución conjunta. `--exactdiag` los lista;
+`--hunt` añade cláusulas a esa fórmula: 0 veredictos zombie.
+
+**El muro**: el invariante de *nodo* («todo nodo está en una solución de las cláusulas vistas») se
+cumple en todo lo medido y es el candidato para inducir sobre la construcción; el de *tabla* (la
+definición del autor) solo a longitud completa. Paso difícil: añadir una cláusula (información por
+pares frente a compatibilidad conjunta).
+
+Informe: `verificacion_inseguridad_autor_v66.md`.
+
 **2026-09-11 (aw) — `Survive.Woven` generalizado: el tejido.**
 
 `Fabric.lean` (nuevo). `Fabric g S T`: cada miembro conserva una subtabla `T p` de sus owners — simétrica,

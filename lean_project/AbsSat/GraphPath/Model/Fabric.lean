@@ -48,6 +48,11 @@ Two things change against `Woven`, both on purpose:
 * `Fabric_of_Woven` — `Woven` is the case `T p v := S v`.
 * `isValid_readStepSym_of_FabricAt` — the reader's step is safe wherever
   `owners(r)` contains a fabric through `r`.
+* `Fabric_sol`, `FabricAt_of_chain` — the solutions through `r` form a fabric,
+  so a node on a solution always has one under it.
+* `alive_readStepSym_of_OwnersExactAt` — under the author's definition of
+  owners (every owner of `r` lies on a common solution with `r`), choosing `r`
+  kills none of its owners.
 
 ## What is measured (`lake exe cnfmap --fabric`)
 
@@ -989,5 +994,139 @@ theorem alive_readStepSym_of_FabricAt (g : GPathM) (r : PathNodeId) (rn : PNodeM
 /-- info: 'AbsSat.GraphPath.Model.Fabric.isValid_readStepSym_of_FabricAt' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms isValid_readStepSym_of_FabricAt
+
+
+-- ============================================================
+-- The author's definition of owners, and what it gives
+-- ============================================================
+
+/-!
+The author's definition: the graph's global owners contain every node while
+the graph is valid, and a node's owners are **the nodes compatible with it**.
+Read "compatible" as *lying on a common solution* — a sound chain through
+both — and the definition is a statement we can state and use.
+
+The first thing it gives is a fabric. Every sound chain is one (its nodes, each
+keeping the chain as its table); and the union of all the chains through `r`
+is one too, with `T x v` meaning *some solution through `r` passes `x` and `v`*.
+-/
+
+/-- `sel` passes through `x`. -/
+def Passes (g : GPathM) (sel : Int → PathNodeId) (x : PathNodeId) : Prop :=
+  ∃ k, 0 ≤ k ∧ k < g.current_step ∧ sel k = x
+
+/-- The **solution fabric of `r`**: members are the nodes on some solution
+through `r`, and `v` is in `x`'s table when one such solution passes both. -/
+def SolS (g : GPathM) (r : PathNodeId) : PathNodeId → Prop :=
+  fun x => ∃ sel, ChainSound g sel ∧ Passes g sel r ∧ Passes g sel x
+
+def SolT (g : GPathM) (r : PathNodeId) : PathNodeId → PathNodeId → Prop :=
+  fun x v => ∃ sel, ChainSound g sel ∧ Passes g sel r ∧ Passes g sel x ∧ Passes g sel v
+
+/-- A chain node owns every chain node. -/
+theorem chain_owns (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel)
+    (i j : Int) (hi : 0 ≤ i) (hi' : i < g.current_step) (hj : 0 ≤ j) (hj' : j < g.current_step)
+    (n : PNodeM) (hn : g.node? (sel i) = some n) : sel j ∈ n.owners := by
+  if hij : i = j then
+    subst hij
+    have hs := h.self_owned i hi hi'
+    simp only [ownersOf, hn] at hs
+    exact hs
+  else
+    have hm := h.chain.2.1 j i hj hi hj' hi' (Ne.symm hij)
+    simp only [ownersAt, List.mem_filter, ownersOf, hn] at hm
+    exact hm.1
+
+theorem Fabric_sol (g : GPathM) (r : PathNodeId) : Fabric g (SolS g r) (SolT g r) where
+  gow := by
+    rintro x ⟨sel, h, _, k, hk0, hk1, rfl⟩
+    exact h.chain.2.2 k hk0 hk1
+  node := by
+    rintro x ⟨sel, h, _, k, hk0, hk1, rfl⟩
+    exact (h.chain.1.1 k hk0 hk1).1
+  inS := by
+    rintro x v _ ⟨sel, h, hr, _, hv⟩
+    exact ⟨sel, h, hr, hv⟩
+  symm := by
+    rintro x v _ ⟨sel, h, hr, hx, hv⟩
+    exact ⟨sel, h, hr, hv, hx⟩
+  self := by
+    rintro x ⟨sel, h, hr, hx⟩
+    exact ⟨sel, h, hr, hx, hx⟩
+  sub := by
+    rintro x n hn _ v ⟨sel, h, _, ⟨i, hi, hi', rfl⟩, ⟨j, hj, hj', rfl⟩⟩
+    exact chain_owns g sel h i j hi hi' hj hj' n hn
+  support := by
+    rintro x ⟨sel, h, hr, hx⟩ l hlo hhi
+    exact ⟨sel l, ⟨sel, h, hr, hx, ⟨l, hlo, hhi, rfl⟩⟩, (h.chain.1.1 l hlo hhi).2⟩
+  up := by
+    rintro x n hn _ hroot v ⟨sel, h, hr, ⟨i, hi, hi', rfl⟩, hv⟩
+    have hipos : 0 < i := by
+      rcases Int.lt_or_eq_of_le hi with hlt | heq
+      · exact hlt
+      · exfalso; subst heq; exact hroot h.root_shape.1
+    have hlink := h.chain.1.2 (i - 1) (by omega) (by omega)
+    rw [show i - 1 + 1 = i from by omega, hn] at hlink
+    simp only [Option.map_some, Option.getD_some] at hlink
+    exact ⟨sel (i - 1), hlink, ⟨sel, h, hr, ⟨i, hi, hi', rfl⟩, ⟨i - 1, by omega, by omega, rfl⟩⟩,
+      ⟨sel, h, hr, ⟨i - 1, by omega, by omega, rfl⟩, hv⟩⟩
+  down := by
+    rintro x ⟨sel, h, hr, ⟨i, hi, hi', rfl⟩⟩ hlast v ⟨sel', h', hr', ⟨i', hi0', hi1', hsel'⟩, hv'⟩
+    -- work on the chain `sel'` that carries `v`
+    have hstep : (sel' i').id.step = i' := (h'.chain.1.1 i' hi0' hi1').2
+    have hstep0 : (sel i).id.step = i := (h.chain.1.1 i hi hi').2
+    have hii : i' = i := by rw [← hstep, hsel', hstep0]
+    subst hii
+    have hlt : i' + 1 < g.current_step := by
+      have : i' ≠ g.current_step - 1 := by rw [← hstep0]; exact hlast
+      omega
+    obtain ⟨hs, _⟩ := h'.chain.1.1 (i' + 1) (by omega) hlt
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+    have hlink := h'.chain.1.2 i' hi0' hlt
+    rw [hm] at hlink
+    simp only [Option.map_some, Option.getD_some] at hlink
+    refine ⟨sel' (i' + 1), m, hm, hsel' ▸ hlink, ?_, ?_⟩
+    · exact ⟨sel', h', hr', ⟨i', hi0', hi1', hsel'⟩, ⟨i' + 1, by omega, hlt, rfl⟩⟩
+    · exact ⟨sel', h', hr', ⟨i' + 1, by omega, hlt, rfl⟩, hv'⟩
+
+/-- **A node on a solution has a fabric under it.** So the reader's step is safe
+at any node on a solution — the fabric form of `isValid_pin_of_chain`, for the
+owners-pin and the symmetric review. -/
+theorem FabricAt_of_chain (g : GPathM) (hsmp : Sons.SMP g) (hnr : Parents.NotRoot g)
+    (r : PathNodeId) (sel : Int → PathNodeId) (h : ChainSound g sel) (hr : Passes g sel r) :
+    FabricAt g r := by
+  obtain ⟨k, hk0, hk1, rfl⟩ := hr
+  obtain ⟨rn, hrn⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 k hk0 hk1).1
+  refine ⟨rn, SolS g (sel k), SolT g (sel k), hrn, ⟨Fabric_sol g (sel k), hsmp, hnr⟩,
+    ⟨sel, h, ⟨k, hk0, hk1, rfl⟩, ⟨k, hk0, hk1, rfl⟩⟩, ?_⟩
+  rintro p ⟨sel', h', ⟨i, hi, hi', hsi⟩, ⟨j, hj, hj', rfl⟩⟩
+  rw [← hsi] at hrn
+  exact chain_owns g sel' h' i j hi hi' hj hj' rn hrn
+
+/-- **The author's definition of owners**, for one node: every node among `r`'s
+owners lies on a common solution with `r`. -/
+def OwnersExactAt (g : GPathM) (r : PathNodeId) : Prop :=
+  ∀ rn, g.node? r = some rn → ∀ p, (g.node? p).isSome = true → p ∈ rn.owners →
+    ∃ sel, ChainSound g sel ∧ Passes g sel r ∧ Passes g sel p
+
+/-- **Under the author's definition, choosing `r` kills none of its owners.**
+Every node among `owners(r)` is a member of the solution fabric of `r`, and a
+fabric survives the reading step. This is `--pinexact`'s measurement, derived. -/
+theorem alive_readStepSym_of_OwnersExactAt (g : GPathM) (hsmp : Sons.SMP g)
+    (hnr : Parents.NotRoot g) (r : PathNodeId) (rn : PNodeM) (hrn : g.node? r = some rn)
+    (hex : OwnersExactAt g r) :
+    ∀ p, (g.node? p).isSome = true → p ∈ rn.owners →
+      ((readStepSym g r).node? p).isSome = true := by
+  intro p hp hpr
+  have hin : ∀ x, SolS g r x → x ∈ rn.owners := by
+    rintro x ⟨sel, h, ⟨i, hi, hi', hsi⟩, ⟨j, hj, hj', rfl⟩⟩
+    subst hsi
+    exact chain_owns g sel h i j hi hi' hj hj' rn hrn
+  exact alive_readStepSym_of_FabricAt g r rn (SolS g r) (SolT g r) hrn
+    ⟨Fabric_sol g r, hsmp, hnr⟩ hin p (hex rn hrn p hp hpr)
+
+/-- info: 'AbsSat.GraphPath.Model.Fabric.alive_readStepSym_of_OwnersExactAt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms alive_readStepSym_of_OwnersExactAt
 
 end AbsSat.GraphPath.Model.Fabric

@@ -600,4 +600,253 @@ vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"    kept by the greatest fabric             = {acc.2.2.2}"
   pure 0
 
+
+-- ------------------------------------------------------------
+-- Owners, as the author defines them: exactly the compatible nodes
+-- ------------------------------------------------------------
+
+/-- The path a satisfying assignment draws: at step `k`, its map node, with the
+previous one as parent. -/
+def solPath (φ : Cnf) (a : Assign) (cs : Int) : List PathNodeId :=
+  (intRange 0 (cs - 1)).map (fun k =>
+    { id := selOfAssign φ a k,
+      parent_id := if k == 0 then none else some (selOfAssign φ a (k - 1)) })
+
+/-- Does that path live in `g` as a solution: every node present, a global
+owner, linked to its predecessor, and all of them owning each other? -/
+def solInside (g : GPathM) (path : List PathNodeId) : Bool :=
+  path.all (fun p =>
+    g.gowners.contains p &&
+    match g.node? p with
+    | none => false
+    | some n => path.all (fun q => n.owners.contains q)) &&
+  (List.range (path.length - 1)).all (fun i =>
+    match path[i]?, path[i + 1]? with
+    | some a, some b =>
+      match g.node? b with
+      | some nb => nb.parents.contains a
+      | none => false
+    | _, _ => false)
+
+structure XAcc where
+  states : Nat := 0
+  nodes : Nat := 0
+  zombieNodes : Nat := 0
+  entries : Nat := 0
+  spurious : Nat := 0
+  notGow : Nat := 0
+
+def addX (a b : XAcc) : XAcc :=
+  { states := a.states + b.states, nodes := a.nodes + b.nodes,
+    zombieNodes := a.zombieNodes + b.zombieNodes, entries := a.entries + b.entries,
+    spurious := a.spurious + b.spurious, notGow := a.notGow + b.notGow }
+
+/-- Exactness of the owner tables against the solutions still inside `g`. -/
+def tableExact (φ : Cnf) (sols : List Assign) (g : GPathM) : XAcc := Id.run do
+  let inside := (sols.map (fun a => solPath φ a g.current_step)).filter (solInside g)
+  let mut acc : XAcc := { states := 1 }
+  for n in g.nodes do
+    let through := inside.filter (fun path => path.contains n.id)
+    acc := { acc with nodes := acc.nodes + 1,
+                      zombieNodes := acc.zombieNodes + (if through.isEmpty then 1 else 0),
+                      notGow := acc.notGow + (if g.gowners.contains n.id then 0 else 1) }
+    for q in n.owners do
+      if (g.node? q).isSome then
+        acc := { acc with entries := acc.entries + 1,
+                          spurious := acc.spurious +
+                            (if through.any (fun path => path.contains q) then 0 else 1) }
+  return acc
+
+/-- The assignments whose path is on the map up to step `cs - 1`: the solutions
+of the clauses the machine has seen so far. -/
+def prefixOk (φ : Cnf) (a : Assign) (cs : Int) : Bool :=
+  (intRange 0 (cs - 1)).all (fun j => (mapNodes φ j).contains (selOfAssign φ a j))
+
+def runTableExact (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- owners = the compatible nodes? cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut fin : XAcc := {}
+  let mut rd : XAcc := {}
+  let mut mid : XAcc := {}
+  let mut rel : XAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let sols := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat |>.filter (fun a => satB a φ)
+        let steps := (stepCount φ - 1).toNat
+        let mut line := pureInit φ
+        for _ in [0:steps] do
+          for kv in line do
+            if isValid kv.2 then
+              mid := addX mid (tableExact φ sols kv.2)
+              let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+              let seen := alls.filter (fun a => prefixOk φ a kv.2.current_step)
+              rel := addX rel (tableExact φ seen kv.2)
+          line := pureAdvanceSym φ line
+        for kv in line do
+          if isValid kv.2 then
+            fin := addX fin (tableExact φ sols kv.2)
+            let mut g := kv.2
+            let mut fuel := 200
+            let mut go := PickInduction.hasChoice g
+            while go do
+              fuel := fuel - 1
+              match firstChoiceC g with
+              | none => go := false
+              | some r =>
+                g := readStepSym g r
+                if isValid g then
+                  rd := addX rd (tableExact φ sols g)
+                  go := fuel > 0 && PickInduction.hasChoice g
+                else go := false
+  for (name, x) in [("PARTIAL-length states (control: v60 says inexact)", mid),
+                    ("PARTIAL-length states, against the clauses SEEN SO FAR", rel),
+                    ("final states of the symmetric machine", fin),
+                    ("states along owners-pin reads", rd)] do
+    IO.println s!"  --- {name} ---"
+    IO.println s!"  states                                    = {x.states}"
+    IO.println s!"  nodes / not a global owner                = {x.nodes} / {x.notGow}"
+    IO.println s!"  nodes on NO surviving solution            = {x.zombieNodes}"
+    IO.println s!"  owner entries (node → node)               = {x.entries}"
+    IO.println s!"    on NO common surviving solution         = {x.spurious}"
+  pure 0
+
+
+/-- Diagnostic: list the spurious entries (against the clauses seen so far) of
+the partial states of one seed. -/
+def runExactDiag (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        let steps := (stepCount φ - 1).toNat
+        let alls := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat
+        let sat := alls.any (fun a => satB a φ)
+        let mut line := pureInit φ
+        let mut stepNo := 0
+        for _ in [0:steps] do
+          for kv in line do
+            let g := kv.2
+            if isValid g then
+              let seen := alls.filter (fun a => prefixOk φ a g.current_step)
+              let inside := (seen.map (fun a => solPath φ a g.current_step)).filter (solInside g)
+              for n in g.nodes do
+                let through := inside.filter (fun path => path.contains n.id)
+                for q in n.owners do
+                  if (g.node? q).isSome && !through.any (fun path => path.contains q) then
+                    IO.println s!"case {idx} (vars={nVars}, clauses={nClauses}, SAT={sat}) \
+cs={g.current_step}/{stepCount φ} key={kv.1.step},{kv.1.index} \
+p={n.id.id.step},{n.id.id.index} q={q.id.step},{q.id.index} \
+through(p)={through.length} inside={inside.length}"
+          line := pureAdvanceSym φ line
+          stepNo := stepNo + 1
+  pure 0
+
+
+/-- Targeted hunt: take the formula whose partial state showed a pairwise-but-
+not-joint table entry (seed 90210, case 17), append random 3-clauses, and look
+for a zombie verdict (valid final state on an UNSAT formula), a final state with
+a node on no solution, or a final state whose tables are not exact. -/
+def runHunt (trials maxExtra seed : Nat) : IO UInt32 := do
+  -- regenerate case 17 of `--tableexact 20 90210 4 3`
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed 90210
+  let mut base : Option Cnf := none
+  for idx in [0:18] do
+    let (rng1, nv) := rng.below 3
+    let nVars := 4 + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    if idx == 17 then
+      match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+      | .ok φ => base := some φ
+      | .error _ => pure ()
+  match base with
+  | none => IO.println "base formula not found"; pure 1
+  | some φ0 =>
+  IO.println s!"--- hunt from seed 90210 case 17: nVars={φ0.nVars} clauses={φ0.clauses.length} \
+trials={trials} extra≤{maxExtra} ---"
+  let mut r := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut tested := 0
+  let mut unsat := 0
+  let mut zombieVerdict := 0
+  let mut zombieNode := 0
+  let mut inexact := 0
+  let mut entries := 0
+  for _ in [0:trials] do
+    let (r1, j) := r.below maxExtra
+    r := r1
+    let mut extra : List Clause := []
+    for _ in [0:j + 1] do
+      let n := φ0.nVars
+      let (r2, a) := r.below n
+      let (r3, b0) := r2.below (n - 1)
+      let (r4, c0) := r3.below (n - 2)
+      let b := if b0 >= a then b0 + 1 else b0
+      let lo := min a b
+      let hi := max a b
+      let c1 := if c0 >= lo then c0 + 1 else c0
+      let c := if c1 >= hi then c1 + 1 else c1
+      let (r5, s) := r4.below 8
+      r := r5
+      extra := extra ++ [{ l1 := { v := a, pos := s % 2 == 0 },
+                           l2 := { v := b, pos := (s / 2) % 2 == 0 },
+                           l3 := { v := c, pos := (s / 4) % 2 == 0 } }]
+    let φ : Cnf := { φ0 with clauses := φ0.clauses ++ extra }
+    if AbsSat.Cnf.Dimacs.wfB φ then
+      tested := tested + 1
+      let sols := (List.range (Nat.pow 2 φ.nVars)).map assignOfNat |>.filter (fun a => satB a φ)
+      if sols.isEmpty then unsat := unsat + 1
+      let steps := (stepCount φ - 1).toNat
+      let mut line := pureInit φ
+      for _ in [0:steps] do
+        line := pureAdvanceSym φ line
+      let finals := line.filter (fun kv => isValid kv.2)
+      if sols.isEmpty && !finals.isEmpty then
+        zombieVerdict := zombieVerdict + 1
+        IO.println s!"  ZOMBIE VERDICT: extra={repr extra}"
+      for kv in finals do
+        let x := tableExact φ sols kv.2
+        zombieNode := zombieNode + x.zombieNodes
+        inexact := inexact + x.spurious
+        entries := entries + x.entries
+  IO.println s!"  formulas tested                           = {tested} ({unsat} UNSAT)"
+  IO.println s!"  ZOMBIE VERDICTS (valid on UNSAT)          = {zombieVerdict}"
+  IO.println s!"  final-state nodes on no solution          = {zombieNode}"
+  IO.println s!"  final-state owner entries / inexact       = {entries} / {inexact}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign
