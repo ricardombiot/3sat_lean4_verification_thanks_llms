@@ -66,3 +66,15 @@ root = "TseitinReaderMain"
 [[lean_exe]]
 name = "tseitin-validate"
 root = "ValidateTseitin"
+
+[[lean_exe]]
+name = "pigeonhole-reader"
+root = "PigeonholeReaderMain"
+
+[[lean_exe]]
+name = "pigeonhole-validate"
+root = "ValidatePigeonhole"
+
+[[lean_exe]]
+name = "test-2lit"
+root = "Test2LitMain"

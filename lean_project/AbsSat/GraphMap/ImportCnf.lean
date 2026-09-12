@@ -41,19 +41,20 @@ def cnf_p! (gmap : GMap) (line : String) : IO GMap := do
 
 def cnf_or! (gmap : GMap) (line : String) : IO GMap := do
   let line := line.replace "-" "!"
-  let literals := line.splitOn " " |> List.filter (fun s : String => s.length > 0)
+  let literals := line.splitOn " "
+    |> List.filter (fun s : String => s.length > 0 && s != "0")
 
-  -- cnf lines often end with 0, so let's filter "0" if it stands alone or handle it
-  -- Julia code: splits space, ensures length 4 (3 literals + 0?).
-  -- "1 -3 0" -> ["1", "-3", "0"]?
-  -- Julia original: `length(literals) != 4`. So 3 lits + termination `0`.
-
-  if literals.length < 3 then
-     return gmap -- Should throw or ignore?
+  if literals.length < 2 then
+     return gmap -- Ignore clauses with fewer than 2 literals
 
   match literals with
   | l1 :: l2 :: l3 :: _ =>
+     -- Standard 3-literal clause
      add_gate! gmap l1 l2 l3
+  | l1 :: l2 :: [] =>
+     -- 2-literal clause: convert to 3-literal by duplicating first literal
+     -- (a ∨ b) becomes (a ∨ b ∨ a) which is logically equivalent
+     add_gate! gmap l1 l2 l1
   | _ => return gmap
 
 def import! (gmap : GMap) (path_file : String) : IO GMap := do
