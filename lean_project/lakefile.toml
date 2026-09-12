@@ -86,3 +86,11 @@ root = "GraphColoringReaderMain"
 [[lean_exe]]
 name = "graph-coloring-validate"
 root = "ValidateGraphColoring"
+
+[[lean_exe]]
+name = "pure-sat-machine"
+root = "PureSatMachineMain"
+
+[[lean_exe]]
+name = "diff-pure-msat"
+root = "DiffPureMsatMain"
