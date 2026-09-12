@@ -1,0 +1,8 @@
+# Generated analysis files
+# Visualizations and generated outputs should not be committed
+
+*.png
+*.dot
+*.svg
+*.pdf
+!.gitignore

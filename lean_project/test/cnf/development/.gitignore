@@ -1,0 +1,7 @@
+# Temporary development CNF files
+# These are created during development and testing
+# but should not be committed to version control
+
+*.cnf
+!.gitignore
+!README.md

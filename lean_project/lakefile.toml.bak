@@ -1,0 +1,88 @@
+name = "abs-sat"
+version = "0.1.0"
+
+[leanOptions]
+warningAsError = true
+
+[dependencies]
+std = { git = "https://github.com/leanprover/std4" }
+
+[[lean_lib]]
+name = "AbsSat"
+root = "AbsSat"
+
+[[lean_exe]]
+name = "runTests"
+root = "Main"
+
+[[lean_exe]]
+name = "diffTest"
+root = "DiffMain"
+
+[[lean_exe]]
+name = "l6search"
+root = "L6SearchMain"
+
+[[lean_exe]]
+name = "width"
+root = "WidthMain"
+
+[[lean_exe]]
+name = "validate"
+root = "ValidateMain"
+
+[[lean_exe]]
+name = "hyper"
+root = "HyperMain"
+
+[[lean_exe]]
+name = "extend"
+root = "ExtendMain"
+
+[[lean_exe]]
+name = "cnfmap"
+root = "CnfMapMain"
+
+[[lean_exe]]
+name = "stepbystep"
+root = "StepByStepMain"
+
+[[lean_exe]]
+name = "stepbystep-cnf"
+root = "StepByStepCNFMain"
+
+[[lean_exe]]
+name = "visualize"
+root = "VisualizeGPathMain"
+
+[[lean_exe]]
+name = "reader"
+root = "ReaderStepByStepMain"
+
+[[lean_exe]]
+name = "tseitin"
+root = "TseitinReaderMain"
+
+[[lean_exe]]
+name = "tseitin-validate"
+root = "ValidateTseitin"
+
+[[lean_exe]]
+name = "pigeonhole-reader"
+root = "PigeonholeReaderMain"
+
+[[lean_exe]]
+name = "pigeonhole-validate"
+root = "ValidatePigeonhole"
+
+[[lean_exe]]
+name = "test-2lit"
+root = "Test2LitMain"
+
+[[lean_exe]]
+name = "graph-coloring-reader"
+root = "GraphColoringReaderMain"
+
+[[lean_exe]]
+name = "graph-coloring-validate"
+root = "ValidateGraphColoring"
