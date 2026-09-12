@@ -34,7 +34,7 @@ function main()
     println("📋 PHASE 1: Loading CNF")
     println("─────────────────────────────")
 
-    cnf_path = "lean_project/simple_test.cnf"
+    cnf_path = "lean_project/convergence_test.cnf"
     if !isfile(cnf_path)
         println("Error: $cnf_path not found.")
         return

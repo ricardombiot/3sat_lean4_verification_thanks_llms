@@ -31,7 +31,7 @@ def main : IO Unit := do
   IO.println "📋 PHASE 1: Loading CNF"
   IO.println "─────────────────────────────"
 
-  let cnf_path := "simple_test.cnf"
+  let cnf_path := "convergence_test.cnf"
   if !(← System.FilePath.pathExists cnf_path) then
     IO.println s!"Error: {cnf_path} not found."
     return
