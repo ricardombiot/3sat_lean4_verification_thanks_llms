@@ -10,6 +10,36 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bu) — las dos correcciones, unidas: `SymTriReview.lean`.**
+
+Módulo nuevo en el **modelo** (registrado en `AbsSat.lean`, 101 módulos): el review simétrico de
+v64 con la pasada del triángulo de v69 — `reviewSymTriFuel`, `reviewSymTri`, `filterAllSymTri`,
+`upFilteringSymTri`, `readStepSymTri`.
+
+Demostrado (36 teoremas, todos `[propext, Quot.sound]`):
+- **`ChainSound_reviewSymTri`** — no pierde soluciones (v64 + v69);
+- **`OwnSymmetric_reviewSymTri`** — mantiene la simetría (v64 + `OwnSymmetric_triClean` de v86);
+- **`TriProp_reviewSymTri`** — entrega el triángulo; exigió **`measure_reviewSym_le`**, que no
+  existía: `measure_symmetrize_le`, `measure_reviewNodeSym_le`, `measure_cleanInvalidGoSym_le`,
+  `measure_reviewLineSym_le`, `measure_reviewStepsSym_le`, `measure_reviewPassSym_le`,
+  `measure_reviewFuelSym_le`;
+- la cadena `Pruned` para el review simétrico (`pruned_symmetrize` … `pruned_reviewSym`), tampoco
+  existía, de donde **`OOS_reviewSymTri`** sale gratis por `OOS_of_pruned`, más
+  `pruned_reviewSymTri` y `gowners_compat_filterAllSymTri`.
+
+Medido, modo nuevo `cnfmap --joined [casos] [semilla] [nvMin] [nvSpan]`: las cuatro máquinas contra
+fuerza bruta, tres semillas, 110 instancias — **0 perdidas, 0 zombis, 0 violaciones de simetría**
+(original: 63 / 74 / 330). Nodos idénticos en las cuatro: la máquina unida no poda más, cambia las
+tablas de owners. La banda `--p4clause symtri` sobre la máquina del modelo da lo mismo que la
+simulada en v87 (38.398 pinchazos; `gow`/`self`/`symm`/`support` en 0; `up`/`down` en 791/721).
+
+Falta de `TableCtx` (v88), sobre esta máquina: `CoherentParents` y `OwnersGlobal`, que `Fuel.lean`
+demuestra para el `review` original y nadie para el simétrico.
+
+Informe: `verificacion_inseguridad_autor_v89.md`.
+
+---
+
 **2026-09-12 (bt) — `up`/`down` no fallan en las tablas; el estado válido es un tejido entero.**
 
 Método corregido a instancia del autor: antes de declarar residuo una cláusula que falla, medir

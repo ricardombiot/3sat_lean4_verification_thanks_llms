@@ -2,6 +2,7 @@
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphPath.Model.TriReview
+import AbsSat.GraphPath.Model.SymTriReview
 import AbsSat.GraphMap.CnfHypergraph
 import AbsSat.GraphMap.CnfReducer
 import AbsSat.GraphMap.CnfSelection
@@ -47,22 +48,8 @@ def pureAdvanceSym (φ : Cnf) (line : PureLine) : PureLine :=
 -- exists only to measure what the two corrections do together.
 -- ------------------------------------------------------------
 
-def reviewSymTriFuel : Nat → GPathM → GPathM
-  | 0, g => g
-  | fuel + 1, g =>
-    let g₁ := reviewSym g
-    if isValid g₁ then
-      let g₂ := TriReview.triClean g₁
-      if measure g₂ < measure g₁ then reviewSymTriFuel fuel g₂ else g₁
-    else g₁
-
-def reviewSymTri (g : GPathM) : GPathM := reviewSymTriFuel (measure g + 1) g
-
-def upFilteringSymTri (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String) : GPathM :=
-  up (reviewSymTri (reqs.foldl filterRequire g)) d title
-
 def sendToSymTri (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
-  let g' := upFilteringSymTri g (reqOfCnf φ d) d ""
+  let g' := SymTriReview.upFilteringSymTri g (reqOfCnf φ d) d ""
   if isValid g' then insertPure next d g' else next
 
 def pureAdvanceSymTri (φ : Cnf) (line : PureLine) : PureLine :=
@@ -2790,6 +2777,77 @@ vars={nvMin}..{nvMin + nvSpan - 1} machine={mode} ---"
   IO.println s!"    COVERS every step               = {acc.covers}"
   IO.println s!"    misses a step                   = {acc.missesAStep}"
   IO.println s!"    loses `q` itself                = {acc.losesQ}"
+  pure 0
+
+/-! ### The joined machine against brute force
+
+The symmetric review of v64 and the triangle pass of v69 in one machine
+(`SymTriReview`). A new machine has to earn its place: it must not lose a
+solution and must not invent one. This band runs all four side by side against
+exhaustive search. -/
+
+structure JAcc where
+  inst : Nat := 0
+  truth : Nat := 0
+  sat : Nat := 0
+  unsound : Nat := 0
+  zombie : Nat := 0
+  states : Nat := 0
+  nodes : Nat := 0
+  symViol : Nat := 0
+
+def JAcc.add (x y : JAcc) : JAcc :=
+  { inst := x.inst + y.inst, truth := x.truth + y.truth, sat := x.sat + y.sat,
+    unsound := x.unsound + y.unsound, zombie := x.zombie + y.zombie,
+    states := x.states + y.states, nodes := x.nodes + y.nodes,
+    symViol := x.symViol + y.symViol }
+
+def scoreJoined (φ : Cnf) (mode : String) : JAcc := Id.run do
+  let truth := bruteSat φ
+  let steps := (stepCount φ - 1).toNat
+  let mut acc : JAcc := { inst := 1, truth := if truth then 1 else 0 }
+  let mut line := pureInit φ
+  for _ in [0:steps] do
+    for kv in line do
+      acc := { acc with states := acc.states + 1, nodes := acc.nodes + kv.2.nodes.length,
+                        symViol := acc.symViol + symViol kv.2 }
+    line := advanceBy mode φ line
+  for kv in line do
+    acc := { acc with states := acc.states + 1, nodes := acc.nodes + kv.2.nodes.length,
+                      symViol := acc.symViol + symViol kv.2 }
+  let verdict := line.any (fun kv => isValid kv.2)
+  acc := { acc with sat := if verdict then 1 else 0,
+                    unsound := if truth && !verdict then 1 else 0,
+                    zombie := if !truth && verdict then 1 else 0 }
+  return acc
+
+/-- `lake exe cnfmap --joined [cases] [seed] [nvMin] [nvSpan]` -/
+def runJoined (cases seed nvMin nvSpan : Nat) : IO UInt32 := do
+  IO.println s!"--- the four machines against brute force: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} ---"
+  let modes := ["orig", "sym", "tri", "symtri"]
+  let mut accs : List (String × JAcc) := modes.map (fun m => (m, {}))
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ =>
+      if AbsSat.Cnf.Dimacs.wfB φ then
+        accs := accs.map (fun e => (e.1, e.2.add (scoreJoined φ e.1)))
+  for (m, a) in accs do
+    IO.println s!"  {m}: instances={a.inst} satisfiable={a.truth} says SAT={a.sat} \
+LOST={a.unsound} ZOMBIE={a.zombie} states={a.states} nodes={a.nodes} symViol={a.symViol}"
   pure 0
 
 end AbsSat.GraphMap.SymCampaign

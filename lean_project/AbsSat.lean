@@ -87,6 +87,7 @@ import AbsSat.GraphPath.Model.NodeInvariant
 import AbsSat.GraphPath.Model.Decision
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
+import AbsSat.GraphPath.Model.SymTriReview
 import AbsSat.GraphPath.Model.PrefixConservation
 import AbsSat.GraphPath.Model.PrefixDecode
 import AbsSat.GraphPath.Model.FabricAdd
