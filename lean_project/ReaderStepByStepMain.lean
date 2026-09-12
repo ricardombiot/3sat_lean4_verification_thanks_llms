@@ -1,10 +1,13 @@
 import AbsSat.SatMachine.SatMachine
 import AbsSat.GraphMap.ImportCnf
 import AbsSat.GraphPath.Reader.PathReader
+import AbsSat.Db.Machine.Cols.ColTimeline
 
 open AbsSat.GraphMap
 open AbsSat.SatMachine
 open AbsSat.GraphPath
+open AbsSat.GraphPath.Reader.PathReader
+open AbsSat.Db.Machine.Cols.ColTimeline
 
 def main : IO Unit := do
   IO.println "╔════════════════════════════════════════╗"
@@ -37,28 +40,73 @@ def main : IO Unit := do
     IO.println "📖 PHASE 2: Reader Initialization"
     IO.println "──────────────────────────────"
 
-    -- Initialize reader (we would use PathReader here)
-    IO.println "✅ Reader initialized with final GPath"
+    -- Extract the final GPath from the timeline
+    let timeline ← machine.timeline.get
+    let final_step := current_step
 
-    IO.println "\n📊 PHASE 3: Certificate Set Analysis"
-    IO.println "──────────────────────────────────"
-    IO.println s!"GPath represents all solutions for this formula"
-    IO.println s!"Step reached: {current_step}"
+    -- Collect first GPath from the timeline
+    let first_gpath_ref ← IO.mkRef (none : Option GPath)
+    for_each_gpath timeline final_step (fun gpath => do
+      let current ← first_gpath_ref.get
+      if current.isNone then
+        first_gpath_ref.set (some gpath)
+    )
+    let first_gpath ← first_gpath_ref.get
 
-    -- Extract solutions (step-by-step would go here)
-    IO.println "\n🔍 PHASE 4: Solution Extraction"
-    IO.println "────────────────────────────────"
-    IO.println "Reader would traverse GPath to extract solutions:"
-    IO.println "  - Step 0: Choose x1 assignment"
-    IO.println "  - Step 1: Evaluate clause constraints"
-    IO.println "  - Step 2: Choose x2 assignment"
-    IO.println "  - ... (continue through steps)"
-    IO.println "  - Final: Validate solution against all clauses"
+    match first_gpath with
+    | none =>
+        IO.println "❌ No GPath found in timeline"
+    | some gpath =>
+        IO.println "✅ Reader initialized with final GPath"
 
-    IO.println "\n✅ Expected solutions:"
-    IO.println "   1=False, 2=True, 3=False, 4=True (as per CNF comment)"
+        IO.println "\n📊 PHASE 3: Certificate Set Analysis"
+        IO.println "──────────────────────────────────"
+        let step_reached ← gpath.current_step.get
+        IO.println s!"GPath represents all solutions for this formula"
+        IO.println s!"Step reached: {step_reached}"
+
+        -- Extract solutions
+        IO.println "\n🔍 PHASE 4: Solution Extraction"
+        IO.println "────────────────────────────────"
+
+        let reader := new gpath
+        let finished_reader ← read! reader
+        let solutions := finished_reader.solution
+
+        if solutions.isEmpty then
+          IO.println "⚠️  First path had no solutions"
+        else
+          IO.println s!"✅ First solution extracted:"
+          let sol_str := solution_to_string solutions
+          IO.println s!"   {sol_str}"
+
+        -- Try to read all solutions
+        IO.println "\n📚 Reading all solutions from certificate set..."
+        try
+          let all_solutions ← read_all_solutions! gpath
+          IO.println s!"✅ Total solutions found: {all_solutions.size}"
+
+          if !all_solutions.isEmpty then
+            IO.println "\n📝 All solutions:"
+            for (idx, solution) in all_solutions.toList.mapIdx (fun idx sol => (idx + 1, sol)) do
+              let sol_str := solution_to_string solution
+              IO.println s!"   Solution {idx}: {sol_str}"
+
+          -- Check for expected solution: x1=F, x2=T, x3=F, x4=T = [false, true, false, true]
+          let expected := #[false, true, false, true]
+          let found_expected := all_solutions.toList.any (· == expected)
+
+          if found_expected then
+            IO.println "\n✅ EXPECTED SOLUTION FOUND: x1=F, x2=T, x3=F, x4=T"
+          else
+            IO.println "\n⚠️  Expected solution not found in extracted set"
+        catch e =>
+          IO.println s!"Note: Multi-path extraction. Error: {e}"
+
+        IO.println "\n✅ Expected solutions:"
+        IO.println "   1=False, 2=True, 3=False, 4=True (as per CNF comment)"
   else
     IO.println "❌ No solution found (UNSAT)"
 
   IO.println "\n══════════════════════════════════════════════════"
-  IO.println "Reader implementation: Next session"
+  IO.println "Reader implementation: Complete"

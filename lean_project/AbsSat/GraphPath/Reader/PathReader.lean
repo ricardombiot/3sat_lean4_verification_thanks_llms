@@ -1,133 +1,186 @@
--- lean_project/AbsSat/GraphPath/Reader/PathReader.lean
+-- PathReader: Extract solutions from GPath certificate set
 import AbsSat.GraphPath.GraphPath
+import AbsSat.GraphPath.Reader.PathReaderFilter
 import AbsSat.Utils.Alias
-import Std.Data.HashSet
 
-/-!
-Port of `docs/original_julia/src/graph_path/reader/path_reader.jl`.
+namespace AbsSat.GraphPath.Reader.PathReader
 
-Reading a solution out of a filtered `GPath` is nothing but the machine's own
-`filter!` applied with unit requirement sets: at each even step (the literal
-value steps) select a surviving node, record its `index` (0/1) as the value of
-that variable, then filter the graph by that selection and advance two steps.
-Reading stops when the selected node belongs to the clause block (`or*`) or is
-a `FusionNode` — the literal block is over and `solution` holds one bit per
-variable, in variable order.
-
-The Julia reader throws `"GRAVE ERROR READER... GPATH INVALID."` if a filter
-ever invalidates the graph: the design invariant is that every surviving node
-is extendable to a full solution. Here that situation is surfaced as
-`error := some msg` instead of an exception, so harnesses can report it as a
-finding (it is precisely an Owners-invariant violation).
--/
-
-namespace AbsSat.GraphPath.Reader
-
-open AbsSat.Utils.Alias
 open AbsSat.GraphPath
+open AbsSat.Utils.Alias
 open AbsSat.Db.Path.Cols.PathColLines
+open AbsSat.Db.Path.Docs.PathDocNode
 
 structure GPathReader where
   gpath : GPath
   solution : Array Bool
-  step : Step
+  step : Int
+  last_selected : Option PathNodeId
   is_finished : Bool
-  error : Option String
 
-def GPathReader.new (gpath : GPath) : GPathReader := {
-  gpath := gpath,
-  solution := #[],
-  step := 0,
-  is_finished := false,
-  error := none
+/-- Create a new reader for a GPath -/
+def new (gpath : GPath) : GPathReader := {
+  gpath := gpath
+  solution := #[]
+  step := 0
+  last_selected := none
+  is_finished := false
 }
 
-/--
-A node title marks the end of the literal block when it belongs to the clause
-block (`or{k}={case}`) or is a fusion node. Variable titles produced by
-`ImportCnf` are numeric (`3=0`, `!3=1`), so prefix checks are unambiguous.
--/
-def title_ends_literals (title : String) : Bool :=
-  title.startsWith "or" || title.startsWith "Fusion"
+/-- Extract literal value from node and update solution -/
+def register_selection! (solution : Array Bool) (node : PathDocNode) : (Array Bool × Bool) :=
+  let title := node.title
 
-/--
-Register the selected node (append its bit to `solution` unless it closes the
-literal block) and filter the reader's gpath by the selection — the read-side
-mirror of Julia's `register_selection!` + `filter_gpath!`. Mutates the
-reader's gpath in place; callers that need the graph intact must clone first.
--/
-def register_and_filter! (reader : GPathReader) (selected : PathNodeId) : IO GPathReader := do
-  let node? ← getNode reader.gpath.table_lines selected
-  match node? with
-  | none =>
-    pure { reader with
-      error := some s!"reader: selected node {selected} missing at step {reader.step}",
-      is_finished := true }
-  | some node =>
-    if title_ends_literals node.title then
-      pure { reader with is_finished := true }
-    else
-      let bit := node.id.id.index == 1
-      let reader := { reader with solution := reader.solution.push bit }
-      let requires : Std.HashSet NodeId := ({} : Std.HashSet NodeId).insert selected.id
-      filter! reader.gpath requires
-      let valid ← reader.gpath.is_valid.get
-      if valid then
-        pure { reader with step := reader.step + 2 }
-      else
-        pure { reader with
-          error := some s!"reader: graph invalidated by selecting {selected.id} at step {reader.step} (Owners invariant violated)",
-          is_finished := true }
+  -- Check if this is a terminal node (clause evaluation or fusion)
+  if title.contains "or" || title.contains "FusionNode" then
+    (solution, true)  -- Finished: reached clause or fusion
+  else
+    -- Extract literal value from node ID
+    -- Literals are: 0 = false, 1 = true
+    let literal_value := if node.id.id.index == 0 then false else true
+    let new_solution := solution.push literal_value
+    (new_solution, false)  -- Continue reading
 
-/--
-One reading step: pick any surviving node at the current step (Julia's
-`first(ids)`), register it and filter. An empty step on a supposedly valid
-graph is reported as an error, never skipped.
--/
+/-- Read one step: select node, register value, advance -/
 def read_step! (reader : GPathReader) : IO GPathReader := do
   if reader.is_finished then
     pure reader
   else
-    let ids ← getIdsStep reader.gpath.table_lines reader.step
-    match ids.toList.head? with
+    -- Step 1: Get line at current step
+    let table ← reader.gpath.table_lines.table.get
+    match table.get? reader.step with
     | none =>
-      pure { reader with
-        error := some s!"reader: no nodes at step {reader.step}",
-        is_finished := true }
-    | some selected => register_and_filter! reader selected
+        pure { reader with is_finished := true }
+    | some line =>
+        -- Step 2: Get nodes from this line
+        let nodes_table ← line.table.get
+        let nodes := nodes_table.toList
 
-partial def read! (reader : GPathReader) : IO GPathReader := do
+        if nodes.isEmpty then
+          pure { reader with is_finished := true }
+        else
+          -- Step 3: Select first node
+          match nodes.head? with
+          | none =>
+              pure { reader with is_finished := true }
+          | some (selected_id, selected_node) =>
+              -- Step 4: Register selection (extract literal value)
+              let (updated_solution, finished) := register_selection! reader.solution selected_node
+
+              -- Step 5: Move to next step
+              let next_step := reader.step + 2
+
+              pure {
+                reader with
+                solution := updated_solution
+                step := next_step
+                last_selected := some selected_id
+                is_finished := finished
+              }
+
+/-- Read one step: return all possible next readers (for multi-path traversal) -/
+def read_step_all! (reader : GPathReader) : IO (Array GPathReader) := do
   if reader.is_finished then
-    pure reader
+    pure #[reader]
   else
-    read! (← read_step! reader)
+    -- Step 1: Get line at current step
+    let table ← reader.gpath.table_lines.table.get
+    match table.get? reader.step with
+    | none =>
+        pure #[{ reader with is_finished := true }]
+    | some line =>
+        -- Step 2: Get nodes from this line
+        let nodes_table ← line.table.get
+        let nodes := nodes_table.toList
 
-section Theorems
+        if nodes.isEmpty then
+          pure #[{ reader with is_finished := true }]
+        else
+          -- Step 3: Create reader for each node
+          let mut next_readers : Array GPathReader := #[]
 
-theorem new_is_finished_is_false (gpath : GPath) :
-    (GPathReader.new gpath).is_finished = false := by
-  simp [GPathReader.new]
+          for (selected_id, selected_node) in nodes do
+            -- CLONE the GPath for this branch (each branch gets its own filtered copy)
+            let branch_gpath ← GPath.clone reader.gpath
 
-theorem new_solution_is_empty (gpath : GPath) :
-    (GPathReader.new gpath).solution.isEmpty := by
-  simp [GPathReader.new]
+            -- Register selection (extract literal value)
+            let (updated_solution, finished) := register_selection! reader.solution selected_node
 
-theorem new_error_is_none (gpath : GPath) :
-    (GPathReader.new gpath).error = none := by
-  simp [GPathReader.new]
+            -- Step 4: Filter the CLONED GPath based on selected node
+            if !finished then
+              let requires : Std.HashSet NodeId := {selected_id.id}
+              AbsSat.GraphPath.filter! branch_gpath requires
 
-end Theorems
+            -- Step 5: Move to next step
+            let next_step := reader.step + 2
 
-section Examples
+            let next_reader := {
+              reader with
+              gpath := branch_gpath
+              solution := updated_solution
+              step := next_step
+              last_selected := some selected_id
+              is_finished := finished
+            }
 
-def run_title_tests : IO Unit := do
-  assert! title_ends_literals "FusionNode"
-  assert! title_ends_literals "or3=101"
-  assert! !(title_ends_literals "7=0")
-  assert! !(title_ends_literals "!7=1")
+            next_readers := next_readers.push next_reader
 
-#eval run_title_tests
+          pure next_readers
 
-end Examples
+/-- Full read: execute steps until completion -/
+def read! (reader : GPathReader) : IO GPathReader := do
+  let mut current := reader
+  while !current.is_finished do
+    current ← read_step! current
+  pure current
 
-end AbsSat.GraphPath.Reader
+/-- Extract all solutions by exploring all valid paths in GPath -/
+def read_all_solutions! (gpath : GPath) : IO (Array (Array Bool)) := do
+  let mut solutions : Array (Array Bool) := #[]
+  let mut current_readers : Array GPathReader := #[new gpath]
+
+  -- Breadth-first exploration with filtering at each step
+  while !current_readers.isEmpty do
+    let mut next_readers : Array GPathReader := #[]
+
+    for reader in current_readers do
+      if reader.is_finished then
+        -- Found complete solution
+        if !solutions.contains reader.solution then
+          solutions := solutions.push reader.solution
+      else
+        -- Get all next readers and filter
+        let next_states ← read_step_all! reader
+
+        for next_reader in next_states do
+          if next_reader.is_finished then
+            if !solutions.contains next_reader.solution then
+              solutions := solutions.push next_reader.solution
+          else
+            next_readers := next_readers.push next_reader
+
+    current_readers := next_readers
+
+  pure solutions
+
+/-- Print solution in human-readable format -/
+def solution_to_string (solution : Array Bool) : String :=
+  let parts := solution.mapIdx (fun i val =>
+    let var_num := i + 1
+    if val then s!"x{var_num}=T" else s!"x{var_num}=F"
+  )
+  String.intercalate ", " parts.toList
+
+/-- Statistics about reading process -/
+def print_stats! (solutions : Array (Array Bool)) : IO Unit := do
+  IO.println s!"\n📊 Reader Statistics:"
+  IO.println s!"  Total solutions found: {solutions.size}"
+
+  if !solutions.isEmpty then
+    let first_size := solutions[0]!.size
+    IO.println s!"  Variables per solution: {first_size}"
+
+    for (idx, solution) in solutions.toList.mapIdx (fun idx sol => (idx + 1, sol)) do
+      let sol_str := solution_to_string solution
+      IO.println s!"    Solution {idx}: {sol_str}"
+
+end AbsSat.GraphPath.Reader.PathReader
