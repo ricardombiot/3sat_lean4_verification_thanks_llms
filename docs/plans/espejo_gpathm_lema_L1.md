@@ -10,6 +10,29 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bx) — las hipótesis, enhebradas por el conductor; `NodesAreGowners` demostrada.**
+
+`SymTriReview.lean` pasa de 114 a **134 teoremas**. Paquete `Woven` (once campos: los nueve de
+`TableCtx` más `Below` —cada nodo en un paso que el estado tiene— y `MachineOk`), con
+`Woven_filterRequire`/`_foldl_filterRequire`, `Woven_reviewSymTri`, `Woven_filterAllSymTri`,
+`Woven_addNode`, `Woven_up`, **`Woven_upFilteringSymTri`**, `Woven_empty`, **`Woven_initSeed`** y
+**`TableCtx_of_Woven`**. Auxiliares nuevos: `Below`, `Below_of_pruned`, `Below_addNode`,
+`MachineOk_of_pruned`, `MachineOk_join`, `okJoin_step`, `Below_join`.
+
+Hallazgo: `filterRequire` **encoge `gowners`**, luego no puede conservar `NodesAreGowners`, que
+`Ownership.lean` define, `Reader.lean` arrastra como hipótesis y `Sons.lean` anota como medida
+(0 violaciones sobre 259.187 nodos) y no demostrada. No hace falta conservarla porque el review la
+devuelve: **`NG_reviewSymTri`**, de `selfOwn_reviewSymTri` + `OwnersGlobal_reviewSymTri` (v90).
+Con ella se cierra el paso hacia arriba, porque `OwnSymmetric_addNode` la pedía.
+
+`join`: diez de los once campos tienen teorema. Falta **la simetría**: `q ∈ owners₁(p)` da
+`p ∈ owners₁(q)` sólo si `q` es nodo de `g₁`, y la fusión puede tener un `q` que es nodo de un lado
+y entrada de tabla del otro; lo cierra `OwnersGlobal` + `GN` en ambos lados.
+
+Informe: `verificacion_inseguridad_autor_v92.md`.
+
+---
+
 **2026-09-12 (bw) — los siete campos estructurales; `TableCtx` completa y `Fabric_whole` sobre la máquina unida.**
 
 `SymTriReview.lean` pasa de 89 a **114 teoremas**. Los siete campos ya existían con otro nombre:

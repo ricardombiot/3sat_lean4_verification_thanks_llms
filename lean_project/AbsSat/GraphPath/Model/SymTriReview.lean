@@ -1431,6 +1431,254 @@ theorem Fabric_whole_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = 
     hrootstep
 
 -- ============================================================
+-- Threading the invariants through the driver
+-- ============================================================
+
+/-! `TableCtx_reviewSymTri` asks the *input* state for nine invariants. This
+section carries them along the machine's own driver: the seed, the filter step
+(`upFilteringSymTri`), and the join that merges two states arriving at the same
+map node.
+
+One of them is not carried but **produced**, and it closes a gap the project
+had left open since `Ownership.lean`:
+
+> **`NodesAreGowners` — every node is a global owner — is a theorem at a valid
+> fixpoint of the joined machine.**
+
+`Sons.lean` records it as "supported by the campaign (0 violations over 259.187
+nodes) but not proved", and `Reader.lean` carries it as a hypothesis. It falls
+out of two things already proved here: a node owns itself (`selfOwn`), and the
+owners of a survivor are global owners (`OwnersGlobal`). That also removes the
+awkwardness of `filterRequire`, which *shrinks* `gowners` and so cannot preserve
+the property — it does not have to, because the review re-establishes it. -/
+
+/-- Every node sits at a step the state actually has. -/
+def Below (g : GPathM) : Prop :=
+  ∀ n ∈ g.nodes, 0 ≤ n.id.id.step ∧ n.id.id.step < g.current_step
+
+theorem Below_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : Below g) : Below g' := by
+  intro n' hn'
+  obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'
+  rw [hid, hpr.step_eq]
+  exact h n hn
+
+theorem Below_filterRequire (g : GPathM) (req : NodeId) (h : Below g) :
+    Below (filterRequire g req) := h
+
+theorem Below_foldl_filterRequire : ∀ (reqs : List NodeId) (g : GPathM), Below g →
+    Below (reqs.foldl filterRequire g) := by
+  intro reqs
+  induction reqs with
+  | nil => intro g h; exact h
+  | cons req rest ih => intro g h; simp only [List.foldl_cons]; exact ih _ h
+
+theorem Below_reviewSymTri (g : GPathM) (h : Below g) : Below (reviewSymTri g) :=
+  Below_of_pruned (pruned_reviewSymTri g) h
+
+/-- **Every node is a global owner, at a valid fixpoint.** A node owns itself,
+and the owners of a survivor are global owners. -/
+theorem NG_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true)
+    (hoos : SelfOwn.OOS g) (hbel : Below (reviewSymTri g)) :
+    Ownership.NodesAreGowners (reviewSymTri g) := by
+  intro n hn
+  -- the lookup at `n.id` finds *some* node with that id; it is the one the
+  -- invariants speak about
+  obtain ⟨m, hm⟩ : ∃ m, (reviewSymTri g).node? n.id = some m :=
+    Option.isSome_iff_exists.mp
+      ((GownersNodes.hasNode_iff _ n.id).mp ⟨n, hn, rfl⟩)
+  have hmid : m.id = n.id := node?_id_eq _ n.id m hm
+  have hmmem : m ∈ (reviewSymTri g).nodes := List.mem_of_find?_eq_some hm
+  obtain ⟨hl0, hl⟩ := hbel m hmmem
+  rw [hmid] at hl0 hl
+  have hself : n.id ∈ m.owners :=
+    selfOwn_reviewSymTri g hv hoos n.id m hm hl0 hl
+  exact OwnersGlobal_reviewSymTri g hv n.id m hm n.id hself hl0 hl
+
+/-- Everything the joined machine carries from one state to the next, so that
+`TableCtx_reviewSymTri` applies at every step of a run. Each field is a
+property the project already had; the bundle is only bookkeeping. -/
+structure Woven (g : GPathM) : Prop where
+  oos : SelfOwn.OOS g
+  sym : Threaded.OwnSymmetric g
+  pn : Parents.PN g
+  pbelow : Parents.PBelow g
+  notroot : Parents.NotRoot g
+  sn : Sons.SN g
+  sabove : Sons.SAbove g
+  pms : Sons.PMS g
+  gn : GownersNodes.GN g
+  below : Below g
+  mok : MachineOk g
+
+theorem MachineOk_of_pruned {g g' : GPathM} (hpr : Pruned g g')
+    (h : MachineOk g) : MachineOk g' := by
+  obtain ⟨h0, h1, h2⟩ := h
+  rw [MachineOk, hpr.step_eq, hpr.map_parent_eq]
+  exact ⟨h0, h1, h2⟩
+
+theorem Below_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (hmok : MachineOk g) (h : Below g) :
+    Below (addNode g d title) := by
+  intro n' hn'
+  rw [addNode_current]
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_id]
+    obtain ⟨h0, h1⟩ := h n hn
+    exact ⟨h0, by omega⟩
+  · rcases List.mem_singleton.mp hmem with rfl
+    have hstep : (addOwner (newPid g d) (upNode g d title)).id.id.step = g.current_step := by
+      simp only [addOwner, upNode, newPid]; exact hd
+    rw [hstep]
+    exact ⟨hmok.1, by omega⟩
+
+-- ------------------------------------------------------------
+-- Carried by the filter
+-- ------------------------------------------------------------
+
+theorem Woven_filterRequire (g : GPathM) (req : NodeId) (h : Woven g) :
+    Woven (filterRequire g req) :=
+  { oos := SelfOwn.OOS_filterRequire g req h.oos
+    sym := Reader.OwnSymmetric_filterRequire g req h.sym
+    pn := Parents.PN_filterRequire g req h.pn
+    pbelow := Parents.PBelow_of_pruned (pruned_filterRequire g req) h.pbelow
+    notroot := Parents.NotRoot_of_pruned (pruned_filterRequire g req) h.notroot
+    sn := Sons.SN_filterRequire g req h.sn
+    sabove := Sons.SAbove_filterRequire g req h.sabove
+    pms := Sons.PMS_filterRequire g req h.pms
+    gn := GownersNodes.GN_filterRequire g req h.gn
+    below := Below_of_pruned (pruned_filterRequire g req) h.below
+    mok := MachineOk_of_pruned (pruned_filterRequire g req) h.mok }
+
+theorem Woven_foldl_filterRequire : ∀ (reqs : List NodeId) (g : GPathM), Woven g →
+    Woven (reqs.foldl filterRequire g) := by
+  intro reqs
+  induction reqs with
+  | nil => intro g h; exact h
+  | cons req rest ih =>
+    intro g h; simp only [List.foldl_cons]; exact ih _ (Woven_filterRequire g req h)
+
+theorem Woven_reviewSymTri (g : GPathM) (h : Woven g) : Woven (reviewSymTri g) :=
+  { oos := OOS_reviewSymTri g h.oos
+    sym := OwnSymmetric_reviewSymTri g h.sym
+    pn := linkStable_PN.reviewSymTri' g h.pn
+    pbelow := Parents.PBelow_of_pruned (pruned_reviewSymTri g) h.pbelow
+    notroot := Parents.NotRoot_of_pruned (pruned_reviewSymTri g) h.notroot
+    sn := linkStable_SN.reviewSymTri' g h.sn
+    sabove := linkStable_SAbove.reviewSymTri' g h.sabove
+    pms := linkStable_PMS.reviewSymTri' g h.pms
+    gn := linkStable_GN.reviewSymTri' g h.gn
+    below := Below_of_pruned (pruned_reviewSymTri g) h.below
+    mok := MachineOk_of_pruned (pruned_reviewSymTri g) h.mok }
+
+theorem Woven_filterAllSymTri (g : GPathM) (reqs : List NodeId) (h : Woven g) :
+    Woven (filterAllSymTri g reqs) :=
+  Woven_reviewSymTri _ (Woven_foldl_filterRequire reqs g h)
+
+-- ------------------------------------------------------------
+-- Carried by the step up
+-- ------------------------------------------------------------
+
+theorem Woven_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (hng : Ownership.NodesAreGowners g) (h : Woven g) :
+    Woven (addNode g d title) :=
+  have hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step := fun n hn => (h.below n hn).2
+  { oos := SelfOwn.OOS_addNode g d title hd hbelow h.gn h.oos
+    sym := Reader.OwnSymmetric_addNode g d title hd hbelow hng h.sym
+    pn := Parents.PN_addNode g d title h.pn
+    pbelow := Parents.PBelow_addNode g d title hd h.pbelow
+    notroot := Parents.NotRoot_addNode g d title hd h.mok h.notroot
+    sn := Sons.SN_addNode g d title h.sn
+    sabove := Sons.SAbove_addNode g d title hd h.sabove
+    pms := Sons.PMS_addNode g d title hd hbelow h.sn h.pms
+    gn := GownersNodes.GN_addNode g d title h.gn
+    below := Below_addNode g d title hd h.mok h.below
+    mok := MachineOk_addNode g d title h.mok }
+
+theorem Woven_up (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (hng : Ownership.NodesAreGowners g) (h : Woven g) :
+    Woven (up g d title) := by
+  simp only [GPathM.up]
+  split
+  · exact Woven_addNode g d title hd hng h
+  · exact h
+
+/-- **One step of the joined machine's driver carries everything.** The pin
+fold, the review with the triangle, and the step up — and the one invariant
+that the pin *cannot* carry, `NodesAreGowners`, is the one the review hands
+back. -/
+theorem Woven_upFilteringSymTri (g : GPathM) (reqs : List NodeId) (d : NodeId)
+    (title : String) (hv : isValid (filterAllSymTri g reqs) = true)
+    (hd : d.step = (filterAllSymTri g reqs).current_step) (h : Woven g) :
+    Woven (upFilteringSymTri g reqs d title) := by
+  have hw := Woven_filterAllSymTri g reqs h
+  refine Woven_up _ d title hd ?_ hw
+  exact NG_reviewSymTri _ hv (Woven_foldl_filterRequire reqs g h).oos hw.below
+
+-- ------------------------------------------------------------
+-- And the seed starts it
+-- ------------------------------------------------------------
+
+theorem Woven_empty : Woven empty :=
+  { oos := fun n hn => absurd hn (by simp [GPathM.empty])
+    sym := fun p n q m hp => absurd hp (by simp [GPathM.empty, GPathM.node?])
+    pn := fun n hn => absurd hn (by simp [GPathM.empty])
+    pbelow := fun n hn => absurd hn (by simp [GPathM.empty])
+    notroot := fun n hn => absurd hn (by simp [GPathM.empty])
+    sn := fun n hn => absurd hn (by simp [GPathM.empty])
+    sabove := fun n hn => absurd hn (by simp [GPathM.empty])
+    pms := fun n hn => absurd hn (by simp [GPathM.empty])
+    gn := fun q hq => absurd hq (by simp [GPathM.empty])
+    below := fun n hn => absurd hn (by simp [GPathM.empty])
+    mok := MachineOk_empty }
+
+theorem Woven_initSeed (d : NodeId) (title : String) (hstep : d.step = 0) :
+    Woven (GPathM.initSeed d title) :=
+  Woven_up empty d title (by rw [hstep]; rfl)
+    (fun n hn => absurd hn (by simp [GPathM.empty])) Woven_empty
+
+/-- **And so `TableCtx` holds at every state the driver builds.** -/
+theorem TableCtx_of_Woven (g : GPathM) (hv : isValid (reviewSymTri g) = true)
+    (h : Woven g) : FabricAdd.TableCtx (reviewSymTri g) :=
+  TableCtx_reviewSymTri g hv h.oos h.sym h.pn h.pbelow h.notroot h.sn h.sabove h.pms
+
+-- ------------------------------------------------------------
+-- The join: ten of the eleven
+-- ------------------------------------------------------------
+
+/-! The driver merges two states that reach the same map node (`insertPure`,
+through `doJoin`). Ten of the eleven fields have their join theorem already or
+below. The eleventh, **symmetry**, does not, and the reason is precise rather
+than technical: `q ∈ owners₁(p)` gives `p ∈ owners₁(q)` only when `q` is a
+**node of `g₁`**, and the join can hold a `q` that is a node of one side and
+merely an owner-entry on the other. What closes it is
+`OwnersGlobal` and `GN` on both sides — every owner in range is a global owner
+and every global owner is a node — and that is the next piece, not a hidden
+one. -/
+
+theorem MachineOk_join (g₁ g₂ : GPathM) (h : MachineOk g₁) : MachineOk (join g₁ g₂) := h
+
+theorem okJoin_step (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) :
+    g₂.current_step = g₁.current_step := by
+  simp only [okJoin, Bool.and_eq_true, beq_iff_eq] at hok
+  exact hok.1.1.1.symm
+
+theorem Below_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : Below g₁) (h₂ : Below g₂) : Below (join g₁ g₂) := by
+  have hstep := okJoin_step g₁ g₂ hok
+  intro n' hn'
+  show 0 ≤ n'.id.id.step ∧ n'.id.id.step < g₁.current_step
+  simp only [GPathM.join, List.mem_append] at hn'
+  rcases hn' with hm | hm
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hm
+    have hid : n'.id = n.id := by
+      rw [← hEq]; cases g₂.node? n.id <;> rfl
+    rw [hid]; exact h₁ n hn
+  · have hb := h₂ _ (List.mem_filter.mp hm).1
+    rw [hstep] at hb; exact hb
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -1489,5 +1737,21 @@ theorem Fabric_whole_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = 
 /-- info: 'AbsSat.GraphPath.Model.SymTriReview.Fabric_whole_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Fabric_whole_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.NG_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms NG_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.Woven_upFilteringSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Woven_upFilteringSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.Woven_initSeed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Woven_initSeed
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.TableCtx_of_Woven' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms TableCtx_of_Woven
 
 end AbsSat.GraphPath.Model.SymTriReview
