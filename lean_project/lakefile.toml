@@ -42,3 +42,7 @@ root = "ExtendMain"
 [[lean_exe]]
 name = "cnfmap"
 root = "CnfMapMain"
+
+[[lean_exe]]
+name = "stepbystep"
+root = "StepByStepMain"

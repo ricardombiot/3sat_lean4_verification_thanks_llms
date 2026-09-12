@@ -36,16 +36,18 @@ def impact! (step : ColTimelineStep) (gpath : GPath) : IO ColTimelineStep := do
 
     match step.table.get? map_node_id with
     | none =>
+      -- First history to reach this node: store it and increment counter
       pure { step with
         table := step.table.insert map_node_id gpath,
         counter_graphs := step.counter_graphs + 1
       }
     | some current_gpath =>
-      -- Two different histories converged on the same destination node
-      -- (a common son of distinct earlier choices): merge the incoming
-      -- gpath into the one already parked here instead of dropping it,
-      -- or a whole branch of otherwise-valid candidates silently vanishes.
+      -- Two different histories converged on the same destination node.
+      -- Merge them via do_join! to preserve all data from both branches.
+      -- Note: counter_graphs stays the same (one merged path, not two separate ones).
       AbsSat.GraphPath.do_join! current_gpath gpath
+      -- Re-insert the merged path to ensure HashMap reflects the in-place modifications
+      -- to current_gpath's internal Refs (table_lines and owners).
       pure { step with table := step.table.insert map_node_id current_gpath }
   else
     pure step

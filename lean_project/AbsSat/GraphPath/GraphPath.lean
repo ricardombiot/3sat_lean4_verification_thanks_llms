@@ -392,22 +392,13 @@ def is_valid_join (gpath : GPath) (gpath_inmutable : GPath) : IO Bool := do
 def do_join! (gpath : GPath) (gpath_inmutable : GPath) : IO Unit := do
   let valid ← is_valid_join gpath gpath_inmutable
   if valid then
-     -- Deep copy of immutable path to ensure isolation (optional if union! works with source refs safely,
-     -- but safer to follow Julia logic if side effects exist).
-     -- Actually, union! only reads from source. Cloning might be redundant if source is truly immutable during join.
-     -- Julia uses deepcopy, probably to avoid sharing structure pointers if union! was destructive or link-based?
-     -- Or maybe just to be safe. In Lean with Refs, if we modify gpath, we don't assume we modify gpath_inmutable.
-     -- union! modifies 'gpath' (linesA), reads 'gpath_inmutable' (linesB).
-     -- Seems safe to read directly?
-     -- But `owners` union?
-     -- PathDocOwners.union (a b) returns new structure.
-     -- So we just set it.
+     -- Clone gpath_inmutable to avoid corrupting shared references during union.
+     -- Mirrors Julia's deepcopy before union (essential for preserving concurrent histories).
+     let gpath_copy ← GPath.clone gpath_inmutable
 
-     -- Let's just use gpath_inmutable directly for reading.
+     AbsSat.Db.Path.Cols.PathColLines.union! gpath.table_lines gpath_copy.table_lines
 
-     AbsSat.Db.Path.Cols.PathColLines.union! gpath.table_lines gpath_inmutable.table_lines
-
-     let ownersB ← gpath_inmutable.owners.get
+     let ownersB ← gpath_copy.owners.get
      gpath.owners.modify (fun ownersA => AbsSat.Db.Path.Docs.PathDocOwners.union ownersA ownersB)
 
 
