@@ -1,0 +1,148 @@
+digraph G {
+  compound=true
+  rankdir=LR
+  subgraph cluster_step_0 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k0_0__root [label="1=0"]
+    k0_1__root [label="1=1"]
+    fontsize=12
+    label="Step 0"
+  }
+  subgraph cluster_step_1 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k1_1__k0_0 [label="!1=1"]
+    k1_0__k0_1 [label="!1=0"]
+    fontsize=12
+    label="Step 1"
+  }
+  subgraph cluster_step_2 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k2_0__k1_1 [label="2=0"]
+    k2_1__k1_0 [label="2=1"]
+    k2_0__k1_0 [label="2=0"]
+    k2_1__k1_1 [label="2=1"]
+    fontsize=12
+    label="Step 2"
+  }
+  subgraph cluster_step_3 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k3_1__k2_0 [label="!2=1"]
+    k3_0__k2_1 [label="!2=0"]
+    fontsize=12
+    label="Step 3"
+  }
+  subgraph cluster_step_4 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k4_1__k3_1 [label="3=1"]
+    k4_0__k3_1 [label="3=0"]
+    k4_1__k3_0 [label="3=1"]
+    k4_0__k3_0 [label="3=0"]
+    fontsize=12
+    label="Step 4"
+  }
+  subgraph cluster_step_5 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k5_0__k4_1 [label="!3=0"]
+    k5_1__k4_0 [label="!3=1"]
+    fontsize=12
+    label="Step 5"
+  }
+  subgraph cluster_step_6 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k6_0__k5_0 [label="FusionNode"]
+    k6_0__k5_1 [label="FusionNode"]
+    fontsize=12
+    label="Step 6"
+  }
+  subgraph cluster_step_7 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k7_3__k6_0 [label="or0=011"]
+    k7_6__k6_0 [label="or0=110"]
+    k7_1__k6_0 [label="or0=001"]
+    k7_7__k6_0 [label="or0=111"]
+    k7_2__k6_0 [label="or0=010"]
+    k7_4__k6_0 [label="or0=100"]
+    fontsize=12
+    label="Step 7"
+  }
+  subgraph cluster_step_8 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k8_6__k7_3 [label="or1=110"]
+    k8_4__k7_1 [label="or1=100"]
+    k8_3__k7_6 [label="or1=011"]
+    k8_1__k7_4 [label="or1=001"]
+    k8_2__k7_7 [label="or1=010"]
+    k8_7__k7_2 [label="or1=111"]
+    fontsize=12
+    label="Step 8"
+  }
+  subgraph cluster_step_9 {
+    style=filled
+    color=lightgrey
+    node [style=filled,color=white]
+    k9_0__k8_1 [label="FusionNode"]
+    k9_0__k8_4 [label="FusionNode"]
+    k9_0__k8_7 [label="FusionNode"]
+    k9_0__k8_3 [label="FusionNode"]
+    k9_0__k8_2 [label="FusionNode"]
+    k9_0__k8_6 [label="FusionNode"]
+    fontsize=12
+    label="Step 9"
+  }
+  k0_0__root -> k1_1__k0_0
+  k0_1__root -> k1_0__k0_1
+  k1_1__k0_0 -> k2_0__k1_1
+  k1_1__k0_0 -> k2_1__k1_1
+  k1_0__k0_1 -> k2_1__k1_0
+  k1_0__k0_1 -> k2_0__k1_0
+  k2_0__k1_1 -> k3_1__k2_0
+  k2_1__k1_0 -> k3_0__k2_1
+  k2_0__k1_0 -> k3_1__k2_0
+  k2_1__k1_1 -> k3_0__k2_1
+  k3_1__k2_0 -> k4_1__k3_1
+  k3_1__k2_0 -> k4_0__k3_1
+  k3_0__k2_1 -> k4_1__k3_0
+  k3_0__k2_1 -> k4_0__k3_0
+  k4_1__k3_1 -> k5_0__k4_1
+  k4_0__k3_1 -> k5_1__k4_0
+  k4_1__k3_0 -> k5_0__k4_1
+  k4_0__k3_0 -> k5_1__k4_0
+  k5_0__k4_1 -> k6_0__k5_0
+  k5_1__k4_0 -> k6_0__k5_1
+  k6_0__k5_0 -> k7_3__k6_0
+  k6_0__k5_0 -> k7_7__k6_0
+  k6_0__k5_0 -> k7_1__k6_0
+  k6_0__k5_1 -> k7_6__k6_0
+  k6_0__k5_1 -> k7_2__k6_0
+  k6_0__k5_1 -> k7_4__k6_0
+  k7_3__k6_0 -> k8_6__k7_3
+  k7_6__k6_0 -> k8_3__k7_6
+  k7_1__k6_0 -> k8_4__k7_1
+  k7_7__k6_0 -> k8_2__k7_7
+  k7_2__k6_0 -> k8_7__k7_2
+  k7_4__k6_0 -> k8_1__k7_4
+  k8_6__k7_3 -> k9_0__k8_6
+  k8_4__k7_1 -> k9_0__k8_4
+  k8_3__k7_6 -> k9_0__k8_3
+  k8_1__k7_4 -> k9_0__k8_1
+  k8_2__k7_7 -> k9_0__k8_2
+  k8_7__k7_2 -> k9_0__k8_7
+}

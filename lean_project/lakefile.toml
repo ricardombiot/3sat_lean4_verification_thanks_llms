@@ -50,3 +50,7 @@ root = "StepByStepMain"
 [[lean_exe]]
 name = "stepbystep-cnf"
 root = "StepByStepCNFMain"
+
+[[lean_exe]]
+name = "visualize"
+root = "VisualizeGPathMain"
