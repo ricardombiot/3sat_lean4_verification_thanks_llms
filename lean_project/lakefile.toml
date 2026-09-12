@@ -58,3 +58,11 @@ root = "VisualizeGPathMain"
 [[lean_exe]]
 name = "reader"
 root = "ReaderStepByStepMain"
+
+[[lean_exe]]
+name = "tseitin"
+root = "TseitinReaderMain"
+
+[[lean_exe]]
+name = "tseitin-validate"
+root = "ValidateTseitin"
