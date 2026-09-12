@@ -78,3 +78,11 @@ root = "ValidatePigeonhole"
 [[lean_exe]]
 name = "test-2lit"
 root = "Test2LitMain"
+
+[[lean_exe]]
+name = "graph-coloring-reader"
+root = "GraphColoringReaderMain"
+
+[[lean_exe]]
+name = "graph-coloring-validate"
+root = "ValidateGraphColoring"
