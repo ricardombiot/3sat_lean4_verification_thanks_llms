@@ -76,8 +76,14 @@ def solution_count (m : SatMachinePure) : Nat :=
     let final_line := m.timeline[m.timeline.length - 1]!
     final_line.length
 
-/-- Check if machine reached satisfiable state -/
+/-- Check if machine reached satisfiable state
+    A formula is UNSAT if the final timeline is empty (no valid solutions reached final step)
+    A formula is SAT if there are any states at the final step -/
 def is_satisfiable (m : SatMachinePure) : Bool :=
-  solution_count m > 0
+  if m.timeline.isEmpty then
+    false
+  else
+    let final_line := m.timeline[m.timeline.length - 1]!
+    !final_line.isEmpty
 
 end AbsSat.SatMachine.PureSatMachine

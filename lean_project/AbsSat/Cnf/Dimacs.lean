@@ -42,12 +42,17 @@ def parseLit (nVars : Nat) (tok : String) : Option Lit :=
   | some i => if 1 ≤ i && i ≤ nVars then some { v := i - 1, pos := !neg } else none
 
 def parseClause (nVars : Nat) (line : String) : Option Clause :=
-  let toks := (line.splitOn " ").filter (fun s => s.length > 0)
+  let toks := (line.splitOn " ").filter (fun s => s.length > 0 && s ≠ "0")
   match toks with
   | t1 :: t2 :: t3 :: _ =>
     match parseLit nVars t1, parseLit nVars t2, parseLit nVars t3 with
     | some l1, some l2, some l3 => some { l1 := l1, l2 := l2, l3 := l3 }
     | _, _, _ => none
+  | t1 :: t2 :: [] =>
+    -- Handle 2-literal clauses by duplicating the first literal
+    match parseLit nVars t1, parseLit nVars t2 with
+    | some l1, some l2 => some { l1 := l1, l2 := l2, l3 := l1 }
+    | _, _ => none
   | _ => none
 
 /-- `p cnf n m` → `n`. Mirrors `cnf_p!`'s pattern, which ignores the clause
