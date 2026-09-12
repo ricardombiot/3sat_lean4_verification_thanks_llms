@@ -46,3 +46,7 @@ root = "CnfMapMain"
 [[lean_exe]]
 name = "stepbystep"
 root = "StepByStepMain"
+
+[[lean_exe]]
+name = "stepbystep-cnf"
+root = "StepByStepCNFMain"
