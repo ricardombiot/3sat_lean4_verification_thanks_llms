@@ -54,3 +54,7 @@ root = "StepByStepCNFMain"
 [[lean_exe]]
 name = "visualize"
 root = "VisualizeGPathMain"
+
+[[lean_exe]]
+name = "reader"
+root = "ReaderStepByStepMain"
