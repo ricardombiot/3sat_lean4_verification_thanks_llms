@@ -40,6 +40,37 @@ def pureAdvanceSym (φ : Cnf) (line : PureLine) : PureLine :=
   line.foldl (fun next kv => sendAllSym φ kv next) []
 
 -- ------------------------------------------------------------
+-- Two more drivers, for measurement only: the triangle pass of
+-- v69 on top of the original review and on top of the symmetric
+-- one. `reviewTri`/`filterAllTri` are the author's (TriReview);
+-- the symmetric combination has no counterpart in the model and
+-- exists only to measure what the two corrections do together.
+-- ------------------------------------------------------------
+
+def reviewSymTriFuel : Nat → GPathM → GPathM
+  | 0, g => g
+  | fuel + 1, g =>
+    let g₁ := reviewSym g
+    if isValid g₁ then
+      let g₂ := TriReview.triClean g₁
+      if measure g₂ < measure g₁ then reviewSymTriFuel fuel g₂ else g₁
+    else g₁
+
+def reviewSymTri (g : GPathM) : GPathM := reviewSymTriFuel (measure g + 1) g
+
+def upFilteringSymTri (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String) : GPathM :=
+  up (reviewSymTri (reqs.foldl filterRequire g)) d title
+
+def sendToSymTri (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
+  let g' := upFilteringSymTri g (reqOfCnf φ d) d ""
+  if isValid g' then insertPure next d g' else next
+
+def pureAdvanceSymTri (φ : Cnf) (line : PureLine) : PureLine :=
+  line.foldl (fun next kv =>
+    (mapSons φ kv.1.step kv.1.index).foldl (sendToSymTri φ kv.2) next) []
+
+
+-- ------------------------------------------------------------
 -- Measures
 -- ------------------------------------------------------------
 
@@ -2429,6 +2460,140 @@ cases={cases} seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} ---"
   IO.println s!"    MISSES a step                   = {acc.missesAStep}"
   IO.println s!"    is EMPTY                        = {acc.empties}"
   IO.println s!"    does not contain r              = {acc.losesR}"
+  pure 0
+
+def advanceBy (mode : String) (φ : Cnf) (line : PureLine) : PureLine :=
+  match mode with
+  | "sym" => pureAdvanceSym φ line
+  | "tri" => pureAdvanceTri φ line
+  | "symtri" => pureAdvanceSymTri φ line
+  | _ => pureAdvance φ line
+
+/-! ### P4, clause by clause
+
+v82 measured that `PinNonEmpty` and `isValid (filterAll g [q.id])` agree
+everywhere, so P4 as stated is a restatement. To find what P4 actually needs,
+this band goes one level down: it takes the **candidate** the reader's pin
+offers — `owners(q)` intersected with the nodes compatible with pinning `q` —
+and checks the nine clauses of `Fabric` on it **before any narrowing**, one at
+a time.
+
+`inS` and `sub` hold by construction (the table is `owners(p) ∩ S`). The other
+seven are measured. A pin where all seven hold is a pin where `PinNonEmpty` is
+**exhibited**, not merely equivalent to validity. -/
+
+structure NineOk where
+  nonEmpty : Bool
+  gow : Bool
+  symm : Bool
+  self : Bool
+  support : Bool
+  up : Bool
+  down : Bool
+
+/-- The candidate the reader's pin offers, and the nine clauses on it. -/
+def p4Clauses (g : GPathM) (q : PathNodeId) : NineOk :=
+  match g.node? q with
+  | none => { nonEmpty := false, gow := true, symm := true, self := true,
+              support := true, up := true, down := true }
+  | some qn =>
+    let S0 := g.nodes.filter (fun n => qn.owners.contains n.id && compatWith [q.id] n.id)
+    let ids := S0.map (·.id)
+    let T0 : Tab := S0.map (fun n => (n.id, n.owners.filter (fun v => ids.contains v)))
+    let top := g.current_step - 1
+    { nonEmpty := !S0.isEmpty
+      gow := S0.all (fun n => g.gowners.contains n.id)
+      symm := S0.all (fun n => (tabOf T0 n.id).all (fun v => (tabOf T0 v).contains n.id))
+      self := S0.all (fun n => (tabOf T0 n.id).contains n.id)
+      support := S0.all (fun n =>
+        (intRange 0 top).all (fun k => (tabOf T0 n.id).any (fun v => v.id.step == k)))
+      up := S0.all (fun n =>
+        n.id.id.step == 0 ||
+        (tabOf T0 n.id).all (fun v =>
+          n.parents.any (fun c => (tabOf T0 n.id).contains c && (tabOf T0 c).contains v)))
+      down := S0.all (fun n =>
+        n.id.id.step == top ||
+        (tabOf T0 n.id).all (fun v =>
+          n.sons.any (fun c => (tabOf T0 n.id).contains c && (tabOf T0 c).contains v))) }
+
+structure P4Acc where
+  states : Nat := 0
+  pins : Nat := 0
+  empty : Nat := 0
+  failGow : Nat := 0
+  failSymm : Nat := 0
+  failSelf : Nat := 0
+  failSupport : Nat := 0
+  failUp : Nat := 0
+  failDown : Nat := 0
+  allSeven : Nat := 0
+
+def P4Acc.add (x y : P4Acc) : P4Acc :=
+  { states := x.states + y.states, pins := x.pins + y.pins, empty := x.empty + y.empty,
+    failGow := x.failGow + y.failGow, failSymm := x.failSymm + y.failSymm,
+    failSelf := x.failSelf + y.failSelf, failSupport := x.failSupport + y.failSupport,
+    failUp := x.failUp + y.failUp, failDown := x.failDown + y.failDown,
+    allSeven := x.allSeven + y.allSeven }
+
+def scoreP4 (φ : Cnf) (mode : String) : P4Acc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : P4Acc := {}
+  for s in [0:steps + 1] do
+    let k : Int := (s : Int)
+    if litBlock φ < k && k < fusionTop φ then
+      for kv in line do
+        let g := kv.2
+        if isValid g then
+          acc := { acc with states := acc.states + 1 }
+          for j in intRange 0 (g.current_step - 1) do
+            if PickInduction.choiceAt g j then
+              for q in ownersAt g.gowners j do
+                let c := p4Clauses g q
+                acc := { acc with pins := acc.pins + 1 }
+                if !c.nonEmpty then acc := { acc with empty := acc.empty + 1 }
+                if !c.gow then acc := { acc with failGow := acc.failGow + 1 }
+                if !c.symm then acc := { acc with failSymm := acc.failSymm + 1 }
+                if !c.self then acc := { acc with failSelf := acc.failSelf + 1 }
+                if !c.support then acc := { acc with failSupport := acc.failSupport + 1 }
+                if !c.up then acc := { acc with failUp := acc.failUp + 1 }
+                if !c.down then acc := { acc with failDown := acc.failDown + 1 }
+                if c.nonEmpty && c.gow && c.symm && c.self && c.support && c.up && c.down then
+                  acc := { acc with allSeven := acc.allSeven + 1 }
+    if s < steps then line := advanceBy mode φ line
+  return acc
+
+/-- `lake exe cnfmap --p4clause [cases] [seed] [nvMin] [nvSpan] [orig|sym|tri|symtri]` -/
+def runP4Clause (cases seed nvMin nvSpan : Nat) (mode : String) : IO UInt32 := do
+  IO.println s!"--- P4 clause by clause on the reader's own candidate: cases={cases} \
+seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} machine={mode} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : P4Acc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then acc := acc.add (scoreP4 φ mode)
+  IO.println s!"  valid states with a choice        = {acc.states}"
+  IO.println s!"  pins examined                     = {acc.pins}"
+  IO.println s!"    candidate EMPTY                 = {acc.empty}"
+  IO.println s!"    fails `gow`  (global owners)    = {acc.failGow}"
+  IO.println s!"    fails `symm` (tables symmetric) = {acc.failSymm}"
+  IO.println s!"    fails `self` (keeps itself)     = {acc.failSelf}"
+  IO.println s!"    fails `support` (an entry / step) = {acc.failSupport}"
+  IO.println s!"    fails `up`   (carried by parent)= {acc.failUp}"
+  IO.println s!"    fails `down` (carried by son)   = {acc.failDown}"
+  IO.println s!"  ALL SEVEN hold (fabric exhibited) = {acc.allSeven}"
   pure 0
 
 end AbsSat.GraphMap.SymCampaign

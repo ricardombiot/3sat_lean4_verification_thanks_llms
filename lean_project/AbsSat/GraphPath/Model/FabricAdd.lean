@@ -1056,6 +1056,163 @@ theorem pinnedCandidate_selfSupporting_filterAllTri (g : GPathM) (reqs : List No
     r n hn p hp np hnp l hl0 hl
 
 -- ============================================================
+-- P4, clause by clause: the reader's own candidate
+-- ============================================================
+
+/-! v82 measured that `PinNonEmpty g q` and `isValid (filterAll g [q.id])`
+agree everywhere — 9.926 pins, not one exception — so P4 as it stood was a
+restatement of what it was supposed to reduce. To find what P4 actually needs,
+this section goes one level down.
+
+`PinNonEmpty` asks for **some** non-empty fabric inside the pin. There is an
+obvious candidate, and it is the reader's own: **`owners(q)`**, the table of
+the node being pinned. The question becomes concrete — which of the nine
+clauses of `Fabric` does that candidate satisfy?
+
+`lake exe cnfmap --p4clause` answers it by measurement. On the symmetric
+machine of v64, over 15.241 pins in 1.354 valid states with a choice
+(seed 1001) and 22.085 pins (seed 7777):
+
+| clause | failures |
+|---|---|
+| `gow`, `node`, `inS`, `sub`, `self`, `symm`, `support` | **0** |
+| `up` (every entry carried by a parent inside the table) | 85 |
+| `down` (… by a son) | 71 |
+
+and **15.150 of 15.241 pins had the candidate be a fabric outright**, with no
+narrowing at all. On the original machine `symm` fails 15 times and `support`
+8, which is v63's asymmetry showing up exactly where v64 predicted.
+
+So the seven that measure clean are proved here, and they are proved from the
+author's own invariants — `OOS` (a node's owners at its own step are only
+itself), the triangle of v69, the symmetry of v64, and the owners-are-global
+of v25. **What is left is `up` and `down`, and they are not theorems**: the
+campaign finds them failing at roughly half a percent of pins. That is P4's
+real residue, and it is now named. -/
+
+/-- The reader's own candidate for the pin `q`: the table of `q`, cut to the
+steps the state actually has. -/
+def StarS (g : GPathM) (qn : PNodeM) : PathNodeId → Prop :=
+  fun p => p ∈ qn.owners ∧ 0 ≤ p.id.step ∧ p.id.step < g.current_step
+
+/-- Its tables: what a member owns, inside the candidate. -/
+def StarT (g : GPathM) (qn : PNodeM) : PathNodeId → PathNodeId → Prop :=
+  fun p v => StarS g qn v ∧ ∃ np, g.node? p = some np ∧ v ∈ np.owners
+
+/-- **The candidate agrees with the pin, for free.** `OOS` says the owners of
+`q` at `q`'s own step are `q` and nothing else. -/
+theorem StarS_compat (g : GPathM) (q : PathNodeId) (qn : PNodeM)
+    (hq : g.node? q = some qn) (hoos : SelfOwn.OOS g) :
+    ∀ p, StarS g qn p → Compat [q.id] p := by
+  rintro p ⟨hp, _, _⟩ req hreq hstep
+  have hid : qn.id = q := node?_id_eq g q qn hq
+  rcases List.mem_cons.mp hreq with rfl | hnil
+  · have := hoos qn (List.mem_of_find?_eq_some hq) p hp (by rw [hid]; exact hstep)
+    rw [this, hid]
+  · exact absurd hnil List.not_mem_nil
+
+/-- A node owns itself: validity puts an owner at its own step, and `OOS` says
+that owner is the node. -/
+theorem self_mem_owners (g : GPathM) (hoos : SelfOwn.OOS g) (p : PathNodeId) (np : PNodeM)
+    (hnp : g.node? p = some np) (hval : isValidNode g np = true)
+    (hl0 : 0 ≤ p.id.step) (hl : p.id.step < g.current_step) :
+    p ∈ np.owners := by
+  have hid : np.id = p := node?_id_eq g p np hnp
+  have hok := owners_ok_of_isValidNode g np hval
+  have hk : p.id.step ∈ intRange 0 (g.current_step - 1) := mem_intRange hl0 (by omega)
+  obtain ⟨w, hw, hws⟩ := List.any_eq_true.mp (List.all_eq_true.mp hok _ hk)
+  have : w = np.id := hoos np (List.mem_of_find?_eq_some hnp) w hw (by rw [hid]; exact eq_of_beq hws)
+  rw [← hid, ← this]; exact hw
+
+/-- **Seven of the nine clauses, on the reader's candidate.** Bundled as the
+fields of `Fabric` minus `up` and `down`, which is precisely what the campaign
+finds failing. -/
+structure PreFabric (g : GPathM) (S : PathNodeId → Prop)
+    (T : PathNodeId → PathNodeId → Prop) : Prop where
+  gow : ∀ p, S p → p ∈ g.gowners
+  node : ∀ p, S p → (g.node? p).isSome = true
+  inS : ∀ p v, S p → T p v → S v
+  symm : ∀ p v, S p → T p v → T v p
+  self : ∀ p, S p → T p p
+  sub : ∀ p n, g.node? p = some n → S p → ∀ v, T p v → v ∈ n.owners
+  support : ∀ p, S p → ∀ l, 0 ≤ l → l < g.current_step → ∃ v, T p v ∧ v.id.step = l
+
+/-- What `PreFabric` is missing, and only that. -/
+theorem Fabric_of_PreFabric (g : GPathM) (S : PathNodeId → Prop)
+    (T : PathNodeId → PathNodeId → Prop) (h : PreFabric g S T)
+    (hup : ∀ p n, g.node? p = some n → S p → p.parent_id ≠ none →
+      ∀ v, T p v → ∃ c ∈ n.parents, T p c ∧ T c v)
+    (hdown : ∀ p, S p → p.id.step ≠ g.current_step - 1 →
+      ∀ v, T p v → ∃ c m, g.node? c = some m ∧ p ∈ m.parents ∧ T p c ∧ T c v) :
+    Fabric g S T :=
+  { gow := h.gow, node := h.node, inS := h.inS, symm := h.symm, self := h.self,
+    sub := h.sub, support := h.support, up := hup, down := hdown }
+
+/-- **The reader's candidate satisfies the seven.** Each one comes from an
+invariant the author's machine already maintains:
+
+* `gow` — the owners of a survivor are global owners (v25, F2.c);
+* `node` — and global owners are nodes (v25);
+* `symm` — the symmetric review of v64;
+* `self` — `OOS` plus validity;
+* `support` — **the triangle of v69**: two nodes that own each other share an
+  entry at every step, and here the two are `q` and the member;
+* `inS`, `sub` — by construction. -/
+theorem PreFabric_star (g : GPathM) (q : PathNodeId) (qn : PNodeM)
+    (hq : g.node? q = some qn)
+    (hown : OwnersGlobal g)
+    (hgn : GownersNodes.GN g)
+    (hoos : SelfOwn.OOS g)
+    (hsym : Threaded.OwnSymmetric g)
+    (htri : TriProp g)
+    (hnodeval : ∀ p n, g.node? p = some n → isValidNode g n = true) :
+    PreFabric g (StarS g qn) (StarT g qn) := by
+  have hnode : ∀ p, StarS g qn p → (g.node? p).isSome = true := by
+    rintro p ⟨hp, hl0, hl⟩
+    exact (GownersNodes.hasNode_iff g p).mp (hgn p (hown q qn hq p hp hl0 hl))
+  refine { gow := ?_, node := hnode, inS := ?_, symm := ?_, self := ?_, sub := ?_,
+           support := ?_ }
+  · rintro p ⟨hp, hl0, hl⟩; exact hown q qn hq p hp hl0 hl
+  · rintro p v _ ⟨hv, _⟩; exact hv
+  · rintro p v hp ⟨hv, np, hnp, hvp⟩
+    obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp (hnode v hv)
+    exact ⟨hp, nv, hnv, hsym p np v nv hnp hnv hvp⟩
+  · intro p hp
+    obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp (hnode p hp)
+    exact ⟨hp, np, hnp,
+      self_mem_owners g hoos p np hnp (hnodeval p np hnp) hp.2.1 hp.2.2⟩
+  · rintro p n hn _ v ⟨_, np, hnp, hvp⟩
+    rw [hn] at hnp
+    exact (Option.some.inj hnp) ▸ hvp
+  · intro p hp l hl0 hl
+    obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp (hnode p hp)
+    obtain ⟨w, hwq, hwp, hws⟩ := htri q qn p np hq hnp hp.1 l hl0 hl
+    exact ⟨w, ⟨⟨hwq, by rw [hws]; exact hl0, by rw [hws]; exact hl⟩, np, hnp, hwp⟩, hws⟩
+
+/-- **P4, reduced to `up` and `down`.** With the two carrying clauses supplied,
+the reader's own candidate is a fabric inside the pin, so the pick leaves the
+state valid. The campaign measures `up` and `down` failing at about half a
+percent of pins, so this is a reduction and not a proof of `PickSome`. -/
+theorem PinNonEmpty_of_star (g : GPathM) (q : PathNodeId) (qn : PNodeM)
+    (hq : g.node? q = some qn)
+    (hl0 : 0 ≤ q.id.step) (hl : q.id.step < g.current_step)
+    (hown : OwnersGlobal g) (hgn : GownersNodes.GN g) (hoos : SelfOwn.OOS g)
+    (hsym : Threaded.OwnSymmetric g) (htri : TriProp g)
+    (hnodeval : ∀ p n, g.node? p = some n → isValidNode g n = true)
+    (hup : ∀ p n, g.node? p = some n → StarS g qn p → p.parent_id ≠ none →
+      ∀ v, StarT g qn p v → ∃ c ∈ n.parents, StarT g qn p c ∧ StarT g qn c v)
+    (hdown : ∀ p, StarS g qn p → p.id.step ≠ g.current_step - 1 →
+      ∀ v, StarT g qn p v → ∃ c m, g.node? c = some m ∧ p ∈ m.parents ∧
+        StarT g qn p c ∧ StarT g qn c v) :
+    PinNonEmpty g q := by
+  have hpre := PreFabric_star g q qn hq hown hgn hoos hsym htri hnodeval
+  have hfab : Fabric g (StarS g qn) (StarT g qn) :=
+    Fabric_of_PreFabric g _ _ hpre hup hdown
+  have hqs : StarS g qn q :=
+    ⟨self_mem_owners g hoos q qn hq (hnodeval q qn hq) hl0 hl, hl0, hl⟩
+  exact ⟨q, StarS g qn, StarT g qn, hfab, StarS_compat g q qn hq hoos, hqs⟩
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -1146,5 +1303,21 @@ theorem pinnedCandidate_selfSupporting_filterAllTri (g : GPathM) (reqs : List No
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_selfSupporting_filterAllTri' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pinnedCandidate_selfSupporting_filterAllTri
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.StarS_compat' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms StarS_compat
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.self_mem_owners' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms self_mem_owners
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.PreFabric_star' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms PreFabric_star
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.PinNonEmpty_of_star' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms PinNonEmpty_of_star
 
 end AbsSat.GraphPath.Model.FabricAdd

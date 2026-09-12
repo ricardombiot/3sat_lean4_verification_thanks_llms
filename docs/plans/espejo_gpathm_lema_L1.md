@@ -10,6 +10,43 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bs) — P4, cláusula por cláusula: el residuo son `up` y `down`.**
+
+v82 dejó P4 como reformulación (`PinNonEmpty` ⟺ `isValid`). Baja un nivel: `PinNonEmpty` pide
+*algún* tejido no vacío dentro del pinchazo, y el candidato natural es **`owners(q)`**, la tabla
+del nodo que el lector pincha.
+
+Medido primero, modo nuevo `cnfmap --p4clause [casos] [semilla] [nvMin] [nvSpan] [orig|sym|tri|symtri]`
+(añade a `SymCampaign.lean` los conductores `pureAdvanceSymTri` y `advanceBy`; el conductor
+simétrico+triángulo **no existe en el modelo** y vive sólo en el código de medición). Semilla
+31337, 20 casos, 4..7 variables — 1.835 estados válidos con elección, 38.398 pinchazos:
+
+| cláusula | orig | sym | tri | symtri |
+|---|---|---|---|---|
+| `gow`, `self` | 0 | 0 | 0 | 0 |
+| `symm` | 236 | 0 | 0 | 0 |
+| `support` | 144 | 82 | **0** | 0 |
+| `up` | 938 | 876 | 791 | 791 |
+| `down` | 870 | 806 | 721 | 721 |
+| tejido exhibido | 37.216 | 37.402 | **37.489** | 37.489 |
+
+Semillas 1001 (15.241 pinchazos) y 7777 (22.085): mismo dibujo, `up`/`down` en 85/71 y 216/225
+sobre la máquina del triángulo, todo lo demás 0. Predicción cumplida: `support` se apoya en
+`TriProp`, y pasa de 82 fallos (simétrica) a 0 (triángulo).
+
+Demostrado en `FabricAdd.lean`: `StarS`/`StarT` (el candidato del lector), **`StarS_compat`** (el
+candidato respeta el pinchazo gratis, por `OOS`; sólo `propext`), `self_mem_owners`, la estructura
+**`PreFabric`** (las nueve cláusulas menos `up`/`down`), `Fabric_of_PreFabric`, **`PreFabric_star`**
+(las siete, cada una desde un invariante del autor: v25/v86 para `gow`, v64 para `symm`, **v69 para
+`support`**, `OOS` para `self`) y **`PinNonEmpty_of_star`** (P4 cerrada *dadas* `up` y `down`).
+
+El residuo son las dos cláusulas **de camino**, y tienen que fallar: si no, `PickSome` seguiría y
+3SAT quedaría decidido. El muro de v70 sigue, pero localizado en dos cláusulas nombradas al ~2%.
+
+Informe: `verificacion_inseguridad_autor_v87.md`.
+
+---
+
 **2026-09-12 (br) — el transporte: uno se hace, el otro era innecesario. P3 cerrada.**
 
 De los dos lemas que v85 dejó por transportar a `reviewTri`, la **simetría nunca hizo falta**:
