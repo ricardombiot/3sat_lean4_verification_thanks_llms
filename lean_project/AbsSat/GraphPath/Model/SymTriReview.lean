@@ -1121,6 +1121,316 @@ theorem CoherentSons_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = 
   exact CoherentSons_reviewSym h hv
 
 -- ============================================================
+-- The shape of the graph: the seven structural fields
+-- ============================================================
+
+/-! The fields v90 left open say nothing about owners — they are facts about
+the **shape** of the graph, and the project already has each of them as a named
+property: `Parents.PBelow` (a parent sits one step below), `Parents.PN` (and is
+a node), `Parents.NotRoot` (a node above step 0 has a parent id), `Sons.SAbove`,
+`Sons.SN`, `Sons.PMS` (a son's parent table holds its parent back), and
+`isValidNode` itself for *having* a parent and a son.
+
+Two of them come free from `pruned_reviewSymTri`. The other four need their
+chains carried through the symmetric review, and the chains only differ from
+the originals by the mirror step — which is a **relabelling of the node list
+that keeps ids, parents and sons**, exactly like the triangle sweep. So one
+combinator serves both, and each property costs four short lemmas. -/
+
+private theorem symMap_id' (d : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    (symMap d id m).id = m.id := by unfold symMap; split <;> rfl
+
+private theorem symMap_parents (d : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    (symMap d id m).parents = m.parents := by unfold symMap; split <;> rfl
+
+private theorem symMap_sons (d : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    (symMap d id m).sons = m.sons := by unfold symMap; split <;> rfl
+
+/-- What a property has to survive to survive the whole symmetric review with
+the triangle: a link-preserving relabelling of the nodes (the mirror step and
+the triangle sweep), the owners intersection, the unlink, and the drop. -/
+structure LinkStable (P : GPathM → Prop) : Prop where
+  map : ∀ (g : GPathM) (F : PNodeM → PNodeM), (∀ n, (F n).id = n.id) →
+    (∀ n, (F n).parents = n.parents) → (∀ n, (F n).sons = n.sons) → P g →
+    P { g with nodes := g.nodes.map F }
+  upd : ∀ (g : GPathM) (id : PathNodeId) (b : List PathNodeId), P g →
+    P (updateAt g id (fun n => { n with owners := intersectOwners n.owners b }))
+  unl : ∀ (g : GPathM) (id : PathNodeId), P g → P (unlinkIncompatible g id)
+  rem : ∀ (g : GPathM) (id : PathNodeId), P g → P (removeNode g id)
+
+namespace LinkStable
+
+variable {P : GPathM → Prop}
+
+theorem symmetrize' (hs : LinkStable P) (g : GPathM) (id : PathNodeId) (h : P g) :
+    P (symmetrize g id) := by
+  unfold symmetrize
+  split
+  · exact h
+  · next d _ =>
+    exact hs.map g (symMap d id) (symMap_id' d id) (symMap_parents d id)
+      (symMap_sons d id) h
+
+theorem triClean' (hs : LinkStable P) (g : GPathM) (h : P g) : P (triClean g) :=
+  hs.map g (triMap g) (triMap_id g) (triMap_parents g) (triMap_sons g) h
+
+theorem reviewNodeSym' (hs : LinkStable P) (nb : PNodeM → List PathNodeId) (id : PathNodeId)
+    (g : GPathM) (h : P g) : P (reviewNodeSym g nb id) := by
+  simp only [reviewNodeSym]
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h₃ := hs.unl _ id (hs.symmetrize' _ id (hs.upd g id (unionOwnersOf g (nb d)) h))
+      split
+      · exact h₃
+      · exact hs.rem _ id h₃
+    · exact hs.rem g id h
+
+theorem cleanInvalidGoSym' (hs : LinkStable P) (ids : List PathNodeId) :
+    ∀ g : GPathM, P g → P (cleanInvalidGoSym g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGoSym]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₃ := hs.unl _ id (hs.symmetrize' _ id (hs.upd g id g.gowners h))
+      split
+      · exact ih _ h₃
+      · exact ih _ (hs.rem _ id h₃)
+
+theorem cleanInvalidSym' (hs : LinkStable P) (g : GPathM) (h : P g) : P (cleanInvalidSym g) :=
+  hs.cleanInvalidGoSym' _ g h
+
+theorem foldl' (_hs : LinkStable P) {β : Type} (f : GPathM → β → GPathM)
+    (hf : ∀ g b, P g → P (f g b)) : ∀ (l : List β) (g : GPathM), P g → P (l.foldl f g) := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b bs ih => intro g h; simp only [List.foldl_cons]; exact ih _ (hf g b h)
+
+theorem reviewLineSym' (hs : LinkStable P) (nb : PNodeM → List PathNodeId) (k : Int)
+    (g : GPathM) (h : P g) : P (reviewLineSym g nb k) :=
+  hs.foldl' (fun g id => reviewNodeSym g nb id) (fun g id => hs.reviewNodeSym' nb id g) _ g h
+
+theorem reviewStepsSym' (hs : LinkStable P) (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, P g → P (reviewStepsSym g nb ks) := by
+  induction ks with
+  | nil => intro g h; exact h
+  | cons k ks ih =>
+    intro g h
+    simp only [reviewStepsSym]
+    split
+    · exact ih _ (hs.reviewLineSym' nb k g h)
+    · exact h
+
+theorem reviewPassSym' (hs : LinkStable P) (g : GPathM) (h : P g) : P (reviewPassSym g) := by
+  simp only [reviewPassSym, reviewSonsSym, reviewParentsSym]
+  exact hs.reviewStepsSym' _ _ _ (hs.reviewStepsSym' _ _ _ (hs.cleanInvalidSym' g h))
+
+theorem reviewFuelSym' (hs : LinkStable P) : ∀ (fuel : Nat) (g : GPathM),
+    P g → P (reviewFuelSym fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuelSym]
+    split
+    · split
+      · exact ih _ (hs.reviewPassSym' g h)
+      · exact hs.reviewPassSym' g h
+    · exact h
+
+theorem reviewSym' (hs : LinkStable P) (g : GPathM) (h : P g) : P (reviewSym g) :=
+  hs.reviewFuelSym' _ g h
+
+theorem reviewSymTriFuel' (hs : LinkStable P) : ∀ (fuel : Nat) (g : GPathM),
+    P g → P (reviewSymTriFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewSymTriFuel]
+    split
+    · split
+      · exact ih _ (hs.triClean' _ (hs.reviewSym' g h))
+      · exact hs.reviewSym' g h
+    · exact hs.reviewSym' g h
+
+/-- **Anything link-stable survives the joined machine.** -/
+theorem reviewSymTri' (hs : LinkStable P) (g : GPathM) (h : P g) : P (reviewSymTri g) :=
+  hs.reviewSymTriFuel' _ g h
+
+end LinkStable
+
+-- ------------------------------------------------------------
+-- The four properties that need the combinator
+-- ------------------------------------------------------------
+
+theorem linkStable_PN : LinkStable Parents.PN where
+  map := by
+    intro g F hid hpar _ h n' hn' p hp
+    obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+    rw [← hEq, hpar] at hp
+    obtain ⟨m, hm, hmid⟩ := h n hn p hp
+    exact ⟨F m, List.mem_map_of_mem hm, by rw [hid]; exact hmid⟩
+  upd := fun g id b h => Parents.PN_updateAt g id _ (fun _ => rfl) (fun _ => rfl) h
+  unl := fun g id h => Parents.PN_unlinkIncompatible g id h
+  rem := fun g id h => Parents.PN_removeNode g id h
+
+theorem linkStable_SN : LinkStable Sons.SN where
+  map := by
+    intro g F hid _ hson h n' hn' s hs
+    obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+    rw [← hEq, hson] at hs
+    obtain ⟨m, hm, hmid⟩ := h n hn s hs
+    exact ⟨F m, List.mem_map_of_mem hm, by rw [hid]; exact hmid⟩
+  upd := fun g id b h => Sons.SN_updateAt g id _ (fun _ => rfl) (fun _ => rfl) h
+  unl := fun g id h => Sons.SN_unlinkIncompatible g id h
+  rem := fun g id h => Sons.SN_removeNode g id h
+
+theorem linkStable_PMS : LinkStable Sons.PMS where
+  map := by
+    intro g F hid hpar hson h n' hn' s hs m' hm' hmid
+    obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+    obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+    rw [← hEq, hson] at hs
+    rw [← hmEq, hid] at hmid
+    rw [← hEq, hid, ← hmEq, hpar]
+    exact h n hn s hs m hm hmid
+  upd := fun g id b h => Sons.PMS_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+  unl := fun g id h => Sons.PMS_unlinkIncompatible g id h
+  rem := fun g id h => Sons.PMS_removeNode g id h
+
+theorem linkStable_GN : LinkStable GownersNodes.GN where
+  map := by
+    intro g F hid _ _ h q hq
+    obtain ⟨n, hn, hnid⟩ := h q hq
+    exact ⟨F n, List.mem_map_of_mem hn, by rw [hid]; exact hnid⟩
+  upd := fun g id b h => GownersNodes.GN_updateAt g id _ (fun _ => rfl) h
+  unl := fun g id h => GownersNodes.GN_unlinkIncompatible g id h
+  rem := fun g id h => GownersNodes.GN_removeNode g id h
+
+theorem linkStable_SAbove : LinkStable Sons.SAbove where
+  map := by
+    intro g F hid _ hson h n' hn' s hs
+    obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+    rw [← hEq, hson] at hs
+    rw [← hEq, hid]
+    exact h n hn s hs
+  upd := fun g id b h => Sons.SAbove_owners_updateAt g id b h
+  unl := fun g id h => Sons.SAbove_unlinkIncompatible g id h
+  rem := fun g id h => Sons.SAbove_removeNode g id h
+
+-- ------------------------------------------------------------
+-- `isValidNode` gives the two "there is one" fields
+-- ------------------------------------------------------------
+
+theorem have_parents_of_isValidNode (g : GPathM) (n : PNodeM) (h : isValidNode g n = true)
+    (hroot : n.id.parent_id.isNone = false) : n.parents ≠ [] := by
+  intro hnil
+  simp only [isValidNode, hroot, hnil] at h
+  split at h <;> simp_all
+
+theorem have_sons_of_isValidNode (g : GPathM) (n : PNodeM) (h : isValidNode g n = true)
+    (hlast : (n.id.id.step == g.current_step - 1) = false) : n.sons ≠ [] := by
+  intro hnil
+  simp only [isValidNode, hlast, hnil] at h
+  split at h <;> simp_all
+
+-- ============================================================
+-- `TableCtx`, complete, for the joined machine
+-- ============================================================
+
+/-- **All eleven fields at once.** Given the invariants the construction
+already carries — `OOS`, symmetry, and the six shape properties — a state the
+joined machine leaves valid satisfies `TableCtx` entire.
+
+With `Fabric_whole` (v88) that says, of a concrete machine and not of a
+hypothesis: **at a valid fixpoint of the symmetric review with the triangle,
+the state is a fabric — all nine clauses.** -/
+theorem TableCtx_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true)
+    (hoos : SelfOwn.OOS g) (hsym : Threaded.OwnSymmetric g)
+    (hpn : Parents.PN g) (hpb : Parents.PBelow g) (hnr : Parents.NotRoot g)
+    (hsn : Sons.SN g) (hsa : Sons.SAbove g) (hpms : Sons.PMS g) :
+    FabricAdd.TableCtx (reviewSymTri g) := by
+  have G := reviewSymTri g
+  have hpr := pruned_reviewSymTri g
+  have hPN : Parents.PN (reviewSymTri g) := linkStable_PN.reviewSymTri' g hpn
+  have hSN : Sons.SN (reviewSymTri g) := linkStable_SN.reviewSymTri' g hsn
+  have hSA : Sons.SAbove (reviewSymTri g) := linkStable_SAbove.reviewSymTri' g hsa
+  have hPMS : Sons.PMS (reviewSymTri g) := linkStable_PMS.reviewSymTri' g hpms
+  have hPB : Parents.PBelow (reviewSymTri g) := Parents.PBelow_of_pruned hpr hpb
+  have hNR : Parents.NotRoot (reviewSymTri g) := Parents.NotRoot_of_pruned hpr hnr
+  have hval := node_valid_reviewSymTri g hv
+  refine { oos := OOS_reviewSymTri g hoos
+           coh := CoherentParents_reviewSymTri g hv
+           sym := OwnSymmetric_reviewSymTri g hsym
+           tri := TriProp_reviewSymTri g hv
+           selfown := selfOwn_reviewSymTri g hv hoos
+           cohSons := CoherentSons_reviewSymTri g hv
+           level := ?_, parnode := ?_, hasparent := ?_
+           sonlevel := ?_, sonnode := ?_, hasson := ?_, smp := ?_ }
+  · intro p n hn c hc
+    have hid : n.id = p := node?_id_eq _ p n hn
+    have := hPB n (List.mem_of_find?_eq_some hn) c hc
+    rw [hid] at this; exact this
+  · intro p n hn c hc
+    exact (GownersNodes.hasNode_iff _ c).mp (hPN n (List.mem_of_find?_eq_some hn) c hc)
+  · intro p n hn hp0
+    have hid : n.id = p := node?_id_eq _ p n hn
+    have hne : n.id.parent_id ≠ none :=
+      hNR n (List.mem_of_find?_eq_some hn) (by rw [hid]; omega)
+    have hroot : n.id.parent_id.isNone = false := by
+      cases hpi : n.id.parent_id with
+      | none => exact absurd hpi hne
+      | some _ => rfl
+    exact have_parents_of_isValidNode _ n (hval p n hn) hroot
+  · intro p n hn c hc
+    have hid : n.id = p := node?_id_eq _ p n hn
+    have := hSA n (List.mem_of_find?_eq_some hn) c hc
+    rw [hid] at this; exact this
+  · intro p n hn c hc
+    exact (GownersNodes.hasNode_iff _ c).mp (hSN n (List.mem_of_find?_eq_some hn) c hc)
+  · intro p n hn htop
+    have hid : n.id = p := node?_id_eq _ p n hn
+    refine have_sons_of_isValidNode _ n (hval p n hn) ?_
+    refine beq_eq_false_of_ne _ _ ?_
+    rw [hid]; omega
+  · intro p n c m hn hm hc
+    have hid : n.id = p := node?_id_eq _ p n hn
+    have hmid : m.id = c := node?_id_eq _ c m hm
+    have := hPMS n (List.mem_of_find?_eq_some hn) c hc m (List.mem_of_find?_eq_some hm) hmid
+    rw [hid] at this; exact this
+
+/-- **And so the state is a fabric, entire.** `Fabric_whole` instantiated on
+the joined machine: the members are the nodes in range, the tables are their
+own owners, and every one of the nine clauses is a theorem. -/
+theorem Fabric_whole_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true)
+    (hoos : SelfOwn.OOS g) (hsym : Threaded.OwnSymmetric g)
+    (hpn : Parents.PN g) (hpb : Parents.PBelow g) (hnr : Parents.NotRoot g)
+    (hsn : Sons.SN g) (hsa : Sons.SAbove g) (hpms : Sons.PMS g)
+    (hgn : GownersNodes.GN g)
+    (hrootstep : ∀ p : PathNodeId, p.parent_id ≠ none → 1 ≤ p.id.step) :
+    Fabric.Fabric (reviewSymTri g)
+      (fun p => ((reviewSymTri g).node? p).isSome = true ∧ 0 ≤ p.id.step ∧
+                p.id.step < (reviewSymTri g).current_step)
+      (fun p v => (((reviewSymTri g).node? v).isSome = true ∧ 0 ≤ v.id.step ∧
+                   v.id.step < (reviewSymTri g).current_step) ∧
+                  ∃ np, (reviewSymTri g).node? p = some np ∧ v ∈ np.owners) :=
+  FabricAdd.Fabric_whole _
+    (TableCtx_reviewSymTri g hv hoos hsym hpn hpb hnr hsn hsa hpms)
+    (OwnersGlobal_reviewSymTri g hv)
+    (linkStable_GN.reviewSymTri' g hgn)
+    (node_valid_reviewSymTri g hv)
+    hrootstep
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -1167,5 +1477,17 @@ theorem CoherentSons_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = 
 /-- info: 'AbsSat.GraphPath.Model.SymTriReview.selfOwn_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms selfOwn_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.linkStable_PN' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms linkStable_PN
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.TableCtx_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms TableCtx_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.Fabric_whole_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Fabric_whole_reviewSymTri
 
 end AbsSat.GraphPath.Model.SymTriReview

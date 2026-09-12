@@ -10,6 +10,34 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bw) — los siete campos estructurales; `TableCtx` completa y `Fabric_whole` sobre la máquina unida.**
+
+`SymTriReview.lean` pasa de 89 a **114 teoremas**. Los siete campos ya existían con otro nombre:
+`Parents.PBelow`/`PN`/`NotRoot`, `Sons.SAbove`/`SN`/`PMS`, más `isValidNode` para «hay padre» y
+«hay hijo» (`have_parents_of_isValidNode`, `have_sons_of_isValidNode`, nuevos).
+
+Dos salen gratis de `pruned_reviewSymTri` (`PBelow_of_pruned`, `NotRoot_of_pruned`). Las cuatro
+cadenas restantes se colapsaron en **un solo combinador**, `LinkStable`, gracias a la observación de
+que **el paso espejo es un reetiquetado de la lista de nodos que conserva ids, padres e hijos — y
+`triClean` es exactamente lo mismo**: `LinkStable.symmetrize'`, `.triClean'`, `.reviewNodeSym'`,
+`.cleanInvalidGoSym'`, `.reviewLineSym'`, `.reviewStepsSym'`, `.reviewPassSym'`, `.reviewFuelSym'`,
+`.reviewSym'`, `.reviewSymTriFuel'`, `.reviewSymTri'`. Instanciado cinco veces: `linkStable_PN`,
+`linkStable_SN`, `linkStable_PMS`, `linkStable_SAbove`, `linkStable_GN`.
+
+Capstone: **`TableCtx_reviewSymTri`** (los once campos) y **`Fabric_whole_reviewSymTri`** — en un
+punto fijo válido del review simétrico con el triángulo, el estado **es** un tejido, las nueve
+cláusulas, sobre una máquina concreta.
+
+Pendiente, dicho con precisión: las hipótesis de entrada (`OOS`, simetría, `PN`, `PBelow`,
+`NotRoot`, `SN`, `SAbove`, `PMS`, `GN`) son sobre el estado de partida y tienen sus teoremas de
+`initSeed`/`addNode`/`up`/`join` para las operaciones compartidas; `hrootstep` (un id con padre está
+en paso ≥ 1) es de la codificación de los ids, no del grafo; y el residuo de P4 sigue siendo el
+testigo **relativo**.
+
+Informe: `verificacion_inseguridad_autor_v91.md`.
+
+---
+
 **2026-09-12 (bv) — `CoherentParents` y `OwnersGlobal` para el review simétrico.**
 
 `SymTriReview.lean` pasa de 36 a 89 teoremas. La pieza es el **punto fijo del review simétrico**:
