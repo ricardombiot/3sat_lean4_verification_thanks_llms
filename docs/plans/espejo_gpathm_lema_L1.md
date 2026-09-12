@@ -10,6 +10,38 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bv) — `CoherentParents` y `OwnersGlobal` para el review simétrico.**
+
+`SymTriReview.lean` pasa de 36 a 89 teoremas. La pieza es el **punto fijo del review simétrico**:
+`Fuel.lean` lo tiene para el `review` original (`reviewPass_review`), y de ahí lee los hechos por
+nodo; el paso espejo rompe todas esas formas, así que hay que rehacer la cadena con una junta
+nueva, **`symmetrize_eq_self`** (el paso espejo en el punto fijo es la identidad).
+
+Cadena: `symMap_eq_self_of_weight`, `symmetrize_eq_self`, `symIntersectOrDrop` +
+`symIntersectOrDrop_valid_branch`/`_eq_self`, `cleanStepSym` + `cleanInvalidGoSym_cons` +
+`cleanStepSym_eq_self` + `cleanInvalidGoSym_eq_self`/`_steps_eq_self`, `reviewNodeSym_shape` +
+`reviewNodeSym_eq_self` + `reviewNodeSym_owners_fixed`, `reviewLineSym_eq_self`/`_nodes_eq_self`,
+`reviewStepsSym_eq_self`/`_lines_eq_self`, `reviewParentsSym_eq_self`, `reviewSonsSym_eq_self`,
+`reviewPassSym_eq_self`/`_stages_eq_self`, `reviewFuelSym_fixpoint` y **`reviewPassSym_reviewSym`**;
+luego `cleanStepSym_owners_fixed`, `cleanStepSym_node_valid`, `reviewSym_cleanStep_fixed`,
+`reviewSym_node_valid`, `reviewSym_owners_within_gowners`, `reviewSym_owners_coherent_parents`,
+`reviewSym_owners_coherent_sons`.
+
+Puente a la máquina unida, una sola observación: **`reviewSymTriFuel_eq_reviewSym`** — todo estado
+que el bucle devuelve es `reviewSym h`, porque la rama del triángulo o recursa sobre un estado
+estrictamente menor o para sobre `reviewSym g`, y el combustible (`measure g + 1`) nunca se agota.
+De ahí: `OwnersGlobal_reviewSymTri`, `CoherentParents_reviewSymTri`, `CoherentSons_reviewSymTri`,
+`node_valid_reviewSymTri`, `selfOwn_reviewSymTri`.
+
+`TableCtx` (v88) sobre la máquina unida: 6 de 11 campos demostrados (`oos`, `sym`, `tri`, `coh`,
+`cohSons`, `selfown`). Los 7 restantes son estructurales (niveles de padres/hijos, que son nodos,
+que existen, `smp`) y no tocan el punto fijo. `CoherentParents`/`cohSons`/`selfown` se debilitaron
+al rango que la máquina revisa, que es donde todos los usos los piden.
+
+Informe: `verificacion_inseguridad_autor_v90.md`.
+
+---
+
 **2026-09-12 (bu) — las dos correcciones, unidas: `SymTriReview.lean`.**
 
 Módulo nuevo en el **modelo** (registrado en `AbsSat.lean`, 101 módulos): el review simétrico de

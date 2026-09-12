@@ -462,6 +462,665 @@ theorem gowners_compat_filterAllSymTri (g : GPathM) (reqs : List NodeId) :
     ((pruned_reviewSymTri (reqs.foldl filterRequire g)).gowners_sub q hq)
 
 -- ============================================================
+-- The fixpoint theory for the symmetric review
+-- ============================================================
+
+/-! `Fuel.lean` proves, for the original review, that a state the loop leaves
+valid is a genuine **fixpoint of the pass** — not merely a point where the
+measure stopped moving — and reads two per-node facts off it:
+
+* `review_owners_within_gowners` — the owners are already inside the global
+  owners (`OwnersGlobal`);
+* `review_owners_coherent_parents` — and already coherent with the parents'
+  union (`CoherentParents`).
+
+Those are the two fields v88's `TableCtx` still lacked. The symmetric review
+runs the same shapes with one extra operation, the mirror step, wedged between
+the intersection and the unlink — so the whole chain repeats with
+`symmetrize_eq_self` added at each joint. -/
+
+private theorem map_eq_self_of {α : Type} (l : List α) (f : α → α)
+    (h : ∀ a ∈ l, f a = a) : l.map f = l := by
+  induction l with
+  | nil => simp
+  | cons a as ih =>
+    simp only [List.map_cons]
+    rw [h a List.mem_cons_self, ih (fun x hx => h x (List.mem_cons_of_mem _ hx))]
+
+private theorem map_eq_self_pointwise {α : Type} (l : List α) (f : α → α)
+    (h : l.map f = l) : ∀ a ∈ l, f a = a := by
+  induction l with
+  | nil => intro a ha; exact absurd ha List.not_mem_nil
+  | cons a as ih =>
+    simp only [List.map_cons, List.cons.injEq] at h
+    intro x hx
+    rcases List.mem_cons.mp hx with rfl | hx'
+    · exact h.1
+    · exact ih h.2 x hx'
+
+private theorem inter_eq_self_of_weight (b : List PathNodeId) (n : PNodeM)
+    (h : PNodeM.weight { n with owners := intersectOwners n.owners b } = PNodeM.weight n) :
+    { n with owners := intersectOwners n.owners b } = n := by
+  have hlen : n.owners.length ≤ (intersectOwners n.owners b).length := by
+    simp only [PNodeM.weight] at h; omega
+  have : intersectOwners n.owners b = n.owners :=
+    FabricAdd.filter_eq_self_of_length _ _ hlen
+  rw [this]
+
+private theorem symMap_eq_self_of_weight (d : PNodeM) (id : PathNodeId) (m : PNodeM)
+    (h : PNodeM.weight (symMap d id m) = PNodeM.weight m) : symMap d id m = m := by
+  unfold symMap at h ⊢
+  cases hc : (m.id == id || d.owners.contains m.id) with
+  | true => simp
+  | false =>
+    simp only [hc, Bool.false_eq_true, if_false] at h ⊢
+    have hlen : m.owners.length ≤ (m.owners.filter (fun q => q != id)).length := by
+      simp only [PNodeM.weight] at h; omega
+    rw [FabricAdd.filter_eq_self_of_length _ _ hlen]
+
+/-- **The mirror step at the fixpoint is the identity.** -/
+theorem symmetrize_eq_self (g : GPathM) (id : PathNodeId)
+    (h : GPathM.measure (symmetrize g id) = GPathM.measure g) : symmetrize g id = g := by
+  cases hn : g.node? id with
+  | none => simp [symmetrize, hn]
+  | some d =>
+    have hshape : symmetrize g id = { g with nodes := g.nodes.map (symMap d id) } := by
+      simp only [symmetrize, hn]
+    rw [hshape] at h ⊢
+    simp only [GPathM.measure] at h
+    rw [List.map_map] at h
+    have hpt := FabricAdd.sum_eq_pointwise (PNodeM.weight ∘ symMap d id) PNodeM.weight
+      (fun m => weight_symMap_le d id m) g.nodes (by omega)
+    have hmap : g.nodes.map (symMap d id) = g.nodes :=
+      map_eq_self_of _ _ (fun m hm => symMap_eq_self_of_weight d id m (hpt m hm))
+    rw [hmap]
+
+private theorem exists_id_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (i : PathNodeId) (h : ∃ n ∈ g.nodes, n.id = i) :
+    ∃ n ∈ (updateAt g id f).nodes, n.id = i := by
+  obtain ⟨n, hn, hid⟩ := h
+  refine ⟨(fun n => match n.id == id with | true => f n | false => n) n, ?_, ?_⟩
+  · simp only [updateAt, updateAtGo]
+    exact List.mem_map_of_mem hn
+  · cases hb : n.id == id
+    · simp only [hb]; exact hid
+    · simp only [hb]; rw [hf]; exact hid
+
+private theorem exists_id_symmetrize (g : GPathM) (j i : PathNodeId)
+    (h : ∃ n ∈ g.nodes, n.id = i) : ∃ n ∈ (symmetrize g j).nodes, n.id = i := by
+  unfold symmetrize
+  split
+  · exact h
+  · next d _ =>
+    obtain ⟨n, hn, hid⟩ := h
+    exact ⟨symMap d j n, List.mem_map_of_mem hn, by rw [(symMap_props d j n).1]; exact hid⟩
+
+private theorem exists_id_unlink (g : GPathM) (j i : PathNodeId)
+    (h : ∃ n ∈ g.nodes, n.id = i) : ∃ n ∈ (unlinkIncompatible g j).nodes, n.id = i := by
+  unfold GPathM.unlinkIncompatible
+  split
+  · exact h
+  · next n₀ _ =>
+    obtain ⟨n, hn, hid⟩ := h
+    exact ⟨unlinkMap n₀ j n, List.mem_map_of_mem hn, by rw [unlinkMap_id]; exact hid⟩
+
+/-- The tail both symmetric passes end with: intersect, mirror, unlink, and
+drop the node if that left it invalid. -/
+def symIntersectOrDrop (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) : GPathM :=
+  if isValidNode
+      (unlinkIncompatible (symmetrize
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id) id)
+      (relink (intersectOwners d.owners b) d) then
+    unlinkIncompatible (symmetrize
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id) id
+  else
+    removeNode (unlinkIncompatible (symmetrize
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id) id) id
+
+theorem measure_symIntersectOrDrop_le (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) : GPathM.measure (symIntersectOrDrop g id b d) ≤ GPathM.measure g := by
+  have h1 : GPathM.measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ GPathM.measure g :=
+    measure_updateAt_le g id _ (weight_inter_le b)
+  have h2 := Nat.le_trans (measure_symmetrize_le _ id) h1
+  have h3 := Nat.le_trans (measure_unlinkIncompatible_le _ id) h2
+  unfold symIntersectOrDrop
+  split
+  · exact h3
+  · exact Nat.le_trans (measure_removeNode_le _ id) h3
+
+/-- **At the fixpoint the tail is the identity, in all three of its stages.**
+The drop branch is unreachable: removing a node that is actually there
+strictly shrinks the measure. -/
+theorem symIntersectOrDrop_valid_branch (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : GPathM.measure (symIntersectOrDrop g id b d) = GPathM.measure g) :
+    updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g ∧
+      symmetrize g id = g ∧ unlinkIncompatible g id = g ∧
+      isValidNode g (relink (intersectOwners d.owners b) d) = true := by
+  have hupd_le : GPathM.measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ GPathM.measure g :=
+    measure_updateAt_le g id _ (weight_inter_le b)
+  have hsym_le := measure_symmetrize_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+  have hunl_le := measure_unlinkIncompatible_le
+    (symmetrize (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) id) id
+  obtain ⟨n, hn, hn_id⟩ : ∃ n ∈ (unlinkIncompatible (symmetrize (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) id) id).nodes, n.id = id :=
+    exists_id_unlink _ id id (exists_id_symmetrize _ id id
+      (exists_id_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+        (fun _ => rfl) id ⟨d, hd_mem, hd_id⟩))
+  have hlt := measure_removeNode_lt _ id n hn hn_id
+  unfold symIntersectOrDrop at h
+  split at h
+  · next hv =>
+    have h1 : GPathM.measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = GPathM.measure g := by
+      omega
+    have hupd : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ (weight_inter_le b) (fun n => inter_eq_self_of_weight b n) h1
+    rw [hupd] at h hv hsym_le hunl_le
+    have hsy : symmetrize g id = g := symmetrize_eq_self g id (by omega)
+    rw [hsy] at h hv hunl_le
+    have hunl : unlinkIncompatible g id = g := unlinkIncompatible_eq_self g id (by omega)
+    rw [hunl] at hv
+    exact ⟨hupd, hsy, hunl, hv⟩
+  · exact absurd h (Nat.ne_of_lt
+      (Nat.lt_of_lt_of_le hlt (Nat.le_trans hunl_le (Nat.le_trans hsym_le hupd_le))))
+
+theorem symIntersectOrDrop_eq_self (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : GPathM.measure (symIntersectOrDrop g id b d) = GPathM.measure g) :
+    symIntersectOrDrop g id b d = g := by
+  obtain ⟨hupd, hsy, hunl, hv⟩ := symIntersectOrDrop_valid_branch g id b d hd_mem hd_id h
+  unfold symIntersectOrDrop
+  rw [hupd, hsy, hunl, if_pos hv]
+
+-- ------------------------------------------------------------
+-- `cleanInvalidSym` at the fixpoint
+-- ------------------------------------------------------------
+
+def cleanStepSym (g : GPathM) (id : PathNodeId) : GPathM :=
+  match g.node? id with
+  | none => g
+  | some d => symIntersectOrDrop g id g.gowners d
+
+theorem cleanInvalidGoSym_cons (g : GPathM) (id : PathNodeId) (rest : List PathNodeId) :
+    cleanInvalidGoSym g (id :: rest) = cleanInvalidGoSym (cleanStepSym g id) rest := by
+  cases hnode : g.node? id <;>
+    simp [cleanInvalidGoSym, cleanStepSym, symIntersectOrDrop, hnode]
+
+theorem measure_cleanStepSym_le (g : GPathM) (id : PathNodeId) :
+    GPathM.measure (cleanStepSym g id) ≤ GPathM.measure g := by
+  simp only [cleanStepSym]
+  split
+  · exact Nat.le_refl _
+  · exact measure_symIntersectOrDrop_le _ _ _ _
+
+theorem cleanStepSym_eq_self (g : GPathM) (id : PathNodeId)
+    (h : GPathM.measure (cleanStepSym g id) = GPathM.measure g) : cleanStepSym g id = g := by
+  cases hnode : g.node? id with
+  | none => simp [cleanStepSym, hnode]
+  | some d =>
+    simp only [cleanStepSym, hnode] at h ⊢
+    exact symIntersectOrDrop_eq_self g id g.gowners d
+      (List.mem_of_find?_eq_some hnode) (node?_id_eq g id d hnode) h
+
+theorem cleanInvalidGoSym_steps_eq_self (ids : List PathNodeId) :
+    ∀ g : GPathM, GPathM.measure (cleanInvalidGoSym g ids) = GPathM.measure g →
+      ∀ id ∈ ids, cleanStepSym g id = g := by
+  induction ids with
+  | nil => intro g _ id hid; exact absurd hid List.not_mem_nil
+  | cons id rest ih =>
+    intro g heq id' hid'
+    rw [cleanInvalidGoSym_cons] at heq
+    have h₁ := measure_cleanStepSym_le g id
+    have h₂ := measure_cleanInvalidGoSym_le rest (cleanStepSym g id)
+    have hfix : cleanStepSym g id = g := cleanStepSym_eq_self g id (by omega)
+    rw [hfix] at heq
+    rcases List.mem_cons.mp hid' with rfl | hid''
+    · exact hfix
+    · exact ih g heq id' hid''
+
+theorem cleanInvalidGoSym_eq_self (ids : List PathNodeId) :
+    ∀ g : GPathM, GPathM.measure (cleanInvalidGoSym g ids) = GPathM.measure g →
+      cleanInvalidGoSym g ids = g := by
+  induction ids with
+  | nil => intro g _; simp [cleanInvalidGoSym]
+  | cons id rest ih =>
+    intro g heq
+    rw [cleanInvalidGoSym_cons] at heq ⊢
+    have h₁ := measure_cleanStepSym_le g id
+    have h₂ := measure_cleanInvalidGoSym_le rest (cleanStepSym g id)
+    have hfix : cleanStepSym g id = g := cleanStepSym_eq_self g id (by omega)
+    rw [hfix] at heq ⊢
+    exact ih g heq
+
+theorem cleanInvalidSym_eq_self (g : GPathM)
+    (h : GPathM.measure (cleanInvalidSym g) = GPathM.measure g) : cleanInvalidSym g = g :=
+  cleanInvalidGoSym_eq_self _ g h
+
+-- ------------------------------------------------------------
+-- The coherence passes at the fixpoint
+-- ------------------------------------------------------------
+
+theorem reviewNodeSym_shape (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId)
+    (d : PNodeM) (hd : g.node? id = some d) :
+    reviewNodeSym g nb id =
+      if isValidNode g d then symIntersectOrDrop g id (unionOwnersOf g (nb d)) d
+      else removeNode g id := by
+  simp [reviewNodeSym, hd, symIntersectOrDrop]
+
+theorem reviewNodeSym_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId)
+    (h : GPathM.measure (reviewNodeSym g nb id) = GPathM.measure g) :
+    reviewNodeSym g nb id = g := by
+  cases hnode : g.node? id with
+  | none => simp [reviewNodeSym, hnode]
+  | some d =>
+    have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hnode
+    have hd_id : d.id = id := node?_id_eq g id d hnode
+    rw [reviewNodeSym_shape g nb id d hnode] at h ⊢
+    split at h
+    · next hvalid =>
+      rw [if_pos hvalid]
+      exact symIntersectOrDrop_eq_self g id _ d hd_mem hd_id h
+    · next hvalid =>
+      rw [if_neg hvalid]
+      exact absurd h (Nat.ne_of_lt (measure_removeNode_lt g id d hd_mem hd_id))
+
+private theorem foldl_eq_self {β : Type} (f : GPathM → β → GPathM)
+    (hle : ∀ g b, GPathM.measure (f g b) ≤ GPathM.measure g)
+    (hid : ∀ g b, GPathM.measure (f g b) = GPathM.measure g → f g b = g) :
+    ∀ (l : List β) (g : GPathM),
+      GPathM.measure (l.foldl f g) = GPathM.measure g → l.foldl f g = g := by
+  intro l
+  induction l with
+  | nil => intro g _; simp
+  | cons b bs ih =>
+    intro g heq
+    simp only [List.foldl_cons] at heq ⊢
+    have h₁ := hle g b
+    have h₂ := measure_foldl_le f hle bs (f g b)
+    have hstep : GPathM.measure (f g b) = GPathM.measure g := by omega
+    rw [hid g b hstep] at heq ⊢
+    exact ih g heq
+
+private theorem foldl_steps_eq_self {β : Type} (f : GPathM → β → GPathM)
+    (hle : ∀ g b, GPathM.measure (f g b) ≤ GPathM.measure g)
+    (hid : ∀ g b, GPathM.measure (f g b) = GPathM.measure g → f g b = g) :
+    ∀ (l : List β) (g : GPathM), GPathM.measure (l.foldl f g) = GPathM.measure g →
+      ∀ b ∈ l, f g b = g := by
+  intro l
+  induction l with
+  | nil => intro g _ b hb; exact absurd hb List.not_mem_nil
+  | cons b bs ih =>
+    intro g heq b' hb'
+    simp only [List.foldl_cons] at heq
+    have h₁ := hle g b
+    have h₂ := measure_foldl_le f hle bs (f g b)
+    have hfix : f g b = g := hid g b (by omega)
+    rw [hfix] at heq
+    rcases List.mem_cons.mp hb' with rfl | hb''
+    · exact hfix
+    · exact ih g heq b' hb''
+
+theorem reviewLineSym_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (k : Int)
+    (h : GPathM.measure (reviewLineSym g nb k) = GPathM.measure g) : reviewLineSym g nb k = g :=
+  foldl_eq_self (fun g id => reviewNodeSym g nb id)
+    (fun g id => measure_reviewNodeSym_le nb id g)
+    (fun g id => reviewNodeSym_eq_self g nb id) _ g h
+
+theorem reviewLineSym_nodes_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (k : Int)
+    (h : GPathM.measure (reviewLineSym g nb k) = GPathM.measure g) :
+    ∀ id ∈ ((g.line k).map (·.id)), reviewNodeSym g nb id = g :=
+  foldl_steps_eq_self (fun g id => reviewNodeSym g nb id)
+    (fun g id => measure_reviewNodeSym_le nb id g)
+    (fun g id => reviewNodeSym_eq_self g nb id) _ g h
+
+theorem reviewStepsSym_eq_self (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, GPathM.measure (reviewStepsSym g nb ks) = GPathM.measure g →
+      reviewStepsSym g nb ks = g := by
+  induction ks with
+  | nil => intro g _; simp [reviewStepsSym]
+  | cons k ks ih =>
+    intro g heq
+    simp only [reviewStepsSym] at heq ⊢
+    split at heq
+    · next hv =>
+      rw [if_pos hv]
+      have h₁ := measure_reviewLineSym_le nb k g
+      have h₂ := measure_reviewStepsSym_le nb ks (reviewLineSym g nb k)
+      have hline : GPathM.measure (reviewLineSym g nb k) = GPathM.measure g := by omega
+      rw [reviewLineSym_eq_self g nb k hline] at heq ⊢
+      exact ih g heq
+    · next hv => rw [if_neg hv]
+
+theorem reviewStepsSym_lines_eq_self (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, isValid g = true →
+      GPathM.measure (reviewStepsSym g nb ks) = GPathM.measure g →
+      ∀ k ∈ ks, reviewLineSym g nb k = g := by
+  induction ks with
+  | nil => intro g _ _ k hk; exact absurd hk List.not_mem_nil
+  | cons k ks ih =>
+    intro g hvalid heq k' hk'
+    simp only [reviewStepsSym] at heq
+    rw [if_pos hvalid] at heq
+    have h₁ := measure_reviewLineSym_le nb k g
+    have h₂ := measure_reviewStepsSym_le nb ks (reviewLineSym g nb k)
+    have hfix : reviewLineSym g nb k = g := reviewLineSym_eq_self g nb k (by omega)
+    rw [hfix] at heq
+    rcases List.mem_cons.mp hk' with rfl | hk''
+    · exact hfix
+    · exact ih g hvalid heq k' hk''
+
+theorem measure_reviewParentsSym_le (g : GPathM) :
+    GPathM.measure (reviewParentsSym g) ≤ GPathM.measure g :=
+  measure_reviewStepsSym_le _ _ g
+
+theorem measure_reviewSonsSym_le (g : GPathM) :
+    GPathM.measure (reviewSonsSym g) ≤ GPathM.measure g :=
+  measure_reviewStepsSym_le _ _ g
+
+theorem reviewParentsSym_eq_self (g : GPathM)
+    (h : GPathM.measure (reviewParentsSym g) = GPathM.measure g) : reviewParentsSym g = g :=
+  reviewStepsSym_eq_self _ _ g h
+
+theorem reviewSonsSym_eq_self (g : GPathM)
+    (h : GPathM.measure (reviewSonsSym g) = GPathM.measure g) : reviewSonsSym g = g :=
+  reviewStepsSym_eq_self _ _ g h
+
+theorem reviewPassSym_eq_self (g : GPathM)
+    (h : GPathM.measure (reviewPassSym g) = GPathM.measure g) : reviewPassSym g = g := by
+  have h₁ := measure_cleanInvalidSym_le g
+  have h₂ := measure_reviewParentsSym_le (cleanInvalidSym g)
+  have h₃ := measure_reviewSonsSym_le (reviewParentsSym (cleanInvalidSym g))
+  simp only [reviewPassSym] at h ⊢
+  have hclean : GPathM.measure (cleanInvalidSym g) = GPathM.measure g := by omega
+  rw [cleanInvalidSym_eq_self g hclean] at h ⊢
+  have h₂' := measure_reviewParentsSym_le g
+  have h₃' := measure_reviewSonsSym_le (reviewParentsSym g)
+  have hpar : GPathM.measure (reviewParentsSym g) = GPathM.measure g := by omega
+  rw [reviewParentsSym_eq_self g hpar] at h ⊢
+  exact reviewSonsSym_eq_self g h
+
+/-- The three stages of a fixpoint pass are each the identity. -/
+theorem reviewPassSym_stages_eq_self (g : GPathM)
+    (h : GPathM.measure (reviewPassSym g) = GPathM.measure g) :
+    cleanInvalidSym g = g ∧ reviewParentsSym g = g ∧ reviewSonsSym g = g := by
+  have h₁ := measure_cleanInvalidSym_le g
+  have h₂ := measure_reviewParentsSym_le (cleanInvalidSym g)
+  have h₃ := measure_reviewSonsSym_le (reviewParentsSym (cleanInvalidSym g))
+  simp only [reviewPassSym] at h
+  have hclean : cleanInvalidSym g = g := cleanInvalidSym_eq_self g (by omega)
+  rw [hclean] at h h₂ h₃
+  have h₃' := measure_reviewSonsSym_le (reviewParentsSym g)
+  have hpar : reviewParentsSym g = g := reviewParentsSym_eq_self g (by omega)
+  rw [hpar] at h
+  exact ⟨hclean, hpar, reviewSonsSym_eq_self g h⟩
+
+-- ------------------------------------------------------------
+-- The loop really reaches a fixpoint of the pass
+-- ------------------------------------------------------------
+
+theorem reviewFuelSym_fixpoint : ∀ (fuel : Nat) (g : GPathM), GPathM.measure g < fuel →
+    isValid (reviewFuelSym fuel g) = true →
+    reviewPassSym (reviewFuelSym fuel g) = reviewFuelSym fuel g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g hlt; exact absurd hlt (Nat.not_lt_zero _)
+  | succ fuel ih =>
+    intro g hlt hvalid
+    simp only [reviewFuelSym] at hvalid ⊢
+    split at hvalid
+    · next hv =>
+      rw [if_pos hv]
+      split at hvalid
+      · next hdec =>
+        rw [if_pos hdec]
+        exact ih (reviewPassSym g) (by omega) hvalid
+      · next hdec =>
+        rw [if_neg hdec]
+        have hle := measure_reviewPassSym_le g
+        have hfix : reviewPassSym g = g := reviewPassSym_eq_self g (by omega)
+        simp only [hfix]
+    · next hv =>
+      rw [if_neg hv]
+      exact absurd hvalid hv
+
+/-- **The symmetric review is a genuine fixpoint of its pass**, on the states
+it leaves valid. -/
+theorem reviewPassSym_reviewSym (g : GPathM) (h : isValid (reviewSym g) = true) :
+    reviewPassSym (reviewSym g) = reviewSym g :=
+  reviewFuelSym_fixpoint (GPathM.measure g + 1) g (Nat.lt_succ_self _) h
+
+-- ------------------------------------------------------------
+-- And so the two per-node facts
+-- ------------------------------------------------------------
+
+private theorem updateAt_pointwise (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (h : updateAt g id f = g) (d : PNodeM) (hd : d ∈ g.nodes) (hd_id : d.id = id) :
+    f d = d := by
+  have hmap : updateAtGo id f g.nodes = g.nodes := congrArg GPathM.nodes h
+  rw [updateAtGo] at hmap
+  have hpt := map_eq_self_pointwise g.nodes _ hmap d hd
+  have hbeq : (d.id == id) = true := by rw [hd_id]; exact beq_iff_eq.mpr rfl
+  simpa [hbeq] using hpt
+
+theorem cleanStepSym_owners_fixed (g : GPathM) (id : PathNodeId) (d : PNodeM)
+    (hd : g.node? id = some d)
+    (h : GPathM.measure (cleanStepSym g id) = GPathM.measure g) :
+    intersectOwners d.owners g.gowners = d.owners := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  have hstep : GPathM.measure (symIntersectOrDrop g id g.gowners d) = GPathM.measure g := by
+    simpa [cleanStepSym, hd] using h
+  obtain ⟨hupd, _, _, _⟩ :=
+    symIntersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
+  exact congrArg PNodeM.owners (updateAt_pointwise g id _ hupd d hd_mem hd_id)
+
+theorem reviewNodeSym_owners_fixed (g : GPathM) (nb : PNodeM → List PathNodeId)
+    (id : PathNodeId) (d : PNodeM) (hd : g.node? id = some d)
+    (h : GPathM.measure (reviewNodeSym g nb id) = GPathM.measure g) :
+    intersectOwners d.owners (unionOwnersOf g (nb d)) = d.owners := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  rw [reviewNodeSym_shape g nb id d hd] at h
+  split at h
+  · obtain ⟨hupd, _, _, _⟩ :=
+      symIntersectOrDrop_valid_branch g id (unionOwnersOf g (nb d)) d hd_mem hd_id h
+    exact congrArg PNodeM.owners (updateAt_pointwise g id _ hupd d hd_mem hd_id)
+  · exact absurd h (Nat.ne_of_lt (measure_removeNode_lt g id d hd_mem hd_id))
+
+/-- At the fixpoint, a node reached by `cleanInvalidGoSym` passed
+`isValidNode`. -/
+theorem cleanStepSym_node_valid (g : GPathM) (id : PathNodeId) (d : PNodeM)
+    (hd : g.node? id = some d)
+    (h : GPathM.measure (cleanStepSym g id) = GPathM.measure g) :
+    isValidNode g d = true := by
+  have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq g id d hd
+  have hstep : GPathM.measure (symIntersectOrDrop g id g.gowners d) = GPathM.measure g := by
+    simpa [cleanStepSym, hd] using h
+  obtain ⟨hupd, _, hunl, hvalid⟩ :=
+    symIntersectOrDrop_valid_branch g id g.gowners d hd_mem hd_id hstep
+  have hfix : { d with owners := intersectOwners d.owners g.gowners } = d :=
+    updateAt_pointwise g id _ hupd d hd_mem hd_id
+  have hrel : relink (intersectOwners d.owners g.gowners) d = d := by
+    show relinkSelf { d with owners := intersectOwners d.owners g.gowners } = d
+    rw [hfix]; exact relinkSelf_eq_self_of_fixed g id d hd hunl
+  rwa [hrel] at hvalid
+
+/-- The `cleanInvalidSym` step for any node the symmetric review still exposes
+was itself the identity — the shared first half of the per-node results. -/
+theorem reviewSym_cleanStep_fixed (g : GPathM) (h : isValid (reviewSym g) = true)
+    (id : PathNodeId) (d : PNodeM) (hd : (reviewSym g).node? id = some d) :
+    cleanStepSym (reviewSym g) id = reviewSym g := by
+  have hfix : reviewPassSym (reviewSym g) = reviewSym g := reviewPassSym_reviewSym g h
+  obtain ⟨hclean, _, _⟩ := reviewPassSym_stages_eq_self (reviewSym g) (by rw [hfix])
+  have hd_mem : d ∈ (reviewSym g).nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq _ id d hd
+  have hid_mem : id ∈ (reviewSym g).nodes.map (·.id) := by
+    have hmem := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hd_mem
+    rwa [hd_id] at hmem
+  exact cleanInvalidGoSym_steps_eq_self _ (reviewSym g) (by rw [show
+    cleanInvalidGoSym (reviewSym g) ((reviewSym g).nodes.map (·.id)) = reviewSym g from hclean])
+    id hid_mem
+
+/-- **Every node the symmetric review leaves passes `isValidNode`.** -/
+theorem reviewSym_node_valid (g : GPathM) (h : isValid (reviewSym g) = true)
+    (id : PathNodeId) (d : PNodeM) (hd : (reviewSym g).node? id = some d) :
+    isValidNode (reviewSym g) d = true :=
+  cleanStepSym_node_valid (reviewSym g) id d hd (by rw [reviewSym_cleanStep_fixed g h id d hd])
+
+/-- **`OwnersGlobal` for the symmetric review** — the first of v88's two
+missing fields, in `intersectOwners`' form. -/
+theorem reviewSym_owners_within_gowners (g : GPathM) (h : isValid (reviewSym g) = true)
+    (id : PathNodeId) (d : PNodeM) (hd : (reviewSym g).node? id = some d) :
+    intersectOwners d.owners (reviewSym g).gowners = d.owners :=
+  cleanStepSym_owners_fixed _ id d hd (by rw [reviewSym_cleanStep_fixed g h id d hd])
+
+/-- **`CoherentParents` for the symmetric review** — the second. -/
+theorem reviewSym_owners_coherent_parents (g : GPathM) (h : isValid (reviewSym g) = true)
+    (k : Int) (hk : k ∈ intRange 1 ((reviewSym g).current_step - 1))
+    (id : PathNodeId) (hid : id ∈ (((reviewSym g).line k).map (·.id)))
+    (d : PNodeM) (hd : (reviewSym g).node? id = some d) :
+    intersectOwners d.owners (unionOwnersOf (reviewSym g) d.parents) = d.owners := by
+  have hfix : reviewPassSym (reviewSym g) = reviewSym g := reviewPassSym_reviewSym g h
+  obtain ⟨_, hpar, _⟩ := reviewPassSym_stages_eq_self (reviewSym g) (by rw [hfix])
+  have hpar' : reviewStepsSym (reviewSym g) (·.parents)
+      (intRange 1 ((reviewSym g).current_step - 1)) = reviewSym g := hpar
+  have hline : reviewLineSym (reviewSym g) (·.parents) k = reviewSym g :=
+    reviewStepsSym_lines_eq_self _ _ (reviewSym g) h (by rw [hpar']) k hk
+  have hnode : reviewNodeSym (reviewSym g) (·.parents) id = reviewSym g :=
+    reviewLineSym_nodes_eq_self (reviewSym g) _ k (by rw [hline]) id hid
+  exact reviewNodeSym_owners_fixed (reviewSym g) _ id d hd (by rw [hnode])
+
+/-- **`CoherentSons` for the symmetric review** — the same for the bottom-up
+pass, whose step range is one narrower. -/
+theorem reviewSym_owners_coherent_sons (g : GPathM) (h : isValid (reviewSym g) = true)
+    (k : Int) (hk : k ∈ intRange 0 ((reviewSym g).current_step - 2))
+    (id : PathNodeId) (hid : id ∈ (((reviewSym g).line k).map (·.id)))
+    (d : PNodeM) (hd : (reviewSym g).node? id = some d) :
+    intersectOwners d.owners (unionOwnersOf (reviewSym g) d.sons) = d.owners := by
+  have hfix : reviewPassSym (reviewSym g) = reviewSym g := reviewPassSym_reviewSym g h
+  obtain ⟨_, _, hsons⟩ := reviewPassSym_stages_eq_self (reviewSym g) (by rw [hfix])
+  have hsons' : reviewStepsSym (reviewSym g) (·.sons)
+      (intRange 0 ((reviewSym g).current_step - 2)).reverse = reviewSym g := hsons
+  have hline : reviewLineSym (reviewSym g) (·.sons) k = reviewSym g :=
+    reviewStepsSym_lines_eq_self _ _ (reviewSym g) h (by rw [hsons']) k (List.mem_reverse.mpr hk)
+  have hnode : reviewNodeSym (reviewSym g) (·.sons) id = reviewSym g :=
+    reviewLineSym_nodes_eq_self (reviewSym g) _ k (by rw [hline]) id hid
+  exact reviewNodeSym_owners_fixed (reviewSym g) _ id d hd (by rw [hnode])
+
+-- ============================================================
+-- The two fields, in the shape `TableCtx` wants
+-- ============================================================
+
+/-- The line a node sits on holds its id. -/
+private theorem mem_line_ids (g : GPathM) (p : PathNodeId) (d : PNodeM)
+    (hd : g.node? p = some d) : p ∈ ((g.line p.id.step).map (·.id)) := by
+  have hmem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hid : d.id = p := node?_id_eq g p d hd
+  have hline : d ∈ g.line p.id.step :=
+    List.mem_filter.mpr ⟨hmem, by rw [hid]; exact beq_iff_eq.mpr rfl⟩
+  have := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hline
+  rwa [hid] at this
+
+/-- **`OwnersGlobal` for the symmetric review.** -/
+theorem OwnersGlobal_reviewSym (g : GPathM) (hv : isValid (reviewSym g) = true) :
+    FabricAdd.OwnersGlobal (reviewSym g) := fun r n hn w hw hl0 hl =>
+  owners_mem_gowners (reviewSym g) n (reviewSym_owners_within_gowners g hv r n hn) w hw
+    (hasStepEntry_of_isValid (reviewSym g) hv w.id.step hl0 hl)
+
+/-- **`CoherentParents` for the symmetric review.** -/
+theorem CoherentParents_reviewSym (g : GPathM) (hv : isValid (reviewSym g) = true) :
+    FabricAdd.CoherentParents (reviewSym g) := by
+  intro p n hn hp0 hptop
+  exact reviewSym_owners_coherent_parents g hv p.id.step (mem_intRange hp0 (by omega))
+    p (mem_line_ids _ p n hn) n hn
+
+/-- The `cohSons` field of `TableCtx`, for the symmetric review. -/
+theorem CoherentSons_reviewSym (g : GPathM) (hv : isValid (reviewSym g) = true) :
+    ∀ p n, (reviewSym g).node? p = some n → 0 ≤ p.id.step →
+      p.id.step < (reviewSym g).current_step - 1 →
+      intersectOwners n.owners (unionOwnersOf (reviewSym g) n.sons) = n.owners := by
+  intro p n hn hp0 hptop
+  exact reviewSym_owners_coherent_sons g hv p.id.step (mem_intRange hp0 (by omega))
+    p (mem_line_ids _ p n hn) n hn
+
+-- ============================================================
+-- And they transfer to the joined machine
+-- ============================================================
+
+/-- **Every state the joined loop returns is a symmetric-review fixpoint.**
+The loop only ever exits by handing back `reviewSym h`: the triangle branch
+either recurses on a strictly smaller state or stops on `reviewSym g` itself,
+and the fuel — `measure g + 1` — never runs out, because each round loses at
+least one unit of measure. -/
+theorem reviewSymTriFuel_eq_reviewSym : ∀ (fuel : Nat) (g : GPathM),
+    GPathM.measure g < fuel → ∃ h, reviewSymTriFuel fuel g = reviewSym h := by
+  intro fuel
+  induction fuel with
+  | zero => intro g hlt; exact absurd hlt (Nat.not_lt_zero _)
+  | succ f ih =>
+    intro g hlt
+    simp only [reviewSymTriFuel]
+    if hval : isValid (reviewSym g) = true then
+      if hdec : GPathM.measure (triClean (reviewSym g)) < GPathM.measure (reviewSym g) then
+        simp only [if_pos hval, if_pos hdec]
+        exact ih _ (by have := measure_reviewSym_le g; omega)
+      else
+        simp only [if_pos hval, if_neg hdec]
+        exact ⟨g, rfl⟩
+    else
+      simp only [if_neg hval]
+      exact ⟨g, rfl⟩
+
+theorem reviewSymTri_eq_reviewSym (g : GPathM) : ∃ h, reviewSymTri g = reviewSym h :=
+  reviewSymTriFuel_eq_reviewSym _ g (Nat.lt_succ_self _)
+
+/-- **`OwnersGlobal` for the joined machine.** -/
+theorem OwnersGlobal_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true) :
+    FabricAdd.OwnersGlobal (reviewSymTri g) := by
+  obtain ⟨h, he⟩ := reviewSymTri_eq_reviewSym g
+  rw [he] at hv ⊢
+  exact OwnersGlobal_reviewSym h hv
+
+/-- **`CoherentParents` for the joined machine.** -/
+theorem CoherentParents_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true) :
+    FabricAdd.CoherentParents (reviewSymTri g) := by
+  obtain ⟨h, he⟩ := reviewSymTri_eq_reviewSym g
+  rw [he] at hv ⊢
+  exact CoherentParents_reviewSym h hv
+
+/-- **Node validity for the joined machine.** -/
+theorem node_valid_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true) :
+    ∀ p n, (reviewSymTri g).node? p = some n → isValidNode (reviewSymTri g) n = true := by
+  obtain ⟨h, he⟩ := reviewSymTri_eq_reviewSym g
+  rw [he] at hv ⊢
+  exact fun p n hn => reviewSym_node_valid h hv p n hn
+
+/-- **Self-ownership for the joined machine** — the `selfown` field, from
+`OOS` and node validity. -/
+theorem selfOwn_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true)
+    (hoos : SelfOwn.OOS g) :
+    ∀ p n, (reviewSymTri g).node? p = some n → 0 ≤ p.id.step →
+      p.id.step < (reviewSymTri g).current_step → p ∈ n.owners := fun p n hn hl0 hl =>
+  FabricAdd.self_mem_owners _ (OOS_reviewSymTri g hoos) p n hn
+    (node_valid_reviewSymTri g hv p n hn) hl0 hl
+
+/-- **`CoherentSons` for the joined machine.** -/
+theorem CoherentSons_reviewSymTri (g : GPathM) (hv : isValid (reviewSymTri g) = true) :
+    ∀ p n, (reviewSymTri g).node? p = some n → 0 ≤ p.id.step →
+      p.id.step < (reviewSymTri g).current_step - 1 →
+      intersectOwners n.owners (unionOwnersOf (reviewSymTri g) n.sons) = n.owners := by
+  obtain ⟨h, he⟩ := reviewSymTri_eq_reviewSym g
+  rw [he] at hv ⊢
+  exact CoherentSons_reviewSym h hv
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -488,5 +1147,25 @@ theorem gowners_compat_filterAllSymTri (g : GPathM) (reqs : List NodeId) :
 /-- info: 'AbsSat.GraphPath.Model.SymTriReview.OOS_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms OOS_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.reviewPassSym_reviewSym' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms reviewPassSym_reviewSym
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.OwnersGlobal_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnersGlobal_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.CoherentParents_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms CoherentParents_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.CoherentSons_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms CoherentSons_reviewSymTri
+
+/-- info: 'AbsSat.GraphPath.Model.SymTriReview.selfOwn_reviewSymTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms selfOwn_reviewSymTri
 
 end AbsSat.GraphPath.Model.SymTriReview

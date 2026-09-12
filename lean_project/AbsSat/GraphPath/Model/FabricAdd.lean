@@ -1246,7 +1246,7 @@ one, and §`p4why` measures its size: 0,015% of pairs. -/
 /-- Coherence with the parents, in `intersectOwners`' own sense — what
 `review_owners_coherent_parents` leaves at the fixpoint. -/
 def CoherentParents (g : GPathM) : Prop :=
-  ∀ p n, g.node? p = some n →
+  ∀ p n, g.node? p = some n → 1 ≤ p.id.step → p.id.step < g.current_step →
     intersectOwners n.owners (unionOwnersOf g n.parents) = n.owners
 
 /-- The invariants a valid fixpoint carries, bundled so the statements below
@@ -1260,8 +1260,9 @@ structure TableCtx (g : GPathM) : Prop where
   sym : Threaded.OwnSymmetric g
   /-- The triangle holds (v69, and `TriProp_reviewTri`). -/
   tri : TriProp g
-  /-- Every node owns itself (`self_mem_owners`). -/
-  selfown : ∀ p n, g.node? p = some n → p ∈ n.owners
+  /-- Every node in range owns itself (`self_mem_owners`). -/
+  selfown : ∀ p n, g.node? p = some n → 0 ≤ p.id.step → p.id.step < g.current_step →
+    p ∈ n.owners
   /-- Parents sit one step below. -/
   level : ∀ p n, g.node? p = some n → ∀ c ∈ n.parents, c.id.step = p.id.step - 1
   /-- And they are nodes. -/
@@ -1269,7 +1270,7 @@ structure TableCtx (g : GPathM) : Prop where
   /-- A non-root node has one (`isValidNode`). -/
   hasparent : ∀ p n, g.node? p = some n → 1 ≤ p.id.step → n.parents ≠ []
   /-- The same three facts for the sons. -/
-  cohSons : ∀ p n, g.node? p = some n →
+  cohSons : ∀ p n, g.node? p = some n → 0 ≤ p.id.step → p.id.step < g.current_step - 1 →
     intersectOwners n.owners (unionOwnersOf g n.sons) = n.owners
   sonlevel : ∀ p n, g.node? p = some n → ∀ c ∈ n.sons, c.id.step = p.id.step + 1
   sonnode : ∀ p n, g.node? p = some n → ∀ c ∈ n.sons, (g.node? c).isSome = true
@@ -1313,6 +1314,7 @@ forces the owner into the union; and `OOS` says an entry of a parent's table at
 that parent's own step *is* that parent. -/
 theorem owner_pred_is_parent (g : GPathM) (ctx : TableCtx g)
     (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp0 : 1 ≤ p.id.step)
+    (hptop : p.id.step < g.current_step)
     (v : PathNodeId) (hv : v ∈ n.owners) (hvs : v.id.step = p.id.step - 1) :
     v ∈ n.parents := by
   -- a parent exists, is a node, and owns itself
@@ -1322,7 +1324,9 @@ theorem owner_pred_is_parent (g : GPathM) (ctx : TableCtx g)
     | nil => exact absurd h hne
     | cons a as => exact ⟨a, by simp⟩
   obtain ⟨m₀, hm₀⟩ := Option.isSome_iff_exists.mp (ctx.parnode p n hn c₀ hc₀)
-  have hc₀own : c₀ ∈ m₀.owners := ctx.selfown c₀ m₀ hm₀
+  have hc₀s : c₀.id.step = p.id.step - 1 := ctx.level p n hn c₀ hc₀
+  have hc₀own : c₀ ∈ m₀.owners :=
+    ctx.selfown c₀ m₀ hm₀ (by rw [hc₀s]; omega) (by rw [hc₀s]; omega)
   have hc₀u : c₀ ∈ unionOwnersOf g n.parents :=
     mem_unionOwnersOf g n.parents c₀ m₀ c₀ hc₀ hm₀ hc₀own
   -- so the union has an entry at that step
@@ -1333,7 +1337,7 @@ theorem owner_pred_is_parent (g : GPathM) (ctx : TableCtx g)
   have hfil : ∀ x ∈ n.owners,
       (!hasStepEntry (unionOwnersOf g n.parents) x.id.step ||
         (unionOwnersOf g n.parents).contains x) = true :=
-    List.filter_eq_self.mp (ctx.coh p n hn)
+    List.filter_eq_self.mp (ctx.coh p n hn hp0 hptop)
   have hvu : v ∈ unionOwnersOf g n.parents := by
     have := hfil v hv
     simp only [hentry, Bool.not_true, Bool.false_or] at this
@@ -1358,7 +1362,7 @@ theorem table_up (g : GPathM) (ctx : TableCtx g)
   -- the triangle: `p` and `v` share an entry one step below `p`
   obtain ⟨w, hwn, hwv, hws⟩ :=
     ctx.tri p n v nv hn hnv hv (p.id.step - 1) (by omega) (by omega)
-  have hwpar : w ∈ n.parents := owner_pred_is_parent g ctx p n hn hp0 w hwn hws
+  have hwpar : w ∈ n.parents := owner_pred_is_parent g ctx p n hn hp0 hptop w hwn hws
   obtain ⟨mw, hmw⟩ := Option.isSome_iff_exists.mp (ctx.parnode p n hn w hwpar)
   exact ⟨w, hwpar, mw, hmw, hwn, ctx.sym v nv w mw hnv hmw hwv⟩
 
@@ -1367,7 +1371,7 @@ theorem table_up (g : GPathM) (ctx : TableCtx g)
 parents'. -/
 theorem owner_succ_is_son (g : GPathM) (ctx : TableCtx g)
     (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n)
-    (hptop : p.id.step < g.current_step - 1)
+    (hp0 : 0 ≤ p.id.step) (hptop : p.id.step < g.current_step - 1)
     (v : PathNodeId) (hv : v ∈ n.owners) (hvs : v.id.step = p.id.step + 1) :
     v ∈ n.sons := by
   have hne := ctx.hasson p n hn hptop
@@ -1377,14 +1381,16 @@ theorem owner_succ_is_son (g : GPathM) (ctx : TableCtx g)
     | cons a as => exact ⟨a, by simp⟩
   obtain ⟨m₀, hm₀⟩ := Option.isSome_iff_exists.mp (ctx.sonnode p n hn c₀ hc₀)
   have hc₀u : c₀ ∈ unionOwnersOf g n.sons :=
-    mem_unionOwnersOf g n.sons c₀ m₀ c₀ hc₀ hm₀ (ctx.selfown c₀ m₀ hm₀)
+    mem_unionOwnersOf g n.sons c₀ m₀ c₀ hc₀ hm₀
+      (ctx.selfown c₀ m₀ hm₀ (by rw [ctx.sonlevel p n hn c₀ hc₀]; omega)
+        (by rw [ctx.sonlevel p n hn c₀ hc₀]; omega))
   have hentry : hasStepEntry (unionOwnersOf g n.sons) v.id.step = true := by
     refine List.any_eq_true.mpr ⟨c₀, hc₀u, ?_⟩
     exact beq_iff_eq.mpr (by rw [ctx.sonlevel p n hn c₀ hc₀, hvs])
   have hfil : ∀ x ∈ n.owners,
       (!hasStepEntry (unionOwnersOf g n.sons) x.id.step ||
         (unionOwnersOf g n.sons).contains x) = true :=
-    List.filter_eq_self.mp (ctx.cohSons p n hn)
+    List.filter_eq_self.mp (ctx.cohSons p n hn hp0 hptop)
   have hvu : v ∈ unionOwnersOf g n.sons := by
     have := hfil v hv
     simp only [hentry, Bool.not_true, Bool.false_or] at this
@@ -1406,7 +1412,7 @@ theorem table_down (g : GPathM) (ctx : TableCtx g)
       v ∈ mc.owners := by
   obtain ⟨w, hwn, hwv, hws⟩ :=
     ctx.tri p n v nv hn hnv hv (p.id.step + 1) (by omega) (by omega)
-  have hwson : w ∈ n.sons := owner_succ_is_son g ctx p n hn hptop w hwn hws
+  have hwson : w ∈ n.sons := owner_succ_is_son g ctx p n hn hp0 hptop w hwn hws
   obtain ⟨mw, hmw⟩ := Option.isSome_iff_exists.mp (ctx.sonnode p n hn w hwson)
   exact ⟨w, hwson, mw, hmw, ctx.smp p n w mw hn hmw hwson, hwn,
     ctx.sym v nv w mw hnv hmw hwv⟩
@@ -1438,7 +1444,7 @@ theorem Fabric_whole (g : GPathM) (ctx : TableCtx g)
            support := ?_, up := ?_, down := ?_ }
   · rintro p ⟨hp, hl0, hl⟩
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hp
-    exact hown p n hn p (ctx.selfown p n hn) hl0 hl
+    exact hown p n hn p (ctx.selfown p n hn hl0 hl) hl0 hl
   · rintro p ⟨hp, _, _⟩; exact hp
   · rintro p v _ ⟨hv, _⟩; exact hv
   · rintro p v hp ⟨hv, np, hnp, hvp⟩
@@ -1446,7 +1452,7 @@ theorem Fabric_whole (g : GPathM) (ctx : TableCtx g)
     exact ⟨hp, nv, hnv, ctx.sym p np v nv hnp hnv hvp⟩
   · rintro p hp
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hp.1
-    exact ⟨hp, n, hn, ctx.selfown p n hn⟩
+    exact ⟨hp, n, hn, ctx.selfown p n hn hp.2.1 hp.2.2⟩
   · rintro p n hn _ v ⟨_, np, hnp, hvp⟩
     rw [hn] at hnp; exact (Option.some.inj hnp) ▸ hvp
   · rintro p hp l hl0 hl
