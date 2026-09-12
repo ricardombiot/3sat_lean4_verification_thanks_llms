@@ -10,6 +10,34 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (bt) — `up`/`down` no fallan en las tablas; el estado válido es un tejido entero.**
+
+Método corregido a instancia del autor: antes de declarar residuo una cláusula que falla, medir
+**por qué** falla. Modo nuevo `cnfmap --p4why [casos] [semilla] [nvMin] [nvSpan] [modo]`, que
+separa fallo **de tabla** (ningún padre/hijo lleva la entrada) de fallo **relativo** (lo hay, pero
+fuera de `owners(q)`). Tres semillas sobre la máquina del triángulo, 49,5 M de pares `up` y 49,3 M
+de `down`: **0 fallos de tabla**, 428 / 970 / 4.047 relativos. En la máquina original, los 674+527
+fallos de la semilla 1001 son todos relativos. (El contador de tabla no se dispara en ninguna
+corrida, así que no es control positivo; lo que muestra es que la clasificación es exhaustiva.)
+
+Demostrado en `FabricAdd.lean`: `CoherentParents`, la estructura `TableCtx` (los invariantes del
+punto fijo, cada campo una propiedad con nombre), `exists_owner_of_mem_unionOwnersOf`,
+**`owner_pred_is_parent`** (*un owner un paso por debajo es un padre*: coherencia + `OOS`, porque la
+unión de las tablas de los padres en el paso de los padres **es** el conjunto de padres),
+`owner_succ_is_son`, **`table_up`**/**`table_down`** (el triángulo da el testigo, la simetría lo
+orienta) y **`Fabric_whole`**: las nueve cláusulas sobre el estado entero, sin pinchazo.
+
+`TableCtx` pide simetría (v64) **y** triángulo (v69) a la vez, y ninguna máquina del autor las tiene
+juntas — unirlas es el paso de diseño que el teorema pide.
+
+Medido además (`--p4narrow`, 53.639 pinchazos, dos semillas): el candidato del lector **estrechado**
+nunca se vacía, siempre cubre y nunca pierde `q`. El enunciado que falta toma la forma de P3 un
+nivel más arriba: el testigo compartido con un tercer nodo (cuarta grada de v70).
+
+Informe: `verificacion_inseguridad_autor_v88.md`.
+
+---
+
 **2026-09-12 (bs) — P4, cláusula por cláusula: el residuo son `up` y `down`.**
 
 v82 dejó P4 como reformulación (`PinNonEmpty` ⟺ `isValid`). Baja un nivel: `PinNonEmpty` pide

@@ -2596,4 +2596,200 @@ seed={seed} vars={nvMin}..{nvMin + nvSpan - 1} machine={mode} ---"
   IO.println s!"  ALL SEVEN hold (fabric exhibited) = {acc.allSeven}"
   pure 0
 
+/-! ### Why `up` and `down` fail
+
+v87 localised P4's residue in two clauses. A failure is not a verdict on the
+design — it is a place where a pass is missing, exactly as v66's case 17 was
+the place where `triClean` was missing. So the question is *which* pass, and
+that depends on **why** the clause fails.
+
+For a pin `q`, a member `p` of `owners(q)` and an entry `v` of `p`'s table, the
+`up` clause wants a parent `c` of `p` that is in `p`'s table and whose table
+holds `v` — **and that is itself inside `owners(q)`**. Two different failures
+hide there:
+
+* **table** — no such parent exists even ignoring `owners(q)`. A pass over the
+  tables alone would fix it: the direct analogue of `triClean`, one level up.
+* **relative** — the parent exists, but never inside `owners(q)`. No pass over
+  pairs can fix that: it is a condition on the **triple** `(q, p, v)`, which is
+  the fourth rung of the consistency ladder v70 pointed at.
+
+This band counts the two. -/
+
+structure WhyAcc where
+  pins : Nat := 0
+  upPairs : Nat := 0
+  upOk : Nat := 0
+  upTable : Nat := 0
+  upRel : Nat := 0
+  downPairs : Nat := 0
+  downOk : Nat := 0
+  downTable : Nat := 0
+  downRel : Nat := 0
+
+def WhyAcc.add (x y : WhyAcc) : WhyAcc :=
+  { pins := x.pins + y.pins,
+    upPairs := x.upPairs + y.upPairs, upOk := x.upOk + y.upOk,
+    upTable := x.upTable + y.upTable, upRel := x.upRel + y.upRel,
+    downPairs := x.downPairs + y.downPairs, downOk := x.downOk + y.downOk,
+    downTable := x.downTable + y.downTable, downRel := x.downRel + y.downRel }
+
+def whyPin (g : GPathM) (q : PathNodeId) : WhyAcc := Id.run do
+  match g.node? q with
+  | none => return {}
+  | some qn =>
+    let S0 := g.nodes.filter (fun n => qn.owners.contains n.id)
+    let ids := S0.map (·.id)
+    let T0 : Tab := S0.map (fun n => (n.id, n.owners.filter (fun v => ids.contains v)))
+    let top := g.current_step - 1
+    let mut acc : WhyAcc := { pins := 1 }
+    for n in S0 do
+      let tp := tabOf T0 n.id
+      -- `up`
+      if n.id.id.step != 0 then
+        for v in tp do
+          acc := { acc with upPairs := acc.upPairs + 1 }
+          let star := n.parents.any (fun c => tp.contains c && (tabOf T0 c).contains v)
+          let table := n.parents.any (fun c =>
+            n.owners.contains c &&
+            (match g.node? c with | none => false | some cn => cn.owners.contains v))
+          if star then acc := { acc with upOk := acc.upOk + 1 }
+          else if table then acc := { acc with upRel := acc.upRel + 1 }
+          else acc := { acc with upTable := acc.upTable + 1 }
+      -- `down`
+      if n.id.id.step != top then
+        for v in tp do
+          acc := { acc with downPairs := acc.downPairs + 1 }
+          let star := n.sons.any (fun c => tp.contains c && (tabOf T0 c).contains v)
+          let table := n.sons.any (fun c =>
+            n.owners.contains c &&
+            (match g.node? c with | none => false | some cn => cn.owners.contains v))
+          if star then acc := { acc with downOk := acc.downOk + 1 }
+          else if table then acc := { acc with downRel := acc.downRel + 1 }
+          else acc := { acc with downTable := acc.downTable + 1 }
+    return acc
+
+def scoreWhy (φ : Cnf) (mode : String) : WhyAcc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : WhyAcc := {}
+  for s in [0:steps + 1] do
+    let k : Int := (s : Int)
+    if litBlock φ < k && k < fusionTop φ then
+      for kv in line do
+        let g := kv.2
+        if isValid g then
+          for j in intRange 0 (g.current_step - 1) do
+            if PickInduction.choiceAt g j then
+              for q in ownersAt g.gowners j do
+                acc := acc.add (whyPin g q)
+    if s < steps then line := advanceBy mode φ line
+  return acc
+
+/-- `lake exe cnfmap --p4why [cases] [seed] [nvMin] [nvSpan] [orig|sym|tri|symtri]` -/
+def runP4Why (cases seed nvMin nvSpan : Nat) (mode : String) : IO UInt32 := do
+  IO.println s!"--- why `up`/`down` fail: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} machine={mode} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : WhyAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then acc := acc.add (scoreWhy φ mode)
+  IO.println s!"  pins examined                       = {acc.pins}"
+  IO.println s!"  `up`  (entry, member) pairs         = {acc.upPairs}"
+  IO.println s!"     carried inside the candidate     = {acc.upOk}"
+  IO.println s!"     NO parent carries it, any table  = {acc.upTable}"
+  IO.println s!"     parent carries it, but OUTSIDE   = {acc.upRel}"
+  IO.println s!"  `down` (entry, member) pairs        = {acc.downPairs}"
+  IO.println s!"     carried inside the candidate     = {acc.downOk}"
+  IO.println s!"     NO son carries it, any table     = {acc.downTable}"
+  IO.println s!"     son carries it, but OUTSIDE      = {acc.downRel}"
+  pure 0
+
+/-! ### And what the narrowing does to the reader's candidate
+
+The star is not a fabric at 2% of pins, so the fabric inside it is the
+*narrowed* star. This band asks whether that narrowing can empty it, or lose
+`q` itself — the same question P3 answered for the clause filter, now for the
+reader's pin. -/
+
+structure NarrowAcc where
+  pins : Nat := 0
+  kept : Nat := 0
+  covers : Nat := 0
+  missesAStep : Nat := 0
+  losesQ : Nat := 0
+  empties : Nat := 0
+
+def NarrowAcc.add (x y : NarrowAcc) : NarrowAcc :=
+  { pins := x.pins + y.pins, kept := x.kept + y.kept, covers := x.covers + y.covers,
+    missesAStep := x.missesAStep + y.missesAStep, losesQ := x.losesQ + y.losesQ,
+    empties := x.empties + y.empties }
+
+def scoreNarrow (φ : Cnf) (mode : String) : NarrowAcc := Id.run do
+  let steps := (stepCount φ - 1).toNat
+  let mut line := pureInit φ
+  let mut acc : NarrowAcc := {}
+  for s in [0:steps + 1] do
+    let k : Int := (s : Int)
+    if litBlock φ < k && k < fusionTop φ then
+      for kv in line do
+        let g := kv.2
+        if isValid g then
+          for j in intRange 0 (g.current_step - 1) do
+            if PickInduction.choiceAt g j then
+              for q in ownersAt g.gowners j do
+                match g.node? q with
+                | none => pure ()
+                | some qn =>
+                  let (kept, covers, hasQ) := pinnedFabric g qn [q.id]
+                  acc := { acc with pins := acc.pins + 1, kept := acc.kept + kept }
+                  if kept == 0 then acc := { acc with empties := acc.empties + 1 }
+                  if covers then acc := { acc with covers := acc.covers + 1 }
+                  else acc := { acc with missesAStep := acc.missesAStep + 1 }
+                  if !hasQ then acc := { acc with losesQ := acc.losesQ + 1 }
+    if s < steps then line := advanceBy mode φ line
+  return acc
+
+/-- `lake exe cnfmap --p4narrow [cases] [seed] [nvMin] [nvSpan] [orig|sym|tri|symtri]` -/
+def runP4Narrow (cases seed nvMin nvSpan : Nat) (mode : String) : IO UInt32 := do
+  IO.println s!"--- the narrowed star, at the reader's pins: cases={cases} seed={seed} \
+vars={nvMin}..{nvMin + nvSpan - 1} machine={mode} ---"
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut acc : NarrowAcc := {}
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below nvSpan
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then acc := acc.add (scoreNarrow φ mode)
+  IO.println s!"  pins examined                     = {acc.pins}"
+  IO.println s!"  members kept by the narrowing     = {acc.kept}"
+  IO.println s!"    narrowed star is EMPTY          = {acc.empties}"
+  IO.println s!"    COVERS every step               = {acc.covers}"
+  IO.println s!"    misses a step                   = {acc.missesAStep}"
+  IO.println s!"    loses `q` itself                = {acc.losesQ}"
+  pure 0
+
 end AbsSat.GraphMap.SymCampaign

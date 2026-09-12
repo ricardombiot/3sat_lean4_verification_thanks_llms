@@ -10,6 +10,20 @@ def main (args : List String) : IO UInt32 := do
     let g := fun (i : Nat) (d : Nat) => (rest[i]?.bind (·.toNat?)).getD d
     AbsSat.GraphMap.SymCampaign.runInsertGen (g 0 2026) (g 1 5) (g 2 2) (g 3 4) (g 4 2) (g 5 3)
       ((rest[6]?.getD "tri") == "tri")
+  | "--p4narrow" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 20
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 3
+    let mode := (rest[4]?).getD "orig"
+    AbsSat.GraphMap.SymCampaign.runP4Narrow cases seed nvMin nvSpan mode
+  | "--p4why" :: rest =>
+    let cases := (rest[0]?.bind (·.toNat?)).getD 20
+    let seed := (rest[1]?.bind (·.toNat?)).getD 2026
+    let nvMin := (rest[2]?.bind (·.toNat?)).getD 3
+    let nvSpan := (rest[3]?.bind (·.toNat?)).getD 3
+    let mode := (rest[4]?).getD "orig"
+    AbsSat.GraphMap.SymCampaign.runP4Why cases seed nvMin nvSpan mode
   | "--p4clause" :: rest =>
     let cases := (rest[0]?.bind (·.toNat?)).getD 20
     let seed := (rest[1]?.bind (·.toNat?)).getD 2026
