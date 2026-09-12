@@ -625,11 +625,9 @@ its support inside the candidate.
 
 Take a member `p` of `C = owners(r) ∩ Compat reqs` and a step `l`.
 
-* Symmetry turns `p ∈ owners(r)` into `r ∈ owners(p)` — proved for the
-  symmetric machine in v64.
-* The **triangle** property then gives a node `w` in *both* tables at step `l`.
-  That is exactly what the author's `triClean` pass enforces, and it is why v69
-  was needed before this could work.
+* The **triangle** property gives, straight from `p ∈ owners(r)`, a node `w`
+  in *both* tables at step `l`. That is exactly what the author's `triClean`
+  pass enforces, and it is why v69 was needed before this could work.
 * And `w` is automatically in `C`: it is in `owners(r)` by construction, and it
   is `Compat` because **every owner of a survivor is a global owner, and the
   pins filtered the global owners**. No case split on pinned versus free steps
@@ -637,10 +635,14 @@ Take a member `p` of `C = owners(r) ∩ Compat reqs` and a step `l`.
   it.
 
 So the residue of v45 — `support` at distance ≥ 2 — is discharged here by the
-triangle. What the section still takes as a hypothesis is `TriProp` itself:
-that the tables of two mutually owning nodes share an entry at every step.
-`triClean` enforces it by construction; extracting it from the fixpoint of
-`reviewTri` is bookkeeping of the kind `Fabric.lean` already does elsewhere. -/
+triangle.
+
+⚠ v84 and v85 routed the first bullet through **symmetry** — turning
+`p ∈ owners(r)` into `r ∈ owners(p)` before applying the triangle — and
+reported symmetry as a hypothesis still to be transported. That was a detour:
+`TriProp` in the direction it already has yields the same node. The hypothesis
+is gone from `pinnedCandidate_selfSupporting`, which now asks for three things,
+not four. -/
 
 /-- The pins only ever filtered the global owners, and the fold composes. -/
 theorem gowners_foldl_sub : ∀ (reqs : List NodeId) (g : GPathM),
@@ -680,25 +682,30 @@ def TriProp (g : GPathM) : Prop :=
     ∀ l, 0 ≤ l → l < g.current_step →
       ∃ w, w ∈ na.owners ∧ w ∈ nb.owners ∧ w.id.step = l
 
+/-- Every in-range owner of a node is one of the global owners. This is what
+`review` establishes at its fixpoint, and what the pin then constrains in one
+go. -/
+def OwnersGlobal (g : GPathM) : Prop :=
+  ∀ r n, g.node? r = some n → ∀ w ∈ n.owners,
+    0 ≤ w.id.step → w.id.step < g.current_step → w ∈ g.gowners
+
 /-- **The narrowing deletes nothing.** Every member of the pinned candidate has
 its support *inside* the candidate, at every step — so the greatest
-self-supporting subset is the candidate itself, and it covers. -/
+self-supporting subset is the candidate itself, and it covers.
+
+Three hypotheses, all of them the author's: the owners are global owners, the
+global owners carry the pins, and the triangle holds. -/
 theorem pinnedCandidate_selfSupporting (reqs : List NodeId) (G : GPathM)
-    (hown : ∀ r n, G.node? r = some n → ∀ w ∈ n.owners,
-      0 ≤ w.id.step → w.id.step < G.current_step → w ∈ G.gowners)
+    (hown : OwnersGlobal G)
     (hgow : ∀ q ∈ G.gowners, Compat reqs q)
     (htri : TriProp G)
-    (hsym : ∀ a na b nb, G.node? a = some na → G.node? b = some nb →
-      b ∈ na.owners → a ∈ nb.owners)
     (r : PathNodeId) (n : PNodeM) (hn : G.node? r = some n)
     (p : PathNodeId) (hp : p ∈ n.owners)
     (np : PNodeM) (hnp : G.node? p = some np)
     (l : Int) (hl0 : 0 ≤ l) (hl : l < G.current_step) :
     ∃ w, w ∈ np.owners ∧ w ∈ n.owners ∧ Compat reqs w ∧ w.id.step = l := by
-  -- symmetry: `r` owns `p` back
-  have hrp : r ∈ np.owners := hsym r n p np hn hnp hp
-  -- the triangle: a shared entry at step `l`
-  obtain ⟨w, hwp, hwr, hws⟩ := htri p np r n hnp hn hrp l hl0 hl
+  -- the triangle, applied the way it is already stated: a shared entry at `l`
+  obtain ⟨w, hwr, hwp, hws⟩ := htri r n p np hn hnp hp l hl0 hl
   refine ⟨w, hwp, hwr, ?_, hws⟩
   -- and it is compatible, because it is a global owner and the pins filtered those
   exact hgow w (hown r n hn w hwr (by rw [hws]; exact hl0) (by rw [hws]; exact hl))
@@ -865,6 +872,190 @@ theorem TriProp_reviewTri (g : GPathM) (hv : isValid (reviewTri g) = true) :
   TriProp_reviewTriFuel measure_review_le _ g (Nat.le_succ _) hv
 
 -- ============================================================
+-- The transport: from `review` to `reviewTri`
+-- ============================================================
+
+/-! v85 named two lemmas to carry across to the triangle machine — *the owners
+are global owners* and *symmetry*. Attacking them separates them completely.
+
+* **The first transports, and is proved here.** `triClean` shrinks tables and
+  leaves `gowners` and `current_step` alone, so the property survives every
+  triangle sweep; and every branch of the loop that returns hands back a state
+  whose last `review` established it. `OwnersGlobal_reviewTri` asks for nothing
+  but validity.
+* **The second is false for `reviewTri`, and it does not matter.** Plain
+  `review` breaks symmetry — `lake exe cnfmap --symreview` counts 63 violations
+  over 3.070 construction states at seed 1001 and 74 over 3.544 at seed 7777,
+  against **0** for the symmetric machine of v64, so the detector is not blind.
+  `reviewTri` is built on `review`, so symmetry cannot be transported to it.
+  But the hypothesis was a detour: `TriProp` read in the direction it already
+  has gives the shared entry without it.
+
+What the triangle owes on its own account *is* true, and is proved below: the
+sweep's test is symmetric in its two nodes, so `triClean` cannot break
+symmetry (`OwnSymmetric_triClean`). It is the review that does. -/
+
+/-- `triClean` only shrinks the tables. -/
+theorem pruned_triClean (g : GPathM) : Pruned g (triClean g) where
+  step_eq := rfl
+  map_parent_eq := rfl
+  gowners_sub _ hq := hq
+  nodes_derived n' hn' := by
+    simp only [triClean, List.mem_map] at hn'
+    obtain ⟨n, hn, rfl⟩ := hn'
+    exact ⟨n, hn, rfl, fun q hq => (List.mem_filter.mp hq).1, fun p hp => hp⟩
+
+theorem pruned_reviewTriFuel : ∀ (fuel : Nat) (g : GPathM),
+    Pruned g (reviewTriFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Pruned.refl g
+  | succ f ih =>
+    intro g
+    simp only [reviewTriFuel]
+    if hval : isValid (review g) = true then
+      if hlt : GPathM.measure (triClean (review g)) < GPathM.measure (review g) then
+        simp only [if_pos hval, if_pos hlt]
+        exact Pruned.trans (Pruned.trans (pruned_review g) (pruned_triClean _)) (ih _)
+      else
+        simp only [if_pos hval, if_neg hlt]
+        exact pruned_review g
+    else
+      simp only [if_neg hval]
+      exact pruned_review g
+
+/-- **The triangle review never invents a global owner.** -/
+theorem pruned_reviewTri (g : GPathM) : Pruned g (reviewTri g) :=
+  pruned_reviewTriFuel _ g
+
+/-- At a valid `review` fixpoint, the owners are global owners — v25 and F2.c,
+restated in the shape the narrowing wants. -/
+theorem OwnersGlobal_review (g : GPathM) (hv : isValid (review g) = true) :
+    OwnersGlobal (review g) :=
+  fun r n hn w hw hl0 hl => Candidates.owner_mem_gowners g hv r n hn w hw hl0 hl
+
+/-- **And the triangle sweep keeps it.** It shrinks tables and touches neither
+the global owners nor the step count. -/
+theorem OwnersGlobal_triClean (g : GPathM) (h : OwnersGlobal g) :
+    OwnersGlobal (triClean g) := by
+  intro r n hn w hw hl0 hl
+  rw [triClean_node?] at hn
+  cases hn0 : g.node? r with
+  | none => rw [hn0] at hn; exact absurd hn (by simp)
+  | some n0 =>
+    rw [hn0] at hn
+    have heq : triMap g n0 = n := Option.some.inj (by simpa using hn)
+    have hw0 : w ∈ n0.owners := by
+      rw [← heq] at hw
+      simp only [triMap, List.mem_filter] at hw
+      exact hw.1
+    exact h r n0 hn0 w hw0 hl0 hl
+
+theorem OwnersGlobal_reviewTriFuel : ∀ (fuel : Nat) (g : GPathM), OwnersGlobal g →
+    isValid (reviewTriFuel fuel g) = true → OwnersGlobal (reviewTriFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h _; exact h
+  | succ f ih =>
+    intro g _ hv
+    simp only [reviewTriFuel] at hv ⊢
+    if hval : isValid (review g) = true then
+      have hg1 : OwnersGlobal (review g) := OwnersGlobal_review g hval
+      if hlt : GPathM.measure (triClean (review g)) < GPathM.measure (review g) then
+        simp only [if_pos hval, if_pos hlt] at hv ⊢
+        exact ih _ (OwnersGlobal_triClean _ hg1) hv
+      else
+        simp only [if_pos hval, if_neg hlt] at hv ⊢
+        exact hg1
+    else
+      simp only [if_neg hval] at hv ⊢
+      exact absurd hv hval
+
+/-- **The first lemma, transported.** No hypothesis but validity: the loop
+always returns a state that a `review` has just cleaned, possibly narrowed by
+triangle sweeps that cannot spoil it. -/
+theorem OwnersGlobal_reviewTri (g : GPathM) (hv : isValid (reviewTri g) = true) :
+    OwnersGlobal (reviewTri g) := by
+  have hstep : ∀ (f : Nat) (h : GPathM), isValid (reviewTriFuel (f + 1) h) = true →
+      OwnersGlobal (reviewTriFuel (f + 1) h) := by
+    intro f h hvf
+    simp only [reviewTriFuel] at hvf ⊢
+    if hval : isValid (review h) = true then
+      have hg1 : OwnersGlobal (review h) := OwnersGlobal_review h hval
+      if hlt : GPathM.measure (triClean (review h)) < GPathM.measure (review h) then
+        simp only [if_pos hval, if_pos hlt] at hvf ⊢
+        exact OwnersGlobal_reviewTriFuel f _ (OwnersGlobal_triClean _ hg1) hvf
+      else
+        simp only [if_pos hval, if_neg hlt] at hvf ⊢
+        exact hg1
+    else
+      simp only [if_neg hval] at hvf ⊢
+      exact absurd hvf hval
+  exact hstep (GPathM.measure g) g hv
+
+/-- **The second lemma, for the half that owns it.** `commonAtAll` asks for a
+node in *both* tables, which is symmetric in the two nodes, so a sweep that
+drops `q` from `p`'s table drops `p` from `q`'s. The pass cannot break
+symmetry; what breaks it is the coherence pass of `review`, which is why v64
+exists. -/
+theorem OwnSymmetric_triClean (g : GPathM) (h : Threaded.OwnSymmetric g) :
+    Threaded.OwnSymmetric (triClean g) := by
+  intro a na b nb hna hnb hb
+  rw [triClean_node?] at hna hnb
+  cases ha0 : g.node? a with
+  | none => rw [ha0] at hna; exact absurd hna (by simp)
+  | some na0 =>
+    cases hb0 : g.node? b with
+    | none => rw [hb0] at hnb; exact absurd hnb (by simp)
+    | some nb0 =>
+      rw [ha0] at hna
+      rw [hb0] at hnb
+      have hea : triMap g na0 = na := Option.some.inj (by simpa using hna)
+      have heb : triMap g nb0 = nb := Option.some.inj (by simpa using hnb)
+      rw [← hea] at hb
+      simp only [triMap, List.mem_filter] at hb
+      obtain ⟨hb1, hcom⟩ := hb
+      -- the shared-entry test, read from `b`'s side
+      simp only [commonAtAll, hb0, List.all_eq_true] at hcom
+      rw [← heb]
+      simp only [triMap, List.mem_filter]
+      refine ⟨h a na0 b nb0 ha0 hb0 hb1, ?_⟩
+      simp only [commonAtAll, ha0, List.all_eq_true]
+      intro k hk
+      obtain ⟨w, hw, hwp⟩ := List.any_eq_true.mp (hcom k hk)
+      simp only [Bool.and_eq_true, beq_iff_eq] at hwp
+      exact List.any_eq_true.mpr ⟨w, List.mem_of_elem_eq_true hwp.2,
+        (Bool.and_eq_true _ _).mpr ⟨beq_iff_eq.mpr hwp.1,
+          List.elem_eq_true_of_mem hw⟩⟩
+
+-- ============================================================
+-- P3's narrowing, assembled on the triangle machine
+-- ============================================================
+
+/-- The pins survive the triangle review, as they survive the plain one. -/
+theorem gowners_compat_filterAllTri (g : GPathM) (reqs : List NodeId) :
+    ∀ q ∈ (filterAllTri g reqs).gowners, Compat reqs q := fun q hq =>
+  gowners_foldl_compat reqs g q
+    ((pruned_reviewTri (reqs.foldl filterRequire g)).gowners_sub q hq)
+
+/-- **P3's narrowing, with nothing left hanging.** On the author's own clause
+filter with the triangle pass, every member of the pinned candidate has its
+support inside the candidate at every step. The only hypothesis is that the
+filter left a valid state. -/
+theorem pinnedCandidate_selfSupporting_filterAllTri (g : GPathM) (reqs : List NodeId)
+    (hv : isValid (filterAllTri g reqs) = true)
+    (r : PathNodeId) (n : PNodeM) (hn : (filterAllTri g reqs).node? r = some n)
+    (p : PathNodeId) (hp : p ∈ n.owners)
+    (np : PNodeM) (hnp : (filterAllTri g reqs).node? p = some np)
+    (l : Int) (hl0 : 0 ≤ l) (hl : l < (filterAllTri g reqs).current_step) :
+    ∃ w, w ∈ np.owners ∧ w ∈ n.owners ∧ Compat reqs w ∧ w.id.step = l :=
+  pinnedCandidate_selfSupporting reqs (filterAllTri g reqs)
+    (OwnersGlobal_reviewTri _ hv)
+    (gowners_compat_filterAllTri g reqs)
+    (TriProp_reviewTri _ hv)
+    r n hn p hp np hnp l hl0 hl
+
+-- ============================================================
 -- Axiom guards
 -- ============================================================
 
@@ -939,5 +1130,21 @@ theorem TriProp_reviewTri (g : GPathM) (hv : isValid (reviewTri g) = true) :
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.isValid_readStepSym_addNode_new' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms isValid_readStepSym_addNode_new
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.OwnersGlobal_reviewTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnersGlobal_reviewTri
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.OwnSymmetric_triClean' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnSymmetric_triClean
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.pruned_reviewTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pruned_reviewTri
+
+/-- info: 'AbsSat.GraphPath.Model.FabricAdd.pinnedCandidate_selfSupporting_filterAllTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinnedCandidate_selfSupporting_filterAllTri
 
 end AbsSat.GraphPath.Model.FabricAdd

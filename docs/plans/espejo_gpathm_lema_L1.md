@@ -10,6 +10,37 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-12 (br) — el transporte: uno se hace, el otro era innecesario. P3 cerrada.**
+
+De los dos lemas que v85 dejó por transportar a `reviewTri`, la **simetría nunca hizo falta**:
+`TriProp` aplicado con `a := r`, `b := p` —que es justo `p ∈ owners(r)`— entrega el mismo nodo
+compartido que el rodeo de v84 obtenía girando primero con la simetría. `pinnedCandidate_selfSupporting`
+pierde la hipótesis, pide **tres** y sigue sin depender de ningún axioma. Y es lo que salva la vía:
+**medido** (`cnfmap --symreview`), el `review` original rompe la simetría en la construcción —63
+violaciones en 3.070 estados (semilla 1001), 74 en 3.544 (semilla 7777)— contra **0** de la máquina
+simétrica de v64 en los mismos estados; para `reviewTri`, montado sobre `review`, la simetría es
+**falsa**, no difícil.
+
+Demostrado en `FabricAdd.lean`: **`OwnersGlobal_reviewTri`** (el lema que sí transporta: todo owner
+en rango de un superviviente es owner global, sin más hipótesis que la validez), vía
+`OwnersGlobal_triClean` + `OwnersGlobal_review` e inducción sobre el combustible;
+**`pruned_triClean`**/**`pruned_reviewTri`** (el review con triángulo nunca inventa un owner global);
+`gowners_compat_filterAllTri`; **`OwnSymmetric_triClean`** (la pasada del triángulo no puede romper
+la simetría: `commonAtAll` es simétrico en sus dos nodos); y el ensamblaje
+**`pinnedCandidate_selfSupporting_filterAllTri`** — **P3 cerrada sobre el filtro de cláusula con
+triángulo, con la validez como única hipótesis**.
+
+Regresión medida, semilla nueva: `cnfmap --p3 30 4242 3 4` → 3.591 filtros válidos, 77.086
+supervivientes, 0 pasos perdidos, 0 vacíos, 0 pérdidas de `r`.
+
+Sin cambios en el aviso: `owns_required` es un teorema del filtro de cláusula y no vale para el
+pinchazo del lector, así que P3 es invariante de construcción y no procedimiento de decisión.
+Queda P4, donde v82 midió que la obligación del lector es equivalente a la validez misma.
+
+Informe: `verificacion_inseguridad_autor_v86.md`.
+
+---
+
 **2026-09-12 (bq) — `TriProp` extraído del punto fijo de `reviewTri`.**
 
 `FabricAdd.lean`: `filter_eq_self_of_length`, `weight_triMap_le`, `sum_map_le`, `sum_eq_pointwise`,
