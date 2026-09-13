@@ -10,6 +10,25 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-13 (cb) — subconjuntos de caminos, reducción del vacío y retículos.**
+
+Cuatro módulos nuevos, todo en `[propext, Quot.sound]`. `PartialPaths.lean`: `Phi`, `assignPath_mem_Phi`,
+`Phi_sound`, **`satisfiable_iff_Phi_nonempty`**, `soundness_iff_nonempty_represents`.
+`SubsetSemantics.lean`: `denotS`, `ChainSound_of_pruned`, **`denotS_filterAll`**, `MachineOk_reachable`,
+`ChainSound_of_addNode`, **`denotS_addNode`**, **`denotS_upFiltering`**, `denotS_join_union`,
+`denotS_sound`. `EmptinessReduction.lean`: `isValid_of_denotS`, **`SendExact`**, `lineAt_nonempty`,
+`valid_iff_nonempty_of_SendExact`, **`run_pure_decides_of_SendExact`**. `PathLattice.lean`: `PathSet`,
+`conc`, `conc_pruned`, `conc_grown`, **`conc_review`**, `conc_filterAll`, `conc_upFiltering`, `conc_join`,
+`test_sound`, **`SendExact_iff_precise_filter`**.
+
+Medido sobre `SatMachinePure` (44 fórmulas): `SendExact` sin fallos en 6.111 envíos; 3.810 estados
+guardados, ninguno vacío; bajada coherente sin retroceso sin atascos (104.192 pasos, 5.310 puntos de
+elección, 5.326 alternativas).
+
+Informe: `verificacion_inseguridad_autor_v96.md`.
+
+---
+
 **2026-09-13 (ca) — por encima de la propagación: ramas por fila clave y la tabla de owners.**
 
 Dos módulos nuevos. `KeyBranching.lean`: `KeyPure` (los owners globales de un estado del conductor, en
