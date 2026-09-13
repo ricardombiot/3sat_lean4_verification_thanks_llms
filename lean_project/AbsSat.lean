@@ -89,6 +89,8 @@ import AbsSat.GraphPath.Model.Decision
 import AbsSat.GraphPath.Model.LocalContradiction
 import AbsSat.GraphPath.Model.UnitPropagation
 import AbsSat.GraphPath.Model.DriverPropagation
+import AbsSat.GraphPath.Model.KeyBranching
+import AbsSat.GraphPath.Model.PinSupport
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.SymTriReview
