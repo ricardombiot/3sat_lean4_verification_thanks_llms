@@ -86,6 +86,7 @@ import AbsSat.GraphMap.SymCampaign
 import AbsSat.GraphPath.Model.Fabric
 import AbsSat.GraphPath.Model.NodeInvariant
 import AbsSat.GraphPath.Model.Decision
+import AbsSat.GraphPath.Model.LocalContradiction
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.SymTriReview
