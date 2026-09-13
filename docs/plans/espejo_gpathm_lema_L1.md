@@ -10,6 +10,24 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-13 (bz) — el review contiene la propagación unitaria.**
+
+Dos módulos nuevos. `LocalContradiction.lean`: `invalid_filterAll_of_blocked` (genérico) e
+`invalid_filterAll_of_clause_blocked` (cláusula vista con los tres literales excluidos tras los pins ⇒
+`filterAll` inválido), con `excluded_of_pin` y `excluded_of_excluded`. `UnitPropagation.lean`:
+**`OwnedCompatible`**, el dual de `L1` (un nodo no posee a un nodo cuyo requisito en su paso sea otro),
+con `pinned_step_pure` y `OwnedCompatible_reachable` (semilla, `up`, `join`); hechos del punto fijo
+`clause_supported`, `forcing1/2/3`, `link_forward`/`link_backward`, `var_has_value`; la relación
+inductiva `Refuted`/`UPConflict`, `refuted_absent` e **`invalid_filterAll_of_UPConflict`**. Todo en
+`[propext, Quot.sound]`.
+
+Medido antes, sobre `SatMachinePure`: 15.022 conjuntos de pins al azar, máquina inválida exactamente
+cuando la propagación encuentra conflicto; 404/404 cadenas construidas de 2–4 rondas inválidas.
+
+Informe: `verificacion_inseguridad_autor_v94.md`.
+
+---
+
 **2026-09-13 (by) — el caso 17 sobre `SatMachinePure`: por qué el hueco de pares no llega a zombi.**
 
 Medición, sin módulos nuevos, sobre `run_pure` (que `run_pure_eq_driver` iguala a
