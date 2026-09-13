@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-13 (ca) — por encima de la propagación: ramas por fila clave y la tabla de owners.**
+
+Dos módulos nuevos. `KeyBranching.lean`: `KeyPure` (los owners globales de un estado del conductor, en
+los pasos que su fila clave requiere, solo llevan el id requerido), `keyPure_sent`, `keyPure_doJoin`,
+`keyPure_insertPure`, **`pureAdvance_keyPure`**, `ReqValue`, `refuted_of_key`, `refuted_of_dest`,
+**`sendTo_of_key_conflict`** y **`pureAdvance_drops_key_conflict`**. `PinSupport.lean`:
+**`pinned_support`** y **`removed_unless_supported`**. Todo en `[propext, Quot.sound]`.
+
+Medido sobre `SatMachinePure` con la familia `a∨b∨c`, `a∨¬b∨c`, `¬a∨b∨c`, `¬a∨¬b∨c`: 59 estados finales
+parecían más allá de la propagación, pero era un efecto de medir sobre uniones de ramas (24.936 envíos: 0
+inválidos sin conflicto, 899 pérdidas de `c` falso todas explicadas). Aparte, 8 valores (4 casos) que la
+propagación permite y el review quita, todos en la primera `cleanInvalid` por un paso fijado.
+
+Informe: `verificacion_inseguridad_autor_v95.md`.
+
+---
+
 **2026-09-13 (bz) — el review contiene la propagación unitaria.**
 
 Dos módulos nuevos. `LocalContradiction.lean`: `invalid_filterAll_of_blocked` (genérico) e
