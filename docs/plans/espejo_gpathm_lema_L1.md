@@ -10,6 +10,21 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-13 (by) — el caso 17 sobre `SatMachinePure`: por qué el hueco de pares no llega a zombi.**
+
+Medición, sin módulos nuevos, sobre `run_pure` (que `run_pure_eq_driver` iguala a
+`PureDriver.pureRun`). Semilla 90210, caso 17: veredicto SAT correcto; **0 nodos zombie** en 145
+estados válidos (5.088 nodos); **9 pares co-poseídos sin solución común** de 72.406, todos en el
+estado (17,4), 4 también entre valores del mapa. Fijando a la vez los dos valores de cada par con
+`filterAll`: el pin (`filterRequire`) no vacía ningún paso; en los 4 huecos reales el review vacía
+los pasos de cláusula 13–17 y el estado queda inválido (y `sendTo` no lo guarda); en los otros 5, que
+pasan por una copia del valor con otro padre, el review elimina la copia y deja 0 zombis. Control:
+315/315 pares con solución común siguen válidos. No demostrado.
+
+Informe: `verificacion_inseguridad_autor_v93.md`.
+
+---
+
 **2026-09-12 (bx) — las hipótesis, enhebradas por el conductor; `NodesAreGowners` demostrada.**
 
 `SymTriReview.lean` pasa de 114 a **134 teoremas**. Paquete `Woven` (once campos: los nueve de
