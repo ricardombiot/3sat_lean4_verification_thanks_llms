@@ -1,6 +1,27 @@
 # SatMachinePure Theorem Suite
 
-Bridge theorems connecting the pure executable 3SAT machine to 1,225 formally proven results in GraphPath/GraphMap.
+**Canonical Specification for Formal Verification**
+
+All theorems and proofs in this suite target the **canonical pure executable SAT machine** defined in:
+```
+/AbsSat/SatMachine/PureSatMachine.lean
+```
+
+This is the **authoritative specification** for the 3SAT solver. Bridge theorems connect this machine to 1,225 formally proven results in GraphPath/GraphMap.
+
+**Why SatMachinePure is canonical:**
+- ✅ Pure functional (no IO.Ref, deterministic)
+- ✅ Immutable timeline (complete execution trace)
+- ✅ Fuel-based termination (provably finite)
+- ✅ Proof-ready (designed for formal verification)
+
+**Why not the old MSat?**
+- ❌ Imperative (mutable IO.Ref state)
+- ❌ Partial recursion (hard to prove termination)
+- ❌ No execution trace (single mutable cell)
+- ❌ Hard to reason about (side effects everywhere)
+
+See `docs/CLEANUP.md` for details on the transition from MSat to SatMachinePure.
 
 ## Proof Roadmap (Reusing Existing Theorems)
 
