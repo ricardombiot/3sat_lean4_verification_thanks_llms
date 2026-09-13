@@ -191,8 +191,9 @@ run_pure test_sat_medium.cnf ≈ PureDriver on same input
 
 Once this theorem is proven:
 
-1. **Immediately:** Soundness and completeness become trivial (1 day each)
-2. **Then:** Combine both into `run_pure_solves_cnf` (1 day)
+1. **Done:** `completeness_pure` (Theorem 03, `WF` only) and `soundness_pure`
+   (Theorem 02, under `ClauseStepExact`) are proven on top of this bridge
+2. **Done:** combined as `run_pure_decides` (Theorem 06)
 3. **Optional:** Prove complexity properties (Tier 3)
 
 This single proof is the keystone that unlocks the entire formal verification suite.

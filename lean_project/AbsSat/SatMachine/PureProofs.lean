@@ -1,11 +1,13 @@
 import AbsSat.SatMachine.PureSatMachine
+import AbsSat.GraphPath.Model.Decision
 
 /-!
 # Bridge: `SatMachinePure` ↔ `PureDriver`
 
 Theorem 01 of `docs/theorems/`: the last row of the pure machine's timeline is
 exactly `PureDriver.pureRun`, so every result proven about `pureRun` applies
-to `run_pure`.
+to `run_pure`. Theorems 02/03/06/08 follow: completeness holds for every `WF`
+formula; soundness assumes the open hypothesis `ClauseStepExact`.
 -/
 
 namespace AbsSat.SatMachine.PureProofs
@@ -13,6 +15,8 @@ namespace AbsSat.SatMachine.PureProofs
 open AbsSat.Cnf
 open AbsSat.GraphMap.CnfMap
 open AbsSat.GraphPath.Model.PureDriver
+open AbsSat.GraphPath.Model.Decision
+open AbsSat.GraphPath.Model.NodeInvariant
 open AbsSat.SatMachine.PureSatMachine
 
 theorem init_pure_timeline (cnf : Cnf) :
@@ -99,5 +103,43 @@ theorem run_pure_eq_driver (cnf : Cnf) :
     (run_pure cnf).timeline.getLast! = pureRun cnf := by
   rw [List.getLast!_eq_getLast?_getD, run_pure_getLast?]
   rfl
+
+theorem stepCount_pos (cnf : Cnf) : (0 : Int) < stepCount cnf := by
+  simp only [stepCount]
+  omega
+
+/-- The machine says SAT exactly when `PureDriver` ends with a non-empty line. -/
+theorem is_satisfiable_run_pure_iff (cnf : Cnf) :
+    is_satisfiable (run_pure cnf) = true ↔ pureRun cnf ≠ [] := by
+  have hlast := run_pure_getLast? cnf
+  unfold is_satisfiable
+  split
+  · rename_i hemp
+    simp [List.isEmpty_iff] at hemp
+    rw [hemp] at hlast
+    simp at hlast
+  · simp only [List.getElem!_eq_getElem?_getD, ← List.getLast?_eq_getElem?, hlast, Option.getD_some]
+    simp
+
+/-- Theorem 03: a satisfiable well-formed formula is reported SAT. No open
+hypothesis. -/
+theorem completeness_pure (cnf : Cnf) (hwf : WF cnf) (h : Satisfiable cnf) :
+    is_satisfiable (run_pure cnf) = true :=
+  (is_satisfiable_run_pure_iff cnf).mpr (pureRun_ne_nil cnf hwf (stepCount_pos cnf) h)
+
+/-- Theorem 02: a SAT verdict is backed by a satisfying assignment, **assuming
+the open hypothesis `ClauseStepExact`**. -/
+theorem soundness_pure (cnf : Cnf) (hwf : WF cnf) (hexact : ClauseStepExact cnf)
+    (h : is_satisfiable (run_pure cnf) = true) : Satisfiable cnf := by
+  have hzero := stepCount_pos cnf
+  obtain ⟨kv, hkv⟩ := List.exists_mem_of_ne_nil _ ((is_satisfiable_run_pure_iff cnf).mp h)
+  exact (decides_of_ClauseStepExact cnf hwf hzero hexact).mpr
+    ⟨kv, hkv, (stateOk_pureRun cnf hzero kv hkv).valid⟩
+
+/-- Theorems 06/08: under `ClauseStepExact`, the machine decides 3SAT — UNSAT
+exactly when the final line is empty. -/
+theorem run_pure_decides (cnf : Cnf) (hwf : WF cnf) (hexact : ClauseStepExact cnf) :
+    is_satisfiable (run_pure cnf) = true ↔ Satisfiable cnf :=
+  ⟨soundness_pure cnf hwf hexact, completeness_pure cnf hwf⟩
 
 end AbsSat.SatMachine.PureProofs

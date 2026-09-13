@@ -1,5 +1,13 @@
 # Deep Dive: Theorem 02 (Soundness_Pure)
 
+> **Superseded — premise incorrect.** This analysis assumes an unconditional
+> `soundness_theorem` about `PureDriver.pureRun` in `SatMachine/Model/Soundness.lean`.
+> No such theorem exists: that file is about a different machine (`PureGMap`,
+> `Model.run_pure`). Soundness of `SatMachinePure` is proven as `soundness_pure` in
+> `lean_project/AbsSat/SatMachine/PureProofs.lean` **only under the open hypothesis
+> `ClauseStepExact`** — see [02-soundness_pure.md](02-soundness_pure.md). Kept for
+> history.
+
 **Analysis of how to prove machine soundness by reusing existing PureDriver theorem.**
 
 ---

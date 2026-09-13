@@ -32,16 +32,16 @@ Rather than reprove everything, we leverage the existing infrastructure:
 2. [`run_pure_terminates`](05-run_pure_terminates.md) (1 day) — fuel-based termination  
 3. [`step_pure_appends_timeline`](04-step_pure_appends_timeline.md) (1 day) — state preservation
 
-**Phase B (Correctness)** — 2 days, applies existing soundness/completeness:
-4. [`soundness_pure`](02-soundness_pure.md) (1 day) — reuses `soundness_theorem` (SatMachine/Soundness.lean:122)
-5. [`completeness_pure`](03-completeness_pure.md) (1 day) — reuses `completeness_theorem` (SatMachine/Completeness.lean:16)
+**Phase B (Correctness)** — proven in `AbsSat/SatMachine/PureProofs.lean`:
+4. [`soundness_pure`](02-soundness_pure.md) — **assumes the open hypothesis `ClauseStepExact`**, via `decides_of_ClauseStepExact` (GraphPath/Model/Decision.lean)
+5. [`completeness_pure`](03-completeness_pure.md) — unconditional for `WF` formulas, via `pureRun_ne_nil` (GraphPath/Model/PureDriver.lean)
 
-**Phase C (Main Result)** — 1 day, combines B4+B5:
-6. [`run_pure_solves_cnf`](06-run_pure_solves_cnf.md) (1 day) — machine output ↔ formula solvability
+**Phase C (Main Result)** — proven, combines B4+B5:
+6. [`run_pure_decides`](06-run_pure_solves_cnf.md) — machine output ↔ formula solvability, under `ClauseStepExact`
 
 **Phase D (Optional, Advanced)** — 5+ days, deeper analysis:
 7. [`timeline_length_bounded`](07-timeline_length_bounded.md) (2 days) — complexity bounds
-8. [`final_line_characterizes_sat`](08-final_line_characterizes_sat.md) (3-4 days) — UNSAT detection proof
+8. [Final line characterizes SAT](08-final_line_characterizes_sat.md) — proven: `is_satisfiable_run_pure_iff` (unconditional) + `run_pure_decides` (under `ClauseStepExact`)
 
 **Total estimated for Phases A-C**: ~6 days (1 week)  
 **Total with Phase D**: ~11 days (1.5 weeks)
@@ -60,8 +60,9 @@ Rather than reprove 1,225 theorems, we:
 
 Instead of reprove soundness from scratch:
 - Prove `run_pure_eq_driver` (1 day structural proof)
-- Apply existing `soundness_theorem` to the equivalent form
-- Get full soundness in 1 day instead of weeks
+- Apply `decides_of_ClauseStepExact` (Decision.lean) to the equivalent form
+- Soundness then holds **under the open hypothesis `ClauseStepExact`** — the bridge
+  transfers results, it does not remove hypotheses
 
 This pattern applies to all Tier 1 theorems.
 
@@ -71,7 +72,7 @@ This pattern applies to all Tier 1 theorems.
 
 ```
 run_pure_eq_driver (1d)  —→  soundness_pure (1d)  ──┐
-       ↓                                             ├→ run_pure_solves_cnf (1d)
+       ↓                                             ├→ run_pure_decides
 run_pure_terminates (1d)                           │
        ↓                      completeness_pure (1d) ┘
 step_pure_appends_timeline (1d)
@@ -97,8 +98,9 @@ step_pure_appends_timeline (1d)
 
 ### Core Correctness Theorems
 - [`pureRun_full_state`](file:///Users/ricardo/Documents/Repos/research/3sat_lean4_verification_thanks_llms/lean_project/AbsSat/GraphPath/Model/PureDriver.lean#L672) (PureDriver.lean:672) — PureDriver reaches complete valid state
-- [`soundness_theorem`](file:///Users/ricardo/Documents/Repos/research/3sat_lean4_verification_thanks_llms/lean_project/AbsSat/SatMachine/Model/Soundness.lean#L122) (SatMachine/Soundness.lean:122) — Soundness
-- [`completeness_theorem`](file:///Users/ricardo/Documents/Repos/research/3sat_lean4_verification_thanks_llms/lean_project/AbsSat/SatMachine/Model/Completeness.lean#L16) (SatMachine/Completeness.lean:16) — Completeness
+- `pureRun_ne_nil` (PureDriver.lean:659) — WF + satisfiable ⇒ non-empty last line (used by Theorem 03)
+- `decides_of_ClauseStepExact` (GraphPath/Model/Decision.lean:74) — satisfiable ↔ valid final state, **under `ClauseStepExact`** (used by Theorem 02)
+- Note: `soundness_theorem` / `completeness_theorem` in `SatMachine/Model/` are about a *different* machine (`PureGMap`, `Model.run_pure`) and do not apply to `SatMachinePure`.
 - [`sound_and_complete`](file:///Users/ricardo/Documents/Repos/research/3sat_lean4_verification_thanks_llms/lean_project/AbsSat/GraphPath/Model/Conservation.lean#L276) (Conservation.lean:276) — Both properties
 
 ### Invariant & State Theorems
@@ -179,20 +181,17 @@ After implementing each theorem:
 - [ ] `step_pure_appends_timeline` — Proof completed
 
 ### Phase B (Correctness)
-- [ ] `soundness_pure` — Statement formalized
-- [ ] `soundness_pure` — Proof completed
-- [ ] `completeness_pure` — Statement formalized
-- [ ] `completeness_pure` — Proof completed
+- [x] `soundness_pure` — Proof completed, **assuming `ClauseStepExact` (open)**
+- [x] `completeness_pure` — Proof completed (`WF` only)
+- [ ] `ClauseStepExact` — open; discharge globally or for a class of formulas
 
 ### Phase C (Main)
-- [ ] `run_pure_solves_cnf` — Statement formalized
-- [ ] `run_pure_solves_cnf` — Proof completed
+- [x] `run_pure_decides` — Proof completed, under `ClauseStepExact`
 
 ### Phase D (Optional)
 - [ ] `timeline_length_bounded` — Statement formalized
 - [ ] `timeline_length_bounded` — Proof completed
-- [ ] `final_line_characterizes_sat` — Statement formalized
-- [ ] `final_line_characterizes_sat` — Proof completed
+- [x] Final line characterizes SAT — `is_satisfiable_run_pure_iff` (unconditional) + `run_pure_decides`
 
 ---
 

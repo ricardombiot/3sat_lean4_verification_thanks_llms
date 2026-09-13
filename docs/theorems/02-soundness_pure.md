@@ -1,203 +1,47 @@
-# Theorem: soundness_pure
+# Theorem 02: soundness_pure
 
-**No False Positives** — If machine says SAT, a solution truly exists.
+**A SAT verdict is backed by a satisfying assignment — assuming `ClauseStepExact`.**
 
----
-
-## Formal Statement
+## Formal statement (proven)
 
 ```lean
-theorem soundness_pure (cnf : Cnf) :
-  is_satisfiable (run_pure cnf) = true → ∃ a : Assign, Sat a cnf
+theorem soundness_pure (cnf : Cnf) (hwf : WF cnf) (hexact : ClauseStepExact cnf)
+    (h : is_satisfiable (run_pure cnf) = true) : Satisfiable cnf
 ```
 
----
+Location: `lean_project/AbsSat/SatMachine/PureProofs.lean`. Axioms: `propext`, `Quot.sound`.
 
-## Plain English Explanation
+## Hypotheses
 
-**If the pure machine returns "SATISFIABLE", then the formula genuinely has a satisfying assignment.**
+- **`WF cnf`** (`AbsSat/Cnf/Formula.lean`): every literal's variable is below `nVars`,
+  and the three literals of a clause sit at distinct map steps.
+- **`ClauseStepExact cnf`** (`AbsSat/GraphPath/Model/NodeInvariant.lean`) — **open**.
+  At every clause step (strictly between the literal block and the fusion steps),
+  filtering a reachable, valid, supported state by that step's requirements keeps it
+  supported whenever it stays valid. `Decision.lean` notes that, since the run is
+  polynomial, holding for every formula this would put 3SAT in P.
 
-This is the *soundness* property: the machine never lies by claiming a formula is satisfiable when it actually isn't.
+`ClauseStepExact` is a theorem parameter, never an `axiom`: every result that depends
+on it says so in its signature, and `#print axioms` stays clean.
 
-**Why it matters:** Together with completeness, this proves the machine's SAT/UNSAT verdicts are *correct*. A false-positive soundness failure would be catastrophic.
+## Proof
 
----
+1. `is_satisfiable_run_pure_iff` (built on Theorem 01): the verdict is SAT exactly when
+   `pureRun cnf ≠ []`.
+2. Take an entry `kv` of that last line. `stateOk_pureRun` (`Decision.lean`) gives
+   `StateOk`, whose `valid` field is `isValid kv.2 = true`.
+3. `decides_of_ClauseStepExact` (`Decision.lean`) turns a valid final state into
+   `Satisfiable cnf`.
 
-## Proof Intuition
+## Correction to the earlier plan
 
-The intuition is elegant because it's **already proven in PureDriver**:
+This file previously proposed reusing `soundness_theorem` from
+`SatMachine/Model/Soundness.lean`, with no extra hypothesis. That theorem is about a
+different machine (`PureGMap`, `Model.run_pure`) that only shares the name `run_pure`;
+it says nothing about `SatMachinePure`. Soundness of this machine is exactly where the
+open problem lives.
 
-1. We have: `PureDriver.soundness_theorem` (SatMachine/Soundness.lean:122)
-   - Statement: If PureDriver finds solutions, they satisfy the formula
+## Open work
 
-2. We know: `run_pure_eq_driver` (from Theorem 01)
-   - Shows: `run_pure cnf` produces same states as `PureDriver.pureRun cnf`
-
-3. Therefore:
-   - If `is_satisfiable (run_pure cnf) = true`
-   - Then `PureDriver.pureRun` must have found solutions too
-   - Then by `soundness_theorem`, those solutions satisfy the formula ✓
-
-**This is not reproof — it's direct application of existing theorem.**
-
----
-
-## Proof Strategy
-
-### Dependency Chain
-
-```
-soundness_pure
-  ← run_pure_eq_driver     (Theorem 01: structural equivalence)
-  ← soundness_theorem      (SatMachine/Soundness.lean:122: PureDriver is sound)
-  ← pureRun_carries        (PureDriver.lean:645: solutions are preserved)
-```
-
-### Key Insight
-
-Once `run_pure_eq_driver` is proven, this reduces to a **one-liner**:
-
-```
-If run_pure cnf ≡ PureDriver.pureRun cnf (by 01),
-and PureDriver.pureRun is sound (existing theorem),
-then run_pure must be sound too.
-```
-
-### Reused Theorems
-
-- [`soundness_theorem`](file:///Users/ricardo/Documents/Repos/research/3sat_lean4_verification_thanks_llms/lean_project/AbsSat/SatMachine/Model/Soundness.lean#L122) (SatMachine/Soundness.lean:122)
-  - Statement: `PureDriver.pureRun cnf ≠ [] → ∃ a, Sat a cnf`
-  - Why we use: This proves PureDriver is sound
-
-- [`pureRun_carries`](file:///Users/ricardo/Documents/Repos/research/3sat_lean4_verification_thanks_llms/lean_project/AbsSat/GraphPath/Model/PureDriver.lean#L645) (PureDriver.lean:645)
-  - Statement: All assignments reaching final step satisfy formula
-  - Why we use: Backs up soundness at the algorithm level
-
-- `run_pure_eq_driver` (Theorem 01)
-  - Links pure machine to proven PureDriver
-  - Once proven, this theorem becomes trivial
-
-### Proof Sketch
-
-```lean
-theorem soundness_pure (cnf : Cnf) :
-  is_satisfiable (run_pure cnf) = true → ∃ a : Assign, Sat a cnf := by
-  intro h_sat
-  
-  -- Unfold is_satisfiable to get non-empty timeline
-  unfold is_satisfiable at h_sat
-  -- h_sat : (run_pure cnf).timeline.last ≠ []
-  
-  -- Apply equivalence from Theorem 01
-  have equiv := run_pure_eq_driver cnf
-  rw [equiv] at h_sat
-  
-  -- Now h_sat says PureDriver.pureRun cnf ≠ []
-  -- Apply existing soundness theorem
-  exact SatMachine.Soundness.soundness_theorem cnf h_sat
-```
-
----
-
-## Critical Lemmas
-
-These are either trivial unfoldings or existing theorems:
-
-1. **`is_satisfiable_iff_pureRun`**: `is_satisfiable (run_pure cnf) ↔ PureDriver.pureRun cnf ≠ []`
-   - Statement: SAT verdicts match non-empty PureDriver result
-   - Why needed: Connects our verdict to PureDriver's result
-   - Difficulty: Trivial (unfold is_satisfiable definition + apply equiv)
-
-2. **`soundness_theorem` (EXISTING)**: Already proven in SatMachine/Soundness.lean:122
-   - No need to reprove; just apply it
-
-3. **`pureRun_carries` (EXISTING)**: Already proven in PureDriver.lean:645
-   - Backup proof of soundness at algorithm level
-   - Can use as alternative if needed
-
----
-
-## Effort Estimate
-
-- **Time**: ~1 day
-  - 30 min: understand existing `soundness_theorem`
-  - 1 hour: write Lean statement
-  - 2 hours: prove the equivalence application
-  - 1 hour: debug + verify
-  - TOTAL: ~4 hours (mostly waiting for Theorem 01)
-
-- **Tactic knowledge needed**:
-  - `unfold` — expose is_satisfiable definition
-  - `rw` — rewrite with run_pure_eq_driver
-  - `exact` — apply existing theorem
-  - `intro` — introduce hypothesis
-
-- **Depends on**: 
-  - `run_pure_eq_driver` (Theorem 01) — CRITICAL
-  - Existing `soundness_theorem` (already exists)
-
-- **Enables**: `run_pure_solves_cnf` (Theorem 06)
-
----
-
-## Connected Work
-
-### Existing Proof
-
-**Location:** `/AbsSat/SatMachine/Model/Soundness.lean` line 122
-
-```lean
-theorem soundness_theorem (cnf : Cnf) :
-  PureDriver.pureRun cnf ≠ [] → ∃ a, Sat a cnf
-```
-
-This already handles all the hard logic. We just apply it.
-
-### Related Infrastructure
-
-**Supporting theorems in PureDriver.lean:**
-- `pureRun_ok` (line 618) — Main correctness theorem
-- `pureRun_carries` (line 645) — Every solution found satisfies formula
-- `init_ok` (line 579) — Initial state is valid
-
-All these are already proven; we leverage them indirectly.
-
-### Validation
-
-**Empirically verified on test suite:**
-
-| Test | SAT Verdict | Has Solutions |
-|------|-------------|---------------|
-| test_sat_medium | TRUE | ✅ YES (9 solutions) |
-| tseitin_test | TRUE | ✅ YES (2 solutions) |
-| **pigeonhole** | **FALSE** | ✅ NO (0 solutions) |
-| graph_coloring | TRUE | ✅ YES (12 solutions) |
-
-**Soundness validation:** No test case returns SAT for unsatisfiable formula ✓
-
----
-
-## Current Status
-
-- [ ] Understand existing `soundness_theorem` (30 min)
-- [ ] Lean statement written
-- [ ] Proof sketch documented (above)
-- [ ] Equivalence proof implemented (once Theorem 01 is done)
-- [ ] `lake build` passes
-
----
-
-## Important Note
-
-**This proof does NOT reprove soundness.** It applies an existing, already-proven theorem to a new data structure. This is the key insight of the whole approach: reuse existing proofs rather than reprove from scratch.
-
-If you understand PureDriver's soundness proof, this becomes trivial. If not, you're just leveraging the trust in existing code.
-
----
-
-## Next Steps
-
-Once this theorem is proven:
-
-1. Prove `completeness_pure` (Theorem 03) — essentially identical structure
-2. Combine both into `run_pure_solves_cnf` (Theorem 06) — the main result
+Prove `ClauseStepExact` — for every well-formed formula, or for a class of formulas —
+and pass it as the argument. Nothing in this proof has to change.
