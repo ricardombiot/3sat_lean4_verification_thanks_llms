@@ -15,7 +15,7 @@ the literal block.
 One deliberate deviation from Julia: forks are per distinct *map* `NodeId`,
 not per `PathNodeId`. Several `PathNodeId`s at the same step can share the
 same map id (same literal value reached from different parents), and
-`filter_require!` compares by map id — so per-`PathNodeId` forks produce
+`filter!` compares by map id — so per-`PathNodeId` forks produce
 byte-identical filtered graphs and duplicate solutions. Deduplicating at fork
 time is equivalent and keeps the enumeration linear in the number of distinct
 configurations.
@@ -26,6 +26,8 @@ namespace AbsSat.GraphPath.Reader
 open AbsSat.Utils.Alias
 open AbsSat.GraphPath
 open AbsSat.Db.Path.Cols.PathColLines
+open AbsSat.Db.Path.Docs.PathDocNode
+open AbsSat.GraphPath.Reader.PathReader
 
 structure GPathExpReader where
   list_readers : List GPathReader
@@ -36,7 +38,7 @@ structure GPathExpReader where
 namespace GPathExpReader
 
 def new (gpath : GPath) : GPathExpReader :=
-  let reader_seed := GPathReader.new gpath
+  let reader_seed := PathReader.new gpath
   { list_readers := [reader_seed],
     list_solutions := [],
     error := none,
@@ -46,29 +48,42 @@ def new (gpath : GPath) : GPathExpReader :=
 Fork one derived reader per distinct map id at the reader's current step,
 each on a cloned graph, already registered and filtered by its selection.
 The seed reader's graph is never mutated (clones happen before filtering),
-mirroring Julia's `deepcopy` in `select_and_derive!`. An empty step is
-reported as a single errored fork so completeness bugs cannot die silently.
+mirroring Julia's `deepcopy` in `select_and_derive!`. An empty step, or a
+filter that invalidates a fork, is reported as an error so completeness bugs
+cannot die silently.
 -/
-def select_and_derive! (reader : GPathReader) : IO (List GPathReader) := do
-  let ids ← getIdsStep reader.gpath.table_lines reader.step
+def select_and_derive! (reader : GPathReader) : IO (Except String (List GPathReader)) := do
+  let table ← reader.gpath.table_lines.table.get
+  match table.get? reader.step with
+  | none => pure (.ok [{ reader with is_finished := true }])
+  | some line =>
+    let nodes := (← line.table.get).toList
 
-  let mut reps : Std.HashMap NodeId PathNodeId := {}
-  for id in ids do
-    if !reps.contains id.id then
-      reps := reps.insert id.id id
+    let mut reps : Std.HashMap NodeId (PathNodeId × PathDocNode) := {}
+    for (id, node) in nodes do
+      if !reps.contains id.id then
+        reps := reps.insert id.id (id, node)
 
-  if reps.isEmpty then
-    return [{ reader with
-      error := some s!"exp_reader: no nodes at step {reader.step}",
-      is_finished := true }]
+    if reps.isEmpty then
+      return .error s!"exp_reader: no nodes at step {reader.step}"
 
-  let mut derived : List GPathReader := []
-  for (_, selected) in reps.toList do
-    let cloned ← GPath.clone reader.gpath
-    let fork := { reader with gpath := cloned }
-    let fork ← register_and_filter! fork selected
-    derived := fork :: derived
-  pure derived
+    let mut derived : List GPathReader := []
+    for (_, (selected_id, selected_node)) in reps.toList do
+      let cloned ← GPath.clone reader.gpath
+      let (solution, finished) := register_selection! reader.solution selected_node
+      if !finished then
+        let requires : Std.HashSet NodeId := {selected_id.id}
+        AbsSat.GraphPath.filter! cloned requires
+        if !(← cloned.is_valid.get) then
+          return .error s!"exp_reader: filtering a fork invalidated the graph at step {reader.step}"
+      let fork := { reader with
+        gpath := cloned
+        solution := solution
+        step := reader.step + 2
+        last_selected := some selected_id
+        is_finished := finished }
+      derived := fork :: derived
+    pure (.ok derived)
 
 /--
 Drain the worklist of readers: finished forks contribute their solution,
@@ -80,16 +95,14 @@ partial def read! (exp_reader : GPathExpReader) : IO GPathExpReader := do
   match exp_reader.list_readers with
   | [] => pure { exp_reader with is_finished := true }
   | reader :: rest =>
-    match reader.error with
-    | some e => pure { exp_reader with error := some e, is_finished := true }
-    | none =>
-      if reader.is_finished then
-        read! { exp_reader with
-          list_readers := rest,
-          list_solutions := reader.solution :: exp_reader.list_solutions }
-      else
-        let derived ← select_and_derive! reader
-        read! { exp_reader with list_readers := derived ++ rest }
+    if reader.is_finished then
+      read! { exp_reader with
+        list_readers := rest,
+        list_solutions := reader.solution :: exp_reader.list_solutions }
+    else
+      match ← select_and_derive! reader with
+      | .error e => pure { exp_reader with error := some e, is_finished := true }
+      | .ok derived => read! { exp_reader with list_readers := derived ++ rest }
 
 /--
 Enumerate every configuration represented by `gpath`. Returns the list of

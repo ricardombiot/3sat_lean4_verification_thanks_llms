@@ -21,7 +21,6 @@ open AbsSat.Utils.Alias
     Use SatMachinePure from AbsSat.SatMachine.PureSatMachine instead.
     This file is kept for historical reference only.
 -/
-@[deprecated "Use SatMachinePure from PureSatMachine.lean instead. Old IO.Ref-based implementation has been replaced by a pure deterministic version."]
 structure MSat where
   gmap : GMap
   timeline : IO.Ref ColTimeline

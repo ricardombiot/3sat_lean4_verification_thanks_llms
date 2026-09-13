@@ -8,9 +8,15 @@
 
 ```lean
 theorem run_pure_eq_driver (cnf : Cnf) :
-  List.map (fun p : (NodeId × GPathM) => p.2) (run_pure cnf).timeline =
-  PureDriver.pureRun cnf
+  (run_pure cnf).timeline.getLast! = pureRun cnf
 ```
+
+**Status: proven** in `lean_project/AbsSat/SatMachine/PureProofs.lean` (no `sorry`,
+checked in the default `AbsSat` build). The earlier `List.map … timeline` statement
+did not typecheck: `timeline : List PureLine`, while `pureRun cnf : PureLine` is a
+single row. The proof goes through the invariant `TimelineInv` (one row per step,
+last row = `pureSteps` applied `current_step` times) rather than the lemmas sketched
+below.
 
 ---
 

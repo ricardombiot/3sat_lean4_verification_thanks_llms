@@ -1,4 +1,10 @@
-/-- # Canonical Pure Executable SAT Machine Specification
+import AbsSat.GraphPath.Model.GPathM
+import AbsSat.GraphPath.Model.PureDriver
+import AbsSat.Cnf.Formula
+import AbsSat.GraphMap.CnfMap
+import AbsSat.Utils.Alias
+
+/-! # Canonical Pure Executable SAT Machine Specification
 
 This is the authoritative implementation of the 3SAT solver.
 All formal theorems and proofs are proven against this machine.
@@ -22,20 +28,14 @@ All formal theorems and proofs are proven against this machine.
 ## Usage
 
 ### For Execution & Debugging
-Use with `PureSatMachineIO.lean` for file I/O and step-by-step output:
-```lean
-import AbsSat.SatMachine.PureSatMachineIO
--- ... load CNF and run
-```
+Use with `PureSatMachineIO.lean` for file I/O and step-by-step output.
 
 ### For Solution Extraction
-Use `PureSatMachineWithReader.lean` to enumerate all solutions:
-```lean
-import AbsSat.SatMachine.PureSatMachineWithReader
--- ... extract solutions from final GPathM states
-```
+Use `PureSatMachineWithReader.lean` to enumerate all solutions from the final
+GPathM states.
 
 ### For Formal Proofs
+Bridge theorems to `PureDriver` live in `AbsSat.SatMachine.PureProofs`.
 Reference from `docs/theorems/*.md`:
 - All theorem statements cite this module
 - All theorem proofs build on definitions here
@@ -55,20 +55,10 @@ Reference from `docs/theorems/*.md`:
 
 - **Executable** — Can run on real SAT instances
 - **Validated** — Tested on 4 documented test cases (pigeonhole UNSAT, others SAT)
-- **Provably correct** — Bridge theorems (docs/theorems/) prove correctness
+- **Bridge to PureDriver** — `run_pure_eq_driver` in `PureProofs.lean`
 
 The old MSat implementation is deprecated; use this version exclusively.
 -/
-
--- Pure executable SAT machine
--- Combines GPathM (pure graph paths) with PureDriver (pure loop)
--- Provides deterministic, debuggable step-by-step execution
-
-import AbsSat.GraphPath.Model.GPathM
-import AbsSat.GraphPath.Model.PureDriver
-import AbsSat.Cnf.Formula
-import AbsSat.GraphMap.CnfMap
-import AbsSat.Utils.Alias
 
 namespace AbsSat.SatMachine.PureSatMachine
 

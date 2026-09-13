@@ -171,8 +171,8 @@ After implementing each theorem:
 ## Status Tracking
 
 ### Phase A (Foundation)
-- [ ] `run_pure_eq_driver` — Statement formalized
-- [ ] `run_pure_eq_driver` — Proof completed
+- [x] `run_pure_eq_driver` — Statement formalized
+- [x] `run_pure_eq_driver` — Proof completed (`AbsSat/SatMachine/PureProofs.lean`)
 - [ ] `run_pure_terminates` — Statement formalized
 - [ ] `run_pure_terminates` — Proof completed
 - [ ] `step_pure_appends_timeline` — Statement formalized
