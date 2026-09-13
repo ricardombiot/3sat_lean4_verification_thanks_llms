@@ -94,6 +94,7 @@ import AbsSat.GraphPath.Model.PinSupport
 import AbsSat.GraphPath.Model.PartialPaths
 import AbsSat.GraphPath.Model.SubsetSemantics
 import AbsSat.GraphPath.Model.EmptinessReduction
+import AbsSat.GraphPath.Model.PathLattice
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.SymTriReview
