@@ -14,10 +14,12 @@ root = "AbsSat"
 [[lean_exe]]
 name = "runTests"
 root = "Main"
+-- DEPRECATED: Old MSat executable. Use 'pure-sat-machine' instead.
 
 [[lean_exe]]
 name = "diffTest"
 root = "DiffMain"
+-- DEPRECATED: Old differential testing. Use 'diff-pure-msat' instead.
 
 [[lean_exe]]
 name = "l6search"
