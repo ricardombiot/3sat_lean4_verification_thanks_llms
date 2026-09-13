@@ -1,3 +1,65 @@
+/-- # Canonical Pure Executable SAT Machine Specification
+
+This is the authoritative implementation of the 3SAT solver.
+All formal theorems and proofs are proven against this machine.
+
+## Features
+
+- **Pure functional** — No IO.Ref, no mutable state, deterministic execution
+- **Immutable timeline** — Complete execution trace as a list of GPathM states
+- **Fuel-based termination** — Provably finite recursion (suitable for Lean)
+- **Step-by-step debugging** — Full visibility into intermediate states
+- **Proof-ready** — Supports formal verification and theorem proving
+
+## Key Components
+
+- `SatMachinePure` — State structure holding CNF, timeline, and step counter
+- `init_pure` — Initialize machine with seed states
+- `step_pure` — Execute one step (pure function)
+- `run_pure` — Complete execution with fuel-based recursion
+- `is_satisfiable` — Query if formula was solved as SAT/UNSAT
+
+## Usage
+
+### For Execution & Debugging
+Use with `PureSatMachineIO.lean` for file I/O and step-by-step output:
+```lean
+import AbsSat.SatMachine.PureSatMachineIO
+-- ... load CNF and run
+```
+
+### For Solution Extraction
+Use `PureSatMachineWithReader.lean` to enumerate all solutions:
+```lean
+import AbsSat.SatMachine.PureSatMachineWithReader
+-- ... extract solutions from final GPathM states
+```
+
+### For Formal Proofs
+Reference from `docs/theorems/*.md`:
+- All theorem statements cite this module
+- All theorem proofs build on definitions here
+- Reuse: Theorems about PureDriver and GPathM
+
+## Comparison: Old vs New
+
+| Aspect | Old (MSat) | New (SatMachinePure) |
+|--------|-----------|----------------------|
+| **State** | Mutable (IO.Ref) | Immutable (list) |
+| **Execution** | Partial recursion | Fuel-based termination |
+| **Timeline** | Single mutable cell | Full immutable list |
+| **Debuggability** | Limited | Complete trace |
+| **Proof support** | Difficult | Natural |
+
+## Formal Status
+
+- **Executable** — Can run on real SAT instances
+- **Validated** — Tested on 4 documented test cases (pigeonhole UNSAT, others SAT)
+- **Provably correct** — Bridge theorems (docs/theorems/) prove correctness
+
+The old MSat implementation is deprecated; use this version exclusively.
+-/
+
 -- Pure executable SAT machine
 -- Combines GPathM (pure graph paths) with PureDriver (pure loop)
 -- Provides deterministic, debuggable step-by-step execution

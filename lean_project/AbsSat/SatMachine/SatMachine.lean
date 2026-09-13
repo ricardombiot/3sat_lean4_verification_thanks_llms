@@ -10,6 +10,18 @@ open AbsSat.GraphPath
 open AbsSat.Db.Machine.Cols.ColTimeline
 open AbsSat.Utils.Alias
 
+/-- DEPRECATED: Old imperative SAT machine implementation using IO.Ref for mutable state.
+
+    This implementation is replaced by SatMachinePure, which provides:
+    - Pure functional semantics (no mutable references)
+    - Deterministic execution (same input → same output)
+    - Complete execution traces (timeline is immutable list)
+    - Proof-ready architecture (suitable for formal verification)
+
+    Use SatMachinePure from AbsSat.SatMachine.PureSatMachine instead.
+    This file is kept for historical reference only.
+-/
+@[deprecated "Use SatMachinePure from PureSatMachine.lean instead. Old IO.Ref-based implementation has been replaced by a pure deterministic version."]
 structure MSat where
   gmap : GMap
   timeline : IO.Ref ColTimeline
