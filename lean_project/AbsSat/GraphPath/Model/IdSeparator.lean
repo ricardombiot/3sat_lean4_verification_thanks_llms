@@ -21,8 +21,16 @@ dies (S2), so the node dies by `Unsupported.noSupport`.
 
 Measured on `SatMachinePure` (seeds 1001, 7777, 31337, 90210), at every valid clause filter: the
 41,501 nodes off every pinned chain all have a separator, the 97,548 nodes on a pinned chain none;
-and the 39,655 nodes whose id contradicts a pin all die in the first round of the closure. Neither
-statement is proved here.
+and the 39,655 nodes whose id contradicts a pin all die in the first round of the closure. S2 is
+proved in `IdDiesProof.lean`.
+
+**S1 is false in general.** On a hand-built formula with 8 variables (`a ∧ b → u` and `u ∧ c → f` in
+two clauses that are not consecutive, the last clause before the send avoiding their variables, and
+the send pinning `a = b = c = 1`), the value node `f = 0` lies on no pinned chain and has no step whose
+owners all contradict a pin by id: an id records only its map node and its parent's. The removal
+closure still removes it, in a second round. So `noZombieOutside_of_separator` and
+`lossInClosure_of_idSeparator` are correct reductions whose S1 hypothesis does not hold for every
+formula.
 -/
 
 namespace AbsSat.GraphPath.Model.IdSeparator
