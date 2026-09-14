@@ -10,6 +10,22 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-14 (cg) — `LossInClosure` refutado; clausura sobre nodos, entradas y enlaces.**
+
+Búsqueda adversaria (2d): fórmulas donde el review borra nodos sin cadena que no son `Unsupported` (hasta 19); ronda
+máxima de `R` 2; 0 zombis. `DeadClosure.lean`: `Dead` (nodos, entradas, enlaces, soportes; regla `absent` en
+`1365b91`), **`dead_off_chain`**, **`dead_gone`**, `survives_iff_chainS`, `LossInClosureD`
+(⇐ `LossInClosure`), **`noZombie_reachable`** y `filter_keeps_chains` bajo él. `lean-toolchain` fijado a `v4.33.1`.
+
+Medido: clausura por punto fijo = review en nodos y entradas; grupos de posesión mutua con los pins en nodos sin
+cadena (hasta 380 por fórmula); construcción con comprobación hacia delante sin atascos (406.929 nodos; forma general
+1,96 M recorridos); el paso falla bajo perturbación de parejas con cadena común; empalme de cadenas válido si y solo si
+la asignación combinada es consistente (19.130 + 14.894 inválidos, todos inconsistentes).
+
+Informe: `verificacion_inseguridad_autor_v101.md`.
+
+---
+
 **2026-09-14 (cf) — regla de review contra owners obsoletos, medida; `FixAgree`; corrección de (ce).**
 
 Commits de Gemini con identidad de investigador (`f6d58f4`, `51ca29d`) y rescate (`ee42acd`):
