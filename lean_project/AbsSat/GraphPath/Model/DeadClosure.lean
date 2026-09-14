@@ -59,6 +59,8 @@ inductive Item where
 
 /-- The removal closure of a pinned state over nodes, owner entries and links. -/
 inductive Dead (P : GPathM) : Item → Prop where
+  | absent (x q : PathNodeId) (n : PNodeM) (hn : P.node? x = some n) (hq : q ∉ n.owners) :
+      Dead P (.entry x q)
   | gowner (x q : PathNodeId) (h0 : 0 ≤ q.id.step) (hk : q.id.step < P.current_step)
       (hq : q ∉ P.gowners) : Dead P (.entry x q)
   | owner (x q : PathNodeId) (h0 : 0 ≤ q.id.step) (hk : q.id.step < P.current_step)
@@ -119,6 +121,20 @@ theorem dead_off_chain {P : GPathM} {sel : Int → PathNodeId} (hs : ChainSound 
     {it : Item} (h : Dead P it) : OffChain P sel it := by
   obtain ⟨⟨hnode, hlink⟩, howned, hgow⟩ := hs.chain
   induction h with
+  | absent x q n hn hq =>
+    intro i j hi0 hi hj0 hj hx hqe
+    apply hq
+    rw [← hqe]
+    rcases int_eq_or_ne j i with hji | hji
+    · have hso := hs.self_owned i hi0 hi
+      rw [hx] at hso
+      simp only [ownersOf, hn] at hso
+      rw [hji, hx]
+      exact hso
+    · have ho := howned j i hj0 hi0 hj hi hji
+      rw [hx] at ho
+      simp only [ownersOf, hn] at ho
+      exact (List.mem_filter.mp ho).1
   | gowner x q h0 hk hq =>
     intro i j _ _ hj0 hj _ hqe
     rw [← hqe] at hq
@@ -245,6 +261,12 @@ theorem dead_gone (reqOf : NodeId → List NodeId) (g : GPathM) (hr : Reachable 
     rw [node?_id_eq _ x d hd] at hxs
     exact (ctx.links p m hm).2 x hxs
   induction h with
+  | absent x q n hn hq =>
+    intro d hd hqd
+    obtain ⟨n', hn', ho, _⟩ := hlift x d hd
+    have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
+    rw [hnn] at ho
+    exact hq (ho q hqd)
   | gowner x q h0 hk hq =>
     intro d hd hqd
     exact hq (hpr.gowners_sub q (hgown x d q hd hqd h0 hk))
