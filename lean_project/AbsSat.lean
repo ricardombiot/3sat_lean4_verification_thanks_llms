@@ -101,6 +101,9 @@ import AbsSat.GraphPath.Model.JoinDescent
 import AbsSat.GraphPath.Model.FilterDescent
 import AbsSat.GraphPath.Model.RemovalClosure
 import AbsSat.GraphPath.Model.ReviewNodes
+import AbsSat.GraphPath.Model.FabricInduction
+import AbsSat.GraphPath.Model.ChainFabric
+import AbsSat.GraphPath.Model.NoZombies
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.SymTriReview
