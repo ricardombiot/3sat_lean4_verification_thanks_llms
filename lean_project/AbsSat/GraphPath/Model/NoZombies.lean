@@ -46,7 +46,7 @@ def NoZombie (g : GPathM) : Prop := ∀ x, (g.node? x).isSome = true → ChainS 
 /-- At every valid filter of a reachable state with no zombies, every node of the pinned state is
 in the removal closure or keeps a full chain. -/
 def LossInClosure (reqOf : NodeId → List NodeId) : Prop :=
-  ∀ (g : GPathM) (d : NodeId), Reachable reqOf g → NoZombie g →
+  ∀ (g : GPathM) (d : NodeId), Reachable reqOf g → d.step = g.current_step → NoZombie g →
     isValid (filterAll g (reqOf d)) = true → NoZombieOutside ((reqOf d).foldl filterRequire g)
 
 -- ============================================================
@@ -144,7 +144,7 @@ theorem noZombie_reachable (reqOf : NodeId → List NodeId) (hloss : LossInClosu
       exact absurd hv (by simp [hF])
     | true =>
       have hg : isValid g = true := FabricInduction.isValid_of_pruned hpr hF
-      have hFz := noZombie_filterAll reqOf g hrg (reqOf d) hF (hloss g d hrg (ih hg) hF)
+      have hFz := noZombie_filterAll reqOf g hrg (reqOf d) hF (hloss g d hrg hstep (ih hg) hF)
       have hshape : upFiltering g (reqOf d) d title = addNode (filterAll g (reqOf d)) d title := by
         simp only [upFiltering, GPathM.up, hF, if_pos]
       rw [hshape]
@@ -177,12 +177,12 @@ theorem fullFabric_of_noZombie (g : GPathM) (h : NoZombie g) : FabricInduction.F
 /-- **At every valid filter, the filter keeps exactly the nodes on full chains through the pins**,
 under `LossInClosure`. -/
 theorem filter_keeps_chains (reqOf : NodeId → List NodeId) (hloss : LossInClosure reqOf)
-    (g : GPathM) (hr : Reachable reqOf g) (d : NodeId)
+    (g : GPathM) (hr : Reachable reqOf g) (d : NodeId) (hd : d.step = g.current_step)
     (hv : isValid (filterAll g (reqOf d)) = true) (x : PathNodeId)
     (hx : (((reqOf d).foldl filterRequire g).node? x).isSome = true) :
     ((filterAll g (reqOf d)).node? x).isSome = true ↔ ChainS ((reqOf d).foldl filterRequire g) x :=
   survives_iff_onChain reqOf g hr (reqOf d) hv
-    (hloss g d hr (noZombie_reachable reqOf hloss g hr
+    (hloss g d hr hd (noZombie_reachable reqOf hloss g hr
       (FabricInduction.isValid_of_pruned (pruned_filterAll g (reqOf d)) hv)) hv) x hx
 
 /-- info: 'AbsSat.GraphPath.Model.NoZombies.noZombie_reachable' depends on axioms: [propext, Quot.sound] -/

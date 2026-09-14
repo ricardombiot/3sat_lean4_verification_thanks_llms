@@ -95,17 +95,17 @@ def IdDies (φ : Cnf) (g : GPathM) (d : NodeId) : Prop :=
 
 /-- **`LossInClosure` from S1 and S2** at every valid filter of a reachable state with no zombies. -/
 theorem lossInClosure_of_idSeparator (φ : Cnf)
-    (h : ∀ (g : GPathM) (d : NodeId), Reachable (reqOfCnf φ) g → NoZombie g →
-      isValid (filterAll g (reqOfCnf φ d)) = true → IdSeparator φ g d ∧ IdDies φ g d) :
+    (h : ∀ (g : GPathM) (d : NodeId), Reachable (reqOfCnf φ) g → d.step = g.current_step →
+      NoZombie g → isValid (filterAll g (reqOfCnf φ d)) = true → IdSeparator φ g d ∧ IdDies φ g d) :
     LossInClosure (reqOfCnf φ) :=
-  fun g d hr hnz hv =>
-    let ⟨hsep, hdies⟩ := h g d hr hnz hv
+  fun g d hr hd hnz hv =>
+    let ⟨hsep, hdies⟩ := h g d hr hd hnz hv
     noZombieOutside_of_separator _ _ hsep hdies
 
 /-- **No zombies in every valid reachable state of the machine**, from S1 and S2. -/
 theorem noZombie_of_idSeparator (φ : Cnf)
-    (h : ∀ (g : GPathM) (d : NodeId), Reachable (reqOfCnf φ) g → NoZombie g →
-      isValid (filterAll g (reqOfCnf φ d)) = true → IdSeparator φ g d ∧ IdDies φ g d)
+    (h : ∀ (g : GPathM) (d : NodeId), Reachable (reqOfCnf φ) g → d.step = g.current_step →
+      NoZombie g → isValid (filterAll g (reqOfCnf φ d)) = true → IdSeparator φ g d ∧ IdDies φ g d)
     (g : GPathM) (hr : Reachable (reqOfCnf φ) g) (hv : isValid g = true) : NoZombie g :=
   noZombie_reachable (reqOfCnf φ) (lossInClosure_of_idSeparator φ h) g hr hv
 
