@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-14 (cf) — regla de review contra owners obsoletos, medida; `FixAgree`; corrección de (ce).**
+
+Commits de Gemini con identidad de investigador (`f6d58f4`, `51ca29d`) y rescate (`ee42acd`):
+`IdClosureLevels.lean` depurado, `BreakOwners.lean` eliminado, `UnsupportedNS`,
+**`idClosure_of_unsupportedNS`**, `idClosureSeparator_of_nsSeparator`. Corrección: `IdClosureSeparator`
+equivale a `LossInClosure` por la regla de no soporte, no es una reducción.
+
+Medido sobre `SatMachinePure` (scratchpad, sin cambios en la máquina): `FixAgree` 0 fallos en 5.196.906
+pares; separador de mapa para la mayoría de nodos sin camino, con residuo (`far4`: 1.016 + 6). Regla
+(simetría + soporte por parejas de owners): correcta, 0 nodos perdidos, mismas líneas del conductor,
+owners exactos por parejas, pero **rondas de `R` idénticas** (ronda ≥ 1: 66/90/220/194). No incorporada.
+Siguiente: 2d sobre configuraciones de pins consistentes por parejas.
+
+Informe: `verificacion_inseguridad_autor_v100.md`.
+
+---
+
 **2026-09-14 (ce) — S2 demostrado; S1 refutado en un nivel y reformulado sin profundidad.**
 
 Módulos nuevos, todo en `[propext, Quot.sound]`. `IdSeparator.lean`: `varVal`, `fixes`,
