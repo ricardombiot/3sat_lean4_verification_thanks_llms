@@ -23,6 +23,14 @@ fillers, the 457,928 nodes off every pinned chain all have a separator of depth 
 second level), and no node on a pinned chain has one; on the hand-built counterexamples to one-level
 S1 (`far2`, `far3`, `far4`) the same holds with 18, 12 and 6 nodes at the second level.
 `IdClosureSeparator` itself is not proved here.
+
+**What the depth-free form does and does not gain.** The step rule of `IdClosure` accepts an empty set
+of global owners, exactly like `Unsupported.noSupport`. So the removal closure through the no-support
+rule alone (`UnsupportedNS`) lies inside the id closure (`idClosure_of_unsupportedNS`), and the id
+closure lies inside the removal closure (`idClosure_unsupported`). Every measured removal closure needs
+only the no-support rule. `IdClosureSeparator` is therefore `LossInClosure` restated through the
+no-support rule (`idClosureSeparator_of_nsSeparator`), not a weaker obligation: the ids add information
+only in the non-vacuous separators the measurements describe (depth at most 2).
 -/
 
 namespace AbsSat.GraphPath.Model.IdClosureSep
@@ -88,6 +96,41 @@ theorem noZombie_of_idClosureSeparator (φ : Cnf) (hwf : WF φ)
       NoZombie g → isValid (filterAll g (reqOfCnf φ d)) = true → IdClosureSeparator φ g d)
     (g : GPathM) (hr : Reachable (reqOfCnf φ) g) (hv : isValid g = true) : NoZombie g :=
   noZombie_reachable (reqOfCnf φ) (lossInClosure_of_idClosureSeparator φ hwf h) g hr hv
+
+-- ============================================================
+-- The no-support fragment of the removal closure
+-- ============================================================
+
+/-- The removal closure through the no-support rule only. -/
+inductive UnsupportedNS (P : GPathM) : PathNodeId → Prop where
+  | noSupport (x : PathNodeId) (n : PNodeM) (hn : P.node? x = some n) (k : Int)
+      (h0 : 0 ≤ k) (hk : k < P.current_step)
+      (h : ∀ q ∈ ownersAt n.owners k, q ∈ P.gowners → UnsupportedNS P q) : UnsupportedNS P x
+
+theorem unsupported_of_unsupportedNS {P : GPathM} {x : PathNodeId} (h : UnsupportedNS P x) :
+    Unsupported P x := by
+  induction h with
+  | noSupport x n hn k h0 hk _ ih => exact Unsupported.noSupport x n hn k h0 hk ih
+
+/-- **The no-support fragment of the removal closure lies inside the id closure.** -/
+theorem idClosure_of_unsupportedNS (φ : Cnf) (reqs : List NodeId) {P : GPathM} {x : PathNodeId}
+    (h : UnsupportedNS P x) : IdClosure φ reqs P x := by
+  induction h with
+  | noSupport x n hn k h0 hk _ ih => exact IdClosure.step x n hn k h0 hk ih
+
+/-- **`IdClosureSeparator` from the no-support form of `LossInClosure`.** -/
+theorem idClosureSeparator_of_nsSeparator (φ : Cnf) (g : GPathM) (d : NodeId)
+    (h : Separator ((reqOfCnf φ d).foldl filterRequire g)
+      (UnsupportedNS ((reqOfCnf φ d).foldl filterRequire g))) :
+    IdClosureSeparator φ g d := by
+  intro x hx
+  rcases h x hx with hc | ⟨n, k, hn, h0, hk, hall⟩
+  · exact Or.inl hc
+  · exact Or.inr ⟨n, k, hn, h0, hk, fun q hq hg => idClosure_of_unsupportedNS φ _ (hall q hq hg)⟩
+
+/-- info: 'AbsSat.GraphPath.Model.IdClosureSep.idClosure_of_unsupportedNS' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms idClosure_of_unsupportedNS
 
 /-- info: 'AbsSat.GraphPath.Model.IdClosureSep.idClosure_unsupported' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

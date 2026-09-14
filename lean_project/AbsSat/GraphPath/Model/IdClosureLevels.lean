@@ -13,6 +13,11 @@ Key theorems:
 * `idClosureAt_mono_succ`, `idClosureAt_mono` — monotonic growth with depth.
 * `idClosureAt_unsupported` — all global owners at level `l` are in the removal closure.
 * `idClosureSeparator_of_idClosureAtSeparator` — any finite level separator implies `IdClosureSeparator`.
+* `chain_survives_of_compatible`, `break_of_no_chain` — a node off every pinned chain has every chain of
+  the unpinned state breaking some pin in range.
+
+Levels are cumulative and start at the base: the separators measured with depth at most 2 (owners that
+contradict a pin, or have a separator of such owners) are `IdClosureAtSeparator 1`.
 -/
 
 namespace AbsSat.GraphPath.Model.IdClosureLevels
@@ -108,15 +113,6 @@ theorem idClosureAt_unsupported (φ : Cnf) (hwf : WF φ) (g : GPathM)
 -- Preservation of compatible chains (branch 1 of separator)
 -- ============================================================
 
-/-- `filterRequire` preserves `current_step` through foldl. -/
-theorem current_step_foldl_filterRequire (reqs : List NodeId) (g : GPathM) :
-    (reqs.foldl filterRequire g).current_step = g.current_step := by
-  induction reqs generalizing g with
-  | nil => rfl
-  | cons req rest ih =>
-    rw [List.foldl_cons]
-    exact ih (filterRequire g req)
-
 /-- **Compatible chain survives**: a chain passing through `x` that satisfies `reqs`
 survives as a sound full chain in `reqs.foldl filterRequire g`. -/
 theorem chain_survives_of_compatible (g : GPathM) (reqs : List NodeId)
@@ -124,7 +120,7 @@ theorem chain_survives_of_compatible (g : GPathM) (reqs : List NodeId)
     (hpass : Fabric.Passes g sel x)
     (hcomp : ∀ req ∈ reqs, 0 ≤ req.step → req.step < g.current_step → (sel req.step).id = req) :
     ChainS (reqs.foldl filterRequire g) x := by
-  have hcs := current_step_foldl_filterRequire reqs g
+  have hcs := foldl_filterRequire_step reqs g
   refine ⟨sel, ChainSound_foldl_filterRequire reqs g sel hchain hcomp, ?_⟩
   obtain ⟨k, hk0, hk1, hselk⟩ := hpass
   exact ⟨k, hk0, hcs.symm ▸ hk1, hselk⟩
@@ -205,9 +201,9 @@ theorem idClosureAt_one_of_step0 (φ : Cnf) (reqs : List NodeId) (P : GPathM)
     IdClosureAt φ reqs P 1 q :=
   IdClosureAt.succ_step 0 q m hm s hs0 hsk (fun o ho hg => IdClosureAt.base o (hall0 o ho hg))
 
-/-- **Propagation to level 2**: a node whose global owners at step `k` are either
-directly contradictory or have a step-0 contradiction is in `IdClosureAt 2`. -/
-theorem owners_in_closure_level2 (φ : Cnf) (reqs : List NodeId) (P : GPathM)
+/-- **Two levels**: a node whose global owners at step `k` either contradict a pin or have a step whose
+global owners all contradict one is in `IdClosureAt 2`. -/
+theorem idClosureAt_two_of_owners (φ : Cnf) (reqs : List NodeId) (P : GPathM)
     (x : PathNodeId) (n : PNodeM) (hn : P.node? x = some n) (k : Int)
     (hk0 : 0 ≤ k) (hkk : k < P.current_step)
     (howners : ∀ q ∈ ownersAt n.owners k, q ∈ P.gowners →
@@ -221,29 +217,16 @@ theorem owners_in_closure_level2 (φ : Cnf) (reqs : List NodeId) (P : GPathM)
   · exact idClosureAt_one_of_base φ reqs P q hbase
   · exact idClosureAt_one_of_step0 φ reqs P q m hm s hs0 hsk hall0
 
-/-- **Level 2 separator from step-1 owners**: if every non-chain node has a step whose
-surviving global owners are at level 1, then the state satisfies `IdClosureAtSeparator 2`. -/
-theorem idClosureAt_separator_level2_of_step1 (φ : Cnf) (g : GPathM) (d : NodeId)
-    (hstep : ∀ x, (((reqOfCnf φ d).foldl filterRequire g).node? x).isSome = true →
-      ChainS ((reqOfCnf φ d).foldl filterRequire g) x ∨
-      ∃ n k, ((reqOfCnf φ d).foldl filterRequire g).node? x = some n ∧
-        0 ≤ k ∧ k < ((reqOfCnf φ d).foldl filterRequire g).current_step ∧
-        ∀ q ∈ ownersAt n.owners k, q ∈ ((reqOfCnf φ d).foldl filterRequire g).gowners →
-          IdClosureAt φ (reqOfCnf φ d) ((reqOfCnf φ d).foldl filterRequire g) 1 q) :
-    IdClosureAtSeparator 2 φ g d := by
-  intro x hx
-  rcases hstep x hx with hc | ⟨n, k, hn, h0, hk, hall⟩
-  · exact Or.inl hc
-  · refine Or.inr ⟨n, k, hn, h0, hk, ?_⟩
-    intro q hq hg
-    exact IdClosureAt.succ_base 1 q (hall q hq hg)
-
-/-- info: 'AbsSat.GraphPath.Model.IdClosureLevels.owners_in_closure_level2' depends on axioms: [propext] -/
+/-- info: 'AbsSat.GraphPath.Model.IdClosureLevels.idClosureAt_two_of_owners' depends on axioms: [propext] -/
 #guard_msgs in
-#print axioms owners_in_closure_level2
+#print axioms idClosureAt_two_of_owners
 
-/-- info: 'AbsSat.GraphPath.Model.IdClosureLevels.idClosureAt_separator_level2_of_step1' depends on axioms: [propext] -/
+/-- info: 'AbsSat.GraphPath.Model.IdClosureLevels.chain_survives_of_compatible' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms idClosureAt_separator_level2_of_step1
+#print axioms chain_survives_of_compatible
+
+/-- info: 'AbsSat.GraphPath.Model.IdClosureLevels.break_of_no_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms break_of_no_chain
 
 end AbsSat.GraphPath.Model.IdClosureLevels
