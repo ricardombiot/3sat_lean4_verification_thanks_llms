@@ -10,6 +10,25 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-14 (cc) — sin callejones sin salida, `PinnedCompletion` y el cierre de eliminación.**
+
+Seis módulos nuevos, todo en `[propext, Quot.sound]`. `NoDeadEnd.lean`: `SoundFrom`, `TopAnchor`,
+`NoDeadEnd`, **`topAnchor_filterAll`**, `SendExact_of_FilterNoDeadEnd`. `DescentInvariant.lean`:
+`SoundOn`, `DescendAll`, **`descendAll_addNode`**. `JoinDescent.lean`: `soundOn_of_grown`,
+`descendAll_join` (bajo `JoinCovered`), `no_chain_across_sides`, `descendOn`. `FilterDescent.lean`:
+**`noDeadEnd_filterAll_iff`** (`NoDeadEnd` tras el filtro ⟺ `PinnedCompletion`),
+`SendExact_of_pinnedCompletion`. `RemovalClosure.lean`: `Unsupported`, `unsupported_off_chain`,
+**`unsupported_removed`**. `ReviewNodes.lean`: `FabricOutside`, `removed_unsupported`, **`survives_iff`**.
+
+Medido sobre `SatMachinePure`: 0 callejones en 172.557 cadenas; 36 cadenas mezcladas en `join`
+(trazadas: `join` compone parejas de estados distintos); el ownership no es el mismo entre estados
+(188/97.510); el review mata 9.127 de 9.240 cadenas condenadas en la primera `cleanInvalid`;
+`R` = nodos borrados (41.501); `FabricOutside` en 6.111 de 6.111.
+
+Informe: `verificacion_inseguridad_autor_v97.md`.
+
+---
+
 **2026-09-13 (cb) — subconjuntos de caminos, reducción del vacío y retículos.**
 
 Cuatro módulos nuevos, todo en `[propext, Quot.sound]`. `PartialPaths.lean`: `Phi`, `assignPath_mem_Phi`,
