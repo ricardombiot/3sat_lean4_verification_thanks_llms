@@ -10,6 +10,24 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-14 (cd) — inducciones del `Fabric` y de «sin zombis»; estructura de `R`.**
+
+Tres módulos nuevos, todo en `[propext, Quot.sound]`. `FabricInduction.lean`: `FullFabric`,
+**`fabric_union`**, `fullFabric_initSeed`/`_join`/`_addNode`/`_filterAll`, `FilterFabric`,
+`fullFabric_reachable`. `ChainFabric.lean`: **`Fabric_chains`**, `NoZombieOutside`,
+`fabricOutside_of_noZombie`, **`survives_iff_onChain`**. `NoZombies.lean`: `NoZombie`, `LossInClosure`,
+`noZombie_initSeed`/`_join`/`_addNode`/`_filterAll`, **`noZombie_reachable`**, `fullFabric_of_noZombie`,
+**`filter_keeps_chains`**.
+
+Medido sobre `SatMachinePure`: 0 zombis en 92.985 nodos guardados; nodos que pierden sus caminos al
+pinear = `R` (41.501); `R` en rondas 0 (41.470) y 1 (31); formas por parejas (41 fallos) y triple (25)
+insuficientes; clase A (10, owners que no encajan con su arista) y clase B (21, tipo Helly); separador por
+ids en 21 de 21.
+
+Informe: `verificacion_inseguridad_autor_v98.md`.
+
+---
+
 **2026-09-14 (cc) — sin callejones sin salida, `PinnedCompletion` y el cierre de eliminación.**
 
 Seis módulos nuevos, todo en `[propext, Quot.sound]`. `NoDeadEnd.lean`: `SoundFrom`, `TopAnchor`,
