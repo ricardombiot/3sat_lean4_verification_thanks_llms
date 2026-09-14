@@ -65,7 +65,13 @@ module PathDocumentNode
     end
 
     function remove_owner!(node :: PathDocNode, id :: PathNodeId)
+        # Deja de ser owner
         PathDocumentOwners.remove!(node.owners, id)
+        # por lo tanto, si era padre deja de serlo
+        # delete!(node.parents, id)
+        # y si era, hijo deja de serlo
+        # delete!(node.sons, id)
+
     end
 
     function is_valid(node :: PathDocNode) :: Bool

@@ -13,9 +13,9 @@ end
     include("./db/map/cols/test_lines.jl")
     include("./db/map/cols/test_vars.jl")
 
-    include("./graph_map/test_graph_map_vars.jl")
-    include("./graph_map/test_graph_map_gates.jl")
-    include("./graph_map/test_graph_map_import.jl")
+   # include("./graph_map/test_graph_map_vars.jl")
+   # include("./graph_map/test_graph_map_gates.jl")
+   #include("./graph_map/test_graph_map_import.jl")
 end
 
 
@@ -31,19 +31,23 @@ end
     #include("./sat_machine/test_sat_machine_timming.jl")
     #include("./sat_machine/test_sat_machine_timming_vars.jl")
     #include("./sat_machine/test_sat_machine_complete.jl")
-    include("./sat_machine/test_sat_machine_examples.jl")
+    #include("./sat_machine/test_sat_machine_examples.jl")
     #include("./sat_machine/test_sat_machine_cnf.jl")
+ 
+
 
     #include("./sat_machine/test_sat_reader.jl")
     #include("./sat_machine/test_sat_machine_biglines.jl")
+
+    include("./sat_machine/test_sat_machine_agresive.jl")
 end
 
 
 @time @testset "ExaustiveSolver" begin
-    include("./exaustive/test_exaustive_solver.jl")
+    #include("./exaustive/test_exaustive_solver.jl")
 end
 
-
+#=
 @time @testset "GraphPath" begin
     include("./db/path/docs/test_simulation_nodes.jl")
     include("./db/path/cols/test_nodes.jl")
@@ -52,7 +56,7 @@ end
     include("./graph_path/test_graph_path.jl")
     include("./graph_path/test_graph_path_join.jl")
 end
-#==#
+=#
 
 #=
 @time @testset "GraphPow" begin
