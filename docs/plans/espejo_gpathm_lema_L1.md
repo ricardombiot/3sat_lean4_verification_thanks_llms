@@ -10,6 +10,23 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-14 (ce) — S2 demostrado; S1 refutado en un nivel y reformulado sin profundidad.**
+
+Módulos nuevos, todo en `[propext, Quot.sound]`. `IdSeparator.lean`: `varVal`, `fixes`,
+`IdContradicts`, `Separator`, `noZombieOutside_of_separator`, `lossInClosure_of_idSeparator`.
+`ParentOwners.lean`: **`ParentInv_reachable`** (`po`, `ps`, `kp`, `pr`, `rp`). `LitOwners.lean`:
+**`LitInv_reachable`** (`own`, `twin`). `IdDiesProof.lean`: `Agree`, `agree_of_fixes`, **`idDies`**.
+`IdClosureSep.lean`: `IdClosure`, **`idClosure_unsupported`**, `IdClosureSeparator`,
+**`noZombie_of_idClosureSeparator`**. `LossInClosure` pasa a exigir `d.step = g.current_step`.
+
+Medido sobre `SatMachinePure`: P1/P2/P3 sin fallos (9.885 estados); S1 en un nivel refutado por `far2`
+(18 nodos sin separador; `R` completa en ronda 2), `far3` (12) y `far4` (6); separador de profundidad ≤ 2
+en 528.335 nodos sin camino, 0 fuera de `R`, 0 nodos con camino con separador.
+
+Informe: `verificacion_inseguridad_autor_v99.md`.
+
+---
+
 **2026-09-14 (cd) — inducciones del `Fabric` y de «sin zombis»; estructura de `R`.**
 
 Tres módulos nuevos, todo en `[propext, Quot.sound]`. `FabricInduction.lean`: `FullFabric`,
