@@ -110,6 +110,7 @@ import AbsSat.GraphPath.Model.LitOwners
 import AbsSat.GraphPath.Model.IdDiesProof
 import AbsSat.GraphPath.Model.IdClosureSep
 import AbsSat.GraphPath.Model.IdClosureLevels
+import AbsSat.GraphPath.Model.DeadClosure
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.SymTriReview

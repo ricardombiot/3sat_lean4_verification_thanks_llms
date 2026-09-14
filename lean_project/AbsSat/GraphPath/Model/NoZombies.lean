@@ -29,6 +29,12 @@ keeps exactly the nodes on full chains through the pins (`filter_keeps_chains`).
 Measured on `SatMachinePure` (seeds 1001, 7777, 31337, 90210): 0 zombies among 92,985 nodes of the
 3,774 valid kept states; at the 6,111 valid filters, the 41,501 nodes that lose every chain once
 pinned are all in the closure, and the closure has exactly 41,501 nodes.
+
+**`LossInClosure` is false in general.** An adversarial search found formulas where the review
+removes nodes that are on no full chain and are not in the closure: the review also deletes owner
+entries and links, and `Unsupported` follows only nodes. The theorems here stay correct but their
+hypothesis fails for those formulas. `DeadClosure` restates the closure over nodes, entries and
+links (`LossInClosureD`, implied by `LossInClosure`) and redoes this induction under it.
 -/
 
 namespace AbsSat.GraphPath.Model.NoZombies
