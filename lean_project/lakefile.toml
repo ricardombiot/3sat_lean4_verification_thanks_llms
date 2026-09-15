@@ -96,3 +96,7 @@ root = "PureSatMachineMain"
 [[lean_exe]]
 name = "diff-pure-msat"
 root = "DiffPureMsatMain"
+
+[[lean_exe]]
+name = "improves-diff"
+root = "ImprovesDiffMain"

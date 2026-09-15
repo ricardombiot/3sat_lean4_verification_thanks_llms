@@ -128,3 +128,7 @@ import AbsSat.GraphPath.Model.FabricAdd
 import AbsSat.GraphMap.CnfHypergraph
 import AbsSat.GraphMap.CnfReducer
 import AbsSat.GraphMap.CnfSelection
+import AbsSat.GraphMap.CnfMapImproves
+import AbsSat.GraphPath.Model.PureDriverImproves
+import AbsSat.SatMachine.PureSatMachineImproves
+import AbsSat.SatMachine.ImprovesLoad
