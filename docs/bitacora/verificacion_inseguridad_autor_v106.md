@@ -54,7 +54,25 @@ La segunda parte reutiliza lo que ya había: un owner que contradice un pin est�
 globales a nodos y tablas bastan dos hechos del punto fijo del review: un nodo que sobrevive se posee a sí mismo
 (`SelfOwn.OOS`) y sus owners son owners globales (`Candidates.owner_mem_gowners`).
 
-## 4. Lo que queda
+## 4. La máquina con poda no pierde soluciones (`ConservationPins`)
+
+- **`pureRunP_ne_nil`**: si la fórmula está bien formada y es satisfacible, la última línea de la máquina con poda no
+  está vacía. **`pureRunP_full_state`**: el estado en el nodo final de cada asignación satisfactoria recorre el mapa, es
+  válido y representa algún camino.
+
+Dos piezas nuevas sostienen la prueba:
+
+- **La cadena de una solución nunca contradice sus propios pines** (`not_idContradicts_sel`). Todo valor que fija el id
+  de un nodo de la cadena es el valor de la asignación, y también el que nombra cada pin del siguiente nodo elegido. Solo
+  necesita que la fórmula esté bien formada. Como el id también fija los valores del padre, el invariante de la rama
+  registra ahora que el padre de cada nodo de la cadena es un nodo elegido (`SelParent`, `mapParent_alongP`).
+- **Una cadena sólida sobrevive a la poda si la poda no quita sus nodos** (`ChainSound_pinPrune`): se conservan sus nodos,
+  sus enlaces y sus entradas de owners entre ellos.
+
+Lo demás es el argumento de v105: la poda es un recorte (`pruned_pinPrune`) y el paso de siempre vale, ahora también con
+los padres (`chainSound_up_of_prunedP`).
+
+## 5. Lo que queda
 
 | Pieza | Estado |
 |---|---|
@@ -62,5 +80,5 @@ globales a nodos y tablas bastan dos hechos del punto fijo del review: un nodo q
 | la poda solo quita lo que quitaría el review | demostrado (owners globales, nodos, entradas en rango) |
 | los dos reviews acaban en el mismo estado | medido en todas las ejecuciones, sin prueba |
 | cuánta cascada queda | medido (0,1–8 %), sin cota |
-| la máquina con poda no pierde soluciones | pendiente: la poda es un recorte (`pruned_pinPrune`); falta que la cadena de una solución nunca contradiga los pines |
+| la máquina con poda no pierde soluciones | demostrado (`pureRunP_ne_nil`, `pureRunP_full_state`) |
 | velocidad de la poda | recorre todo el estado; un índice por variable evitaría ese coste |
