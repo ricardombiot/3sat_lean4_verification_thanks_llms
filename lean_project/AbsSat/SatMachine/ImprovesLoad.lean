@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/SatMachine/ImprovesLoad.lean
 import AbsSat.SatMachine.PureSatMachineImproves
+import AbsSat.GraphPath.Model.PureDriverPins
 import AbsSat.Cnf.BruteForce
 
 /-! # Review load: `SatMachinePure` against `SatMachinePureImproves`
@@ -29,6 +30,7 @@ open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.PureDriver
 open AbsSat.GraphPath.Model.PureDriverImproves
+open AbsSat.GraphPath.Model.PureDriverPins (pinPrune)
 
 def passes : Nat → GPathM → Nat
   | 0, _ => 0
@@ -49,6 +51,15 @@ structure Load where
   deadWeak : Nat := 0
   weakCut : Nat := 0
   sameReview : Bool := true
+  /-- The pin prune, applied after the weak filter. -/
+  passesPin : Nat := 0
+  dropPin : Nat := 0
+  deadPin : Nat := 0
+  /-- `measure` removed by the pin prune itself. -/
+  pinCut : Nat := 0
+  /-- The same, only on sends whose base filter is valid (where the base review runs). -/
+  pinCutValid : Nat := 0
+  samePin : Bool := true
   deriving Repr
 
 def Load.add (s : Load) (φ : Cnf) (g : GPathM) (d : NodeId) : Load :=
@@ -59,6 +70,9 @@ def Load.add (s : Load) (φ : Cnf) (g : GPathM) (d : NodeId) : Load :=
   let g0w := reqs.foldl filterRequire gw
   let r := review g0
   let rw := review g0w
+  let gp := pinPrune φ d gw
+  let g0p := reqs.foldl filterRequire gp
+  let rp := review g0p
   { sends := s.sends + 1
     weakSends := s.weakSends + (if ws.isEmpty then 0 else 1)
     passesBase := s.passesBase + passes (measure g0 + 1) g0
@@ -69,7 +83,14 @@ def Load.add (s : Load) (φ : Cnf) (g : GPathM) (d : NodeId) : Load :=
     deadWeak := s.deadWeak + (if isValid g0w then 0 else 1)
     weakCut := s.weakCut + (g.gowners.length - gw.gowners.length)
     sameReview := s.sameReview && isValid r == isValid rw &&
-      (!isValid r || r.gowners.length == rw.gowners.length) }
+      (!isValid r || r.gowners.length == rw.gowners.length)
+    passesPin := s.passesPin + passes (measure g0p + 1) g0p
+    dropPin := s.dropPin + (measure g0p - measure rp)
+    deadPin := s.deadPin + (if isValid g0p then 0 else 1)
+    pinCut := s.pinCut + (measure gw - measure gp)
+    pinCutValid := s.pinCutValid + (if isValid g0 then measure gw - measure gp else 0)
+    samePin := s.samePin && isValid r == isValid rp &&
+      (!isValid r || (r.gowners.length == rp.gowners.length && r.nodes.length == rp.nodes.length)) }
 
 /-- Walk the reference run, measuring every send both ways. -/
 def load (φ : Cnf) : Load := Id.run do
