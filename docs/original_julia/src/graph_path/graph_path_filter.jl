@@ -15,10 +15,6 @@ function make_review_owners!(gpath :: GPath)
         clean_invalid_nodes!(gpath)
         #review_owners_parents_sons!(gpath)
         review_owners_coherence_with_its_parents_sons!(gpath)
-        ## Second time
-        #println("Second time..")
-        #clean_invalid_nodes!(gpath)
-        #println("End Second time..")
         review_agressive_consistence!(gpath)
 
         if gpath.review_owners
@@ -174,32 +170,49 @@ function review_agressive_consistence!(gpath :: GPath)
         #! [for] $ O(S) $
         for step in gpath.current_step-2:-1:1
             col_nodes = PathCollectionLines.get_step(gpath.table_lines, step)
-            #! [for] $ O(7*7) $
-            for (_, node_x) in col_nodes.table
-                #! [for] $ O(7*7) $
-                for step_w in gpath.current_step-2:-1:1
+
+            #! [fn-iter] $ O(7*7) $
+            PathCollectionNodes.filter!(col_nodes, function (node_x)
+                is_valid = is_valid_node(gpath, node_x)
+                if is_valid
                     #! [for] $ O(7*7) $
-                    for node_id_w in node_x.owners.table[step_w]
-                        node_w = PathCollectionLines.get_node(gpath.table_lines, node_id_w)
+                    for step_w in gpath.current_step-2:-1:1
+                        #! [for] $ O(7*7) $
+                        for node_id_w in node_x.owners.table[step_w]
+                            node_w = PathCollectionLines.get_node(gpath.table_lines, node_id_w)
+                            is_valid_w = is_valid_node(gpath, node_w)
+                            if is_valid_w
+                            # intersección de los owners 
+                                owners_copy = deepcopy(node_x.owners)
+                                PathDocumentOwners.intersect!(owners_copy, node_w.owners)
 
-                        # intersección de los owners 
-                        owners_copy = deepcopy(node_x.owners)
-                        PathDocumentOwners.intersect!(owners_copy, node_w.owners)
-
-                        if !PathDocumentOwners.is_valid(owners_copy)
-                            # No existe ningun camino en donde ambos sean compatibles, entonces dejan de ser owners.
-                            PathDocumentNode.remove_owner!(node_x, node_id_w)
-                            PathDocumentNode.remove_owner!(node_w, node_x.id)
-                            println("Apply Agressive Consistence: $(node_x.id) - $(node_w.id)")
-                            gpath.review_owners = true
-                        
-                        #else
-                        #   println("Not Apply Agressive Consistence: $(node_x.id) - $(node_w.id)")
+                                if !PathDocumentOwners.is_valid(owners_copy)
+                                    # No existe ningun camino en donde ambos sean compatibles, entonces dejan de ser owners.
+                                    PathDocumentNode.remove_owner!(node_x, node_id_w)
+                                    PathDocumentNode.remove_owner!(node_w, node_x.id)
+                                    is_valid_x = is_valid_node(gpath, node_x)
+                                    is_valid_w = is_valid_node(gpath, node_w)
+                                    println("Apply Agressive Consistence: 
+                                        $(node_x.id) [$(is_valid_x)] 
+                                        $(node_w.id) [$(is_valid_w)]")
+                                    gpath.review_owners = true
+                                end
+                            end
                         end
                     end
+
+
+                    return remove_if_invalid_node!(gpath, node_x)
+                else
+                    return remove_if_invalid_node!(gpath, node_x)
                 end
+            end)
+
+            #! [for] $ O(7*7) $
+            #for (_, node_x) in col_nodes.table
+
                 
-            end
+           # end
         end
     end
 end

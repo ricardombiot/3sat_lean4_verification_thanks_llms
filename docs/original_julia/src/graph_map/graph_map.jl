@@ -156,6 +156,16 @@ module GraphMap
         MapDocumentNode.add_require!(node_gate, (step=step_a,index=target_index_a))
         MapDocumentNode.add_require!(node_gate, (step=step_b,index=target_index_b))
         MapDocumentNode.add_require!(node_gate, (step=step_c,index=target_index_c))
+
+        # 15-09-2026: Requires negados (con step inverso e índice inverso)
+        step_a_inv = iseven(step_a) ? step_a+1 : step_a-1
+        step_b_inv = iseven(step_b) ? step_b+1 : step_b-1
+        step_c_inv = iseven(step_c) ? step_c+1 : step_c-1
+        
+        MapDocumentNode.add_require!(node_gate, (step=step_a_inv, index=1-target_index_a))
+        MapDocumentNode.add_require!(node_gate, (step=step_b_inv, index=1-target_index_b))
+        MapDocumentNode.add_require!(node_gate, (step=step_c_inv, index=1-target_index_c))
+
         #
         MapCollectionLines.push_node!(gmap.table_lines, node_gate)
 
