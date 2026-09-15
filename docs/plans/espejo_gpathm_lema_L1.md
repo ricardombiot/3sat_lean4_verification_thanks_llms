@@ -10,6 +10,19 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-15 (ch) — tablas ideales, grupos conflictivos y profundidad de la refutación.**
+
+Sin código nuevo en el repositorio. Medido sobre `SatMachinePure`: cadenas = caminos enlazados con asignación consistente
+(1,03 M caminos, 0 excepciones); owners = tabla ideal más entradas obsoletas inocuas (12.045 estados, mismo estado
+vivo/muerto); (II) sobre tablas ideales (391.259 nodos); grupos conflictivos = bifurcaciones bloqueadas por pins distintos
+(1.032 de 1.056); regla T correcta (0 de 258.368 nodos con cadena) y refutación local de profundidad ≤ 2 completa en lo
+medido; búsqueda adversaria y fórmulas de paridad sin profundidad 3; conjetura «profundidad ≤ max(1, s − 1)» refutada.
+Discutidos la regla `review_agressive_consistence!` y la validación frente al oráculo de fuerza bruta.
+
+Informe: `verificacion_inseguridad_autor_v102.md`.
+
+---
+
 **2026-09-14 (cg) — `LossInClosure` refutado; clausura sobre nodos, entradas y enlaces.**
 
 Búsqueda adversaria (2d): fórmulas donde el review borra nodos sin cadena que no son `Unsupported` (hasta 19); ronda
