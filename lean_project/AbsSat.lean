@@ -2,6 +2,7 @@ import AbsSat.Cnf.Formula
 import AbsSat.Cnf.Dimacs
 import AbsSat.Cnf.BruteForce
 import AbsSat.Cnf.UnitProp
+import AbsSat.Cnf.HornModel
 import AbsSat.GraphMap.CnfMap
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.MapReachable
@@ -111,6 +112,8 @@ import AbsSat.GraphPath.Model.ParentOwners
 import AbsSat.GraphPath.Model.LitOwners
 import AbsSat.GraphPath.Model.IdDiesProof
 import AbsSat.GraphPath.Model.FixAgreeInv
+import AbsSat.GraphPath.Model.UnitPropReview
+import AbsSat.GraphPath.Model.HornDecision
 import AbsSat.GraphPath.Model.IdClosureSep
 import AbsSat.GraphPath.Model.IdClosureLevels
 import AbsSat.GraphPath.Model.DeadClosure

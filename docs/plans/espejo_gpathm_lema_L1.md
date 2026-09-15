@@ -10,6 +10,18 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-15 (cj) — la máquina decide las fórmulas Horn.**
+
+Plan en cinco piezas. `FixAgreeInv.lean`: **`FixAgree_reachable`**. `Cnf/UnitProp.lean`: `Forced`, `Conflict`,
+`forced_true`, `not_conflict_of_model`. `UnitPropReview.lean`: `forced_unsupported`, **`conflict_invalid`**.
+`Cnf/HornModel.lean`: modelo por encadenamiento hacia delante calculado, **`Cnf.horn_satisfiable_iff`**.
+`HornDecision.lean`: `pureRun_nil_of_conflict` (cualquier φ), **`horn_decides`**. Todo en `[propext, Quot.sound]`, build
+de 137 módulos.
+
+Informe: `verificacion_inseguridad_autor_v104.md`.
+
+---
+
 **2026-09-15 (ci) — la máquina frente al oráculo de fuerza bruta; veredicto certificado.**
 
 `Cnf/BruteForce.lean` sin axiomas (`enum_complete`, `toAssign_map_range`) y en el build, con

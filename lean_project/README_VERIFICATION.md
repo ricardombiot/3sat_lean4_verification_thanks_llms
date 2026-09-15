@@ -189,5 +189,7 @@ Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above).
 
 - [v103: la máquina frente al oráculo de fuerza bruta (Claude)](../docs/bitacora/verificacion_inseguridad_autor_v103.md) — **Demostrado**: el oráculo `bruteForceSat` sin axiomas y en el build; el conjunto que representa la máquina coincide con la lista del oráculo (`Phi_to_oracle`, `oracle_to_Phi`); el veredicto certificado (una selección aceptada por `isCert`) es el del oráculo sin hipótesis (`certifiedVerdict_iff_oracle`). **Abierto**, enunciado respecto al oráculo: que la respuesta rápida de la máquina coincida con él (`answer_matches_oracle_iff` ⇔ `SendExact`); y el coste de la lectura.
 
+- [v104: la máquina decide las fórmulas Horn (Claude)](../docs/bitacora/verificacion_inseguridad_autor_v104.md) — **Demostrado**: para φ bien formada y Horn, `is_satisfiable (run_pure φ) = true ↔ Satisfiable φ` (`horn_decides`), en cinco piezas: owners coherentes con su nodo (`FixAgree_reachable`), propagación unitaria (`Forced`, `Conflict`), un conflicto invalida el filtro (`conflict_invalid`), Horn sin conflicto tiene modelo calculado (`Cnf.horn_satisfiable_iff`), y el último avance vacía la línea ante un conflicto (`pureRun_nil_of_conflict`, válido para cualquier φ). **Abierto**: el coste; otras clases; `SendExact` en general.
+
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*
