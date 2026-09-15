@@ -100,3 +100,7 @@ root = "DiffPureMsatMain"
 [[lean_exe]]
 name = "improves-diff"
 root = "ImprovesDiffMain"
+
+[[lean_exe]]
+name = "order-search"
+root = "OrderSearchMain"

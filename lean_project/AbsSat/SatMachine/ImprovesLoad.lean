@@ -92,6 +92,34 @@ def pct (a b : Nat) : String :=
     s!"{if d > 0 then "+" else ""}{d * 100 / (a : Int)}%"
 
 -- ============================================================
+-- The improved machine's own review work
+-- ============================================================
+
+structure Work where
+  sends : Nat := 0
+  passes : Nat := 0
+  drop : Nat := 0
+  /-- `measure` summed over every state parked in a line: how big the run is. -/
+  mass : Nat := 0
+  sat : Bool := false
+  deriving Repr
+
+/-- Walk the improved run on its own lines and add up what its reviews do. -/
+def workW (φ : Cnf) : Work := Id.run do
+  let mut line := pureInit φ
+  let mut w : Work := {}
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      w := { w with mass := w.mass + measure kv.2 }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let g0 := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        let r := review g0
+        w := { w with sends := w.sends + 1, passes := w.passes + passes (measure g0 + 1) g0,
+                      drop := w.drop + (measure g0 - measure r) }
+    line := pureAdvanceW φ line
+  return { w with sat := !line.isEmpty }
+
+-- ============================================================
 -- Deterministic random 3-CNF (distinct variables per clause)
 -- ============================================================
 
