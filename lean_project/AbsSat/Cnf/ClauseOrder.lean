@@ -117,6 +117,64 @@ def frontierProfile (φ : Cnf) : Nat × Nat :=
     (max acc.1 f, acc.2 + f)) (0, 0)
 
 -- ============================================================
+-- Local search on the frontier sum
+-- ============================================================
+
+instance : Inhabited Clause := ⟨⟨⟨0, true⟩, ⟨0, true⟩, ⟨0, true⟩⟩⟩
+
+/-- **The frontier sum in closed form.** A variable is on the frontier after the
+prefix of length `k` exactly when its first occurrence is before `k` and its last
+is at or after `k`, which happens for `last − first` prefixes. So the sum of the
+frontier profile is the sum of the variables' spans, computed in one pass. -/
+def spanSum (nVars : Nat) (cs : Array Clause) : Nat := Id.run do
+  let mut first : Array Nat := Array.replicate nVars 0
+  let mut last : Array Nat := Array.replicate nVars 0
+  let mut seen : Array Bool := Array.replicate nVars false
+  for i in [0:cs.size] do
+    for v in vars cs[i]! do
+      if v < nVars then
+        if !seen[v]! then
+          first := first.set! v i
+          seen := seen.set! v true
+        last := last.set! v i
+  let mut total := 0
+  for v in [0:nVars] do
+    if seen[v]! then total := total + (last[v]! - first[v]!)
+  return total
+
+/-- Move the clause at `i` so that it ends up at position `j`. -/
+def moveTo (cs : Array Clause) (i j : Nat) : Array Clause :=
+  let l := cs.toList
+  let r := l.eraseIdx i
+  (r.take j ++ l[i]! :: r.drop j).toArray
+
+/-- The first move that lowers the frontier sum, if any. -/
+def firstImprovement (nVars : Nat) (cs : Array Clause) (cur : Nat) :
+    Option (Array Clause × Nat) := Id.run do
+  for i in [0:cs.size] do
+    for j in [0:cs.size] do
+      if i != j then
+        let cs' := moveTo cs i j
+        let s := spanSum nVars cs'
+        if s < cur then return some (cs', s)
+  return none
+
+def localSearchGo (nVars : Nat) : Nat → Array Clause → Nat → Array Clause
+  | 0, cs, _ => cs
+  | fuel + 1, cs, cur =>
+    match firstImprovement nVars cs cur with
+    | none => cs
+    | some (cs', s) => localSearchGo nVars fuel cs' s
+
+/-- Hill climbing on the frontier sum from the order `start` gives. Each accepted
+move lowers the sum by at least one, so `nVars · m + 1` rounds reach a local
+minimum. -/
+def byLocalSearch (start : Cnf → Cnf) (φ : Cnf) : Cnf :=
+  let cs := (start φ).clauses.toArray
+  { φ with clauses :=
+      (localSearchGo φ.nVars (φ.nVars * φ.clauses.length + 1) cs (spanSum φ.nVars cs)).toList }
+
+-- ============================================================
 -- Sanity
 -- ============================================================
 
@@ -137,5 +195,12 @@ private def sample : Cnf :=
 #guard (byGreedy sample).clauses.isPerm sample.clauses
 #guard (byMinFrontier sample).clauses.isPerm sample.clauses
 #guard (shuffled 7 sample).clauses.isPerm sample.clauses
+#guard (byLocalSearch byMinFrontier sample).clauses.isPerm sample.clauses
+
+-- The closed form agrees with the prefix-by-prefix profile.
+#guard spanSum 6 sample.clauses.toArray == (frontierProfile sample).2
+#guard spanSum 6 (shuffled 7 sample).clauses.toArray == (frontierProfile (shuffled 7 sample)).2
+#guard spanSum 6 (byLocalSearch byMinFrontier sample).clauses.toArray
+  ≤ spanSum 6 (byMinFrontier sample).clauses.toArray
 
 end AbsSat.Cnf.ClauseOrder
