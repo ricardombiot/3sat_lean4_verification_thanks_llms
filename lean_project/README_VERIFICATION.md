@@ -191,5 +191,7 @@ Phases F1–F6 and lemma L1 are complete and axiom-free (see the summary above).
 
 - [v104: la máquina decide las fórmulas Horn (Claude)](../docs/bitacora/verificacion_inseguridad_autor_v104.md) — **Demostrado**: para φ bien formada y Horn, `is_satisfiable (run_pure φ) = true ↔ Satisfiable φ` (`horn_decides`), en cinco piezas: owners coherentes con su nodo (`FixAgree_reachable`), propagación unitaria (`Forced`, `Conflict`), un conflicto invalida el filtro (`conflict_invalid`), Horn sin conflicto tiene modelo calculado (`Cnf.horn_satisfiable_iff`), y el último avance vacía la línea ante un conflicto (`pureRun_nil_of_conflict`, válido para cualquier φ). **Abierto**: el coste; otras clases; `SendExact` en general.
 
+- [v105: requires débiles y una máquina donde probar mejoras (Claude)](../docs/bitacora/verificacion_inseguridad_autor_v105.md) — **Construido**: `SatMachinePureImproves` (rama `spaik`), que antes de los requires duros restringe los owners de las cláusulas anteriores que comparten variables a las filas compatibles (`weakReqOfCnf`). **Demostrado**: los requires débiles son correctos (`weakReqOfCnf_sound`) y la máquina nueva no pierde soluciones (`pureRunW_ne_nil`, `pureRunW_full_state`). **Medido** (`lake exe improves-diff`): mismos veredictos y última línea que la referencia y el oráculo; el review elimina entre 0 y 16 % menos. **Abierto**: el puente con el envoltorio; la cota del trabajo del review como teorema.
+
 ---
 *Created by Gemini (Antigravity/Jules) in collaboration with Deepseek, Claude (Sonnet 5), and the Author.*

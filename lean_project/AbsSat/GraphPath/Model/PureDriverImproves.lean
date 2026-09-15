@@ -22,12 +22,11 @@ identity, so off the clause steps this driver *is* `PureDriver`
 An empty weak set leaves its step with no global owner, `isValid` fails, and
 `sendToW` drops the state — the early death, with nothing added for it.
 
-**What is proved here, and what is not.** The frame of the filter (it touches
-only `gowners`, and exactly as `mem_filterWeakAll` says) and its reduction to
-`PureDriver` when there are no weak entries. The driver-level conservation —
-`Carries` through `pureAdvanceW`, which needs `AlongAssign`/`MapReachable`
-variants with a weak `up` — is the next piece. Until then, the `#guard`s below
-compare the verdict with `PureDriver` and with the brute-force oracle.
+**What is proved here.** The frame of the filter (it touches only `gowners`,
+and exactly as `mem_filterWeakAll` says) and its reduction to `PureDriver` when
+there are no weak entries. The driver-level conservation — no solution is lost,
+`pureRunW_ne_nil` — is `ConservationImproves`. The `#guard`s below compare the
+verdict with `PureDriver` and with the brute-force oracle.
 -/
 
 namespace AbsSat.GraphPath.Model.PureDriverImproves
