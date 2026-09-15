@@ -30,6 +30,7 @@ vacío y el nodo muere en el acto porque `isValid` falla.
 | `SatMachine/PureSatMachineImproves` | el envoltorio `SatMachinePureImproves` |
 | `SatMachine/PureProofsImproves` | el puente del envoltorio con `pureRunW`: `final_line_run_pure`, `completeness_improves` |
 | `SatMachine/ImprovesLoad`, `lake exe improves-diff` | compara las dos máquinas y el oráculo, y mide la carga del review |
+| `Cnf/ClauseOrder`, `lake exe order-search` | órdenes de cláusulas (frecuencia, voraz, `minfront`, búsqueda local) y su medición |
 
 Se reutiliza `rowPairs`/`pairsAgree` de `CnfReducer`: hay una sola definición de "coinciden en la variable".
 
@@ -79,7 +80,43 @@ base. Esto es más fuerte que el teorema, porque compara el trabajo de dos revie
 review recorre los nodos; queda como medición. En 5 de los 9 ficheros de `test/cnf` (tseitin, pigeonhole, graph-coloring, `test_2lit`) se
 salta la comparación porque no cumplen `wfB`.
 
-## 5. Lo que queda
+## 5. El orden de las cláusulas
+
+Tu idea fue ordenar las cláusulas por el uso de sus literales (`x` y `¬x` por separado, suma de los tres, las de más uso
+en los primeros pasos) para dar más fuerza al filtro débil. La medida corrigió el planteamiento en dos puntos.
+
+- **El número de enlaces débiles no depende del orden.** Cada par de cláusulas que comparten variable da exactamente un
+  enlace, que queda en la que va después. Reordenar solo decide quién filtra a quién y cuándo.
+- **Lo que sí depende mucho del orden es el trabajo del propio review.** El orden por frecuencia lo aumenta (peor que el
+  original en 11 de 13 fórmulas). El que lo reduce es **`minfront`**: colocar en cada paso la cláusula que deja menos
+  variables compartidas entre lo ya colocado y lo que queda (la *frontera*).
+
+La suma de la frontera tiene forma cerrada: es la suma de la distancia entre la primera y la última aparición de cada
+variable. Sobre ella probé una búsqueda local (mover una cláusula a otra posición mientras baje la suma), partiendo de
+`minfront` (`local`) y del orden original (`local-orig`).
+
+Owners que elimina el review de la máquina mejorada, relativos al orden original (media geométrica por lote; veredicto
+igual en todos los órdenes):
+
+| Lote | freq | greedy | **minfront** | local | local-orig | aleatorios |
+|---|---|---|---|---|---|---|
+| 5×40, 6 fórmulas | ×4,53 | ×4,53 | ×0,26 | **×0,22** | ×0,32 | ×0,95–×1,55 |
+| 6×24, 6 fórmulas | ×1,80 | ×1,29 | ×0,42 | **×0,36** | ×0,43 | ×0,90–×0,99 |
+| 7×30, 4 fórmulas | ×1,94 | ×0,86 | ×0,41 | ×0,36 | **×0,29** | ×0,96–×1,26 |
+| 8×34, 3 fórmulas | ×1,36 | ×0,47 | ×0,172 | **×0,171** | ×0,23 | ×0,61–×0,74 |
+| 10×42, 2 fórmulas | — | — | **×0,19** | ×0,26 | — | — |
+
+- `minfront` gana en todas las fórmulas frente al original, al voraz y a los aleatorios, y la ganancia crece con el
+  tamaño: en 10×42 semilla 500 el review elimina 206.460 owners frente a 1.970.998.
+- La búsqueda local aporta poco y no es fiable: **una suma de frontera menor no siempre es menos trabajo**. En 10×42
+  semilla 501 bajó la suma de 267 a 252 y casi duplicó el trabajo (389.564 → 723.921); en 7×30 semilla 401, `local-orig`
+  con suma 147 trabaja cuatro veces menos que `local` con 154.
+
+Conclusión: `minfront` es el orden de referencia. Para bajar más hace falta una métrica que explique el trabajo mejor que
+la frontera. Reordenar cláusulas no cambia la satisfacibilidad, así que lo demostrado sigue valiendo; falta el lema
+"reordenar conserva `Satisfiable`" para enlazarlo formalmente.
+
+## 6. Lo que queda
 
 | Pieza | Estado |
 |---|---|
@@ -88,4 +125,6 @@ salta la comparación porque no cumplen `wfB`.
 | puente `SatMachinePureImproves.run_pure` ↔ `pureRunW` | demostrado (`final_line_run_pure`, `completeness_improves` en `PureProofsImproves`) |
 | el filtro débil solo quita lo que el review quitaría | demostrado (`review_gowners_sub_startW`) |
 | el review mejorado trabaja menos en cada envío | abierto: medido en todos los envíos, sin prueba |
+| `minfront` reduce el trabajo del review | medido (21 fórmulas, ×0,17–×0,42 por lote), sin prueba |
+| una métrica de orden que prediga el trabajo mejor que la frontera | abierto |
 | línea no vacía ⇒ satisfacible | abierto, igual que en la máquina de referencia |
