@@ -10,6 +10,18 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-15 (ci) — la máquina frente al oráculo de fuerza bruta; veredicto certificado.**
+
+`Cnf/BruteForce.lean` sin axiomas (`enum_complete`, `toAssign_map_range`) y en el build, con
+**`bruteForceSat_ne_nil_iff`**. `Oracle.lean`: `Phi_to_oracle`, `oracle_to_Phi`, `Phi_nonempty_iff_oracle`,
+`oracle_nonempty_run_pure`, `run_pure_iff_oracle_of_SendExact`, **`answer_matches_oracle_iff`** (la parte abierta).
+`CertifiedVerdict.lean`: `mem_selections`, `isCert_of_chain`, **`certifiedVerdict_iff_oracle`** (sin hipótesis),
+`machine_matches_certified_iff`. Todo en `[propext, Quot.sound]`, build de 132 módulos.
+
+Informe: `verificacion_inseguridad_autor_v103.md`.
+
+---
+
 **2026-09-15 (ch) — tablas ideales, grupos conflictivos y profundidad de la refutación.**
 
 Sin código nuevo en el repositorio. Medido sobre `SatMachinePure`: cadenas = caminos enlazados con asignación consistente

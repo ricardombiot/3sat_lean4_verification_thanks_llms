@@ -1,5 +1,6 @@
 import AbsSat.Cnf.Formula
 import AbsSat.Cnf.Dimacs
+import AbsSat.Cnf.BruteForce
 import AbsSat.GraphMap.CnfMap
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.MapReachable
@@ -111,6 +112,8 @@ import AbsSat.GraphPath.Model.IdDiesProof
 import AbsSat.GraphPath.Model.IdClosureSep
 import AbsSat.GraphPath.Model.IdClosureLevels
 import AbsSat.GraphPath.Model.DeadClosure
+import AbsSat.GraphPath.Model.Oracle
+import AbsSat.GraphPath.Model.CertifiedVerdict
 import AbsSat.GraphPath.Model.ClauseFilter
 import AbsSat.GraphPath.Model.TriReview
 import AbsSat.GraphPath.Model.SymTriReview
