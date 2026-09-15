@@ -40,10 +40,26 @@ Recorriendo las cláusulas en orden, la frontera tras `j` cláusulas son las var
   fórmula satisfacible (`sat_of_pureRun_ne_nil`) y, con la completitud, la máquina de referencia decide
   (`run_pure_decides_of_FrontierSend`).
 
-## 4. Lo que queda
+## 4. Dónde está `FrontierSend` (`FrontierSendBounds`)
+
+- **Basta con pedirla en la ejecución real.** `FrontierSendRun` es la misma obligación, pero solo sobre las líneas que
+  el conductor construye (`lineAt`). La versión general la implica (`frontierSendRun_of_frontierSend`) y sigue dando la
+  corrección del veredicto (`sat_of_pureRun_ne_nil_run`).
+- **No es más difícil que `SendExact`** (`frontierSendRun_of_sendExact`). La cadena es: bajo `SendExact` todo estado de
+  una línea tiene un camino (`lineAt_nonempty`); `SendExact` da uno que pasa por los pines del destino;
+  `PrefixDecode.satUpTo_of_chain` lo lee como asignación que satisface las cláusulas ya vistas; y `bit_of_pin` (nuevo)
+  fija cada literal decodificado al bit de su pin, también en el bloque negativo, así que la fila de esa asignación en la
+  cláusula es la del destino.
+
+Lo que `FrontierSend` aporta es ser **semántica**: pide un modelo de un prefijo, no un camino dentro del grafo, así que
+se puede atacar razonando sobre asignaciones.
+
+## 5. Lo que queda
 
 | Pieza | Estado |
 |---|---|
 | invariante exacto de la frontera | demostrado |
 | veredicto SAT correcto si vale `FrontierSend` | demostrado |
+| basta `FrontierSend` sobre las líneas reales, y `SendExact` la implica | demostrado |
 | `FrontierSend` | abierto; el punto duro es que la fila nueva coincida a la vez en sus variables compartidas con un modelo del prefijo |
+| mapa con variables perezosas (que la frontera deje de ser todas las variables) | sin explorar |
