@@ -139,3 +139,5 @@ import AbsSat.SatMachine.PureSatMachineImproves
 import AbsSat.SatMachine.PureProofsImproves
 import AbsSat.SatMachine.ImprovesLoad
 import AbsSat.Cnf.ClauseOrder
+import AbsSat.Cnf.FrontierDerive
+import AbsSat.Cnf.FrontierDP

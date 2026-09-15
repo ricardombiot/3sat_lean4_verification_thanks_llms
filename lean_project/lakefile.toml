@@ -104,3 +104,7 @@ root = "ImprovesDiffMain"
 [[lean_exe]]
 name = "order-search"
 root = "OrderSearchMain"
+
+[[lean_exe]]
+name = "frontier-derive"
+root = "FrontierDeriveMain"
