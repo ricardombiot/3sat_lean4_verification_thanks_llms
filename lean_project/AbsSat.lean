@@ -137,6 +137,7 @@ import AbsSat.GraphPath.Model.SeparationPins
 import AbsSat.GraphPath.Model.ConservationPins
 import AbsSat.SatMachine.PureSatMachineImproves
 import AbsSat.SatMachine.PureProofsImproves
+import AbsSat.SatMachine.FrontierReduction
 import AbsSat.SatMachine.ImprovesLoad
 import AbsSat.Cnf.ClauseOrder
 import AbsSat.Cnf.FrontierDerive
