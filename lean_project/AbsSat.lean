@@ -1,6 +1,7 @@
 import AbsSat.Cnf.Formula
 import AbsSat.Cnf.Dimacs
 import AbsSat.Cnf.BruteForce
+import AbsSat.Cnf.UnitProp
 import AbsSat.GraphMap.CnfMap
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.MapReachable
