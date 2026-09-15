@@ -67,6 +67,6 @@ salta la comparación porque no cumplen `wfB`.
 |---|---|
 | requires débiles correctos | demostrado |
 | la máquina nueva no pierde soluciones (`pureRunW`) | demostrado |
-| puente `SatMachinePureImproves.run_pure` ↔ `pureRunW` | pendiente (como `PureProofs` para la referencia) |
+| puente `SatMachinePureImproves.run_pure` ↔ `pureRunW` | demostrado (`final_line_run_pure`, `completeness_improves` en `PureProofsImproves`) |
 | cota del trabajo del review como teorema | abierto: solo medido |
 | línea no vacía ⇒ satisfacible | abierto, igual que en la máquina de referencia |

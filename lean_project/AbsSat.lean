@@ -132,4 +132,5 @@ import AbsSat.GraphMap.CnfMapImproves
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.SatMachine.PureSatMachineImproves
+import AbsSat.SatMachine.PureProofsImproves
 import AbsSat.SatMachine.ImprovesLoad
