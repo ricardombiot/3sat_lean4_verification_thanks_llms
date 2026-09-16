@@ -641,6 +641,252 @@ def runRead (φ : Cnf) : IO Unit := do
     IO.println s!"all reading choices: correct={st.correct}, stuck (invalid after a pin)={st.stuck}, wrong answer={st.wrong}, valid pins with 0 chains left={st.zombiePins}"
 
 -- ============================================================
+-- ValuesOnChains at scale: reader paths, every available value checked
+-- ============================================================
+
+structure VStat where
+  unsat : Nat := 0
+  finalStates : Nat := 0
+  paths : Nat := 0
+  pathsOk : Nat := 0
+  pathsStuck : Nat := 0
+  pathsWrong : Nat := 0
+  visited : Nat := 0
+  valuesChecked : Nat := 0
+  stuckPins : Nat := 0
+  zombiePins : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+def VStat.note (st : VStat) (e : String) : VStat :=
+  if st.ex.length < 8 then { st with ex := st.ex ++ [e] } else st
+
+/-- One reader path (`seed = 0` is the author's `first(ids)`), checking at every visited state
+every available value: pinning it must keep the state valid and non-empty (`ValuesOnChains`). -/
+partial def readPath (φ : Cnf) (G : GPathM) (k : Int) (asg : List (Int × Int)) (seed : Nat)
+    (budget : Nat) (st0 : VStat) : VStat := Id.run do
+  let mut st := st0
+  if k ≥ litBlock φ then
+    if satB (assignOf asg) φ then return { st with pathsOk := st.pathsOk + 1 }
+    return (({ st with pathsWrong := st.pathsWrong + 1 } : VStat).note s!"wrong answer {asg.map (·.2)}")
+  st := { st with visited := st.visited + 1 }
+  let vals := valuesAt G k
+  let mut pins : Array (Int × GPathM × Bool) := #[]
+  for v in vals do
+    let G' := filterAll G [{ step := k, index := v }]
+    let valid := isValid G'
+    st := { st with valuesChecked := st.valuesChecked + 1 }
+    if !valid then
+      st := ({ st with stuckPins := st.stuckPins + 1 } : VStat).note s!"x{k / 2 + 1}={v}: pin makes the state INVALID (after {asg.map (·.2)})"
+    else
+      let (c, tr) := fullChains G' budget
+      if tr then st := { st with truncated := st.truncated + 1 }
+      else if c == 0 then
+        st := ({ st with zombiePins := st.zombiePins + 1 } : VStat).note s!"x{k / 2 + 1}={v}: pin valid but NO chain left (after {asg.map (·.2)})"
+    pins := pins.push (v, G', valid)
+  if pins.isEmpty then return ({ st with pathsStuck := st.pathsStuck + 1 } : VStat).note s!"no value at step {k}"
+  let i := if seed == 0 then 0 else (seed * 2654435761 + k.toNat * 40503) % pins.size
+  match pins[i]? with
+  | some (v, G', true) => return readPath φ G' (k + 2) (asg ++ [(k / 2, v)]) seed budget st
+  | _ => return { st with pathsStuck := st.pathsStuck + 1 }
+
+def readFormula (φ : Cnf) (st0 : VStat) (nPaths budget : Nat) : VStat := Id.run do
+  let mut st := st0
+  let line := pureRun φ
+  if line.isEmpty then return { st with unsat := st.unsat + 1 }
+  for kv in line do
+    st := { st with finalStates := st.finalStates + 1 }
+    for seed in List.range nPaths do
+      st := readPath φ kv.2 0 [] seed budget { st with paths := st.paths + 1 }
+  return st
+
+def randomCnfs (cases nvMin seed : Nat) : List Cnf := Id.run do
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut out : List Cnf := []
+  for idx in [0:cases] do
+    let (rng1, nv) := rng.below 3
+    let nVars := nvMin + nv
+    let (rng2, nClauses) :=
+      if idx % 3 == 2 then
+        let (r, extra) := rng1.below (2 * nVars + 1)
+        (r, 4 * nVars + extra)
+      else
+        let (r, nc) := rng1.below (4 * nVars)
+        (r, 1 + nc)
+    let (rng3, cnf) := AbsSat.SatMachine.DiffTest.gen_cnf rng2 nVars nClauses
+    rng := rng3
+    match AbsSat.Cnf.Dimacs.parse (cnf.splitOn "\n") with
+    | .error _ => pure ()
+    | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then out := out ++ [φ]
+  return out
+
+def reportV (name : String) (st : VStat) : IO Unit := do
+  IO.println s!"{name}: UNSAT(empty final line)={st.unsat} finalStates={st.finalStates} paths={st.paths} ok={st.pathsOk} STUCK={st.pathsStuck} WRONG={st.pathsWrong}"
+  IO.println s!"  reader states visited={st.visited} values checked={st.valuesChecked} ValuesOnChains violations: invalid pins={st.stuckPins}, valid pins with no chain={st.zombiePins}; chain counts truncated={st.truncated}"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- PinsSound: owner entries toward the pinned step, backed by chains?
+-- (`ReaderPin.OwnersSoundAt`)
+-- ============================================================
+
+/-- Every full chain of `G` (lowest-first, index = step), budgeted. -/
+partial def collectChains (G : GPathM) (seg : List PathNodeId) (lo : Int)
+    (acc : Array (List PathNodeId)) (b : Nat) : Array (List PathNodeId) × Nat :=
+  if b == 0 then (acc, 0)
+  else if lo == 0 then (acc.push seg, b - 1)
+  else
+    (nextPicks G seg lo).foldl
+      (fun (st : Array (List PathNodeId) × Nat) x =>
+        if st.2 == 0 then st else collectChains G (x :: seg) (lo - 1) st.1 (st.2 - 1))
+      (acc, b - 1)
+
+def allChains (G : GPathM) (budget : Nat) : Array (List PathNodeId) × Bool := Id.run do
+  if G.current_step < 1 then return (#[], false)
+  let t := G.current_step - 1
+  let mut acc : Array (List PathNodeId) := #[]
+  let mut b := budget
+  for p in (G.nodes.map (·.id)).filter (fun p => pickOk G p t) do
+    if b != 0 then
+      let (a, b') := collectChains G [p] t acc b
+      acc := a
+      b := b'
+  return (acc, b == 0)
+
+structure SStat where
+  states : Nat := 0
+  truncated : Nat := 0
+  entries : Nat := 0
+  unbacked : Nat := 0
+  unbackedSurvive : Nat := 0
+  pinnedEntries : Nat := 0
+  unbackedPinned : Nat := 0
+  pathsOk : Nat := 0
+  pathsBad : Nat := 0
+  ex : List String := []
+
+/-- Along one author path: before each pin at step `k`, every owner entry `(x, q)` with `q` a global
+owner at step `k` must lie on a common chain (`OwnersSoundAt`). An unbacked entry whose node `x`
+survives the chosen pin is the dangerous kind. -/
+partial def soundPath (φ : Cnf) (G : GPathM) (k : Int) (seed : Nat) (budget : Nat) (st0 : SStat) :
+    SStat := Id.run do
+  let mut st := st0
+  if k ≥ litBlock φ then return { st with pathsOk := st.pathsOk + 1 }
+  let vals := valuesAt G k
+  if vals.isEmpty then return { st with pathsBad := st.pathsBad + 1 }
+  let i := if seed == 0 then 0 else (seed * 2654435761 + k.toNat * 40503) % vals.length
+  let val := vals[i]?.getD 0
+  let d : NodeId := { step := k, index := val }
+  let G' := filterAll G [d]
+  let (chains, tr) := allChains G budget
+  st := { st with states := st.states + 1 }
+  if tr then
+    st := { st with truncated := st.truncated + 1 }
+  else
+    for n in G.nodes do
+      for q in ownersAt n.owners k do
+        if G.gowners.contains q then
+          st := { st with entries := st.entries + 1 }
+          let x := n.id
+          let backed := chains.any (fun c => c.contains x && c.contains q)
+          if q.id == d then
+            st := { st with pinnedEntries := st.pinnedEntries + 1 }
+            if !backed then st := { st with unbackedPinned := st.unbackedPinned + 1 }
+          if !backed then
+            st := { st with unbacked := st.unbacked + 1 }
+            if q.id == d && (G'.node? x).isSome then
+              st := { st with unbackedSurvive := st.unbackedSurvive + 1 }
+              if st.ex.length < 8 then
+                st := { st with ex := st.ex ++ [s!"step {k} pin {val}: node {showP x} survives via unbacked entry {showP q}"] }
+  if !isValid G' then return { st with pathsBad := st.pathsBad + 1 }
+  return soundPath φ G' (k + 2) seed budget st
+
+def soundFormula (φ : Cnf) (st0 : SStat) (nPaths budget : Nat) : SStat := Id.run do
+  let mut st := st0
+  for kv in pureRun φ do
+    for seed in List.range nPaths do
+      st := soundPath φ kv.2 0 seed budget st
+  return st
+
+def reportS (name : String) (st : SStat) : IO Unit := do
+  IO.println s!"{name}: reader states={st.states} (truncated {st.truncated}) paths ok={st.pathsOk} bad={st.pathsBad}"
+  IO.println s!"  owner entries toward the pinned step={st.entries}, NOT backed by a chain={st.unbacked}, of which the node survives the pin={st.unbackedSurvive}"
+  IO.println s!"  entries naming the pinned value={st.pinnedEntries}, NOT backed={st.unbackedPinned}"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- Trace mode: where does the first zombie state (valid, no chain) appear?
+-- ============================================================
+
+partial def hasChainFrom (G : GPathM) (seg : List PathNodeId) (lo : Int) (b : Nat) : Bool × Nat :=
+  if b == 0 then (false, 0)
+  else if lo == 0 then (true, b - 1)
+  else
+    (nextPicks G seg lo).foldl
+      (fun (st : Bool × Nat) x =>
+        if st.1 || st.2 == 0 then st else hasChainFrom G (x :: seg) (lo - 1) (st.2 - 1))
+      (false, b - 1)
+
+/-- `some true`: a full chain exists; `some false`: none; `none`: search truncated. -/
+def hasChain (G : GPathM) (budget : Nat) : Option Bool := Id.run do
+  if G.current_step < 1 then return some false
+  let t := G.current_step - 1
+  let mut b := budget
+  for p in (G.nodes.map (·.id)).filter (fun p => pickOk G p t) do
+    if b != 0 then
+      let (found, b') := hasChainFrom G [p] t b
+      if found then return some true
+      b := b'
+  return if b == 0 then none else some false
+
+def describeStep (φ : Cnf) (k : Int) : String :=
+  if k < litBlock φ then s!"x{k / 2 + 1}" ++ (if k % 2 == 0 then " value" else " negation")
+  else if k == litBlock φ then "fusion"
+  else if k < fusionTop φ then s!"clause {k - (litBlock φ + 1)}"
+  else "end"
+
+def showPin (φ : Cnf) (r : NodeId) : String :=
+  match varVal φ r with
+  | some (v, b) => s!"x{v + 1}={b}@{r.step}"
+  | none => s!"{describeStep φ r.step}#{r.index}@{r.step}"
+
+def subsetsBelow {α : Type} : List α → List (List α)
+  | [] => [[]]
+  | a :: rest => let r := subsetsBelow rest; r ++ r.map (a :: ·)
+
+def runTrace (φ : Cnf) : IO Unit := do
+  let mut line := pureInit φ
+  let n := (stepCount φ - 1).toNat
+  for i in [0:n] do
+    let line' := pureAdvance φ line
+    let mut zombies : List NodeId := []
+    let mut trunc := 0
+    for kv in line' do
+      match hasChain kv.2 3000000 with
+      | some false => zombies := zombies ++ [kv.1]
+      | none => trunc := trunc + 1
+      | _ => pure ()
+    IO.println s!"step {i + 1} ({describeStep φ (i + 1)}): states={line'.length} zombies={zombies.length} truncated={trunc}"
+    if !zombies.isEmpty then
+      IO.println s!"FIRST ZOMBIE STEP {i + 1}: keys {zombies.map (fun z => showP ⟨z, none⟩)}"
+      for kv in line do
+        for d in mapSons φ kv.1.step kv.1.index do
+          if zombies.contains d then
+            let g := kv.2
+            let reqs := reqOfCnf φ d
+            let f := filterAll g reqs
+            if isValid f then
+              IO.println s!"  send {showP ⟨kv.1, none⟩} -> {showP ⟨d, none⟩}: source nodes={g.nodes.length} has chain={hasChain g 3000000}; filtered nodes={f.nodes.length} VALID, has chain={hasChain f 3000000}"
+              IO.println s!"    pins: {reqs.map (showPin φ)}"
+              for sub in subsetsBelow reqs do
+                if sub.length < reqs.length && sub.length > 0 then
+                  let fs := filterAll g sub
+                  IO.println s!"    pins subset {sub.map (showPin φ)}: valid={isValid fs}, has chain={hasChain fs 3000000}"
+      return
+    line := line'
+  IO.println "no zombie state along the run"
+
+-- ============================================================
 -- Entry point
 -- ============================================================
 
@@ -667,6 +913,35 @@ def main (args : List String) : IO Unit := do
   let args := if top then args.drop 1 else args
   let run (φ : Cnf) (a : Acc) : Acc := if top then runTop φ a 300000 else runFormula φ a 20000
   match args with
+  | "trace" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        IO.println s!"=== {path}"
+        runTrace φ
+  | "sound" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let mut st : SStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := soundFormula φ st 5 200000
+      reportS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" st
+  | "sound" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ => reportS path (soundFormula φ {} 5 200000)
+  | "read" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let mut st : VStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := readFormula φ st 9 200000
+      reportV s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" st
+  | "read" :: "paths" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ => reportV path (readFormula φ {} 9 200000)
   | "read" :: paths =>
     for path in paths do
       match ← loadCnf path with
