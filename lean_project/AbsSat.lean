@@ -100,6 +100,7 @@ import AbsSat.GraphPath.Model.EmptinessReduction
 import AbsSat.GraphPath.Model.PathLattice
 import AbsSat.GraphPath.Model.NoDeadEnd
 import AbsSat.GraphPath.Model.TopPhantom
+import AbsSat.GraphPath.Model.FinalReadable
 import AbsSat.GraphPath.Model.DescentInvariant
 import AbsSat.GraphPath.Model.JoinDescent
 import AbsSat.GraphPath.Model.FilterDescent
