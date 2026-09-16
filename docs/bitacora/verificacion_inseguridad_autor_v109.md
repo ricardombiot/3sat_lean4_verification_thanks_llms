@@ -118,8 +118,14 @@ permite demostrar, no en lo que ahorra; y el punto fijo que la medición de `alt
 - **No demostrado**: el coste; que la regla elimine *todos* los nodos sin cadena fuera de `altchain`.
 - **Abierto**: la dirección contraria, línea final no vacía ⇒ satisfacible, igual que en la máquina de
   referencia.
-- **De regalo**: la conservación quedó probada para un filtro cualquiera, así que `ConservationImproves`
-  y `ConservationPins` podrían rederivarse de ella en vez de mantener tres copias.
+- **De regalo, y ya cobrado**: la conservación se demostró una sola vez para un filtro cualquiera, y
+  las otras dos máquinas se rederivaron de ella. El núcleo común vive en `ConservationCore` (273
+  líneas); `ConservationImproves` pasó de 601 a 205 líneas y `ConservationPins` de 921 a 480, con los
+  mismos enunciados públicos y las mismas guardas de axiomas. La invariante genérica lleva ahora
+  también el padre de cada nodo de la cadena (`SelParent`), que es lo que necesita un filtro que
+  elimine **nodos** y no solo owners globales: la poda por pines lo requería, y cualquier
+  endurecimiento futuro de la regla condicionada lo requerirá igual. Añadir un filtro cuesta una
+  instancia, no una copia.
 
 Detalles de Lean anotados por el camino: `omega` con una disyunción en la meta, `List.all_eq_false` y
 `by_cases` sobre `Int` arrastran `Classical.choice`; `Bool.and_eq_true` no tiene `.mpr`; y este
