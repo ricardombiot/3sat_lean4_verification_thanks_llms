@@ -39,13 +39,14 @@ open AbsSat.GraphPath.Model.PureDriver (PureLine insertPure pureInit mem_insertP
   mem_insertPure_of_ne key_inj isValid_of_grown insertPure_keys_some insertPure_keys_none
   isValid_initSeed)
 open AbsSat.GraphPath.Model.ConservationCore (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
-  ShapeOk_addNode ShapeOk_join chainSound_up_of_prunedP stepCount_pos SelParent)
+  ShapeOk_addNode ShapeOk_join chainSound_up_of_prunedR stepCount_pos SelParent)
+open AbsSat.GraphPath.Model.AggressiveReview (ReviewOk filterAllR upFilteringR pruned_filterAllR)
 
-variable (φ : Cnf) (a : Assign) (F : NodeId → GPathM → GPathM)
+variable (φ : Cnf) (a : Assign) (F : NodeId → GPathM → GPathM) (R : GPathM → GPathM) [ReviewOk R]
 
-/-- The filter, then the hard requirements and the review, then `up`. -/
+/-- The filter, then the hard requirements and the review `R`, then `up`. -/
 def upFilteringF (g : GPathM) (d : NodeId) (title : String) : GPathM :=
-  upFiltering (F d g) (reqOfCnf φ d) d title
+  upFilteringR R (F d g) (reqOfCnf φ d) d title
 
 /-- What the filter has to keep: a narrowing that loses no branch chain. -/
 abbrev PrunesF : Prop := ∀ d g, Pruned g (F d g)
@@ -63,11 +64,11 @@ abbrev KeepsBranchF : Prop :=
 -- ============================================================
 
 theorem ShapeOk_upFilteringF (hFpr : PrunesF F) (g : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = g.current_step) (h : ShapeOk g) : ShapeOk (upFilteringF φ F g d title) := by
-  have hpr : Pruned g (filterAll (F d g) (reqOfCnf φ d)) :=
-    Pruned.trans (hFpr d g) (pruned_filterAll _ _)
+    (hd : d.step = g.current_step) (h : ShapeOk g) : ShapeOk (upFilteringF φ F R g d title) := by
+  have hpr : Pruned g (filterAllR R (F d g) (reqOfCnf φ d)) :=
+    Pruned.trans (hFpr d g) (pruned_filterAllR R _ _)
   have hf := ShapeOk_of_pruned hpr h
-  simp only [upFilteringF, upFiltering, GPathM.up]
+  simp only [upFilteringF, upFilteringR, GPathM.up]
   split
   · exact ShapeOk_addNode _ d title (by rw [hpr.step_eq]; exact hd) hf
   · exact hf
@@ -82,18 +83,18 @@ inductive AlongAssignF : GPathM → Prop where
       AlongAssignF (GPathM.initSeed (selOfAssign φ a 0) title)
   | up (g : GPathM) (title : String) :
       AlongAssignF g →
-      AlongAssignF (upFilteringF φ F g (selOfAssign φ a g.current_step) title)
+      AlongAssignF (upFilteringF φ F R g (selOfAssign φ a g.current_step) title)
   | joinL (g₁ g₂ : GPathM) (hok : GPathM.okJoin g₁ g₂ = true) (h₂ : ShapeOk g₂) :
       AlongAssignF g₁ → AlongAssignF (GPathM.join g₁ g₂)
   | joinR (g₁ g₂ : GPathM) (hok : GPathM.okJoin g₁ g₂ = true) (h₁ : ShapeOk g₁) :
       AlongAssignF g₂ → AlongAssignF (GPathM.join g₁ g₂)
 
-theorem shapeOk_of_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a F g) :
+theorem shapeOk_of_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a F R g) :
     ShapeOk g := by
   induction h with
   | seed title => exact ShapeOk_initSeed _ title (selOfAssign_step φ a 0)
   | up g title _ ih =>
-    exact ShapeOk_upFilteringF φ F hFpr g _ title (selOfAssign_step φ a g.current_step) ih
+    exact ShapeOk_upFilteringF φ F R hFpr g _ title (selOfAssign_step φ a g.current_step) ih
   | joinL g₁ g₂ hok h₂ _ ih => exact ShapeOk_join g₁ g₂ hok ih h₂
   | joinR g₁ g₂ hok h₁ _ ih => exact ShapeOk_join g₁ g₂ hok h₁ ih
 
@@ -103,7 +104,7 @@ theorem shapeOk_of_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a
 
 /-- The map node the last `up` visited is a selected node. A filter that removes **nodes** needs
 this to know the branch never contradicts its own pins. -/
-theorem mapParent_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a F g) :
+theorem mapParent_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a F R g) :
     g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j) := by
   induction h with
   | seed title =>
@@ -111,10 +112,10 @@ theorem mapParent_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a 
     rw [if_pos (by rfl : isValid empty = true)]
     exact Or.inr ⟨0, rfl⟩
   | up g title _ ih =>
-    have hpr : Pruned g (filterAll (F (selOfAssign φ a g.current_step) g)
+    have hpr : Pruned g (filterAllR R (F (selOfAssign φ a g.current_step) g)
         (reqOfCnf φ (selOfAssign φ a g.current_step))) :=
-      Pruned.trans (hFpr _ g) (pruned_filterAll _ _)
-    simp only [upFilteringF, upFiltering, GPathM.up]
+      Pruned.trans (hFpr _ g) (pruned_filterAllR R _ _)
+    simp only [upFilteringF, upFilteringR, GPathM.up]
     split
     · exact Or.inr ⟨g.current_step, rfl⟩
     · rw [hpr.map_parent_eq]
@@ -131,7 +132,7 @@ theorem mapParent_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a 
 /-- **The branch's chain survives every state the driver builds**, whatever the filter, as long as
 it narrows and keeps the branch. -/
 theorem chainSound_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF φ a F)
-    (g : GPathM) (h : AlongAssignF φ a F g) :
+    (g : GPathM) (h : AlongAssignF φ a F R g) :
     ∃ sel, ChainSound g sel ∧
       ∀ k, 0 ≤ k → k < g.current_step →
         (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) := by
@@ -147,8 +148,8 @@ theorem chainSound_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF 
   | up g title hal ih =>
     obtain ⟨sel, hsel, hids⟩ := ih
     obtain ⟨sel', hs', hcur, hids'⟩ :=
-      chainSound_up_of_prunedP φ a hwf g _ (hFpr _ g) (shapeOk_of_alongF φ a F hFpr g hal)
-        (mapParent_alongF φ a F hFpr g hal) sel (hFcs _ g sel hsel hids rfl) hids title
+      chainSound_up_of_prunedR φ a R hwf g _ (hFpr _ g) (shapeOk_of_alongF φ a F R hFpr g hal)
+        (mapParent_alongF φ a F R hFpr g hal) sel (hFcs _ g sel hsel hids rfl) hids title
     exact ⟨sel', hs', fun k hk0 hk => hids' k hk0 (lt_of_lt_of_eq hk hcur)⟩
   | joinL g₁ g₂ hok h₂ _ ih =>
     obtain ⟨sel, hsel, hids⟩ := ih
@@ -160,13 +161,13 @@ theorem chainSound_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF 
       (by rw [(grown_join_right g₁ g₂ hok).step_eq] at hk; exact hk)⟩
 
 theorem isValid_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF φ a F)
-    (g : GPathM) (h : AlongAssignF φ a F g) : isValid g = true := by
-  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F hwf hFpr hFcs g h
+    (g : GPathM) (h : AlongAssignF φ a F R g) : isValid g = true := by
+  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F R hwf hFpr hFcs g h
   exact PickInduction.isValid_of_ChainG g sel hsel.chain
 
 theorem inhabited_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF φ a F)
-    (g : GPathM) (h : AlongAssignF φ a F g) : ∃ sel, ChainSound g sel := by
-  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F hwf hFpr hFcs g h
+    (g : GPathM) (h : AlongAssignF φ a F R g) : ∃ sel, ChainSound g sel := by
+  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F R hwf hFpr hFcs g h
   exact ⟨sel, hsel⟩
 
 -- ============================================================
@@ -174,8 +175,8 @@ theorem inhabited_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF �
 -- ============================================================
 
 theorem inhabitedM_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF φ a F)
-    (g : GPathM) (h : AlongAssignF φ a F g) : AbsSat.GraphPath.Model.Inhabited g := by
-  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F hwf hFpr hFcs g h
+    (g : GPathM) (h : AlongAssignF φ a F R g) : AbsSat.GraphPath.Model.Inhabited g := by
+  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F R hwf hFpr hFcs g h
   exact ⟨pathOf sel g, sel, hsel.chain.1, hsel.chain.2.1, rfl⟩
 
 -- ============================================================
@@ -183,20 +184,20 @@ theorem inhabitedM_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF 
 -- ============================================================
 
 def sendToF (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
-  if isValid (upFilteringF φ F g d "") then insertPure next d (upFilteringF φ F g d "") else next
+  if isValid (upFilteringF φ F R g d "") then insertPure next d (upFilteringF φ F R g d "") else next
 
 def sendAllF (kv : NodeId × GPathM) (next : PureLine) : PureLine :=
-  (mapSons φ kv.1.step kv.1.index).foldl (sendToF φ F kv.2) next
+  (mapSons φ kv.1.step kv.1.index).foldl (sendToF φ F R kv.2) next
 
 def pureAdvanceF (line : PureLine) : PureLine :=
-  line.foldl (fun next kv => sendAllF φ F kv next) []
+  line.foldl (fun next kv => sendAllF φ F R kv next) []
 
 def pureStepsF : Nat → PureLine → PureLine
   | 0, line => line
-  | n + 1, line => pureStepsF n (pureAdvanceF φ F line)
+  | n + 1, line => pureStepsF n (pureAdvanceF φ F R line)
 
 /-- The whole run with the filter. Empty means UNSAT. -/
-def pureRunF : PureLine := pureStepsF φ F (stepCount φ - 1).toNat (pureInit φ)
+def pureRunF : PureLine := pureStepsF φ F R (stepCount φ - 1).toNat (pureInit φ)
 
 -- ============================================================
 -- The line invariant
@@ -273,11 +274,12 @@ theorem LineOkF_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPath
 -- ============================================================
 
 def CarriesF (k : Int) (line : PureLine) : Prop :=
-  ∃ g, (selOfAssign φ a k, g) ∈ line ∧ AlongAssignF φ a F g ∧ g.current_step = k + 1
+  ∃ g, (selOfAssign φ a k, g) ∈ line ∧ AlongAssignF φ a F R g ∧ g.current_step = k + 1
 
+omit [ReviewOk R] in
 theorem CarriesF_insertPure (k : Int) (line : PureLine)
     (key : NodeId) (g' : GPathM) (hl : LineOkF φ k line) (hg' : StateOkF φ k (key, g'))
-    (hc : CarriesF φ a F k line) : CarriesF φ a F k (insertPure line key g') := by
+    (hc : CarriesF φ a F R k line) : CarriesF φ a F R k (insertPure line key g') := by
   obtain ⟨g, hmem, hal, hcs⟩ := hc
   obtain ⟨hnd, hall⟩ := hl
   by_cases hkey : selOfAssign φ a k = key
@@ -304,10 +306,11 @@ theorem CarriesF_insertPure (k : Int) (line : PureLine)
       simp
   · exact ⟨g, mem_insertPure_of_ne line key _ g' g hkey hmem, hal, hcs⟩
 
+omit [ReviewOk R] in
 theorem CarriesF_of_insertPure_at (k : Int) (line : PureLine)
     (g' : GPathM) (hl : LineOkF φ k line) (hg' : StateOkF φ k (selOfAssign φ a k, g'))
-    (hal : AlongAssignF φ a F g') :
-    CarriesF φ a F k (insertPure line (selOfAssign φ a k) g') := by
+    (hal : AlongAssignF φ a F R g') :
+    CarriesF φ a F R k (insertPure line (selOfAssign φ a k) g') := by
   obtain ⟨h, hmem, hcase⟩ := mem_insertPure line (selOfAssign φ a k) g'
   refine ⟨h, hmem, ?_, ?_⟩
   · rcases hcase with rfl | ⟨e, hem, rfl⟩
@@ -328,21 +331,22 @@ theorem CarriesF_of_insertPure_at (k : Int) (line : PureLine)
 -- One send
 -- ============================================================
 
+omit [ReviewOk R] in
 theorem isValid_filter_of_sentF (g : GPathM) (d : NodeId)
-    (hval : isValid (upFilteringF φ F g d "") = true) :
-    isValid (filterAll (F d g) (reqOfCnf φ d)) = true := by
-  by_cases h : isValid (filterAll (F d g) (reqOfCnf φ d)) = true
+    (hval : isValid (upFilteringF φ F R g d "") = true) :
+    isValid (filterAllR R (F d g) (reqOfCnf φ d)) = true := by
+  by_cases h : isValid (filterAllR R (F d g) (reqOfCnf φ d)) = true
   · exact h
   · exfalso
-    have he : upFilteringF φ F g d "" = filterAll (F d g) (reqOfCnf φ d) := by
-      simp only [upFilteringF, upFiltering, GPathM.up, if_neg h]
+    have he : upFilteringF φ F R g d "" = filterAllR R (F d g) (reqOfCnf φ d) := by
+      simp only [upFilteringF, upFilteringR, GPathM.up, if_neg h]
     rw [he] at hval
     exact h hval
 
 theorem StateOkF_sent (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index)
-    (hval : isValid (upFilteringF φ F kv.2 d "") = true) :
-    StateOkF φ (k + 1) (d, upFilteringF φ F kv.2 d "") := by
+    (hval : isValid (upFilteringF φ F R kv.2 d "") = true) :
+    StateOkF φ (k + 1) (d, upFilteringF φ F R kv.2 d "") := by
   have hkey : kv.1.step = k := mapNodes_step φ k kv.1 hkv.onMap
   have hmk : (⟨k, kv.1.index⟩ : NodeId) ∈ mapNodes φ k := by
     have hid : (⟨k, kv.1.index⟩ : NodeId) = kv.1 := by
@@ -355,32 +359,32 @@ theorem StateOkF_sent (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM) (hkv 
   have hd' : d ∈ mapNodes φ (k + 1) :=
     mapSons_subset φ k kv.1.index hmk d (by rw [← hkey]; exact hd)
   have hdstep : d.step = k + 1 := mapNodes_step φ (k + 1) d hd'
-  have hfv := isValid_filter_of_sentF φ F kv.2 d hval
-  have hpr : Pruned kv.2 (filterAll (F d kv.2) (reqOfCnf φ d)) :=
-    Pruned.trans (hFpr d kv.2) (pruned_filterAll _ _)
-  have hshape : upFilteringF φ F kv.2 d "" = addNode (filterAll (F d kv.2) (reqOfCnf φ d)) d "" := by
-    simp only [upFilteringF, upFiltering, GPathM.up, hfv, if_pos]
+  have hfv := isValid_filter_of_sentF φ F R kv.2 d hval
+  have hpr : Pruned kv.2 (filterAllR R (F d kv.2) (reqOfCnf φ d)) :=
+    Pruned.trans (hFpr d kv.2) (pruned_filterAllR R _ _)
+  have hshape : upFilteringF φ F R kv.2 d "" = addNode (filterAllR R (F d kv.2) (reqOfCnf φ d)) d "" := by
+    simp only [upFilteringF, upFilteringR, GPathM.up, hfv, if_pos]
   refine ⟨hd', ?_, ?_, ?_, hval⟩
-  · exact ShapeOk_upFilteringF φ F hFpr kv.2 d "" (by rw [hdstep, hkv.step]) hkv.shape
+  · exact ShapeOk_upFilteringF φ F R hFpr kv.2 d "" (by rw [hdstep, hkv.step]) hkv.shape
   · rw [hshape, addNode_current, hpr.step_eq, hkv.step]
   · rw [hshape]; rfl
 
 theorem LineOkF_sendToF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index)
     (next : PureLine) (hn : LineOkF φ (k + 1) next) :
-    LineOkF φ (k + 1) (sendToF φ F kv.2 next d) := by
+    LineOkF φ (k + 1) (sendToF φ F R kv.2 next d) := by
   simp only [sendToF]
   split
   · next hval =>
-      exact LineOkF_insertPure φ (k + 1) next d _ hn (StateOkF_sent φ F hFpr k kv hkv d hd hval)
+      exact LineOkF_insertPure φ (k + 1) next d _ hn (StateOkF_sent φ F R hFpr k kv hkv d hd hval)
   · exact hn
 
 theorem LineOkF_sendAllF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (next : PureLine) (hn : LineOkF φ (k + 1) next) :
-    LineOkF φ (k + 1) (sendAllF φ F kv next) := by
+    LineOkF φ (k + 1) (sendAllF φ F R kv next) := by
   simp only [sendAllF]
   have main : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapSons φ kv.1.step kv.1.index) →
-      ∀ acc, LineOkF φ (k + 1) acc → LineOkF φ (k + 1) (l.foldl (sendToF φ F kv.2) acc) := by
+      ∀ acc, LineOkF φ (k + 1) acc → LineOkF φ (k + 1) (l.foldl (sendToF φ F R kv.2) acc) := by
     intro l
     induction l with
     | nil => intro _ acc h; exact h
@@ -388,16 +392,16 @@ theorem LineOkF_sendAllF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
       intro hx acc h
       simp only [List.foldl_cons]
       exact ih (fun d hd => hx d (List.mem_cons_of_mem _ hd)) _
-        (LineOkF_sendToF φ F hFpr k kv hkv x (hx x List.mem_cons_self) acc h)
+        (LineOkF_sendToF φ F R hFpr k kv hkv x (hx x List.mem_cons_self) acc h)
   exact main _ (fun _ hd => hd) next hn
 
 theorem LineOkF_pureAdvanceF (hFpr : PrunesF F) (k : Int) (line : PureLine)
-    (hl : LineOkF φ k line) : LineOkF φ (k + 1) (pureAdvanceF φ F line) := by
+    (hl : LineOkF φ k line) : LineOkF φ (k + 1) (pureAdvanceF φ F R line) := by
   simp only [pureAdvanceF]
   obtain ⟨_, hall⟩ := hl
   have main : ∀ (l : PureLine), (∀ kv ∈ l, StateOkF φ k kv) →
       ∀ acc, LineOkF φ (k + 1) acc →
-        LineOkF φ (k + 1) (l.foldl (fun next kv => sendAllF φ F kv next) acc) := by
+        LineOkF φ (k + 1) (l.foldl (fun next kv => sendAllF φ F R kv next) acc) := by
     intro l
     induction l with
     | nil => intro _ acc h; exact h
@@ -405,7 +409,7 @@ theorem LineOkF_pureAdvanceF (hFpr : PrunesF F) (k : Int) (line : PureLine)
       intro hx acc h
       simp only [List.foldl_cons]
       exact ih (fun kv hkv => hx kv (List.mem_cons_of_mem _ hkv)) _
-        (LineOkF_sendAllF φ F hFpr k x (hx x List.mem_cons_self) acc h)
+        (LineOkF_sendAllF φ F R hFpr k x (hx x List.mem_cons_self) acc h)
   exact main line hall [] ⟨by simp, by intro kv hkv; exact absurd hkv List.not_mem_nil⟩
 
 -- ============================================================
@@ -414,37 +418,37 @@ theorem LineOkF_pureAdvanceF (hFpr : PrunesF F) (k : Int) (line : PureLine)
 
 theorem advance_targetF (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
     (hFcs : KeepsBranchF φ a F) (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ)
-    (g : GPathM) (hal : AlongAssignF φ a F g) (hcs : g.current_step = k + 1) :
+    (g : GPathM) (hal : AlongAssignF φ a F R g) (hcs : g.current_step = k + 1) :
     selOfAssign φ a (k + 1)
         ∈ mapSons φ (selOfAssign φ a k).step (selOfAssign φ a k).index
-      ∧ AlongAssignF φ a F (upFilteringF φ F g (selOfAssign φ a (k + 1)) "")
-      ∧ isValid (upFilteringF φ F g (selOfAssign φ a (k + 1)) "") = true := by
+      ∧ AlongAssignF φ a F R (upFilteringF φ F R g (selOfAssign φ a (k + 1)) "")
+      ∧ isValid (upFilteringF φ F R g (selOfAssign φ a (k + 1)) "") = true := by
   have hson : selOfAssign φ a (k + 1)
       ∈ mapSons φ (selOfAssign φ a k).step (selOfAssign φ a k).index := by
     rw [selOfAssign_step]
     exact selOfAssign_son φ a hsat k h0 hk
-  have hup : AlongAssignF φ a F (upFilteringF φ F g (selOfAssign φ a (k + 1)) "") := by
+  have hup : AlongAssignF φ a F R (upFilteringF φ F R g (selOfAssign φ a (k + 1)) "") := by
     have hu := AlongAssignF.up (φ := φ) (a := a) (F := F) g "" hal
     rwa [hcs] at hu
-  exact ⟨hson, hup, isValid_alongF φ a F hwf hFpr hFcs _ hup⟩
+  exact ⟨hson, hup, isValid_alongF φ a F R hwf hFpr hFcs _ hup⟩
 
 theorem CarriesF_sendToF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index)
-    (next : PureLine) (hn : LineOkF φ (k + 1) next) (hc : CarriesF φ a F (k + 1) next) :
-    CarriesF φ a F (k + 1) (sendToF φ F kv.2 next d) := by
+    (next : PureLine) (hn : LineOkF φ (k + 1) next) (hc : CarriesF φ a F R (k + 1) next) :
+    CarriesF φ a F R (k + 1) (sendToF φ F R kv.2 next d) := by
   simp only [sendToF]
   split
   · next hval =>
-      exact CarriesF_insertPure φ a F (k + 1) next d _ hn
-        (StateOkF_sent φ F hFpr k kv hkv d hd hval) hc
+      exact CarriesF_insertPure φ a F R (k + 1) next d _ hn
+        (StateOkF_sent φ F R hFpr k kv hkv d hd hval) hc
   · exact hc
 
 theorem sons_fold_monoF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) :
     ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapSons φ kv.1.step kv.1.index) →
-      ∀ acc, LineOkF φ (k + 1) acc → CarriesF φ a F (k + 1) acc →
-        LineOkF φ (k + 1) (l.foldl (sendToF φ F kv.2) acc)
-          ∧ CarriesF φ a F (k + 1) (l.foldl (sendToF φ F kv.2) acc) := by
+      ∀ acc, LineOkF φ (k + 1) acc → CarriesF φ a F R (k + 1) acc →
+        LineOkF φ (k + 1) (l.foldl (sendToF φ F R kv.2) acc)
+          ∧ CarriesF φ a F R (k + 1) (l.foldl (sendToF φ F R kv.2) acc) := by
   intro l
   induction l with
   | nil => intro _ acc h hc; exact ⟨h, hc⟩
@@ -452,26 +456,26 @@ theorem sons_fold_monoF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
     intro hx acc h hc
     simp only [List.foldl_cons]
     exact ih (fun d hd => hx d (List.mem_cons_of_mem _ hd)) _
-      (LineOkF_sendToF φ F hFpr k kv hkv x (hx x List.mem_cons_self) acc h)
-      (CarriesF_sendToF φ a F hFpr k kv hkv x (hx x List.mem_cons_self) acc h hc)
+      (LineOkF_sendToF φ F R hFpr k kv hkv x (hx x List.mem_cons_self) acc h)
+      (CarriesF_sendToF φ a F R hFpr k kv hkv x (hx x List.mem_cons_self) acc h hc)
 
 theorem CarriesF_sendAllF (hFpr : PrunesF F) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (next : PureLine) (hn : LineOkF φ (k + 1) next)
-    (hc : CarriesF φ a F (k + 1) next) : CarriesF φ a F (k + 1) (sendAllF φ F kv next) := by
+    (hc : CarriesF φ a F R (k + 1) next) : CarriesF φ a F R (k + 1) (sendAllF φ F R kv next) := by
   simp only [sendAllF]
-  exact (sons_fold_monoF φ a F hFpr k kv hkv _ (fun _ hd => hd) next hn hc).2
+  exact (sons_fold_monoF φ a F R hFpr k kv hkv _ (fun _ hd => hd) next hn hc).2
 
 theorem sons_fold_establishF (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
     (hFcs : KeepsBranchF φ a F) (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ)
-    (g : GPathM) (hal : AlongAssignF φ a F g) (hcs : g.current_step = k + 1)
+    (g : GPathM) (hal : AlongAssignF φ a F R g) (hcs : g.current_step = k + 1)
     (hkv : StateOkF φ k (selOfAssign φ a k, g)) :
     ∀ (l : List NodeId),
       (∀ d ∈ l, d ∈ mapSons φ (selOfAssign φ a k).step (selOfAssign φ a k).index) →
       selOfAssign φ a (k + 1) ∈ l →
       ∀ acc, LineOkF φ (k + 1) acc →
-        LineOkF φ (k + 1) (l.foldl (sendToF φ F g) acc)
-          ∧ CarriesF φ a F (k + 1) (l.foldl (sendToF φ F g) acc) := by
-  obtain ⟨hson, hup, hval⟩ := advance_targetF φ a F hwf hsat hFpr hFcs k h0 hk g hal hcs
+        LineOkF φ (k + 1) (l.foldl (sendToF φ F R g) acc)
+          ∧ CarriesF φ a F R (k + 1) (l.foldl (sendToF φ F R g) acc) := by
+  obtain ⟨hson, hup, hval⟩ := advance_targetF φ a F R hwf hsat hFpr hFcs k h0 hk g hal hcs
   intro l
   induction l with
   | nil => intro _ hd; exact absurd hd List.not_mem_nil
@@ -479,28 +483,28 @@ theorem sons_fold_establishF (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
     intro hx hd acc h
     simp only [List.foldl_cons]
     rcases List.mem_cons.mp hd with rfl | hd'
-    · have hsend : sendToF φ F g acc (selOfAssign φ a (k + 1))
+    · have hsend : sendToF φ F R g acc (selOfAssign φ a (k + 1))
           = insertPure acc (selOfAssign φ a (k + 1))
-              (upFilteringF φ F g (selOfAssign φ a (k + 1)) "") := by
+              (upFilteringF φ F R g (selOfAssign φ a (k + 1)) "") := by
         simp only [sendToF, hval, if_true]
       have hsok : StateOkF φ (k + 1) (selOfAssign φ a (k + 1),
-          upFilteringF φ F g (selOfAssign φ a (k + 1)) "") :=
-        StateOkF_sent φ F hFpr k (selOfAssign φ a k, g) hkv _ hson hval
-      have hbase : LineOkF φ (k + 1) (sendToF φ F g acc (selOfAssign φ a (k + 1)))
-          ∧ CarriesF φ a F (k + 1) (sendToF φ F g acc (selOfAssign φ a (k + 1))) := by
+          upFilteringF φ F R g (selOfAssign φ a (k + 1)) "") :=
+        StateOkF_sent φ F R hFpr k (selOfAssign φ a k, g) hkv _ hson hval
+      have hbase : LineOkF φ (k + 1) (sendToF φ F R g acc (selOfAssign φ a (k + 1)))
+          ∧ CarriesF φ a F R (k + 1) (sendToF φ F R g acc (selOfAssign φ a (k + 1))) := by
         rw [hsend]
         exact ⟨LineOkF_insertPure φ (k + 1) acc _ _ h hsok,
-          CarriesF_of_insertPure_at φ a F (k + 1) acc _ h hsok hup⟩
-      exact sons_fold_monoF φ a F hFpr k (selOfAssign φ a k, g) hkv xs
+          CarriesF_of_insertPure_at φ a F R (k + 1) acc _ h hsok hup⟩
+      exact sons_fold_monoF φ a F R hFpr k (selOfAssign φ a k, g) hkv xs
         (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _ hbase.1 hbase.2
     · exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) hd' _
-        (LineOkF_sendToF φ F hFpr k (selOfAssign φ a k, g) hkv x (hx x List.mem_cons_self) acc h)
+        (LineOkF_sendToF φ F R hFpr k (selOfAssign φ a k, g) hkv x (hx x List.mem_cons_self) acc h)
 
 theorem outer_fold_monoF (hFpr : PrunesF F) (k : Int) :
     ∀ (l : PureLine), (∀ kv ∈ l, StateOkF φ k kv) →
-      ∀ acc, LineOkF φ (k + 1) acc → CarriesF φ a F (k + 1) acc →
-        LineOkF φ (k + 1) (l.foldl (fun next kv => sendAllF φ F kv next) acc)
-          ∧ CarriesF φ a F (k + 1) (l.foldl (fun next kv => sendAllF φ F kv next) acc) := by
+      ∀ acc, LineOkF φ (k + 1) acc → CarriesF φ a F R (k + 1) acc →
+        LineOkF φ (k + 1) (l.foldl (fun next kv => sendAllF φ F R kv next) acc)
+          ∧ CarriesF φ a F R (k + 1) (l.foldl (fun next kv => sendAllF φ F R kv next) acc) := by
   intro l
   induction l with
   | nil => intro _ acc h hc; exact ⟨h, hc⟩
@@ -508,22 +512,22 @@ theorem outer_fold_monoF (hFpr : PrunesF F) (k : Int) :
     intro hx acc h hc
     simp only [List.foldl_cons]
     exact ih (fun kv hkv => hx kv (List.mem_cons_of_mem _ hkv)) _
-      (LineOkF_sendAllF φ F hFpr k x (hx x List.mem_cons_self) acc h)
-      (CarriesF_sendAllF φ a F hFpr k x (hx x List.mem_cons_self) acc h hc)
+      (LineOkF_sendAllF φ F R hFpr k x (hx x List.mem_cons_self) acc h)
+      (CarriesF_sendAllF φ a F R hFpr k x (hx x List.mem_cons_self) acc h hc)
 
 /-- **One driver step conserves the branch**, for any filter that narrows and keeps it. -/
 theorem CarriesF_pureAdvanceF (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
     (hFcs : KeepsBranchF φ a F) (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ)
-    (line : PureLine) (hl : LineOkF φ k line) (hc : CarriesF φ a F k line) :
-    CarriesF φ a F (k + 1) (pureAdvanceF φ F line) := by
+    (line : PureLine) (hl : LineOkF φ k line) (hc : CarriesF φ a F R k line) :
+    CarriesF φ a F R (k + 1) (pureAdvanceF φ F R line) := by
   obtain ⟨g, hmem, hal, hcs⟩ := hc
   have hkv : StateOkF φ k (selOfAssign φ a k, g) := hl.2 _ hmem
   simp only [pureAdvanceF]
   have main : ∀ (l : PureLine), (∀ kv ∈ l, StateOkF φ k kv) →
       (selOfAssign φ a k, g) ∈ l →
       ∀ acc, LineOkF φ (k + 1) acc →
-        LineOkF φ (k + 1) (l.foldl (fun next kv => sendAllF φ F kv next) acc)
-          ∧ CarriesF φ a F (k + 1) (l.foldl (fun next kv => sendAllF φ F kv next) acc) := by
+        LineOkF φ (k + 1) (l.foldl (fun next kv => sendAllF φ F R kv next) acc)
+          ∧ CarriesF φ a F R (k + 1) (l.foldl (fun next kv => sendAllF φ F R kv next) acc) := by
     intro l
     induction l with
     | nil => intro _ hd; exact absurd hd List.not_mem_nil
@@ -531,19 +535,19 @@ theorem CarriesF_pureAdvanceF (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
       intro hx hd acc h
       simp only [List.foldl_cons]
       rcases List.mem_cons.mp hd with rfl | hd'
-      · have hbase : LineOkF φ (k + 1) (sendAllF φ F (selOfAssign φ a k, g) acc)
-            ∧ CarriesF φ a F (k + 1) (sendAllF φ F (selOfAssign φ a k, g) acc) := by
+      · have hbase : LineOkF φ (k + 1) (sendAllF φ F R (selOfAssign φ a k, g) acc)
+            ∧ CarriesF φ a F R (k + 1) (sendAllF φ F R (selOfAssign φ a k, g) acc) := by
           simp only [sendAllF]
-          exact sons_fold_establishF φ a F hwf hsat hFpr hFcs k h0 hk g hal hcs hkv _
+          exact sons_fold_establishF φ a F R hwf hsat hFpr hFcs k h0 hk g hal hcs hkv _
             (fun _ hdm => hdm)
             (by
               rw [selOfAssign_step]
               exact selOfAssign_son φ a hsat k h0 hk)
             acc h
-        exact outer_fold_monoF φ a F hFpr k xs (fun kv hkv' => hx kv (List.mem_cons_of_mem _ hkv')) _
+        exact outer_fold_monoF φ a F R hFpr k xs (fun kv hkv' => hx kv (List.mem_cons_of_mem _ hkv')) _
           hbase.1 hbase.2
       · exact ih (fun kv hkv' => hx kv (List.mem_cons_of_mem _ hkv')) hd' _
-          (LineOkF_sendAllF φ F hFpr k x (hx x List.mem_cons_self) acc h)
+          (LineOkF_sendAllF φ F R hFpr k x (hx x List.mem_cons_self) acc h)
   exact (main line hl.2 hmem [] ⟨by simp, by intro kv hkv'; exact absurd hkv' List.not_mem_nil⟩).2
 
 -- ============================================================
@@ -557,15 +561,16 @@ theorem stateOkF_initSeed (d : NodeId) (hd : d ∈ mapNodes φ 0) :
   · simp only [initSeed_current]; omega
   · rfl
 
+omit [ReviewOk R] in
 theorem initF_ok (hsat : Sat a φ) :
-    LineOkF φ 0 (pureInit φ) ∧ CarriesF φ a F 0 (pureInit φ) := by
+    LineOkF φ 0 (pureInit φ) ∧ CarriesF φ a F R 0 (pureInit φ) := by
   have hsel : selOfAssign φ a 0 ∈ mapNodes φ 0 :=
     selOfAssign_onMap φ a hsat 0 (by omega) (stepCount_pos φ)
   simp only [pureInit]
   have mono : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapNodes φ 0) →
-      ∀ acc, LineOkF φ 0 acc → CarriesF φ a F 0 acc →
+      ∀ acc, LineOkF φ 0 acc → CarriesF φ a F R 0 acc →
         LineOkF φ 0 (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc)
-          ∧ CarriesF φ a F 0
+          ∧ CarriesF φ a F R 0
             (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc) := by
     intro l
     induction l with
@@ -575,12 +580,12 @@ theorem initF_ok (hsat : Sat a φ) :
       simp only [List.foldl_cons]
       exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _
         (LineOkF_insertPure φ 0 acc x _ h (stateOkF_initSeed φ x (hx x List.mem_cons_self)))
-        (CarriesF_insertPure φ a F 0 acc x _ h
+        (CarriesF_insertPure φ a F R 0 acc x _ h
           (stateOkF_initSeed φ x (hx x List.mem_cons_self)) hc)
   have main : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapNodes φ 0) → selOfAssign φ a 0 ∈ l →
       ∀ acc, LineOkF φ 0 acc →
         LineOkF φ 0 (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc)
-          ∧ CarriesF φ a F 0
+          ∧ CarriesF φ a F R 0
             (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc) := by
     intro l
     induction l with
@@ -591,7 +596,7 @@ theorem initF_ok (hsat : Sat a φ) :
       rcases List.mem_cons.mp hd with rfl | hd'
       · exact mono xs (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _
           (LineOkF_insertPure φ 0 acc _ _ h (stateOkF_initSeed φ _ hsel))
-          (CarriesF_of_insertPure_at φ a F 0 acc _ h (stateOkF_initSeed φ _ hsel)
+          (CarriesF_of_insertPure_at φ a F R 0 acc _ h (stateOkF_initSeed φ _ hsel)
             (AlongAssignF.seed ""))
       · exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) hd' _
           (LineOkF_insertPure φ 0 acc x _ h (stateOkF_initSeed φ x (hx x List.mem_cons_self)))
@@ -600,9 +605,9 @@ theorem initF_ok (hsat : Sat a φ) :
 
 theorem runF_ok (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF φ a F) :
     ∀ (n : Nat) (k : Int), 0 ≤ k → k + (n : Int) < stepCount φ →
-      ∀ line, LineOkF φ k line → CarriesF φ a F k line →
-        LineOkF φ (k + (n : Int)) (pureStepsF φ F n line)
-          ∧ CarriesF φ a F (k + (n : Int)) (pureStepsF φ F n line) := by
+      ∀ line, LineOkF φ k line → CarriesF φ a F R k line →
+        LineOkF φ (k + (n : Int)) (pureStepsF φ F R n line)
+          ∧ CarriesF φ a F R (k + (n : Int)) (pureStepsF φ F R n line) := by
   intro n
   induction n with
   | zero => intro k _ _ line hl hc; simpa using ⟨hl, hc⟩
@@ -612,18 +617,18 @@ theorem runF_ok (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F) (hFcs : Keeps
     rw [heq]
     simp only [pureStepsF]
     exact ih (k + 1) (by omega) (by omega) _
-      (LineOkF_pureAdvanceF φ F hFpr k line hl)
-      (CarriesF_pureAdvanceF φ a F hwf hsat hFpr hFcs k h0 (by omega) line hl hc)
+      (LineOkF_pureAdvanceF φ F R hFpr k line hl)
+      (CarriesF_pureAdvanceF φ a F R hwf hsat hFpr hFcs k h0 (by omega) line hl hc)
 
 /-- **The driver ends holding the branch.** -/
 theorem pureRunF_carries (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
     (hFcs : KeepsBranchF φ a F) :
-    ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunF φ F
-      ∧ AlongAssignF φ a F g ∧ g.current_step = stepCount φ := by
+    ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunF φ F R
+      ∧ AlongAssignF φ a F R g ∧ g.current_step = stepCount φ := by
   have hzero := stepCount_pos φ
-  obtain ⟨hl0, hc0⟩ := initF_ok φ a F hsat
+  obtain ⟨hl0, hc0⟩ := initF_ok φ a F R hsat
   have hcast : (((stepCount φ - 1).toNat : Nat) : Int) = stepCount φ - 1 := by omega
-  have h := runF_ok φ a F hwf hsat hFpr hFcs (stepCount φ - 1).toNat 0 (by omega)
+  have h := runF_ok φ a F R hwf hsat hFpr hFcs (stepCount φ - 1).toNat 0 (by omega)
     (by omega) (pureInit φ) hl0 hc0
   have h0e : (0 : Int) + (stepCount φ - 1) = stepCount φ - 1 := by omega
   rw [hcast, h0e] at h
@@ -633,20 +638,20 @@ theorem pureRunF_carries (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
 /-- **The machine with the filter loses no solution.** -/
 theorem pureRunF_full_state (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
     (hFcs : KeepsBranchF φ a F) :
-    ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunF φ F
+    ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunF φ F R
       ∧ g.current_step = stepCount φ
       ∧ isValid g = true
       ∧ AbsSat.GraphPath.Model.Inhabited g := by
-  obtain ⟨g, hmem, hal, hcs⟩ := pureRunF_carries φ a F hwf hsat hFpr hFcs
-  exact ⟨g, hmem, hcs, isValid_alongF φ a F hwf hFpr hFcs g hal,
-    inhabitedM_alongF φ a F hwf hFpr hFcs g hal⟩
+  obtain ⟨g, hmem, hal, hcs⟩ := pureRunF_carries φ a F R hwf hsat hFpr hFcs
+  exact ⟨g, hmem, hcs, isValid_alongF φ a F R hwf hFpr hFcs g hal,
+    inhabitedM_alongF φ a F R hwf hFpr hFcs g hal⟩
 
 /-- **A satisfiable formula gets a non-empty last line.** -/
 theorem pureRunF_ne_nil (hwf : WF φ) (hFpr : PrunesF F)
     (hFcs : ∀ b : Assign, Sat b φ → KeepsBranchF φ b F) (h : Satisfiable φ) :
-    pureRunF φ F ≠ [] := by
+    pureRunF φ F R ≠ [] := by
   obtain ⟨b, hsat⟩ := h
-  obtain ⟨g, hmem, _, _⟩ := pureRunF_carries φ b F hwf hsat hFpr (hFcs b hsat)
+  obtain ⟨g, hmem, _, _⟩ := pureRunF_carries φ b F R hwf hsat hFpr (hFcs b hsat)
   intro hnil
   rw [hnil] at hmem
   exact absurd hmem List.not_mem_nil
@@ -680,15 +685,15 @@ theorem keepsBranch_Fsac (hsat : Sat a φ) (n : Nat) : KeepsBranchF φ a (Fsac �
 the selection it names is a sound chain of every state the driver builds, for any number of
 conditioned passes. -/
 theorem chainSound_alongSac (hwf : WF φ) (hsat : Sat a φ) (n : Nat) (g : GPathM)
-    (h : AlongAssignF φ a (Fsac φ n) g) :
+    (h : AlongAssignF φ a (Fsac φ n) review g) :
     ∃ sel, ChainSound g sel ∧
       ∀ k, 0 ≤ k → k < g.current_step →
         (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) :=
-  chainSound_alongF φ a _ hwf (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n) g h
+  chainSound_alongF φ a _ review hwf (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n) g h
 
 theorem isValid_alongSac (hwf : WF φ) (hsat : Sat a φ) (n : Nat) (g : GPathM)
-    (h : AlongAssignF φ a (Fsac φ n) g) : isValid g = true :=
-  isValid_alongF φ a _ hwf (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n) g h
+    (h : AlongAssignF φ a (Fsac φ n) review g) : isValid g = true :=
+  isValid_alongF φ a _ review hwf (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n) g h
 
 /-- info: 'AbsSat.GraphPath.Model.ConservationFilter.chainSound_alongF' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -703,7 +708,7 @@ theorem isValid_alongSac (hwf : WF φ) (hsat : Sat a φ) (n : Nat) (g : GPathM)
 -- ============================================================
 
 /-- The driver run with the weak filter followed by `n` conditioned passes. -/
-def pureRunSac (n : Nat) : PureLine := pureRunF φ (Fsac φ n)
+def pureRunSac (n : Nat) : PureLine := pureRunF φ (Fsac φ n) review
 
 /-- **The conditioned machine loses no solution.** -/
 theorem pureRunSac_full_state (hwf : WF φ) (hsat : Sat a φ) (n : Nat) :
@@ -711,11 +716,11 @@ theorem pureRunSac_full_state (hwf : WF φ) (hsat : Sat a φ) (n : Nat) :
       ∧ g.current_step = stepCount φ
       ∧ isValid g = true
       ∧ AbsSat.GraphPath.Model.Inhabited g :=
-  pureRunF_full_state φ a (Fsac φ n) hwf hsat (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n)
+  pureRunF_full_state φ a (Fsac φ n) review hwf hsat (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n)
 
 /-- **A satisfiable formula still gets a non-empty last line.** -/
 theorem pureRunSac_ne_nil (hwf : WF φ) (n : Nat) (h : Satisfiable φ) : pureRunSac φ n ≠ [] :=
-  pureRunF_ne_nil φ (Fsac φ n) hwf (prunes_Fsac φ n)
+  pureRunF_ne_nil φ (Fsac φ n) review hwf (prunes_Fsac φ n)
     (fun b hb => keepsBranch_Fsac φ b hb n) h
 
 /-- info: 'AbsSat.GraphPath.Model.ConservationFilter.pureRunSac_full_state' depends on axioms: [propext, Quot.sound] -/

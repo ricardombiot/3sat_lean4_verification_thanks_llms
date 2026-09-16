@@ -3,6 +3,9 @@ import AbsSat.Cnf.Dimacs
 import AbsSat.GraphPath.Model.PureDriver
 import AbsSat.SatMachine.DiffTest
 import AbsSat.GraphPath.Model.IdSeparator
+import AbsSat.GraphPath.Model.AggressiveReview
+import AbsSat.GraphPath.Model.PureDriverImproves
+import AbsSat.Cnf.BruteForce
 
 /-! # Does a join borrow facts across its sides?
 
@@ -887,6 +890,35 @@ def runTrace (φ : Cnf) : IO Unit := do
   IO.println "no zombie state along the run"
 
 -- ============================================================
+-- Agg mode: the Improves driver with the aggressive review, before wiring it into the machine
+-- ============================================================
+
+open AbsSat.GraphPath.Model.AggressiveReview in
+open AbsSat.GraphPath.Model.PureDriverImproves in
+open AbsSat.GraphMap.CnfMapImproves in
+def pureRunAggW (φ : Cnf) : PureLine := Id.run do
+  let mut line := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := line.foldl (fun next kv =>
+      (mapSons φ kv.1.step kv.1.index).foldl (fun next d =>
+        let h := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid h then insertPure next d h else next) next) []
+  return line
+
+open AbsSat.GraphPath.Model.PureDriverImproves in
+def runAggCompare (path : String) (φ : Cnf) : IO Unit := do
+  let t0 ← IO.monoMsNow
+  let base ← IO.lazyPure (fun _ => pureRunW φ)
+  let nb := base.length
+  let t1 ← IO.monoMsNow
+  let agg ← IO.lazyPure (fun _ => pureRunAggW φ)
+  let na := agg.length
+  let t2 ← IO.monoMsNow
+  IO.println s!"  (final line sizes: base {nb}, aggressive {na})"
+  let oracle := !(AbsSat.Cnf.bruteForceSat φ).isEmpty
+  IO.println s!"{path}: oracle SAT={oracle} | improves (base review) SAT={!base.isEmpty} {t1 - t0}ms | improves + aggressive review SAT={!agg.isEmpty} {t2 - t1}ms{if (!agg.isEmpty) != oracle then "  <-- MISMATCH" else ""}"
+
+-- ============================================================
 -- Entry point
 -- ============================================================
 
@@ -913,6 +945,17 @@ def main (args : List String) : IO Unit := do
   let args := if top then args.drop 1 else args
   let run (φ : Cnf) (a : Acc) : Acc := if top then runTop φ a 300000 else runFormula φ a 20000
   match args with
+  | "agg" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let mut i := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        runAggCompare s!"seed {seed} #{i}" φ
+        i := i + 1
+  | "agg" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ => runAggCompare path φ
   | "trace" :: paths =>
     for path in paths do
       match ← loadCnf path with

@@ -23,7 +23,7 @@ entries, not only global owners. Two new facts carry the argument over.
   the chain.
 
 The pruned state is still a `Pruned` narrowing (`SeparationPins.pruned_pinPrune`),
-so the rest is `ConservationImproves` again: `chainSound_up_of_prunedP` (the up
+so the rest is `ConservationImproves` again: `chainSound_up_of_prunedR` (the up
 step, now also tracking parents), and the driver bookkeeping with `ShapeOk`.
 
 Result: `pureRunP_ne_nil` and `pureRunP_full_state`.
@@ -47,7 +47,7 @@ open AbsSat.GraphPath.Model.PureDriverPins
 open AbsSat.GraphPath.Model.ConservationFilter
 open AbsSat.GraphPath.Model.ConservationCore (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
   ShapeOk_addNode ShapeOk_join pruned_filterWeakAll ChainSound_filterWeakAll stepCount_pos
-  SelParent chainSound_up_of_prunedP)
+  SelParent chainSound_up_of_prunedR)
 open AbsSat.GraphPath.Model.SeparationPins (contradictsB_iff pruned_pinPrune)
 
 variable (φ : Cnf)
@@ -365,41 +365,41 @@ theorem keepsBranch_Fpin (hwf : WF φ) (hsat : Sat a φ) : KeepsBranchF φ a (Fp
 
 -- the driver is the generic one, step by step
 theorem sendTo_eqP (g : GPathM) (next : PureLine) (d : NodeId) :
-    sendToF φ (Fpin φ) g next d = sendToP φ g next d := rfl
+    sendToF φ (Fpin φ) review g next d = sendToP φ g next d := rfl
 
 theorem sendAll_eqP (kv : NodeId × GPathM) (next : PureLine) :
-    sendAllF φ (Fpin φ) kv next = sendAllP φ kv next := by
+    sendAllF φ (Fpin φ) review kv next = sendAllP φ kv next := by
   unfold sendAllF sendAllP
-  have h : sendToF φ (Fpin φ) kv.2 = sendToP φ kv.2 := by
+  have h : sendToF φ (Fpin φ) review kv.2 = sendToP φ kv.2 := by
     funext n d
     exact sendTo_eqP φ kv.2 n d
   rw [h]
 
-theorem advance_eqP (line : PureLine) : pureAdvanceF φ (Fpin φ) line = pureAdvanceP φ line := by
+theorem advance_eqP (line : PureLine) : pureAdvanceF φ (Fpin φ) review line = pureAdvanceP φ line := by
   unfold pureAdvanceF pureAdvanceP
-  have h : (fun next kv => sendAllF φ (Fpin φ) kv next) = (fun next kv => sendAllP φ kv next) := by
+  have h : (fun next kv => sendAllF φ (Fpin φ) review kv next) = (fun next kv => sendAllP φ kv next) := by
     funext next kv
     exact sendAll_eqP φ kv next
   rw [h]
 
 theorem steps_eqP : ∀ (n : Nat) (line : PureLine),
-    pureStepsF φ (Fpin φ) n line = pureStepsP φ n line
+    pureStepsF φ (Fpin φ) review n line = pureStepsP φ n line
   | 0, _ => rfl
   | n + 1, line => by
-    show pureStepsF φ (Fpin φ) n (pureAdvanceF φ (Fpin φ) line) = pureStepsP φ n (pureAdvanceP φ line)
+    show pureStepsF φ (Fpin φ) review n (pureAdvanceF φ (Fpin φ) review line) = pureStepsP φ n (pureAdvanceP φ line)
     rw [advance_eqP φ line, steps_eqP n]
 
 /-- **The pin run is the generic run with the pin filter.** -/
-theorem run_eqP : pureRunF φ (Fpin φ) = pureRunP φ := steps_eqP φ _ _
+theorem run_eqP : pureRunF φ (Fpin φ) review = pureRunP φ := steps_eqP φ _ _
 
-theorem alongF_of_alongP (g : GPathM) (h : AlongAssignP φ a g) : AlongAssignF φ a (Fpin φ) g := by
+theorem alongF_of_alongP (g : GPathM) (h : AlongAssignP φ a g) : AlongAssignF φ a (Fpin φ) review g := by
   induction h with
   | seed title => exact AlongAssignF.seed title
   | up g title _ ih => exact AlongAssignF.up g title ih
   | joinL g₁ g₂ hok h₂ _ ih => exact AlongAssignF.joinL g₁ g₂ hok h₂ ih
   | joinR g₁ g₂ hok h₁ _ ih => exact AlongAssignF.joinR g₁ g₂ hok h₁ ih
 
-theorem alongP_of_alongF (g : GPathM) (h : AlongAssignF φ a (Fpin φ) g) : AlongAssignP φ a g := by
+theorem alongP_of_alongF (g : GPathM) (h : AlongAssignF φ a (Fpin φ) review g) : AlongAssignP φ a g := by
   induction h with
   | seed title => exact AlongAssignP.seed title
   | up g title _ ih => exact AlongAssignP.up g title ih
@@ -415,17 +415,17 @@ theorem chainSound_alongP (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : Alon
     ∃ sel, ChainSound g sel ∧
       ∀ k, 0 ≤ k → k < g.current_step →
         (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) :=
-  chainSound_alongF φ a (Fpin φ) hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
+  chainSound_alongF φ a (Fpin φ) review hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
     (alongF_of_alongP φ a g h)
 
 theorem isValid_alongP (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignP φ a g) :
     isValid g = true :=
-  isValid_alongF φ a (Fpin φ) hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
+  isValid_alongF φ a (Fpin φ) review hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
     (alongF_of_alongP φ a g h)
 
 theorem inhabited_alongP (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignP φ a g) :
     AbsSat.GraphPath.Model.Inhabited g :=
-  inhabitedM_alongF φ a (Fpin φ) hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
+  inhabitedM_alongF φ a (Fpin φ) review hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
     (alongF_of_alongP φ a g h)
 
 /-- **The driver with the prune ends holding the branch.** -/
@@ -433,7 +433,7 @@ theorem pureRunP_carries (hwf : WF φ) (hsat : Sat a φ) :
     ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunP φ
       ∧ AlongAssignP φ a g ∧ g.current_step = stepCount φ := by
   obtain ⟨g, hmem, hal, hcs⟩ :=
-    pureRunF_carries φ a (Fpin φ) hwf hsat (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat)
+    pureRunF_carries φ a (Fpin φ) review hwf hsat (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat)
   exact ⟨g, run_eqP φ ▸ hmem, alongP_of_alongF φ a g hal, hcs⟩
 
 /-- **The machine with the prune loses no solution.** -/
@@ -443,12 +443,12 @@ theorem pureRunP_full_state (hwf : WF φ) (hsat : Sat a φ) :
       ∧ isValid g = true
       ∧ AbsSat.GraphPath.Model.Inhabited g := by
   obtain ⟨g, hmem, hcs, hv, hi⟩ :=
-    pureRunF_full_state φ a (Fpin φ) hwf hsat (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat)
+    pureRunF_full_state φ a (Fpin φ) review hwf hsat (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat)
   exact ⟨g, run_eqP φ ▸ hmem, hcs, hv, hi⟩
 
 /-- **A satisfiable formula gets a non-empty last line.** -/
 theorem pureRunP_ne_nil (hwf : WF φ) (h : Satisfiable φ) : pureRunP φ ≠ [] := by
-  have hne := pureRunF_ne_nil φ (Fpin φ) hwf (prunes_Fpin φ)
+  have hne := pureRunF_ne_nil φ (Fpin φ) review hwf (prunes_Fpin φ)
     (fun b hb => keepsBranch_Fpin φ b hwf hb) h
   rw [run_eqP φ] at hne
   exact hne

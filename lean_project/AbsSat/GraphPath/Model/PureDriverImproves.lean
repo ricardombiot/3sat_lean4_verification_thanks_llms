@@ -2,29 +2,30 @@
 import AbsSat.GraphPath.Model.PureDriver
 import AbsSat.GraphMap.CnfMapImproves
 import AbsSat.Cnf.BruteForce
+import AbsSat.GraphPath.Model.AggressiveReview
 
 /-!
 # The driver, fed the weak requirements
 
 `PureDriver` sends a state to a map node `d` through
-`upFiltering g (reqOfCnf φ d) d`. This driver does the same, with one step
-before it: the global owners are first restricted by `CnfMapImproves.weakReqOfCnf`,
-so the review inside `filterAll` starts from the pruned set.
+`upFiltering g (reqOfCnf φ d) d`. This driver makes two changes. Before the pins, the global
+owners are first restricted by `CnfMapImproves.weakReqOfCnf`. And the review is the **aggressive
+review** of `AggressiveReview` (the author's `agressive_consistence_filter!` inside the review loop),
+which also drops owner pairs that no path can contain together:
 
-    upFilteringWeak g ws reqs d = up (filterAll (filterWeakAll g ws) reqs) d
+    upFilteringWeak g ws reqs d = up (filterAllAgg (filterWeakAll g ws) reqs) d
 
 `filterWeak` is `filterRequire` with a set in place of a single node: at the
 entry's step a global owner survives only if its map node is one of the
 entry's nodes; at every other step it is untouched. With no entries it is the
-identity, so off the clause steps this driver *is* `PureDriver`
-(`sendToW_eq_sendTo_of_nil`).
+identity, so off the clause steps this driver differs from `PureDriver` only by its review
+(`upFilteringWeak_nil`).
 
 An empty weak set leaves its step with no global owner, `isValid` fails, and
 `sendToW` drops the state — the early death, with nothing added for it.
 
 **What is proved here.** The frame of the filter (it touches only `gowners`,
-and exactly as `mem_filterWeakAll` says) and its reduction to `PureDriver` when
-there are no weak entries. The driver-level conservation — no solution is lost,
+and exactly as `mem_filterWeakAll` says). The driver-level conservation — no solution is lost,
 `pureRunW_ne_nil` — is `ConservationImproves`. The `#guard`s below compare the
 verdict with `PureDriver` and with the brute-force oracle.
 -/
@@ -51,10 +52,10 @@ def filterWeak (g : GPathM) (e : Int × List NodeId) : GPathM :=
 def filterWeakAll (g : GPathM) (ws : List (Int × List NodeId)) : GPathM :=
   ws.foldl filterWeak g
 
-/-- Weak filter first, then the hard requirements and the review, then UP. -/
+/-- Weak filter first, then the hard requirements and the aggressive review, then UP. -/
 def upFilteringWeak (g : GPathM) (ws : List (Int × List NodeId)) (reqs : List NodeId)
     (d : NodeId) (title : String) : GPathM :=
-  up (filterAll (filterWeakAll g ws) reqs) d title
+  up (AggressiveReview.filterAllAgg (filterWeakAll g ws) reqs) d title
 
 -- ============================================================
 -- The driver
@@ -85,7 +86,7 @@ def pureRunW (φ : Cnf) : PureLine := pureStepsW φ (stepCount φ - 1).toNat (pu
 theorem filterWeakAll_nil (g : GPathM) : filterWeakAll g [] = g := rfl
 
 theorem upFilteringWeak_nil (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String) :
-    upFilteringWeak g [] reqs d title = upFiltering g reqs d title := rfl
+    upFilteringWeak g [] reqs d title = up (AggressiveReview.filterAllAgg g reqs) d title := rfl
 
 /-- The filter touches nothing but the global owners. -/
 theorem filterWeakAll_frame (ws : List (Int × List NodeId)) :
@@ -127,12 +128,6 @@ theorem mem_filterWeakAll (ws : List (Int × List NodeId)) :
       by_cases hs : q.id.step = e.1
       · exact Or.inr (hall e (Or.inl rfl) hs)
       · exact Or.inl hs
-
-/-- Off the clause steps, and wherever a node has no weak entry, this driver is
-`PureDriver`. -/
-theorem sendToW_eq_sendTo_of_nil (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId)
-    (h : weakReqOfCnf φ d = []) : sendToW φ g next d = sendTo φ g next d := by
-  simp only [sendToW, sendTo, h, upFilteringWeak_nil]
 
 -- ============================================================
 -- Verdicts against `PureDriver` and the oracle
