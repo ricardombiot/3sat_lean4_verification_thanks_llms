@@ -1,7 +1,6 @@
 function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String)
     
     filter!(gpath, requires)
-    agressive_consistence_filter!(gpath)
     #up_filter_triangle_nodes!(gpath, requires)
 
     do_up!(gpath, map_id_node, title)

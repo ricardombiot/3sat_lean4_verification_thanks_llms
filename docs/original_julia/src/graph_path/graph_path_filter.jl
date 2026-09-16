@@ -15,7 +15,7 @@ function make_review_owners!(gpath :: GPath)
         clean_invalid_nodes!(gpath)
         #review_owners_parents_sons!(gpath)
         review_owners_coherence_with_its_parents_sons!(gpath)
-        #agressive_consistence_filter!(gpath)
+        agressive_consistence_filter!(gpath)
 
         if gpath.review_owners
             make_review_owners!(gpath)
@@ -192,9 +192,7 @@ function agressive_consistence_filter!(gpath :: GPath)
                                     PathDocumentNode.remove_owner!(node_w, node_x.id)
                                     is_valid_x = is_valid_node(gpath, node_x)
                                     is_valid_w = is_valid_node(gpath, node_w)
-                                    println("Apply Agressive Consistence: 
-                                        $(node_x.id) [$(is_valid_x)] 
-                                        $(node_w.id) [$(is_valid_w)]")
+                                    println("Apply Agressive Consistence <-- ")
                                     gpath.review_owners = true
                                 end
                             end
