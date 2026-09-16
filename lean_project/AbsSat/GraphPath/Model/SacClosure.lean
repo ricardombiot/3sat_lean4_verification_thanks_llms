@@ -16,10 +16,16 @@ the measurement are the derivations of `DeadFor`; nothing here bounds their numb
 * `Compat` — two path nodes own each other, which is what a chain gives for any two of its members;
 * `DeadFor g x` — the closure conditioned on `x`;
 * `SacDead g x` — `x` kills itself, so `x` carries no chain;
-* `not_chainS_of_sacDead` — **soundness**: `SacDead g x → ¬ ChainS g x`.
+* `not_chainS_of_sacDead` — **soundness**: `SacDead g x → ¬ ChainS g x`;
+* `sacDead_of_unsupported` — the rule **subsumes** the review's removal closure.
 
-The other direction is false in general (it is exactly what the measurement checks per family), and
-the link with the review — that the review removes every `SacDead` node — is the next piece.
+So the rule sits between the two: what the review removes it kills, and what it kills has no chain.
+
+The converse of the second does not follow, and the mismatch is the point: `DeadFor` quantifies over
+the owners compatible with the conditioning node, `Unsupported` over all of a node's owners, so
+conditioning is strictly stronger. The measurement says the two coincide on the `altchain` family;
+stating that as a hypothesis and reducing it, the way `IdClosureSep` does for `IdClosure`, is the
+next piece.
 -/
 
 namespace AbsSat.GraphPath.Model.SacClosure
@@ -28,6 +34,7 @@ open AbsSat.Utils.Alias
 open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.ChainFabric
+open AbsSat.GraphPath.Model.RemovalClosure
 
 /-- Two nodes own each other. A sound chain makes any two of its members compatible, including a
 member with itself. -/
@@ -60,6 +67,8 @@ inductive DeadFor (g : GPathM) (x : PathNodeId) : PathNodeId → Prop where
   | noSupport (y : PathNodeId) (k : Int) (h0 : 0 ≤ k) (hk : k < g.current_step)
       (h : ∀ z ∈ g.gowners, z.id.step = k → Compat g x z → Compat g y z → DeadFor g x z) :
       DeadFor g x y
+  | noParent (y : PathNodeId) (n : PNodeM) (hn : g.node? y = some n) (hstep : 0 < y.id.step)
+      (h : ∀ p ∈ n.parents, (g.node? p).isSome = true → DeadFor g x p) : DeadFor g x y
 
 /-- The conditioned closure kills the node it is conditioned on. -/
 def SacDead (g : GPathM) (x : PathNodeId) : Prop := DeadFor g x x
@@ -81,6 +90,17 @@ theorem not_deadFor_of_passes {g : GPathM} {sel : Int → PathNodeId} (hcs : Cha
     exact ih (sel k) (hcs.chain.2.2 k h0 hk) ((hcs.chain.1.1 k h0 hk).2)
       (compat_of_chainSound hcs hkx0 hkx h0 hk) (compat_of_chainSound hcs hj0 hj h0 hk)
       ⟨k, h0, hk, rfl⟩
+  | noParent y n hn hstep _ ih =>
+    rintro ⟨j, hj0, hj, rfl⟩
+    have hjstep : (sel j).id.step = j := (hcs.chain.1.1 j hj0 hj).2
+    rw [hjstep] at hstep
+    have hp0 : 0 ≤ j - 1 := by omega
+    have hp1 : j - 1 < g.current_step := by omega
+    have hmem : sel (j - 1) ∈ n.parents := by
+      have h1 := hcs.chain.1.2 (j - 1) hp0 (by omega)
+      rw [show j - 1 + 1 = j by omega, hn] at h1
+      exact h1
+    exact ih (sel (j - 1)) hmem ((hcs.chain.1.1 (j - 1) hp0 hp1).1) ⟨j - 1, hp0, hp1, rfl⟩
 
 /-- **Soundness of the rule.** A node its own conditioned closure kills lies on no sound chain, so
 removing it loses nothing. -/
@@ -94,11 +114,46 @@ theorem not_chainS_of_sacDead (g : GPathM) (x : PathNodeId) (h : SacDead g x) : 
 theorem sacDead_not_chain (g : GPathM) (x : PathNodeId) (h : ChainS g x) : ¬ SacDead g x :=
   fun hd => not_chainS_of_sacDead g x hd h
 
+-- ============================================================
+-- The rule subsumes the review's removal closure
+-- ============================================================
+
+/-- **Everything the removal closure kills, the conditioned closure kills too — for every
+conditioning node.** The no-support rule transfers because a node compatible with `x` is one of
+`x`'s own owners; the no-parent rule transfers unchanged. -/
+theorem deadFor_of_unsupported {P : GPathM} {x : PathNodeId} (h : Unsupported P x) :
+    ∀ w : PathNodeId, DeadFor P w x := by
+  induction h with
+  | noSupport x n hn k h0 hk _ ih =>
+    intro w
+    refine DeadFor.noSupport x k h0 hk (fun z hz hstep _ hxz => ?_)
+    have hown : z ∈ n.owners := by
+      have : z ∈ ownersOf P x := hxz.2
+      simpa only [ownersOf, hn] using this
+    exact ih z (List.mem_filter.mpr ⟨hown, beq_iff_eq.mpr hstep⟩) hz w
+  | noParent x n hn hstep _ ih =>
+    intro w
+    exact DeadFor.noParent x n hn hstep (fun p hp hsome => ih p hp hsome w)
+
+/-- **The conditioned closure subsumes the review's removal closure.** With
+`not_chainS_of_sacDead`, the rule sits between the two: what the review removes, it kills; what it
+kills, has no chain. -/
+theorem sacDead_of_unsupported {P : GPathM} {x : PathNodeId} (h : Unsupported P x) :
+    SacDead P x := deadFor_of_unsupported h x
+
+/-- info: 'AbsSat.GraphPath.Model.SacClosure.deadFor_of_unsupported' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms deadFor_of_unsupported
+
+/-- info: 'AbsSat.GraphPath.Model.SacClosure.sacDead_of_unsupported' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sacDead_of_unsupported
+
 /-- info: 'AbsSat.GraphPath.Model.SacClosure.compat_of_chainSound' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms compat_of_chainSound
 
-/-- info: 'AbsSat.GraphPath.Model.SacClosure.not_chainS_of_sacDead' depends on axioms: [propext] -/
+/-- info: 'AbsSat.GraphPath.Model.SacClosure.not_chainS_of_sacDead' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms not_chainS_of_sacDead
 
