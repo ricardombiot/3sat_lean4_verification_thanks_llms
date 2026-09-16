@@ -117,6 +117,7 @@ import AbsSat.GraphPath.Model.HornDecision
 import AbsSat.GraphPath.Model.IdClosureSep
 import AbsSat.GraphPath.Model.IdClosureLevels
 import AbsSat.GraphPath.Model.DeadClosure
+import AbsSat.GraphPath.Model.SacClosure
 import AbsSat.GraphPath.Model.Oracle
 import AbsSat.GraphPath.Model.CertifiedVerdict
 import AbsSat.GraphPath.Model.ClauseFilter
