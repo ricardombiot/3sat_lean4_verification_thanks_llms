@@ -108,3 +108,8 @@ root = "OrderSearchMain"
 [[lean_exe]]
 name = "frontier-derive"
 root = "FrontierDeriveMain"
+
+# Measurement probes. Keep them here, in the repo — see Probes/.
+[[lean_exe]]
+name = "join-borrow"
+root = "Probes.JoinBorrow"
