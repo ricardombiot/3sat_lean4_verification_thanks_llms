@@ -129,7 +129,7 @@ module SatMachine
         return list_gpaths
     end
 
-    function plot_gpaths(machine :: MSat, name :: String)
+    function plot_gpaths(machine :: MSat, name :: String, path :: String)
         #! [fn-iter] $ O(7*7) $
         CollectionTimeline.for_each_gpath(machine.timeline, machine.current_step, function (gpath)
             map_id = gpath.map_parent_id
@@ -141,7 +141,7 @@ module SatMachine
 
             diagram = GraphPathVisual.build(gpath)
             name_file = "$(name)_gpath_$id_txt"
-            GraphPathVisual.to_png(diagram, name_file)
+            GraphPathVisual.to_png(diagram, name_file, path)
             println("Printing ... $name_file")
         end)
     end

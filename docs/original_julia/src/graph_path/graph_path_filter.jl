@@ -15,7 +15,7 @@ function make_review_owners!(gpath :: GPath)
         clean_invalid_nodes!(gpath)
         #review_owners_parents_sons!(gpath)
         review_owners_coherence_with_its_parents_sons!(gpath)
-        review_agressive_consistence!(gpath)
+        #agressive_consistence_filter!(gpath)
 
         if gpath.review_owners
             make_review_owners!(gpath)
@@ -165,8 +165,8 @@ end
 
 
 # 14-sept-2026
-function review_agressive_consistence!(gpath :: GPath)
-    if gpath.is_valid && gpath.review_owners
+function agressive_consistence_filter!(gpath :: GPath)
+    if gpath.is_valid 
         #! [for] $ O(S) $
         for step in gpath.current_step-2:-1:1
             col_nodes = PathCollectionLines.get_step(gpath.table_lines, step)
@@ -207,12 +207,6 @@ function review_agressive_consistence!(gpath :: GPath)
                     return remove_if_invalid_node!(gpath, node_x)
                 end
             end)
-
-            #! [for] $ O(7*7) $
-            #for (_, node_x) in col_nodes.table
-
-                
-           # end
         end
     end
 end

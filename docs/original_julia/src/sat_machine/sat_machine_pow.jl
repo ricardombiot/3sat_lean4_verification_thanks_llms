@@ -145,7 +145,7 @@ module SatMachinePow
         return list_gpaths
     end
 
-    function plot_gpaths(machine :: MSatPow, name :: String)
+    function plot_gpaths(machine :: MSatPow, name :: String, path :: String)
         CollectionTimelinePow.for_each_gpath(machine.timeline, machine.current_step, function (gpath)
             map_id = gpath.map_parent_id
             id_txt = Alias.as_key(map_id)
@@ -156,7 +156,7 @@ module SatMachinePow
 
             diagram = GraphPowVisual.build(gpath)
             name_file = "$(name)_gpath_$id_txt"
-            GraphPowVisual.to_png(diagram, name_file)
+            GraphPowVisual.to_png(diagram, name_file, path)
             println("Printing ... $name_file")
         end)
     end
