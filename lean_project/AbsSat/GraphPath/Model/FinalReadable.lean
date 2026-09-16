@@ -26,10 +26,18 @@ obligation is restated there, and reduced to phantoms alone:
   (completeness is already unconditional, `PureProofs.completeness_pure`).
 
 Unlike `SendExact`, nothing is asked of intermediate states: phantoms may appear and die along the
-run. Measured with `lake exe join-borrow top` (20,369 states, 6–10 variables): 0 phantoms at the top
-of any final state.
+run.
 
-Open: `FinalReadable φ` for every well-formed φ.
+**Correction (v112): `FinalReadable` is false in general, and it is not the author's reader.** On
+random formulas (20,369 states, 6–10 variables) no final state had a phantom at the top, but the
+parity gadgets in `Probes/cnf/p2/` do (`par_k5_chain_asc_shared.cnf`: 48 dead ends at the top of the
+final state, which holds exactly the 48 models). So `run_pure_decides_of_FinalReadable` is a correct
+conditional result whose hypothesis fails for such φ. What `NoTopPhantom` describes is a reader that
+walks **down from the top** without filtering. The author's reader (`PathReader.read_step!`) walks
+**up the literal block**, pins one variable value at a time and reviews to a fixpoint; on every
+gadget and every choice sequence it returns a model (`lake exe join-borrow read`). Top phantoms do
+not affect it. The results of this module that stay useful are `topAnchor_grown`,
+`topAnchor_addNode` and `topAnchor_valid`.
 -/
 
 namespace AbsSat.GraphPath.Model.FinalReadable

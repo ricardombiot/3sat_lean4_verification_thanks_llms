@@ -574,6 +574,73 @@ def runTop (φ : Cnf) (a0 : Acc) (budget : Nat) : Acc := Id.run do
   return a
 
 -- ============================================================
+-- Read mode: the author's Reader (PathReader.read_step!), traced
+-- ============================================================
+
+/-- Values still available for variable `k/2`: map indices of the global owners at value step `k`,
+in node order (the Julia reader takes `first(ids)`). -/
+def valuesAt (G : GPathM) (k : Int) : List Int :=
+  ((G.nodes.map (·.id)).filter (fun p => p.id.step == k && G.gowners.contains p)).foldl
+    (fun acc p => if acc.contains p.id.index then acc else acc ++ [p.id.index]) []
+
+def emptyStep (G : GPathM) : Option Int :=
+  (List.range G.current_step.toNat).findSome? (fun i =>
+    let k : Int := Int.ofNat i
+    if G.gowners.any (fun q => q.id.step == k) then none else some k)
+
+def assignOf (vals : List (Int × Int)) : Assign :=
+  fun v => (vals.find? (fun kv => kv.1 == (v : Int))).map (fun kv => kv.2 == 1) |>.getD false
+
+structure RStat where
+  correct : Nat := 0
+  stuck : Nat := 0
+  wrong : Nat := 0
+  zombiePins : Nat := 0
+  lines : Array String := #[]
+
+/-- The whole reading tree: at each value step every available value is pinned
+(`filterAll G [value node]`), as the author's reader would if it had chosen it. -/
+partial def readTree (φ : Cnf) (G : GPathM) (k : Int) (asg : List (Int × Int)) (st : RStat)
+    (traceFirst : Bool) : RStat :=
+  if k ≥ litBlock φ then
+    let a := assignOf asg
+    if satB a φ then { st with correct := st.correct + 1 }
+    else
+      let st := { st with wrong := st.wrong + 1 }
+      if traceFirst then { st with lines := st.lines.push s!"  END: assignment {asg.map (·.2)} is NOT a model" } else st
+  else
+    let vals := valuesAt G k
+    vals.foldl (fun (st : RStat) val =>
+      let first := traceFirst && vals.head? == some val
+      let G' := filterAll G [{ step := k, index := val }]
+      let valid := isValid G'
+      let (chains, tr) := if valid then fullChains G' 2000000 else (0, false)
+      let plus := if tr then "+" else ""
+      let empt := if valid then "" else ", first empty step=" ++ toString (emptyStep G')
+      let msg := s!"  x{k / 2 + 1}: available {vals} -> pin {val}: valid={valid}, nodes={G'.nodes.length}, full chains={chains}" ++ plus ++ empt
+      let st := if first then { st with lines := st.lines.push msg } else st
+      if !valid then
+        let st := { st with stuck := st.stuck + 1 }
+        if first then { st with lines := st.lines.push "  GRAVE ERROR READER... GPATH INVALID." } else st
+      else
+        let st := if chains == 0 && !tr then { st with zombiePins := st.zombiePins + 1 } else st
+        readTree φ G' (k + 2) (asg ++ [(k / 2, val)]) st first) st
+
+def runRead (φ : Cnf) : IO Unit := do
+  let line := pureRun φ
+  IO.println s!"final line: {line.length} state(s)"
+  for kv in line do
+    let G := kv.2
+    let (chains, _) := fullChains G 2000000
+    IO.println s!"final state key={showP ⟨kv.1, none⟩}: nodes={G.nodes.length}, full chains={chains}"
+    for v in List.range φ.nVars do
+      IO.println s!"  x{v + 1}: values available at step {2 * v} = {valuesAt G (2 * (v : Int))}"
+    IO.println "author's reader (first id at each step):"
+    let st := readTree φ G 0 [] {} true
+    for l in st.lines do IO.println l
+    IO.println s!"all reading choices: correct={st.correct}, stuck (invalid after a pin)={st.stuck}, wrong answer={st.wrong}, valid pins with 0 chains left={st.zombiePins}"
+
+-- ============================================================
 -- Entry point
 -- ============================================================
 
@@ -600,6 +667,13 @@ def main (args : List String) : IO Unit := do
   let args := if top then args.drop 1 else args
   let run (φ : Cnf) (a : Acc) : Acc := if top then runTop φ a 300000 else runFormula φ a 20000
   match args with
+  | "read" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        IO.println s!"=== {path}"
+        runRead φ
   | "dump" :: cases :: nvMin :: seed :: dir :: _ =>
     let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed.toNat!
     for idx in [0:cases.toNat!] do
