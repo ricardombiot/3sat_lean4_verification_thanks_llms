@@ -43,7 +43,7 @@ open AbsSat.GraphPath.Model.PureDriver (PureLine insertPure pureInit mem_insertP
   isValid_initSeed)
 open AbsSat.GraphPath.Model.PureDriverImproves (filterWeakAll)
 open AbsSat.GraphPath.Model.PureDriverPins
-open AbsSat.GraphPath.Model.ConservationImproves (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
+open AbsSat.GraphPath.Model.ConservationCore (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
   ShapeOk_addNode ShapeOk_join pruned_filterWeakAll ChainSound_filterWeakAll stepCount_pos)
 open AbsSat.GraphPath.Model.SeparationPins (contradictsB_iff pruned_pinPrune)
 

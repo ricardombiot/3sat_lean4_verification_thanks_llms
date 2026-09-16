@@ -119,6 +119,7 @@ import AbsSat.GraphPath.Model.IdClosureLevels
 import AbsSat.GraphPath.Model.DeadClosure
 import AbsSat.GraphPath.Model.SacClosure
 import AbsSat.GraphPath.Model.SacFilter
+import AbsSat.GraphPath.Model.ConservationCore
 import AbsSat.GraphPath.Model.ConservationFilter
 import AbsSat.GraphPath.Model.Oracle
 import AbsSat.GraphPath.Model.CertifiedVerdict

@@ -1,4 +1,4 @@
-import AbsSat.GraphPath.Model.ConservationImproves
+import AbsSat.GraphPath.Model.ConservationCore
 import AbsSat.GraphPath.Model.SacFilter
 
 /-!
@@ -38,7 +38,7 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.PureDriver (PureLine insertPure pureInit mem_insertPure
   mem_insertPure_of_ne key_inj isValid_of_grown insertPure_keys_some insertPure_keys_none
   isValid_initSeed)
-open AbsSat.GraphPath.Model.ConservationImproves (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
+open AbsSat.GraphPath.Model.ConservationCore (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
   ShapeOk_addNode ShapeOk_join chainSound_up_of_pruned stepCount_pos)
 
 variable (φ : Cnf) (a : Assign) (F : NodeId → GPathM → GPathM)
@@ -628,7 +628,7 @@ theorem pureRunF_ne_nil (hwf : WF φ) (hFpr : PrunesF F)
 
 open AbsSat.GraphMap.CnfMapImproves (weakReqOfCnf weakReqOfCnf_sound)
 open AbsSat.GraphPath.Model.PureDriverImproves (filterWeakAll)
-open AbsSat.GraphPath.Model.ConservationImproves (pruned_filterWeakAll ChainSound_filterWeakAll)
+open AbsSat.GraphPath.Model.ConservationCore (pruned_filterWeakAll ChainSound_filterWeakAll)
 open AbsSat.GraphPath.Model.SacFilter (filterACn pruned_filterACn ChainSound_filterACn)
 
 /-- The weak filter of `CnfMapImproves`, then `n` passes of the conditioned filter. -/
