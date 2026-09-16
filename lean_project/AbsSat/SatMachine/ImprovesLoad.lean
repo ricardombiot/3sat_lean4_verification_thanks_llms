@@ -2,6 +2,7 @@
 import AbsSat.SatMachine.PureSatMachineImproves
 import AbsSat.GraphPath.Model.PureDriverPins
 import AbsSat.Cnf.BruteForce
+import AbsSat.GraphPath.Model.SacFilter
 
 /-! # Review load: `SatMachinePure` against `SatMachinePureImproves`
 
@@ -31,6 +32,7 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.PureDriver
 open AbsSat.GraphPath.Model.PureDriverImproves
 open AbsSat.GraphPath.Model.PureDriverPins (pinPrune)
+open AbsSat.GraphPath.Model.SacFilter (filterACn)
 
 def passes : Nat → GPathM → Nat
   | 0, _ => 0
@@ -60,9 +62,18 @@ structure Load where
   /-- The same, only on sends whose base filter is valid (where the base review runs). -/
   pinCutValid : Nat := 0
   samePin : Bool := true
+  /-- The conditioned filter of `SacFilter`, applied after the weak filter. -/
+  passesSac : Nat := 0
+  dropSac : Nat := 0
+  deadSac : Nat := 0
+  /-- `measure` removed by the conditioned passes themselves. -/
+  sacCut : Nat := 0
+  /-- The same, only on sends whose base filter is valid. -/
+  sacCutValid : Nat := 0
+  sameSac : Bool := true
   deriving Repr
 
-def Load.add (s : Load) (φ : Cnf) (g : GPathM) (d : NodeId) : Load :=
+def Load.add (s : Load) (φ : Cnf) (nsac : Nat) (g : GPathM) (d : NodeId) : Load :=
   let ws := weakReqOfCnf φ d
   let reqs := reqOfCnf φ d
   let gw := filterWeakAll g ws
@@ -73,6 +84,9 @@ def Load.add (s : Load) (φ : Cnf) (g : GPathM) (d : NodeId) : Load :=
   let gp := pinPrune φ d gw
   let g0p := reqs.foldl filterRequire gp
   let rp := review g0p
+  let gs := filterACn nsac gw
+  let g0s := reqs.foldl filterRequire gs
+  let rs := review g0s
   { sends := s.sends + 1
     weakSends := s.weakSends + (if ws.isEmpty then 0 else 1)
     passesBase := s.passesBase + passes (measure g0 + 1) g0
@@ -90,16 +104,23 @@ def Load.add (s : Load) (φ : Cnf) (g : GPathM) (d : NodeId) : Load :=
     pinCut := s.pinCut + (measure gw - measure gp)
     pinCutValid := s.pinCutValid + (if isValid g0 then measure gw - measure gp else 0)
     samePin := s.samePin && isValid r == isValid rp &&
-      (!isValid r || (r.gowners.length == rp.gowners.length && r.nodes.length == rp.nodes.length)) }
+      (!isValid r || (r.gowners.length == rp.gowners.length && r.nodes.length == rp.nodes.length))
+    passesSac := s.passesSac + passes (measure g0s + 1) g0s
+    dropSac := s.dropSac + (measure g0s - measure rs)
+    deadSac := s.deadSac + (if isValid g0s then 0 else 1)
+    sacCut := s.sacCut + (measure gw - measure gs)
+    sacCutValid := s.sacCutValid + (if isValid g0 then measure gw - measure gs else 0)
+    sameSac := s.sameSac && isValid r == isValid rs &&
+      (!isValid r || r.gowners.length == rs.gowners.length) }
 
 /-- Walk the reference run, measuring every send both ways. -/
-def load (φ : Cnf) : Load := Id.run do
+def load (φ : Cnf) (nsac : Nat) : Load := Id.run do
   let mut line := pureInit φ
   let mut s : Load := {}
   for _ in [0:(stepCount φ - 1).toNat] do
     for kv in line do
       for d in mapSons φ kv.1.step kv.1.index do
-        s := s.add φ kv.2 d
+        s := s.add φ nsac kv.2 d
     line := pureAdvance φ line
   return s
 

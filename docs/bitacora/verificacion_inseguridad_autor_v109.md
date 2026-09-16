@@ -89,7 +89,28 @@ valer: `ReviewNodes.removed_unsupported` ya caracteriza lo que el review quita c
 los compatibles con el nodo condicionante. Condicionar es estrictamente más fuerte. Por eso la fuerza
 extra hay que **añadirla a la máquina como filtro**, y no deducirla del review.
 
-## 5. Qué significa y qué no
+## 5. La regla condicionada, medida en la máquina
+
+`improves-diff` compara ahora cuatro máquinas: base, débil, débil + pines y débil + condicionada
+(`--sac <pasadas>`). Sobre las 4 fórmulas bien formadas de `test/cnf` y 9 aleatorias 6×24:
+
+| Medida | Resultado |
+|---|---|
+| veredicto frente a base, débil, pines y fuerza bruta | igual en todas |
+| última línea (claves, owners globales, nodos) | idéntica |
+| el review tras el filtro acaba como el base | sí en todas (`sameSac`) |
+| pasadas del review | −0 a −4 % (los pines: −17 a −38 %) |
+| lo que elimina el review | −1 a −16 % (los pines: −96 a −100 %) |
+| recorte propio del filtro | 301 a 20.718 de medida, pero solo 0 a 2.787 en los envíos donde el review base corre |
+| tiempo | +40 a +70 % sobre la base |
+| una segunda pasada | casi nada: 16.686 → 16.708 |
+
+Es decir: **correcta y casi idempotente tras una pasada, pero no es una mejora de rendimiento a este
+tamaño**. Recorta sobre todo en envíos que el filtro duro ya iba a invalidar. Su valor está en lo que
+permite demostrar, no en lo que ahorra; y el punto fijo que la medición de `altchain` necesitaba en
+⌈k/2⌉ + 1 pasadas aquí se alcanza en una.
+
+## 6. Qué significa y qué no
 
 - **Demostrado**: la máquina decide Horn; un conflicto de propagación unitaria da UNSAT en cualquier
   fórmula; la regla condicionada es correcta, subsume al review, y la máquina que la incorpora
