@@ -59,7 +59,7 @@ búsqueda de cadenas era exponencial en las variables libres; se reescribió com
 restricciones con poda hacia delante y memorización, y da los mismos resultados en las fórmulas de
 control, entre 1,6 y 5 veces más rápido.
 
-## 3. La regla condicionada, medida
+## 3. La regla condicionada, medida en `altchain`
 
 Condicionar a un nodo `x`, quedarse en cada paso con los owners globales compatibles con `x`, y
 propagar. En `altchain_m1..m7`:
