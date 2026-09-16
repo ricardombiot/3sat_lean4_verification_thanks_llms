@@ -149,8 +149,9 @@ selection that assignment names is a sound chain of every state, and its map ids
 assignment's own choices. -/
 theorem chainSound_alongW (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignW φ a g) :
     ∃ sel, ChainSound g sel ∧
-      ∀ k, 0 ≤ k → k < g.current_step → (sel k).id = selOfAssign φ a k :=
-  chainSound_alongSac φ a hwf hsat 0 g (alongF_of_alongW φ a g h)
+      ∀ k, 0 ≤ k → k < g.current_step → (sel k).id = selOfAssign φ a k := by
+  obtain ⟨sel, hsel, hids⟩ := chainSound_alongSac φ a hwf hsat 0 g (alongF_of_alongW φ a g h)
+  exact ⟨sel, hsel, fun k hk0 hk => (hids k hk0 hk).1⟩
 
 theorem isValid_alongW (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignW φ a g) :
     isValid g = true :=

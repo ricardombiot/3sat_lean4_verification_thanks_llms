@@ -39,7 +39,7 @@ open AbsSat.GraphPath.Model.PureDriver (PureLine insertPure pureInit mem_insertP
   mem_insertPure_of_ne key_inj isValid_of_grown insertPure_keys_some insertPure_keys_none
   isValid_initSeed)
 open AbsSat.GraphPath.Model.ConservationCore (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
-  ShapeOk_addNode ShapeOk_join chainSound_up_of_pruned stepCount_pos)
+  ShapeOk_addNode ShapeOk_join chainSound_up_of_prunedP stepCount_pos SelParent)
 
 variable (φ : Cnf) (a : Assign) (F : NodeId → GPathM → GPathM)
 
@@ -54,7 +54,8 @@ abbrev PrunesF : Prop := ∀ d g, Pruned g (F d g)
 picks. The weak filter needs `weakReqOfCnf_sound` for this; the conditioned filter needs nothing. -/
 abbrev KeepsBranchF : Prop :=
   ∀ (d : NodeId) (g : GPathM) (sel : Int → PathNodeId), ChainSound g sel →
-    (∀ k, 0 ≤ k → k < g.current_step → (sel k).id = selOfAssign φ a k) →
+    (∀ k, 0 ≤ k → k < g.current_step →
+      (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k)) →
     d = selOfAssign φ a g.current_step → ChainSound (F d g) sel
 
 -- ============================================================
@@ -100,12 +101,40 @@ theorem shapeOk_of_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a
 -- The conservation law
 -- ============================================================
 
+/-- The map node the last `up` visited is a selected node. A filter that removes **nodes** needs
+this to know the branch never contradicts its own pins. -/
+theorem mapParent_alongF (hFpr : PrunesF F) (g : GPathM) (h : AlongAssignF φ a F g) :
+    g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j) := by
+  induction h with
+  | seed title =>
+    unfold GPathM.initSeed GPathM.up
+    rw [if_pos (by rfl : isValid empty = true)]
+    exact Or.inr ⟨0, rfl⟩
+  | up g title _ ih =>
+    have hpr : Pruned g (filterAll (F (selOfAssign φ a g.current_step) g)
+        (reqOfCnf φ (selOfAssign φ a g.current_step))) :=
+      Pruned.trans (hFpr _ g) (pruned_filterAll _ _)
+    simp only [upFilteringF, upFiltering, GPathM.up]
+    split
+    · exact Or.inr ⟨g.current_step, rfl⟩
+    · rw [hpr.map_parent_eq]
+      exact ih
+  | joinL g₁ g₂ _ _ _ ih => exact ih
+  | joinR g₁ g₂ hok _ _ ih =>
+    have hmp : g₁.map_parent = g₂.map_parent := by
+      simp only [okJoin, Bool.and_eq_true, beq_iff_eq] at hok
+      exact hok.1.1.2
+    show g₁.map_parent = none ∨ ∃ j, g₁.map_parent = some (selOfAssign φ a j)
+    rw [hmp]
+    exact ih
+
 /-- **The branch's chain survives every state the driver builds**, whatever the filter, as long as
 it narrows and keeps the branch. -/
 theorem chainSound_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF φ a F)
     (g : GPathM) (h : AlongAssignF φ a F g) :
     ∃ sel, ChainSound g sel ∧
-      ∀ k, 0 ≤ k → k < g.current_step → (sel k).id = selOfAssign φ a k := by
+      ∀ k, 0 ≤ k → k < g.current_step →
+        (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) := by
   induction h with
   | seed title =>
     refine ⟨fun _ => { id := selOfAssign φ a 0, parent_id := none }, ?_, ?_⟩
@@ -114,12 +143,12 @@ theorem chainSound_alongF (hwf : WF φ) (hFpr : PrunesF F) (hFcs : KeepsBranchF 
       rw [initSeed_current] at hhi
       have hk : k = 0 := by omega
       subst hk
-      rfl
+      exact ⟨rfl, Or.inl rfl⟩
   | up g title hal ih =>
     obtain ⟨sel, hsel, hids⟩ := ih
     obtain ⟨sel', hs', hcur, hids'⟩ :=
-      chainSound_up_of_pruned φ a hwf g _ (hFpr _ g) (shapeOk_of_alongF φ a F hFpr g hal) sel
-        (hFcs _ g sel hsel hids rfl) hids title
+      chainSound_up_of_prunedP φ a hwf g _ (hFpr _ g) (shapeOk_of_alongF φ a F hFpr g hal)
+        (mapParent_alongF φ a F hFpr g hal) sel (hFcs _ g sel hsel hids rfl) hids title
     exact ⟨sel', hs', fun k hk0 hk => hids' k hk0 (lt_of_lt_of_eq hk hcur)⟩
   | joinL g₁ g₂ hok h₂ _ ih =>
     obtain ⟨sel, hsel, hids⟩ := ih
@@ -644,7 +673,7 @@ theorem keepsBranch_Fsac (hsat : Sat a φ) (n : Nat) : KeepsBranchF φ a (Fsac �
   intro d g sel hsel hids hd
   refine ChainSound_filterACn n _ sel (ChainSound_filterWeakAll _ g sel hsel ?_)
   intro e he k hk0 hk hke
-  rw [hids k hk0 hk, hke]
+  rw [(hids k hk0 hk).1, hke]
   exact weakReqOfCnf_sound φ a hsat g.current_step e (by rw [← hd]; exact he)
 
 /-- **The machine with the conditioned filter keeps the branch.** Along a satisfying assignment,
@@ -653,7 +682,8 @@ conditioned passes. -/
 theorem chainSound_alongSac (hwf : WF φ) (hsat : Sat a φ) (n : Nat) (g : GPathM)
     (h : AlongAssignF φ a (Fsac φ n) g) :
     ∃ sel, ChainSound g sel ∧
-      ∀ k, 0 ≤ k → k < g.current_step → (sel k).id = selOfAssign φ a k :=
+      ∀ k, 0 ≤ k → k < g.current_step →
+        (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) :=
   chainSound_alongF φ a _ hwf (prunes_Fsac φ n) (keepsBranch_Fsac φ a hsat n) g h
 
 theorem isValid_alongSac (hwf : WF φ) (hsat : Sat a φ) (n : Nat) (g : GPathM)

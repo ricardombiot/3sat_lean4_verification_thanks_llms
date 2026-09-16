@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/ConservationPins.lean
 import AbsSat.GraphPath.Model.ConservationImproves
+import AbsSat.GraphPath.Model.ConservationFilter
 import AbsSat.GraphPath.Model.SeparationPins
 
 /-!
@@ -43,8 +44,10 @@ open AbsSat.GraphPath.Model.PureDriver (PureLine insertPure pureInit mem_insertP
   isValid_initSeed)
 open AbsSat.GraphPath.Model.PureDriverImproves (filterWeakAll)
 open AbsSat.GraphPath.Model.PureDriverPins
+open AbsSat.GraphPath.Model.ConservationFilter
 open AbsSat.GraphPath.Model.ConservationCore (ShapeOk ShapeOk_of_pruned ShapeOk_initSeed
-  ShapeOk_addNode ShapeOk_join pruned_filterWeakAll ChainSound_filterWeakAll stepCount_pos)
+  ShapeOk_addNode ShapeOk_join pruned_filterWeakAll ChainSound_filterWeakAll stepCount_pos
+  SelParent chainSound_up_of_prunedP)
 open AbsSat.GraphPath.Model.SeparationPins (contradictsB_iff pruned_pinPrune)
 
 variable (φ : Cnf)
@@ -136,10 +139,6 @@ theorem fixesMap_sel (hwf : WF φ) (k : Int) (vv : Int × Int)
     · exact absurd h List.not_mem_nil
     · obtain ⟨r, hr, hvr⟩ := List.mem_filterMap.mp h
       exact pinVal_sel φ a hwf k r hr vv hvr
-
-/-- A path node's parent is `none` or a node the assignment selects. -/
-def SelParent (w : PathNodeId) : Prop :=
-  w.parent_id = none ∨ ∃ j, w.parent_id = some (selOfAssign φ a j)
 
 /-- **A chain node of the assignment never contradicts a pin of a selected node.** -/
 theorem not_idContradicts_sel (hwf : WF φ) (c : Int) (w : PathNodeId)
@@ -327,572 +326,132 @@ theorem mapParent_alongP (g : GPathM) (h : AlongAssignP φ a g) :
     rw [hmp]
     exact ih
 
-/-- `ConservationImproves.chainSound_up_of_pruned`, also tracking that every chain
-node's parent is a selected node. -/
-theorem chainSound_up_of_prunedP (hwf : WF φ) (g gw : GPathM) (hpr : Pruned g gw)
-    (hshape : ShapeOk g)
-    (hmp : g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j))
-    (sel : Int → PathNodeId) (hselw : ChainSound gw sel)
-    (hids : ∀ k, 0 ≤ k → k < g.current_step →
-      (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k))
-    (title : String) :
-    ∃ sel', ChainSound (upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
-          (selOfAssign φ a g.current_step) title) sel'
-      ∧ (upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
-          (selOfAssign φ a g.current_step) title).current_step = g.current_step + 1
-      ∧ ∀ k, 0 ≤ k → k < g.current_step + 1 →
-          (sel' k).id = selOfAssign φ a k ∧ SelParent φ a (sel' k) := by
-  have hgs : gw.current_step = g.current_step := hpr.step_eq
-  have hreqs : ∀ req ∈ reqOfCnf φ (selOfAssign φ a g.current_step),
-      0 ≤ req.step → req.step < gw.current_step → (sel req.step).id = req := by
-    intro req hreq hr0 hr1
-    rw [(hids req.step hr0 (by omega)).1]
-    exact reqSat_selOfAssign φ hwf a g.current_step req hreq
-  have hpf := pruned_filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))
-  have hfil : ChainSound (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))) sel :=
-    ChainSound_filterAll gw _ sel hselw hreqs
-  have hvalid : isValid (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))) = true :=
-    PickInduction.isValid_of_ChainG _ sel hfil.chain
-  have hshf : ShapeOk (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))) :=
-    ShapeOk_of_pruned (Pruned.trans hpr hpf) hshape
-  have hd : (selOfAssign φ a g.current_step).step
-      = (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))).current_step := by
-    rw [hpf.step_eq, hgs, selOfAssign_step]
-  have hshapeEq : upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
-      (selOfAssign φ a g.current_step) title
-      = addNode (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-        (selOfAssign φ a g.current_step) title := by
-    simp only [upFiltering, GPathM.up, hvalid, if_pos]
-  have hcur : (upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
-      (selOfAssign φ a g.current_step) title).current_step = g.current_step + 1 := by
-    rw [hshapeEq, addNode_current, hpf.step_eq, hgs]
-  refine ⟨extend (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-    (selOfAssign φ a g.current_step) sel, ?_, hcur, ?_⟩
-  · exact ChainSound_upFiltering gw _ _ title hvalid hd hshf.1 hshf.2 sel hselw hreqs
-  · intro k hk0 hk
-    if he : k = g.current_step then
-      have hextend : extend (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-          (selOfAssign φ a g.current_step) sel g.current_step
-          = newPid (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-            (selOfAssign φ a g.current_step) := by
-        simp only [extend, if_pos (hpf.step_eq.trans hgs).symm]
-      rw [he, hextend]
-      refine ⟨rfl, ?_⟩
-      show (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))).map_parent = none ∨
-        ∃ j, (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))).map_parent
-          = some (selOfAssign φ a j)
-      rw [hpf.map_parent_eq, hpr.map_parent_eq]
-      exact hmp
-    else
-      rw [extend_below (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-        (selOfAssign φ a g.current_step) sel k (by rw [hpf.step_eq, hgs]; omega)]
-      exact hids k hk0 (by omega)
+-- ============================================================
+-- The pin machine as an instance of the generic one
+-- ============================================================
+
+/-- The weak filter, then the pin prune: the filter parameter of `ConservationFilter`. -/
+def Fpin : NodeId → GPathM → GPathM :=
+  fun d g => pinPrune φ d (filterWeakAll g (weakReqOfCnf φ d))
+
+theorem prunes_Fpin : PrunesF (Fpin φ) := fun d g =>
+  Pruned.trans (pruned_filterWeakAll g _) (pruned_pinPrune φ d _)
+
+/-- The branch survives both: the weak filter by `weakReqOfCnf_sound`, the prune because a chain
+node of the assignment never contradicts a pin of a selected node — which is what the parent half of
+the invariant is for. -/
+theorem keepsBranch_Fpin (hwf : WF φ) (hsat : Sat a φ) : KeepsBranchF φ a (Fpin φ) := by
+  intro d g sel hsel hids hd
+  subst hd
+  have hweak : ∀ e ∈ weakReqOfCnf φ (selOfAssign φ a g.current_step),
+      ∀ k, 0 ≤ k → k < g.current_step → k = e.1 → (sel k).id ∈ e.2 := by
+    intro e he k hk0 hk hke
+    rw [(hids k hk0 hk).1, hke]
+    exact weakReqOfCnf_sound φ a hsat g.current_step e he
+  have hw := ChainSound_filterWeakAll _ g sel hsel hweak
+  have hwstep := (PureDriverImproves.filterWeakAll_frame
+    (weakReqOfCnf φ (selOfAssign φ a g.current_step)) g).2.1
+  have hgood : ∀ k, 0 ≤ k →
+      k < (filterWeakAll g (weakReqOfCnf φ (selOfAssign φ a g.current_step))).current_step →
+      contradictsB φ (pinValues φ (selOfAssign φ a g.current_step)) (sel k) = false := by
+    intro k hk0 hk
+    rw [hwstep] at hk
+    have hnot := not_idContradicts_sel φ a hwf g.current_step (sel k)
+      ⟨k, (hids k hk0 hk).1⟩ (hids k hk0 hk).2
+    cases hc : contradictsB φ (pinValues φ (selOfAssign φ a g.current_step)) (sel k) with
+    | false => rfl
+    | true => exact absurd ((contradictsB_iff φ _ _).mp hc) hnot
+  exact ChainSound_pinPrune φ _ _ sel hw hgood
+
+-- the driver is the generic one, step by step
+theorem sendTo_eqP (g : GPathM) (next : PureLine) (d : NodeId) :
+    sendToF φ (Fpin φ) g next d = sendToP φ g next d := rfl
+
+theorem sendAll_eqP (kv : NodeId × GPathM) (next : PureLine) :
+    sendAllF φ (Fpin φ) kv next = sendAllP φ kv next := by
+  unfold sendAllF sendAllP
+  have h : sendToF φ (Fpin φ) kv.2 = sendToP φ kv.2 := by
+    funext n d
+    exact sendTo_eqP φ kv.2 n d
+  rw [h]
+
+theorem advance_eqP (line : PureLine) : pureAdvanceF φ (Fpin φ) line = pureAdvanceP φ line := by
+  unfold pureAdvanceF pureAdvanceP
+  have h : (fun next kv => sendAllF φ (Fpin φ) kv next) = (fun next kv => sendAllP φ kv next) := by
+    funext next kv
+    exact sendAll_eqP φ kv next
+  rw [h]
+
+theorem steps_eqP : ∀ (n : Nat) (line : PureLine),
+    pureStepsF φ (Fpin φ) n line = pureStepsP φ n line
+  | 0, _ => rfl
+  | n + 1, line => by
+    show pureStepsF φ (Fpin φ) n (pureAdvanceF φ (Fpin φ) line) = pureStepsP φ n (pureAdvanceP φ line)
+    rw [advance_eqP φ line, steps_eqP n]
+
+/-- **The pin run is the generic run with the pin filter.** -/
+theorem run_eqP : pureRunF φ (Fpin φ) = pureRunP φ := steps_eqP φ _ _
+
+theorem alongF_of_alongP (g : GPathM) (h : AlongAssignP φ a g) : AlongAssignF φ a (Fpin φ) g := by
+  induction h with
+  | seed title => exact AlongAssignF.seed title
+  | up g title _ ih => exact AlongAssignF.up g title ih
+  | joinL g₁ g₂ hok h₂ _ ih => exact AlongAssignF.joinL g₁ g₂ hok h₂ ih
+  | joinR g₁ g₂ hok h₁ _ ih => exact AlongAssignF.joinR g₁ g₂ hok h₁ ih
+
+theorem alongP_of_alongF (g : GPathM) (h : AlongAssignF φ a (Fpin φ) g) : AlongAssignP φ a g := by
+  induction h with
+  | seed title => exact AlongAssignP.seed title
+  | up g title _ ih => exact AlongAssignP.up g title ih
+  | joinL g₁ g₂ hok h₂ _ ih => exact AlongAssignP.joinL g₁ g₂ hok h₂ ih
+  | joinR g₁ g₂ hok h₁ _ ih => exact AlongAssignP.joinR g₁ g₂ hok h₁ ih
+
+-- ============================================================
+-- What this module says, now proved generically
+-- ============================================================
 
 /-- **The conservation law for the machine with the pin prune.** -/
 theorem chainSound_alongP (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignP φ a g) :
     ∃ sel, ChainSound g sel ∧
       ∀ k, 0 ≤ k → k < g.current_step →
-        (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) := by
-  induction h with
-  | seed title =>
-    refine ⟨fun _ => { id := selOfAssign φ a 0, parent_id := none },
-      ChainSound_initSeed _ title (selOfAssign_step φ a 0), ?_⟩
-    intro k hlo hhi
-    rw [initSeed_current] at hhi
-    have : k = 0 := by omega
-    subst this
-    exact ⟨rfl, Or.inl rfl⟩
-  | up g title hal ih =>
-    obtain ⟨sel, hsel, hids⟩ := ih
-    have hweak : ∀ e ∈ weakReqOfCnf φ (selOfAssign φ a g.current_step),
-        ∀ k, 0 ≤ k → k < g.current_step → k = e.1 → (sel k).id ∈ e.2 := by
-      intro e he k hk0 hk hke
-      rw [(hids k hk0 hk).1, hke]
-      exact weakReqOfCnf_sound φ a hsat g.current_step e he
-    have hw := ChainSound_filterWeakAll _ g sel hsel hweak
-    have hwstep := (PureDriverImproves.filterWeakAll_frame
-      (weakReqOfCnf φ (selOfAssign φ a g.current_step)) g).2.1
-    have hgood : ∀ k, 0 ≤ k →
-        k < (filterWeakAll g (weakReqOfCnf φ (selOfAssign φ a g.current_step))).current_step →
-        contradictsB φ (pinValues φ (selOfAssign φ a g.current_step)) (sel k) = false := by
-      intro k hk0 hk
-      rw [hwstep] at hk
-      have hnot := not_idContradicts_sel φ a hwf g.current_step (sel k)
-        ⟨k, (hids k hk0 hk).1⟩ (hids k hk0 hk).2
-      cases hc : contradictsB φ (pinValues φ (selOfAssign φ a g.current_step)) (sel k) with
-      | false => rfl
-      | true => exact absurd ((contradictsB_iff φ _ _).mp hc) hnot
-    have hp := ChainSound_pinPrune φ _ _ sel hw hgood
-    obtain ⟨sel', hs', hcur, hids'⟩ :=
-      chainSound_up_of_prunedP φ a hwf g _
-        (Pruned.trans (pruned_filterWeakAll g _) (pruned_pinPrune φ _ _))
-        (shapeOk_of_alongP φ a g hal) (mapParent_alongP φ a g hal) sel hp hids title
-    exact ⟨sel', hs', fun k hk0 hk => hids' k hk0 (lt_of_lt_of_eq hk hcur)⟩
-  | joinL g₁ g₂ hok h₂ hal ih =>
-    obtain ⟨sel, hsel, hids⟩ := ih
-    exact ⟨sel, ChainSound_join_left g₁ g₂ sel hsel, fun k hk0 hk => hids k hk0
-      (by rw [(grown_join_left g₁ g₂).step_eq] at hk; exact hk)⟩
-  | joinR g₁ g₂ hok h₁ hal ih =>
-    obtain ⟨sel, hsel, hids⟩ := ih
-    exact ⟨sel, ChainSound_join_right g₁ g₂ hok sel hsel, fun k hk0 hk => hids k hk0
-      (by rw [(grown_join_right g₁ g₂ hok).step_eq] at hk; exact hk)⟩
+        (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) :=
+  chainSound_alongF φ a (Fpin φ) hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
+    (alongF_of_alongP φ a g h)
 
 theorem isValid_alongP (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignP φ a g) :
-    isValid g = true := by
-  obtain ⟨sel, hsel, _⟩ := chainSound_alongP φ a hwf hsat g h
-  exact PickInduction.isValid_of_ChainG g sel hsel.chain
+    isValid g = true :=
+  isValid_alongF φ a (Fpin φ) hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
+    (alongF_of_alongP φ a g h)
 
 theorem inhabited_alongP (hwf : WF φ) (hsat : Sat a φ) (g : GPathM) (h : AlongAssignP φ a g) :
-    AbsSat.GraphPath.Model.Inhabited g := by
-  obtain ⟨sel, hsel, _⟩ := chainSound_alongP φ a hwf hsat g h
-  exact ⟨pathOf sel g, sel, hsel.chain.1, hsel.chain.2.1, rfl⟩
+    AbsSat.GraphPath.Model.Inhabited g :=
+  inhabitedM_alongF φ a (Fpin φ) hwf (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat) g
+    (alongF_of_alongP φ a g h)
 
--- ============================================================
--- The driver: the line invariant
--- ============================================================
-
-structure StateOkP (φ : Cnf) (k : Int) (kv : NodeId × GPathM) : Prop where
-  onMap : kv.1 ∈ mapNodes φ k
-  shape : ShapeOk kv.2
-  step  : kv.2.current_step = k + 1
-  par   : kv.2.map_parent = some kv.1
-  valid : isValid kv.2 = true
-
-def LineOkP (φ : Cnf) (k : Int) (line : PureLine) : Prop :=
-  (line.map (·.1)).Nodup ∧ ∀ kv ∈ line, StateOkP φ k kv
-
-theorem okJoin_of_stateOkP (k : Int) (key : NodeId) (e g : GPathM)
-    (he : StateOkP φ k (key, e)) (hg : StateOkP φ k (key, g)) : okJoin e g = true := by
-  simp only [okJoin, Bool.and_eq_true, beq_iff_eq]
-  exact ⟨⟨⟨he.step.trans hg.step.symm, he.par.trans hg.par.symm⟩, he.valid⟩, hg.valid⟩
-
-theorem stateOkP_doJoin (k : Int) (key : NodeId) (e g : GPathM)
-    (he : StateOkP φ k (key, e)) (hg : StateOkP φ k (key, g)) :
-    StateOkP φ k (key, doJoin e g) := by
-  have hok := okJoin_of_stateOkP φ k key e g he hg
-  simp only [doJoin, hok, if_pos]
-  exact ⟨he.onMap, ShapeOk_join e g hok he.shape hg.shape, he.step, he.par,
-    isValid_of_grown (grown_join_left e g) he.valid⟩
-
-theorem LineOkP_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPathM)
-    (hl : LineOkP φ k line) (hg : StateOkP φ k (key, g)) :
-    LineOkP φ k (insertPure line key g) := by
-  obtain ⟨hnd, hall⟩ := hl
-  cases hf : line.find? (fun x => x.1 == key) with
-  | none =>
-    have hnotin : ∀ (b : NodeId) (x : GPathM), (b, x) ∈ line → ¬ b = key := by
-      intro b x hbx hbk
-      have h := List.find?_eq_none.mp hf (b, x) hbx
-      exact h (by simp only [hbk]; exact beq_iff_eq.mpr rfl)
-    constructor
-    · rw [insertPure_keys_none line key g hf]
-      rw [List.nodup_append]
-      refine ⟨hnd, by simp, ?_⟩
-      simpa using hnotin
-    · intro kv hkv
-      simp only [insertPure, hf] at hkv
-      rcases List.mem_append.mp hkv with h | h
-      · exact hall kv h
-      · rcases List.mem_singleton.mp h with rfl
-        exact hg
-  | some e =>
-    have hekey : e.1 = key :=
-      eq_of_beq (List.find?_some (p := fun x : NodeId × GPathM => x.1 == key) hf)
-    have hemem : e ∈ line := List.mem_of_find?_eq_some hf
-    have hesok : StateOkP φ k (key, e.2) := by
-      have h := hall e hemem
-      rwa [← hekey]
-    constructor
-    · rw [insertPure_keys_some line key g e hf]; exact hnd
-    · intro kv hkv
-      simp only [insertPure, hf] at hkv
-      obtain ⟨x, hx, hEq⟩ := List.mem_map.mp hkv
-      cases hb : x.1 == key with
-      | true =>
-        have : kv = (key, doJoin e.2 g) := by rw [← hEq]; simp only [hb]; rfl
-        rw [this]
-        exact stateOkP_doJoin φ k key e.2 g hesok hg
-      | false =>
-        have : kv = x := by rw [← hEq]; simp only [hb]; rfl
-        rw [this]
-        exact hall x hx
-
--- ============================================================
--- The branch's entry
--- ============================================================
-
-def CarriesP (k : Int) (line : PureLine) : Prop :=
-  ∃ g, (selOfAssign φ a k, g) ∈ line ∧ AlongAssignP φ a g ∧ g.current_step = k + 1
-
-theorem CarriesP_insertPure (k : Int) (line : PureLine)
-    (key : NodeId) (g' : GPathM) (hl : LineOkP φ k line) (hg' : StateOkP φ k (key, g'))
-    (hc : CarriesP φ a k line) : CarriesP φ a k (insertPure line key g') := by
-  obtain ⟨g, hmem, hal, hcs⟩ := hc
-  obtain ⟨hnd, hall⟩ := hl
-  by_cases hkey : selOfAssign φ a k = key
-  · subst hkey
-    cases hf : line.find? (fun x => x.1 == selOfAssign φ a k) with
-    | none =>
-      exact absurd (List.find?_eq_none.mp hf _ hmem) (by simp)
-    | some e =>
-      have hemem : e ∈ line := List.mem_of_find?_eq_some hf
-      have hekey : e.1 = selOfAssign φ a k :=
-        eq_of_beq (List.find?_some
-          (p := fun x : NodeId × GPathM => x.1 == selOfAssign φ a k) hf)
-      have hee : e = (selOfAssign φ a k, g) :=
-        key_inj line hnd e hemem (selOfAssign φ a k, g) hmem hekey
-      have hesok : StateOkP φ k (selOfAssign φ a k, g) := by
-        have h := hall e hemem
-        rw [hee] at h
-        exact h
-      have hok : okJoin g g' = true :=
-        okJoin_of_stateOkP φ k (selOfAssign φ a k) g g' hesok hg'
-      refine ⟨join g g', ?_, AlongAssignP.joinL g g' hok hg'.shape hal, hcs⟩
-      simp only [insertPure, hf, hee, doJoin, hok, if_pos]
-      refine List.mem_map.mpr ⟨(selOfAssign φ a k, g), hmem, ?_⟩
-      simp
-  · exact ⟨g, mem_insertPure_of_ne line key _ g' g hkey hmem, hal, hcs⟩
-
-theorem CarriesP_of_insertPure_at (k : Int) (line : PureLine)
-    (g' : GPathM) (hl : LineOkP φ k line) (hg' : StateOkP φ k (selOfAssign φ a k, g'))
-    (hal : AlongAssignP φ a g') :
-    CarriesP φ a k (insertPure line (selOfAssign φ a k) g') := by
-  obtain ⟨h, hmem, hcase⟩ := mem_insertPure line (selOfAssign φ a k) g'
-  refine ⟨h, hmem, ?_, ?_⟩
-  · rcases hcase with rfl | ⟨e, hem, rfl⟩
-    · exact hal
-    · have he : StateOkP φ k (selOfAssign φ a k, e) := hl.2 _ hem
-      have hok := okJoin_of_stateOkP φ k _ e g' he hg'
-      simp only [doJoin, hok, if_pos]
-      exact AlongAssignP.joinR e g' hok he.shape hal
-  · rcases hcase with rfl | ⟨e, hem, rfl⟩
-    · exact hg'.step
-    · have he : StateOkP φ k (selOfAssign φ a k, e) := hl.2 _ hem
-      have hok := okJoin_of_stateOkP φ k _ e g' he hg'
-      simp only [doJoin, hok, if_pos]
-      rw [(grown_join_left e g').step_eq]
-      exact he.step
-
--- ============================================================
--- One send
--- ============================================================
-
-theorem isValid_filter_of_sentP (g : GPathM) (d : NodeId)
-    (hval : isValid (upFilteringPin φ g d "") = true) :
-    isValid (filterAll (pinPrune φ d (filterWeakAll g (weakReqOfCnf φ d))) (reqOfCnf φ d)) = true := by
-  by_cases h : isValid (filterAll (pinPrune φ d (filterWeakAll g (weakReqOfCnf φ d))) (reqOfCnf φ d)) = true
-  · exact h
-  · exfalso
-    have he : upFilteringPin φ g d ""
-        = filterAll (pinPrune φ d (filterWeakAll g (weakReqOfCnf φ d))) (reqOfCnf φ d) := by
-      simp only [upFilteringPin, GPathM.up, if_neg h]
-    rw [he] at hval
-    exact h hval
-
-theorem StateOkP_sent (k : Int) (kv : NodeId × GPathM) (hkv : StateOkP φ k kv)
-    (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index)
-    (hval : isValid (upFilteringPin φ kv.2 d "") = true) :
-    StateOkP φ (k + 1) (d, upFilteringPin φ kv.2 d "") := by
-  have hkey : kv.1.step = k := mapNodes_step φ k kv.1 hkv.onMap
-  have hmk : (⟨k, kv.1.index⟩ : NodeId) ∈ mapNodes φ k := by
-    have : (⟨k, kv.1.index⟩ : NodeId) = kv.1 := by
-      cases hkv1 : kv.1 with
-      | mk sp ix =>
-        rw [hkv1] at hkey
-        simp only at hkey ⊢
-        rw [hkey]
-    rw [this]; exact hkv.onMap
-  have hd' : d ∈ mapNodes φ (k + 1) :=
-    mapSons_subset φ k kv.1.index hmk d (by rw [← hkey]; exact hd)
-  have hdstep : d.step = k + 1 := mapNodes_step φ (k + 1) d hd'
-  have hfv := isValid_filter_of_sentP φ kv.2 d hval
-  have hpr : Pruned kv.2 (filterAll (pinPrune φ d (filterWeakAll kv.2 (weakReqOfCnf φ d))) (reqOfCnf φ d)) :=
-    Pruned.trans (Pruned.trans (pruned_filterWeakAll _ _) (pruned_pinPrune φ d _)) (pruned_filterAll _ _)
-  have hshape : upFilteringPin φ kv.2 d ""
-      = addNode (filterAll (pinPrune φ d (filterWeakAll kv.2 (weakReqOfCnf φ d))) (reqOfCnf φ d)) d "" := by
-    simp only [upFilteringPin, GPathM.up, hfv, if_pos]
-  refine ⟨hd', ?_, ?_, ?_, hval⟩
-  · exact ShapeOk_upFilteringPin φ kv.2 d "" (by rw [hdstep, hkv.step]) hkv.shape
-  · rw [hshape, addNode_current, hpr.step_eq, hkv.step]
-  · rw [hshape]; rfl
-
-theorem LineOkP_sendToP (k : Int) (kv : NodeId × GPathM) (hkv : StateOkP φ k kv)
-    (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (next : PureLine)
-    (hn : LineOkP φ (k + 1) next) : LineOkP φ (k + 1) (sendToP φ kv.2 next d) := by
-  simp only [sendToP]
-  split
-  · next hval => exact LineOkP_insertPure φ (k + 1) next d _ hn (StateOkP_sent φ k kv hkv d hd hval)
-  · exact hn
-
-theorem LineOkP_sendAllP (k : Int) (kv : NodeId × GPathM) (hkv : StateOkP φ k kv)
-    (next : PureLine) (hn : LineOkP φ (k + 1) next) :
-    LineOkP φ (k + 1) (sendAllP φ kv next) := by
-  simp only [sendAllP]
-  have : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapSons φ kv.1.step kv.1.index) →
-      ∀ acc, LineOkP φ (k + 1) acc → LineOkP φ (k + 1) (l.foldl (sendToP φ kv.2) acc) := by
-    intro l
-    induction l with
-    | nil => intro _ acc h; exact h
-    | cons x xs ih =>
-      intro hx acc h
-      simp only [List.foldl_cons]
-      exact ih (fun d hd => hx d (List.mem_cons_of_mem _ hd)) _
-        (LineOkP_sendToP φ k kv hkv x (hx x List.mem_cons_self) acc h)
-  exact this _ (fun _ hd => hd) next hn
-
-theorem LineOkP_pureAdvanceP (k : Int) (line : PureLine) (hl : LineOkP φ k line) :
-    LineOkP φ (k + 1) (pureAdvanceP φ line) := by
-  simp only [pureAdvanceP]
-  obtain ⟨_, hall⟩ := hl
-  have : ∀ (l : PureLine), (∀ kv ∈ l, StateOkP φ k kv) →
-      ∀ acc, LineOkP φ (k + 1) acc →
-        LineOkP φ (k + 1) (l.foldl (fun next kv => sendAllP φ kv next) acc) := by
-    intro l
-    induction l with
-    | nil => intro _ acc h; exact h
-    | cons x xs ih =>
-      intro hx acc h
-      simp only [List.foldl_cons]
-      exact ih (fun kv hkv => hx kv (List.mem_cons_of_mem _ hkv)) _
-        (LineOkP_sendAllP φ k x (hx x List.mem_cons_self) acc h)
-  exact this line hall [] ⟨by simp, by intro kv hkv; exact absurd hkv List.not_mem_nil⟩
-
--- ============================================================
--- The branch through the two folds
--- ============================================================
-
-theorem advance_targetP (hwf : WF φ) (hsat : Sat a φ)
-    (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ)
-    (g : GPathM) (hal : AlongAssignP φ a g) (hcs : g.current_step = k + 1) :
-    selOfAssign φ a (k + 1)
-        ∈ mapSons φ (selOfAssign φ a k).step (selOfAssign φ a k).index
-      ∧ AlongAssignP φ a (upFilteringPin φ g (selOfAssign φ a (k + 1)) "")
-      ∧ isValid (upFilteringPin φ g (selOfAssign φ a (k + 1)) "") = true := by
-  have hson : selOfAssign φ a (k + 1)
-      ∈ mapSons φ (selOfAssign φ a k).step (selOfAssign φ a k).index := by
-    rw [selOfAssign_step]
-    exact selOfAssign_son φ a hsat k h0 hk
-  have hup : AlongAssignP φ a (upFilteringPin φ g (selOfAssign φ a (k + 1)) "") := by
-    have := AlongAssignP.up (φ := φ) (a := a) g "" hal
-    rwa [hcs] at this
-  exact ⟨hson, hup, isValid_alongP φ a hwf hsat _ hup⟩
-
-theorem CarriesP_sendToP (k : Int) (kv : NodeId × GPathM)
-    (hkv : StateOkP φ k kv) (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index)
-    (next : PureLine) (hn : LineOkP φ (k + 1) next) (hc : CarriesP φ a (k + 1) next) :
-    CarriesP φ a (k + 1) (sendToP φ kv.2 next d) := by
-  simp only [sendToP]
-  split
-  · next hval =>
-      exact CarriesP_insertPure φ a (k + 1) next d _ hn (StateOkP_sent φ k kv hkv d hd hval) hc
-  · exact hc
-
-theorem sons_fold_monoP (k : Int) (kv : NodeId × GPathM) (hkv : StateOkP φ k kv) :
-    ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapSons φ kv.1.step kv.1.index) →
-      ∀ acc, LineOkP φ (k + 1) acc → CarriesP φ a (k + 1) acc →
-        LineOkP φ (k + 1) (l.foldl (sendToP φ kv.2) acc)
-          ∧ CarriesP φ a (k + 1) (l.foldl (sendToP φ kv.2) acc) := by
-  intro l
-  induction l with
-  | nil => intro _ acc h hc; exact ⟨h, hc⟩
-  | cons x xs ih =>
-    intro hx acc h hc
-    simp only [List.foldl_cons]
-    exact ih (fun d hd => hx d (List.mem_cons_of_mem _ hd)) _
-      (LineOkP_sendToP φ k kv hkv x (hx x List.mem_cons_self) acc h)
-      (CarriesP_sendToP φ a k kv hkv x (hx x List.mem_cons_self) acc h hc)
-
-theorem CarriesP_sendAllP (k : Int) (kv : NodeId × GPathM)
-    (hkv : StateOkP φ k kv) (next : PureLine) (hn : LineOkP φ (k + 1) next)
-    (hc : CarriesP φ a (k + 1) next) : CarriesP φ a (k + 1) (sendAllP φ kv next) := by
-  simp only [sendAllP]
-  exact (sons_fold_monoP φ a k kv hkv _ (fun _ hd => hd) next hn hc).2
-
-theorem sons_fold_establishP (hwf : WF φ) (hsat : Sat a φ)
-    (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ)
-    (g : GPathM) (hal : AlongAssignP φ a g) (hcs : g.current_step = k + 1)
-    (hkv : StateOkP φ k (selOfAssign φ a k, g)) :
-    ∀ (l : List NodeId),
-      (∀ d ∈ l, d ∈ mapSons φ (selOfAssign φ a k).step (selOfAssign φ a k).index) →
-      selOfAssign φ a (k + 1) ∈ l →
-      ∀ acc, LineOkP φ (k + 1) acc →
-        LineOkP φ (k + 1) (l.foldl (sendToP φ g) acc)
-          ∧ CarriesP φ a (k + 1) (l.foldl (sendToP φ g) acc) := by
-  obtain ⟨hson, hup, hval⟩ := advance_targetP φ a hwf hsat k h0 hk g hal hcs
-  intro l
-  induction l with
-  | nil => intro _ hd; exact absurd hd List.not_mem_nil
-  | cons x xs ih =>
-    intro hx hd acc h
-    simp only [List.foldl_cons]
-    rcases List.mem_cons.mp hd with rfl | hd'
-    · have hsend : sendToP φ g acc (selOfAssign φ a (k + 1))
-          = insertPure acc (selOfAssign φ a (k + 1))
-              (upFilteringPin φ g (selOfAssign φ a (k + 1)) "") := by
-        simp only [sendToP, hval, if_true]
-      have hsok : StateOkP φ (k + 1) (selOfAssign φ a (k + 1),
-          upFilteringPin φ g (selOfAssign φ a (k + 1)) "") :=
-        StateOkP_sent φ k (selOfAssign φ a k, g) hkv _ hson hval
-      have hbase : LineOkP φ (k + 1) (sendToP φ g acc (selOfAssign φ a (k + 1)))
-          ∧ CarriesP φ a (k + 1) (sendToP φ g acc (selOfAssign φ a (k + 1))) := by
-        rw [hsend]
-        exact ⟨LineOkP_insertPure φ (k + 1) acc _ _ h hsok,
-          CarriesP_of_insertPure_at φ a (k + 1) acc _ h hsok hup⟩
-      exact sons_fold_monoP φ a k (selOfAssign φ a k, g) hkv xs
-        (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _ hbase.1 hbase.2
-    · exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) hd' _
-        (LineOkP_sendToP φ k (selOfAssign φ a k, g) hkv x (hx x List.mem_cons_self) acc h)
-
-theorem outer_fold_monoP (k : Int) :
-    ∀ (l : PureLine), (∀ kv ∈ l, StateOkP φ k kv) →
-      ∀ acc, LineOkP φ (k + 1) acc → CarriesP φ a (k + 1) acc →
-        LineOkP φ (k + 1) (l.foldl (fun next kv => sendAllP φ kv next) acc)
-          ∧ CarriesP φ a (k + 1) (l.foldl (fun next kv => sendAllP φ kv next) acc) := by
-  intro l
-  induction l with
-  | nil => intro _ acc h hc; exact ⟨h, hc⟩
-  | cons x xs ih =>
-    intro hx acc h hc
-    simp only [List.foldl_cons]
-    exact ih (fun kv hkv => hx kv (List.mem_cons_of_mem _ hkv)) _
-      (LineOkP_sendAllP φ k x (hx x List.mem_cons_self) acc h)
-      (CarriesP_sendAllP φ a k x (hx x List.mem_cons_self) acc h hc)
-
-/-- **One improved driver step conserves the branch.** -/
-theorem CarriesP_pureAdvanceP (hwf : WF φ) (hsat : Sat a φ)
-    (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ)
-    (line : PureLine) (hl : LineOkP φ k line) (hc : CarriesP φ a k line) :
-    CarriesP φ a (k + 1) (pureAdvanceP φ line) := by
-  obtain ⟨g, hmem, hal, hcs⟩ := hc
-  have hkv : StateOkP φ k (selOfAssign φ a k, g) := hl.2 _ hmem
-  simp only [pureAdvanceP]
-  have main : ∀ (l : PureLine), (∀ kv ∈ l, StateOkP φ k kv) →
-      (selOfAssign φ a k, g) ∈ l →
-      ∀ acc, LineOkP φ (k + 1) acc →
-        LineOkP φ (k + 1) (l.foldl (fun next kv => sendAllP φ kv next) acc)
-          ∧ CarriesP φ a (k + 1) (l.foldl (fun next kv => sendAllP φ kv next) acc) := by
-    intro l
-    induction l with
-    | nil => intro _ hd; exact absurd hd List.not_mem_nil
-    | cons x xs ih =>
-      intro hx hd acc h
-      simp only [List.foldl_cons]
-      rcases List.mem_cons.mp hd with rfl | hd'
-      · have hbase : LineOkP φ (k + 1) (sendAllP φ (selOfAssign φ a k, g) acc)
-            ∧ CarriesP φ a (k + 1) (sendAllP φ (selOfAssign φ a k, g) acc) := by
-          simp only [sendAllP]
-          exact sons_fold_establishP φ a hwf hsat k h0 hk g hal hcs hkv _
-            (fun _ hdm => hdm)
-            (by
-              rw [selOfAssign_step]
-              exact selOfAssign_son φ a hsat k h0 hk)
-            acc h
-        exact outer_fold_monoP φ a k xs (fun kv hkv' => hx kv (List.mem_cons_of_mem _ hkv')) _
-          hbase.1 hbase.2
-      · exact ih (fun kv hkv' => hx kv (List.mem_cons_of_mem _ hkv')) hd' _
-          (LineOkP_sendAllP φ k x (hx x List.mem_cons_self) acc h)
-  exact (main line hl.2 hmem [] ⟨by simp, by intro kv hkv'; exact absurd hkv' List.not_mem_nil⟩).2
-
--- ============================================================
--- The first line, and the whole run
--- ============================================================
-
-theorem stateOkP_initSeed (d : NodeId) (hd : d ∈ mapNodes φ 0) :
-    StateOkP φ 0 (d, GPathM.initSeed d "") := by
-  have hstep : d.step = 0 := mapNodes_step φ 0 d hd
-  refine ⟨hd, ShapeOk_initSeed d "" hstep, ?_, ?_, isValid_initSeed d "" hstep⟩
-  · simp only [initSeed_current]; omega
-  · rfl
-
-theorem initP_ok (hsat : Sat a φ) : LineOkP φ 0 (pureInit φ) ∧ CarriesP φ a 0 (pureInit φ) := by
-  have hsel : selOfAssign φ a 0 ∈ mapNodes φ 0 :=
-    selOfAssign_onMap φ a hsat 0 (by omega) (stepCount_pos φ)
-  simp only [pureInit]
-  have mono : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapNodes φ 0) →
-      ∀ acc, LineOkP φ 0 acc → CarriesP φ a 0 acc →
-        LineOkP φ 0 (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc)
-          ∧ CarriesP φ a 0
-            (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc) := by
-    intro l
-    induction l with
-    | nil => intro _ acc h hc; exact ⟨h, hc⟩
-    | cons x xs ih =>
-      intro hx acc h hc
-      simp only [List.foldl_cons]
-      exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _
-        (LineOkP_insertPure φ 0 acc x _ h (stateOkP_initSeed φ x (hx x List.mem_cons_self)))
-        (CarriesP_insertPure φ a 0 acc x _ h
-          (stateOkP_initSeed φ x (hx x List.mem_cons_self)) hc)
-  have main : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapNodes φ 0) → selOfAssign φ a 0 ∈ l →
-      ∀ acc, LineOkP φ 0 acc →
-        LineOkP φ 0 (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc)
-          ∧ CarriesP φ a 0
-            (l.foldl (fun line id => insertPure line id (GPathM.initSeed id "")) acc) := by
-    intro l
-    induction l with
-    | nil => intro _ hd; exact absurd hd List.not_mem_nil
-    | cons x xs ih =>
-      intro hx hd acc h
-      simp only [List.foldl_cons]
-      rcases List.mem_cons.mp hd with rfl | hd'
-      · exact mono xs (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _
-          (LineOkP_insertPure φ 0 acc _ _ h (stateOkP_initSeed φ _ hsel))
-          (CarriesP_of_insertPure_at φ a 0 acc _ h (stateOkP_initSeed φ _ hsel)
-            (AlongAssignP.seed ""))
-      · exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) hd' _
-          (LineOkP_insertPure φ 0 acc x _ h (stateOkP_initSeed φ x (hx x List.mem_cons_self)))
-  exact main _ (fun _ hdm => hdm) hsel []
-    ⟨by simp, by intro kv hkv; exact absurd hkv List.not_mem_nil⟩
-
-theorem runP_ok (hwf : WF φ) (hsat : Sat a φ) :
-    ∀ (n : Nat) (k : Int), 0 ≤ k → k + (n : Int) < stepCount φ →
-      ∀ line, LineOkP φ k line → CarriesP φ a k line →
-        LineOkP φ (k + (n : Int)) (pureStepsP φ n line)
-          ∧ CarriesP φ a (k + (n : Int)) (pureStepsP φ n line) := by
-  intro n
-  induction n with
-  | zero => intro k _ _ line hl hc; simpa using ⟨hl, hc⟩
-  | succ m ih =>
-    intro k h0 hk line hl hc
-    have heq : k + ((m + 1 : Nat) : Int) = (k + 1) + (m : Int) := by omega
-    rw [heq]
-    simp only [pureStepsP]
-    exact ih (k + 1) (by omega) (by omega) _
-      (LineOkP_pureAdvanceP φ k line hl)
-      (CarriesP_pureAdvanceP φ a hwf hsat k h0 (by omega) line hl hc)
-
-/-- **The improved driver ends holding the branch.** -/
+/-- **The driver with the prune ends holding the branch.** -/
 theorem pureRunP_carries (hwf : WF φ) (hsat : Sat a φ) :
     ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunP φ
       ∧ AlongAssignP φ a g ∧ g.current_step = stepCount φ := by
-  have hzero := stepCount_pos φ
-  obtain ⟨hl0, hc0⟩ := initP_ok φ a hsat
-  have hcast : (((stepCount φ - 1).toNat : Nat) : Int) = stepCount φ - 1 := by omega
-  have h := runP_ok φ a hwf hsat (stepCount φ - 1).toNat 0 (by omega)
-    (by omega) (pureInit φ) hl0 hc0
-  have h0e : (0 : Int) + (stepCount φ - 1) = stepCount φ - 1 := by omega
-  rw [hcast, h0e] at h
-  obtain ⟨g, hmem, hal, hcs⟩ := h.2
-  exact ⟨g, by simp only [pureRunP]; exact hmem, hal, by omega⟩
+  obtain ⟨g, hmem, hal, hcs⟩ :=
+    pureRunF_carries φ a (Fpin φ) hwf hsat (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat)
+  exact ⟨g, run_eqP φ ▸ hmem, alongP_of_alongF φ a g hal, hcs⟩
 
-/-- **The improved machine loses no solution.** The state parked at a
-satisfying assignment's final node spans the whole map, is valid, and denotes
-something. -/
+/-- **The machine with the prune loses no solution.** -/
 theorem pureRunP_full_state (hwf : WF φ) (hsat : Sat a φ) :
     ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunP φ
       ∧ g.current_step = stepCount φ
       ∧ isValid g = true
       ∧ AbsSat.GraphPath.Model.Inhabited g := by
-  obtain ⟨g, hmem, hal, hcs⟩ := pureRunP_carries φ a hwf hsat
-  exact ⟨g, hmem, hcs, isValid_alongP φ a hwf hsat g hal, inhabited_alongP φ a hwf hsat g hal⟩
+  obtain ⟨g, hmem, hcs, hv, hi⟩ :=
+    pureRunF_full_state φ a (Fpin φ) hwf hsat (prunes_Fpin φ) (keepsBranch_Fpin φ a hwf hsat)
+  exact ⟨g, run_eqP φ ▸ hmem, hcs, hv, hi⟩
 
 /-- **A satisfiable formula gets a non-empty last line.** -/
 theorem pureRunP_ne_nil (hwf : WF φ) (h : Satisfiable φ) : pureRunP φ ≠ [] := by
-  obtain ⟨b, hsat⟩ := h
-  obtain ⟨g, hmem, _, _⟩ := pureRunP_carries φ b hwf hsat
-  intro hnil
-  rw [hnil] at hmem
-  exact absurd hmem List.not_mem_nil
+  have hne := pureRunF_ne_nil φ (Fpin φ) hwf (prunes_Fpin φ)
+    (fun b hb => keepsBranch_Fpin φ b hwf hb) h
+  rw [run_eqP φ] at hne
+  exact hne
 
 -- ============================================================
 -- Axiom guards

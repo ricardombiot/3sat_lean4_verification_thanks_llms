@@ -197,6 +197,76 @@ theorem chainSound_up_of_pruned (hwf : WF φ) (g gw : GPathM) (hpr : Pruned g gw
         (selOfAssign φ a g.current_step) sel k (by rw [hpf.step_eq, hgs]; omega)]
       exact hids k hk0 (by omega)
 
+-- ============================================================
+-- The same step, tracking the parents too
+-- ============================================================
+
+/-- A chain node's parent is a selected node, or it is the root. Filters that remove **nodes** (not
+only global owners) need this of the branch; the ones that only touch `gowners` carry it along. -/
+def SelParent (w : PathNodeId) : Prop :=
+  w.parent_id = none ∨ ∃ j, w.parent_id = some (selOfAssign φ a j)
+
+/-- `ConservationImproves.chainSound_up_of_pruned`, also tracking that every chain
+node's parent is a selected node. -/
+theorem chainSound_up_of_prunedP (hwf : WF φ) (g gw : GPathM) (hpr : Pruned g gw)
+    (hshape : ShapeOk g)
+    (hmp : g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j))
+    (sel : Int → PathNodeId) (hselw : ChainSound gw sel)
+    (hids : ∀ k, 0 ≤ k → k < g.current_step →
+      (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k))
+    (title : String) :
+    ∃ sel', ChainSound (upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
+          (selOfAssign φ a g.current_step) title) sel'
+      ∧ (upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
+          (selOfAssign φ a g.current_step) title).current_step = g.current_step + 1
+      ∧ ∀ k, 0 ≤ k → k < g.current_step + 1 →
+          (sel' k).id = selOfAssign φ a k ∧ SelParent φ a (sel' k) := by
+  have hgs : gw.current_step = g.current_step := hpr.step_eq
+  have hreqs : ∀ req ∈ reqOfCnf φ (selOfAssign φ a g.current_step),
+      0 ≤ req.step → req.step < gw.current_step → (sel req.step).id = req := by
+    intro req hreq hr0 hr1
+    rw [(hids req.step hr0 (by omega)).1]
+    exact reqSat_selOfAssign φ hwf a g.current_step req hreq
+  have hpf := pruned_filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))
+  have hfil : ChainSound (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))) sel :=
+    ChainSound_filterAll gw _ sel hselw hreqs
+  have hvalid : isValid (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))) = true :=
+    PickInduction.isValid_of_ChainG _ sel hfil.chain
+  have hshf : ShapeOk (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))) :=
+    ShapeOk_of_pruned (Pruned.trans hpr hpf) hshape
+  have hd : (selOfAssign φ a g.current_step).step
+      = (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))).current_step := by
+    rw [hpf.step_eq, hgs, selOfAssign_step]
+  have hshapeEq : upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
+      (selOfAssign φ a g.current_step) title
+      = addNode (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+        (selOfAssign φ a g.current_step) title := by
+    simp only [upFiltering, GPathM.up, hvalid, if_pos]
+  have hcur : (upFiltering gw (reqOfCnf φ (selOfAssign φ a g.current_step))
+      (selOfAssign φ a g.current_step) title).current_step = g.current_step + 1 := by
+    rw [hshapeEq, addNode_current, hpf.step_eq, hgs]
+  refine ⟨extend (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+    (selOfAssign φ a g.current_step) sel, ?_, hcur, ?_⟩
+  · exact ChainSound_upFiltering gw _ _ title hvalid hd hshf.1 hshf.2 sel hselw hreqs
+  · intro k hk0 hk
+    if he : k = g.current_step then
+      have hextend : extend (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+          (selOfAssign φ a g.current_step) sel g.current_step
+          = newPid (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+            (selOfAssign φ a g.current_step) := by
+        simp only [extend, if_pos (hpf.step_eq.trans hgs).symm]
+      rw [he, hextend]
+      refine ⟨rfl, ?_⟩
+      show (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))).map_parent = none ∨
+        ∃ j, (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step))).map_parent
+          = some (selOfAssign φ a j)
+      rw [hpf.map_parent_eq, hpr.map_parent_eq]
+      exact hmp
+    else
+      rw [extend_below (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+        (selOfAssign φ a g.current_step) sel k (by rw [hpf.step_eq, hgs]; omega)]
+      exact hids k hk0 (by omega)
+
 theorem stepCount_pos : (0 : Int) < stepCount φ := by
   simp only [stepCount]; omega
 
