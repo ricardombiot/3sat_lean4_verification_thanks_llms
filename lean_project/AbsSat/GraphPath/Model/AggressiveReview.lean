@@ -93,14 +93,19 @@ def aggSweep (g : GPathM) : GPathM :=
   else g
 
 /-- **The review with the aggressive sweep**: base review to its fixpoint, one sweep, and again while
-the sweep removes something. -/
+the sweep removes something.
+
+When the sweep removes nothing the result is the base review's own fixpoint `g₁` (the sweep's output
+has the same measure, so nothing was taken out). Returning `g₁` rather than the sweep's output makes
+**every result of `reviewAgg` a result of `review`** (`reviewAggFuel_form`), so everything proved
+about review fixpoints applies to it unchanged. -/
 def reviewAggFuel : Nat → GPathM → GPathM
-  | 0, g => g
+  | 0, g => review g
   | fuel + 1, g =>
     let g₁ := review g
     if isValid g₁ then
       let g₂ := aggSweep g₁
-      if measure g₂ < measure g₁ then reviewAggFuel fuel g₂ else g₂
+      if measure g₂ < measure g₁ then reviewAggFuel fuel g₂ else g₁
     else g₁
 
 def reviewAgg (g : GPathM) : GPathM := reviewAggFuel (measure g + 1) g
@@ -161,14 +166,14 @@ theorem pruned_aggSweep (g : GPathM) : Pruned g (aggSweep g) := by
 theorem pruned_reviewAggFuel : ∀ (fuel : Nat) (g : GPathM), Pruned g (reviewAggFuel fuel g) := by
   intro fuel
   induction fuel with
-  | zero => intro g; exact Pruned.refl g
+  | zero => intro g; exact pruned_review g
   | succ n ih =>
     intro g
     simp only [reviewAggFuel]
     split
     · split
       · exact Pruned.trans (pruned_review g) (Pruned.trans (pruned_aggSweep _) (ih _))
-      · exact Pruned.trans (pruned_review g) (pruned_aggSweep _)
+      · exact pruned_review g
     · exact pruned_review g
 
 theorem pruned_reviewAgg (g : GPathM) : Pruned g (reviewAgg g) := pruned_reviewAggFuel _ g
@@ -297,7 +302,7 @@ theorem ChainSound_reviewAggFuel : ∀ (fuel : Nat) (g : GPathM) (sel : Int → 
     ChainSound g sel → ChainSound (reviewAggFuel fuel g) sel := by
   intro fuel
   induction fuel with
-  | zero => intro g sel h; exact h
+  | zero => intro g sel h; exact ChainSound_review g sel h
   | succ n ih =>
     intro g sel h
     simp only [reviewAggFuel]
@@ -305,7 +310,7 @@ theorem ChainSound_reviewAggFuel : ∀ (fuel : Nat) (g : GPathM) (sel : Int → 
     split
     · split
       · exact ih _ sel (ChainSound_aggSweep _ sel h₁)
-      · exact ChainSound_aggSweep _ sel h₁
+      · exact h₁
     · exact h₁
 
 /-- **The aggressive review loses no solution.** -/

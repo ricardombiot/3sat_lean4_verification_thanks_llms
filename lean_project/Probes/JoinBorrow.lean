@@ -919,6 +919,108 @@ def runAggCompare (path : String) (φ : Cnf) : IO Unit := do
   IO.println s!"{path}: oracle SAT={oracle} | improves (base review) SAT={!base.isEmpty} {t1 - t0}ms | improves + aggressive review SAT={!agg.isEmpty} {t2 - t1}ms{if (!agg.isEmpty) != oracle then "  <-- MISMATCH" else ""}"
 
 -- ============================================================
+-- Readagg mode: the reader over the aggressive review (`ReaderAgg.PickSomeAgg`), measured
+-- ============================================================
+
+structure AStat where
+  formulas : Nat := 0
+  oracleSat : Nat := 0
+  machineSat : Nat := 0
+  verdictWrong : Nat := 0
+  states : Nat := 0
+  starts : Nat := 0
+  ok : Nat := 0
+  wrong : Nat := 0
+  stuck : Nat := 0
+  visited : Nat := 0
+  pinsTried : Nat := 0
+  invalidPins : Nat := 0
+  firstStepDead : Nat := 0
+  ex : List String := []
+
+def AStat.note (st : AStat) (e : String) : AStat :=
+  if st.ex.length < 8 then { st with ex := st.ex ++ [e] } else st
+
+open AbsSat.GraphPath.Model.AggressiveReview in
+open AbsSat.GraphPath.Model.PickInduction in
+/-- The reading loop of `ReaderAgg`: while some step has a choice, pin a map node there with the
+aggressive review and keep the first pin that leaves the graph valid (steps bottom-up, ids in node
+order, rotated by `seed`). Stuck = no valid pin at any step with a choice (`PickSomeAgg` fails). At
+the end (no choice left) a final state must spell a model. -/
+partial def readAggLoop (φ : Cnf) (final : Bool) (G : GPathM) (seed depth : Nat) (st0 : AStat) :
+    AStat := Id.run do
+  let mut st := { st0 with visited := st0.visited + 1 }
+  if !hasChoice G then
+    if !final then return { st with ok := st.ok + 1 }
+    let a : Assign := fun v => (valuesAt G (2 * (v : Int))).head? == some 1
+    if satB a φ then return { st with ok := st.ok + 1 }
+    return ({ st with wrong := st.wrong + 1 } : AStat).note s!"no choice left, but not a model (depth {depth})"
+  let ks := (intRange 0 (G.current_step - 1)).filter (choiceAt G)
+  let mut found : Option GPathM := none
+  let mut firstK := true
+  for k in ks do
+    if found.isNone then
+      let ids0 := ((ownersAt G.gowners k).map (·.id)).eraseDups
+      let ids := if seed == 0 || ids0.isEmpty then ids0 else (ids0.drop ((seed + depth) % ids0.length) ++ ids0.take ((seed + depth) % ids0.length))
+      for id in ids do
+        if found.isNone then
+          let G' := filterAllAgg G [id]
+          st := { st with pinsTried := st.pinsTried + 1 }
+          if isValid G' then found := some G'
+          else st := { st with invalidPins := st.invalidPins + 1 }
+      if found.isNone && firstK then st := { st with firstStepDead := st.firstStepDead + 1 }
+      firstK := false
+  match found with
+  | some G' => return readAggLoop φ final G' seed (depth + 1) st
+  | none =>
+    return ({ st with stuck := st.stuck + 1 } : AStat).note
+      s!"PickSomeAgg FAILS: depth {depth}, step {G.current_step}, nodes {G.nodes.length}, choice steps {ks.length}"
+
+open AbsSat.GraphPath.Model.AggressiveReview in
+open AbsSat.GraphPath.Model.PureDriverImproves in
+open AbsSat.GraphMap.CnfMapImproves in
+/-- Every line of the Improves driver with the aggressive review. -/
+def aggLines (φ : Cnf) : List PureLine := Id.run do
+  let mut line := pureInit φ
+  let mut out := [line]
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := line.foldl (fun next kv =>
+      (mapSons φ kv.1.step kv.1.index).foldl (fun next d =>
+        let h := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid h then insertPure next d h else next) next) []
+    out := out ++ [line]
+  return out
+
+open AbsSat.GraphPath.Model.AggressiveReview in
+/-- Run the reader from every final state (`allLines = false`) or from every state of every line. -/
+def readAggFormula (φ : Cnf) (st0 : AStat) (nPaths : Nat) (allLines : Bool) : AStat := Id.run do
+  let lines := aggLines φ
+  let finalLine := lines.getLastD []
+  let oracle := !(AbsSat.Cnf.bruteForceSat φ).isEmpty
+  let mut st : AStat := { st0 with formulas := st0.formulas + 1 }
+  if oracle then st := { st with oracleSat := st.oracleSat + 1 }
+  if !finalLine.isEmpty then st := { st with machineSat := st.machineSat + 1 }
+  if oracle == finalLine.isEmpty then
+    st := ({ st with verdictWrong := st.verdictWrong + 1 } : AStat).note s!"VERDICT WRONG (oracle SAT={oracle})"
+  let n := lines.length
+  let mut i := 0
+  for line in lines do
+    i := i + 1
+    let final := i == n
+    if allLines || final then
+      for kv in line do
+        let G := filterAllAgg kv.2 []
+        st := { st with states := st.states + 1 }
+        if isValid G then
+          for seed in List.range (if final then nPaths else 1) do
+            st := readAggLoop φ final G seed 0 { st with starts := st.starts + 1 }
+  return st
+
+def reportA (name : String) (st : AStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: formulas={st.formulas} oracleSAT={st.oracleSat} machineSAT={st.machineSat} verdictWrong={st.verdictWrong} | states={st.states} readerRuns={st.starts} ok={st.ok} STUCK={st.stuck} WRONG={st.wrong} | visited={st.visited} pins={st.pinsTried} invalidPins={st.invalidPins} firstChoiceStepDead={st.firstStepDead} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
 -- Entry point
 -- ============================================================
 
@@ -945,6 +1047,32 @@ def main (args : List String) : IO Unit := do
   let args := if top then args.drop 1 else args
   let run (φ : Cnf) (a : Acc) : Acc := if top then runTop φ a 300000 else runFormula φ a 20000
   match args with
+  | "readagg" :: "random" :: cases :: nvMin :: nPaths :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : AStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := readAggFormula φ st nPaths.toNat! false
+      let t1 ← IO.monoMsNow
+      reportA s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "readagg" :: "all" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => readAggFormula φ {} 1 true)
+        let t1 ← IO.monoMsNow
+        reportA s!"{path} [all lines]" st (t1 - t0)
+  | "readagg" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => readAggFormula φ {} 5 false)
+        let t1 ← IO.monoMsNow
+        reportA path st (t1 - t0)
   | "agg" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let mut i := 0
