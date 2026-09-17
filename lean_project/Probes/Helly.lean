@@ -1191,6 +1191,9 @@ structure JStat where
   sharedChoices : Nat := 0
   sharedLost : Nat := 0
   sharedKeptBoth : Nat := 0
+  topOneSide : Nat := 0
+  topBothSides : Nat := 0
+  topSharedOnly : Nat := 0
   ex : List String := []
 
 /-- Every join the Improves driver performs: under no pin and under every single pin of a step with a
@@ -1225,12 +1228,27 @@ def joinCensus (e h : GPathM) (st0 : JStat) : JStat := Id.run do
       if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"JOIN VALID, BOTH SIDES INVALID under {C.map (fun r => s!"{r.step}.{r.index}")} (cs {cs})"] }
     for m in FJ.nodes do
       if (n1.contains m.id) && (n2.contains m.id) then st := { st with sharedNodes := st.sharedNodes + 1 }
+    -- the two top nodes of the join: same map node, different parents, one per side
+    -- top-step nodes of the join, split by which side actually has them
+    let topNodes := FJ.nodes.filter (fun m => m.id.id.step == cs - 1)
+    let tops1 : List (Std.HashSet PathNodeId) :=
+      (topNodes.filter (fun m => n1.contains m.id && !n2.contains m.id)).map
+        (fun m => Std.HashSet.ofList m.owners)
+    let tops2 : List (Std.HashSet PathNodeId) :=
+      (topNodes.filter (fun m => n2.contains m.id && !n1.contains m.id)).map
+        (fun m => Std.HashSet.ofList m.owners)
     let mut borrowed := 0
     for q in FJ.gowners do
       st := { st with gownersChecked := st.gownersChecked + 1 }
       -- which side had this choice before the join?
       let in1 := r1.contains q
       let in2 := r2.contains q
+      -- does q own a top node exclusive to side 1? to side 2?
+      let t1q := tops1.any (fun o => o.contains q)
+      let t2q := tops2.any (fun o => o.contains q)
+      if t1q && t2q then st := { st with topBothSides := st.topBothSides + 1 }
+      else if t1q || t2q then st := { st with topOneSide := st.topOneSide + 1 }
+      else st := { st with topSharedOnly := st.topSharedOnly + 1 }
       if in1 && in2 then
         st := { st with sharedChoices := st.sharedChoices + 1 }
         if g1.contains q && g2.contains q then
@@ -1267,7 +1285,7 @@ def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   return st
 
 def reportJ (name : String) (st : JStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} constraints={st.constraints} joinValid={st.joinValid} BOTH_SIDES_INVALID={st.bothSidesInvalid} gownersChecked={st.gownersChecked} BORROWED_GOWNERS={st.borrowedGowners} (in {st.constraintsWithBorrow} constraints) | sharedNodes={st.sharedNodes} exclusive={st.exclChoices} EXCLUSIVE_LOST={st.exclLost} shared={st.sharedChoices} SHARED_LOST={st.sharedLost} sharedKeptBoth={st.sharedKeptBoth} | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} constraints={st.constraints} joinValid={st.joinValid} BOTH_SIDES_INVALID={st.bothSidesInvalid} gownersChecked={st.gownersChecked} BORROWED_GOWNERS={st.borrowedGowners} (in {st.constraintsWithBorrow} constraints) | sharedNodes={st.sharedNodes} exclusive={st.exclChoices} EXCLUSIVE_LOST={st.exclLost} shared={st.sharedChoices} SHARED_LOST={st.sharedLost} sharedKeptBoth={st.sharedKeptBoth} topOneSide={st.topOneSide} TOP_BOTH_SIDES={st.topBothSides} topSharedOnly={st.topSharedOnly} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do

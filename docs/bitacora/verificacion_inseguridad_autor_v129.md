@@ -58,14 +58,39 @@ La parte que **sí** sale la he formalizado, para que el hueco quede aislado en 
   nodos en ese lado.
 
 Es el mismo hecho que `no_chain_across_sides` daba para las cadenas parciales: **una elección de la
-unión no puede mezclar nodos de los dos lados**. Lo que queda de `JoinSplit` es, en consecuencia, dos
-cosas y solo dos:
+unión no puede mezclar nodos de los dos lados**.
 
-1. las **entradas** de owners en los nodos que los dos lados comparten, donde `mergeNode` une las
-   tablas — y decidir si una entrada aportada solo por la historia del otro lado puede sostener un par;
-2. las elecciones que **ya tenían los dos lados**, donde no hay lado privilegiado.
+### El criterio: el lado se lee del paso alto
 
-La primera es la exactitud del punto fijo de la sección 3. La segunda es medible y no la he medido aún.
+Medí el caso que el lema anterior no cubre —elecciones que **ya tenían los dos lados**— y el resultado
+da un criterio, no solo una estadística. En Tseitin K4 par, 32 uniones, 896 restricciones, 27.670
+elecciones que sobreviven:
+
+| clasificación por el nodo alto que posee | elecciones |
+|---|---|
+| nodo alto exclusivo de **un solo** lado | 24.637 |
+| nodos altos exclusivos de **los dos** lados | 3.033 |
+| ningún nodo alto exclusivo | **0** |
+
+Y el dato que lo convierte en criterio: esos 3.033 son **exactamente** las elecciones que sobreviven en
+los dos lados restringidos. Ni una más. Es decir: **una elección sobrevive en el lado *i* si y solo si
+posee un nodo alto exclusivo del lado *i***, y nunca se queda sin lado.
+
+Eso está demostrado como reparto de nodos, y para el 100% de los casos:
+
+- `slice_of_exclusive_top`: la rebanada de un nodo que un lado **no tiene** está entera en el otro
+  lado. Aplicado a un nodo del paso alto —y cada uno pertenece a un solo lado, porque un envío añade
+  un nodo y el `join` conserva los dos— da el lado de cualquier elección: toda elección que sobrevive
+  posee algún nodo alto (su registro es válido, así que tiene owner en cada paso) y, por la simetría
+  del barrido, pertenece a la rebanada de ese nodo.
+- `slice_side_of_tops`: si **todos** los nodos altos que posee una elección son de un lado, su propia
+  rebanada está entera en ese lado. Aquí el barrido simétrico hace el trabajo: obliga a cada miembro
+  de la rebanada a compartir owner con la elección en *todos* los pasos, el alto incluido.
+
+Lo que queda de `JoinSplit`, con el lado ya elegido y sus nodos ya situados, son las **entradas** de
+owners: el soporte de la rebanada vive en las tablas de la unión, y hay que llevarlo a las tablas del
+lado. Ahí vuelve a hacer falta el testigo de trío de la sección 3 —para la condición de padres, un
+padre común a la elección, a su owner y al nodo alto— y por eso el obstáculo sigue siendo uno solo.
 
 ## 5. Una opción de diseño, tu decisión
 
@@ -83,5 +108,5 @@ del mapa de origen), que es mucho más barata.
 
 1. **El obstáculo único**: pasar de pares a tríos en el punto fijo del review. En cualquiera de sus tres
    formas; la del `join` es la más local.
-2. **Medir** el caso de elecciones compartidas por los dos lados (punto 2 de la sección 4).
+2. **Confirmar el criterio** en más familias (las aleatorias están en marcha).
 3. **O la vía de diseño** de la sección 5, si decides que el coste es aceptable.
