@@ -1080,6 +1080,101 @@ def reportC (name : String) (st : CStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: states={st.states} nodes={st.nodes} NODES_WITHOUT_CHAIN={st.nodesNoChain} ownerPairs={st.pairs} PAIRS_WITHOUT_CHAIN={st.pairsNoChain} statesWithNoChainAtAll={st.statesNoChainAtAll} truncatedSearches={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+/-- One advance of the Improves driver (the same step `aggLines` iterates). -/
+def advanceLine (φ : Cnf) (line : PureLine) : PureLine :=
+  line.foldl (fun next kv =>
+    (mapSons φ kv.1.step kv.1.index).foldl (fun next d =>
+      let h := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+      if isValid h then insertPure next d h else next) next) []
+
+structure KStat where
+  pins : Nat := 0
+  bothValid : Nat := 0
+  bothInvalid : Nat := 0
+  pinValidRunNot : Nat := 0
+  runValidPinNot : Nat := 0
+  nodesEqual : Nat := 0
+  pinExtraNodes : Nat := 0
+  runExtraNodes : Nat := 0
+  ownersEqual : Nat := 0
+  pinExtraOwners : Nat := 0
+  runExtraOwners : Nat := 0
+  ex : List String := []
+
+/-- Pinning `q` in a final state versus running the machine on the branch of `q` alone. -/
+def runCommute (φ : Cnf) (st0 : KStat) : KStat := Id.run do
+  let lines := aggLines φ
+  let n := lines.length
+  let mut st := st0
+  let lineArr := lines.toArray
+  match lines.getLast? with
+  | none => return st
+  | some final =>
+    -- restricted runs, cached by pin
+    let mut cache : Std.HashMap NodeId PureLine := {}
+    for kv in final do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      let cs := G.current_step
+      for i in [0:cs.toNat] do
+        let k : Int := Int.ofNat i
+        let ids := ((G.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+        if ids.length ≤ 1 then continue
+        for q in ids do
+          st := { st with pins := st.pins + 1 }
+          let restricted ← match cache.get? q with
+            | some r => pure r
+            | none =>
+              let start := (lineArr[q.step.toNat]!).filter (fun e => e.1 == q)
+              let mut line := start
+              for _ in [0:(n - 1 - q.step.toNat)] do
+                line := advanceLine φ line
+              pure line
+          cache := cache.insert q restricted
+          let Fq := filterAllAgg G [q]
+          let runState := (restricted.find? (fun e => e.1 == kv.1)).map (fun e => filterAllAgg e.2 [])
+          let pv := isValid Fq
+          let rv := match runState with | some r => isValid r | none => false
+          if pv && rv then st := { st with bothValid := st.bothValid + 1 }
+          else if !pv && !rv then st := { st with bothInvalid := st.bothInvalid + 1 }
+          else if pv then
+            st := { st with pinValidRunNot := st.pinValidRunNot + 1 }
+            if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"PIN VALID, RUN NOT: pin {q.step}.{q.index} final key {kv.1.step}.{kv.1.index}"] }
+          else
+            st := { st with runValidPinNot := st.runValidPinNot + 1 }
+            if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"RUN VALID, PIN NOT: pin {q.step}.{q.index} final key {kv.1.step}.{kv.1.index}"] }
+          if pv && rv then
+            match runState with
+            | none => pure ()
+            | some r =>
+              let a : Std.HashSet PathNodeId := Std.HashSet.ofList (Fq.nodes.map (·.id))
+              let b : Std.HashSet PathNodeId := Std.HashSet.ofList (r.nodes.map (·.id))
+              let ea := Fq.nodes.filter (fun m => !b.contains m.id)
+              let eb := r.nodes.filter (fun m => !a.contains m.id)
+              if ea.isEmpty && eb.isEmpty then st := { st with nodesEqual := st.nodesEqual + 1 }
+              st := { st with pinExtraNodes := st.pinExtraNodes + ea.length, runExtraNodes := st.runExtraNodes + eb.length }
+              if (!ea.isEmpty || !eb.isEmpty) && st.ex.length < 8 then
+                st := { st with ex := st.ex ++ [s!"NODE SETS DIFFER pin {q.step}.{q.index} key {kv.1.step}.{kv.1.index}: pin-only {ea.length} run-only {eb.length}"] }
+              let ta : Std.HashMap PathNodeId (Std.HashSet PathNodeId) := Fq.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+              let tb : Std.HashMap PathNodeId (Std.HashSet PathNodeId) := r.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+              let mut xa := 0
+              let mut xb := 0
+              for m in Fq.nodes do
+                match tb.get? m.id with
+                | none => pure ()
+                | some ob => for w in m.owners do if a.contains w && b.contains w && !ob.contains w then xa := xa + 1
+              for m in r.nodes do
+                match ta.get? m.id with
+                | none => pure ()
+                | some oa => for w in m.owners do if a.contains w && b.contains w && !oa.contains w then xb := xb + 1
+              if xa == 0 && xb == 0 then st := { st with ownersEqual := st.ownersEqual + 1 }
+              st := { st with pinExtraOwners := st.pinExtraOwners + xa, runExtraOwners := st.runExtraOwners + xb }
+    return st
+
+def reportK (name : String) (st : KStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} bothValid={st.bothValid} bothInvalid={st.bothInvalid} PIN_VALID_RUN_NOT={st.pinValidRunNot} RUN_VALID_PIN_NOT={st.runValidPinNot} | node sets equal={st.nodesEqual} pin-only nodes={st.pinExtraNodes} run-only nodes={st.runExtraNodes} | owner tables equal={st.ownersEqual} pin-only entries={st.pinExtraOwners} run-only entries={st.runExtraOwners} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do
   let lines := aggLines φ
   let n := lines.length
@@ -1146,6 +1241,23 @@ def main (args : List String) : IO Unit := do
         let t1 ← IO.monoMsNow
         IO.println s!"spc {path}: pins={st.pins} carriers(1,2,3,4,5+)={st.carriers.toList.drop 1} | interior E pairs={st.ePairsInterior} nonSPC={st.nonSpcInterior} (fail only at pinned step {st.failOnlyAtPinned}) SPC={st.spcInterior} | triangles={st.triangles} TRIANGLE_FAIL={st.triangleFail} | cells={st.cells} CELLS_NO_HALF={st.cellsNoHalf} witnesses={st.witnesses} both={st.witBoth} xOnly={st.witXonly} vOnly={st.witVonly} none={st.witNone} | boundaryPins={st.boundaryPins} xOnly with boundary pin={st.badPinBoundary} | failing steps of SPC v z: atPinned={st.badAtPinned} between={st.badBetween} outside={st.badOutside} atStep0orTop={st.badAtBoundaryStep} distOutside(0..7+)={st.badDist.toList} | {t1 - t0}ms"
         for e in st.ex do IO.println s!"  EX {e}"
+  | "commute" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : KStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runCommute φ st
+      let t1 ← IO.monoMsNow
+      reportK s!"commute seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "commute" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runCommute φ {})
+        let t1 ← IO.monoMsNow
+        reportK s!"commute {path}" st (t1 - t0)
   | "chains" :: mode :: walks :: depth :: paths =>
     for path in paths do
       match ← loadCnf path with
