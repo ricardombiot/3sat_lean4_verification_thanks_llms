@@ -1295,7 +1295,8 @@ def tripleCensus (g : GPathM) (st0 : TStat) : TStat := Id.run do
       for z in tops do
         if no.contains z then
           let zo := tbl.getD z {}
-          for v in n.owners do
+          -- `par` is only needed inside the slice of the anchor: `v` must own `z` too
+          for v in n.owners.filter (fun v => zo.contains v) do
             st := { st with checks := st.checks + 1 }
             let vo := tbl.getD v {}
             if !(n.parents.any (fun c => vo.contains c && zo.contains c)) then
@@ -1316,6 +1317,22 @@ def runTriples (φ : Cnf) (allLines : Bool) (st0 : TStat) : TStat := Id.run do
       for kv in line do
         let G := filterAllAgg kv.2 []
         if isValid G then st := tripleCensus G st
+  return st
+
+/-- The same census, but on the state the proof actually uses: the one with the anchor's map node
+pinned. `par` is needed there, not in the unpinned state. -/
+def runTriplesPinned (φ : Cnf) (st0 : TStat) : TStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  for line in lines do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then
+        let cs := G.current_step
+        let tops := ((G.nodes.filter (fun m => m.id.id.step == cs - 1)).map (·.id.id)).eraseDups
+        for t in tops do
+          let B := filterAllAgg G [t]
+          if isValid B then st := tripleCensus B st
   return st
 
 def reportT (name : String) (st : TStat) (ms : Nat) : IO Unit := do
@@ -1426,6 +1443,15 @@ def main (args : List String) : IO Unit := do
         st := runTriples φ true st
       let t1 ← IO.monoMsNow
       reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "triplesPin" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runTriplesPinned φ {})
+        let t1 ← IO.monoMsNow
+        reportT s!"triplesPin {path}" st (t1 - t0)
   | "triples" :: paths =>
     for path in paths do
       match ← loadCnf path with
