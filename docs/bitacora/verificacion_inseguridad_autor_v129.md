@@ -63,18 +63,19 @@ unión no puede mezclar nodos de los dos lados**.
 ### El criterio: el lado se lee del paso alto
 
 Medí el caso que el lema anterior no cubre —elecciones que **ya tenían los dos lados**— y el resultado
-da un criterio, no solo una estadística. En Tseitin K4 par, 32 uniones, 896 restricciones, 27.670
-elecciones que sobreviven:
+da un criterio, no solo una estadística. En Tseitin K4 par (32 uniones, 896 restricciones, 27.670 elecciones que
+sobreviven) y en 20 fórmulas aleatorias de 6–8 variables (2.473.189 elecciones):
 
-| clasificación por el nodo alto que posee | elecciones |
-|---|---|
-| nodo alto exclusivo de **un solo** lado | 24.637 |
-| nodos altos exclusivos de **los dos** lados | 3.033 |
-| ningún nodo alto exclusivo | **0** |
+| clasificación por el nodo alto que posee | K4 par | aleatorias (semilla 1001, 20 fórmulas) |
+|---|---|---|
+| nodo alto exclusivo de **un solo** lado | 24.637 | 1.980.653 |
+| nodos altos exclusivos de **los dos** lados | 3.033 | 492.536 |
+| ningún nodo alto exclusivo | **0** | **0** |
+| sobreviven en **los dos** lados restringidos | **3.033** | **492.536** |
 
-Y el dato que lo convierte en criterio: esos 3.033 son **exactamente** las elecciones que sobreviven en
-los dos lados restringidos. Ni una más. Es decir: **una elección sobrevive en el lado *i* si y solo si
-posee un nodo alto exclusivo del lado *i***, y nunca se queda sin lado.
+Las dos últimas filas coinciden al dígito en las dos familias (2.442 uniones y 66.835 restricciones en
+las aleatorias). Es decir: **una elección sobrevive en el lado *i* si y solo si posee un nodo alto
+exclusivo del lado *i***, y nunca se queda sin lado. Ni un contraejemplo en 2,5 millones de casos.
 
 Eso está demostrado como reparto de nodos, y para el 100% de los casos:
 
@@ -108,5 +109,5 @@ del mapa de origen), que es mucho más barata.
 
 1. **El obstáculo único**: pasar de pares a tríos en el punto fijo del review. En cualquiera de sus tres
    formas; la del `join` es la más local.
-2. **Confirmar el criterio** en más familias (las aleatorias están en marcha).
+2. **Confirmado** el criterio en aleatorias (2,5 M de elecciones, coincidencia exacta); quedan `par_k3`, `par_k5` y K4 menos una arista.
 3. **O la vía de diseño** de la sección 5, si decides que el coste es aceptable.
