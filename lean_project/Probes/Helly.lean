@@ -980,6 +980,106 @@ def reportW (name : String) (st : WStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: walks={st.walks} states={st.states} withChoice={st.choiceStates} pins={st.pins} INVALID={st.invalidPins} inexact={st.inexactPins} (boundary {st.inexactBoundaryPins}, INTERIOR {st.inexactInteriorPins}) | states: interior choice={st.statesInteriorChoice} (NO_EXACT_INTERIOR {st.statesInteriorChoiceNoExactInterior}) only-boundary choice={st.statesOnlyBoundaryChoice} (NO_EXACT {st.statesOnlyBoundaryNoExact}) STATES_NO_EXACT={st.statesNoExact} STATES_NO_VALID={st.statesNoValidPin} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+/-- Is there a full chain (one node per step, pairwise mutual owners) through the chosen nodes?
+Branches on the remaining step with fewest candidates; the state counts search nodes left. -/
+partial def goClique (own : Std.HashMap PathNodeId (Std.HashSet PathNodeId))
+    (byStep : Std.HashMap Int (Array PathNodeId)) (chosen : List PathNodeId) (rem : List Int) :
+    StateM Nat Bool := do
+  match rem with
+  | [] => return true
+  | _ =>
+    let budget ← get
+    if budget == 0 then return false
+    set (budget - 1)
+    let cands := rem.map (fun l => (l, (byStep.getD l #[]).filter (fun c =>
+      chosen.all (fun y => (own.getD y {}).contains c && (own.getD c {}).contains y))))
+    if cands.any (fun p => p.2.isEmpty) then return false
+    match cands with
+    | [] => return true
+    | first :: rest =>
+      let best := rest.foldl (fun acc p => if p.2.size < acc.2.size then p else acc) first
+      let rem' := rem.filter (· != best.1)
+      for c in best.2 do
+        if ← goClique own byStep (c :: chosen) rem' then return true
+      return false
+
+structure CStat where
+  states : Nat := 0
+  nodes : Nat := 0
+  nodesNoChain : Nat := 0
+  pairs : Nat := 0
+  pairsNoChain : Nat := 0
+  truncated : Nat := 0
+  statesNoChainAtAll : Nat := 0
+  ex : List String := []
+
+def chainCensus (G : GPathM) (tag : String) (st0 : CStat) : CStat := Id.run do
+  let mut st := { st0 with states := st0.states + 1 }
+  let cs := G.current_step
+  let own : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    G.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let byStep : Std.HashMap Int (Array PathNodeId) :=
+    G.nodes.foldl (fun acc m => acc.insert m.id.id.step ((acc.getD m.id.id.step #[]).push m.id)) {}
+  let steps : List Int := (List.range cs.toNat).map (fun (s : Nat) => Int.ofNat s)
+  let budget := 200000
+  let mut anyChain := false
+  for m in G.nodes do
+    let x := m.id
+    st := { st with nodes := st.nodes + 1 }
+    let (ok, left) := (goClique own byStep [x] (steps.filter (· != x.id.step))).run budget
+    if left == 0 && !ok then st := { st with truncated := st.truncated + 1 }
+    if ok then anyChain := true
+    else
+      st := { st with nodesNoChain := st.nodesNoChain + 1 }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"NODE WITHOUT CHAIN {showPid x} ({tag}, cs {cs})"] }
+    for w in m.owners do
+      if w.id.step ≤ x.id.step then continue
+      if !((own.getD w {}).contains x) then continue
+      st := { st with pairs := st.pairs + 1 }
+      let (ok2, left2) := (goClique own byStep [x, w] (steps.filter (fun l => l != x.id.step && l != w.id.step))).run budget
+      if left2 == 0 && !ok2 then st := { st with truncated := st.truncated + 1 }
+      if !ok2 then
+        st := { st with pairsNoChain := st.pairsNoChain + 1 }
+        if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"PAIR WITHOUT CHAIN {showPid x} {showPid w} ({tag}, cs {cs})"] }
+  if !anyChain && !G.nodes.isEmpty then st := { st with statesNoChainAtAll := st.statesNoChainAtAll + 1 }
+  return st
+
+/-- Base states of every line (or the last), and optionally reader walks from them. -/
+def runChains (φ : Cnf) (allLines : Bool) (walks depth seed : Nat) (st0 : CStat) : CStat := Id.run do
+  let lines := aggLines φ
+  let n := lines.length
+  let mut st := st0
+  let mut rng := seed
+  let mut i := 0
+  for line in lines do
+    i := i + 1
+    if !(allLines || i == n) then continue
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      st := chainCensus G s!"line {i - 1} base" st
+      for _ in [0:walks] do
+        let mut H := G
+        for d in [0:depth] do
+          let cs := H.current_step
+          let mut cands : List NodeId := []
+          for j in [0:cs.toNat] do
+            let k : Int := Int.ofNat j
+            let ids := ((H.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+            if ids.length > 1 then cands := cands ++ ids
+          if cands.isEmpty then break
+          rng := (rng * 1103515245 + 12345) % 2147483648
+          let pick := cands.getD (rng % cands.length) { step := 0, index := 0 }
+          let H' := filterAllAgg H [pick]
+          if !isValid H' then break
+          H := H'
+          st := chainCensus H s!"line {i - 1} reader depth {d + 1}" st
+  return st
+
+def reportC (name : String) (st : CStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} nodes={st.nodes} NODES_WITHOUT_CHAIN={st.nodesNoChain} ownerPairs={st.pairs} PAIRS_WITHOUT_CHAIN={st.pairsNoChain} statesWithNoChainAtAll={st.statesNoChainAtAll} truncatedSearches={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do
   let lines := aggLines φ
   let n := lines.length
@@ -1046,6 +1146,23 @@ def main (args : List String) : IO Unit := do
         let t1 ← IO.monoMsNow
         IO.println s!"spc {path}: pins={st.pins} carriers(1,2,3,4,5+)={st.carriers.toList.drop 1} | interior E pairs={st.ePairsInterior} nonSPC={st.nonSpcInterior} (fail only at pinned step {st.failOnlyAtPinned}) SPC={st.spcInterior} | triangles={st.triangles} TRIANGLE_FAIL={st.triangleFail} | cells={st.cells} CELLS_NO_HALF={st.cellsNoHalf} witnesses={st.witnesses} both={st.witBoth} xOnly={st.witXonly} vOnly={st.witVonly} none={st.witNone} | boundaryPins={st.boundaryPins} xOnly with boundary pin={st.badPinBoundary} | failing steps of SPC v z: atPinned={st.badAtPinned} between={st.badBetween} outside={st.badOutside} atStep0orTop={st.badAtBoundaryStep} distOutside(0..7+)={st.badDist.toList} | {t1 - t0}ms"
         for e in st.ex do IO.println s!"  EX {e}"
+  | "chains" :: mode :: walks :: depth :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runChains φ (mode == "all") walks.toNat! depth.toNat! 17 {})
+        let t1 ← IO.monoMsNow
+        reportC s!"chains {mode} {path} (walks {walks}, depth {depth})" st (t1 - t0)
+  | "chainsr" :: mode :: walks :: depth :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : CStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runChains φ (mode == "all") walks.toNat! depth.toNat! seed st
+      let t1 ← IO.monoMsNow
+      reportC s!"chains {mode} seed {seed} ({cases} formulas, {nvMin}+ vars, walks {walks}, depth {depth})" st (t1 - t0)
   | "walk" :: "all" :: walks :: seed :: paths =>
     for path in paths do
       match ← loadCnf path with
