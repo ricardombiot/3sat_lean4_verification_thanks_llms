@@ -58,10 +58,9 @@ cerrarse.
 `aggPair` hace exactamente eso, y `aggNode`/`aggSweep` recorren **todos** los pasos,
 `current_step − 1 … 0`.
 
-**Un detalle del rango.** En tu Julia los dos bucles van `current_step-1:-1:1`: el paso 0 sigue fuera.
-Me dijiste que el barrido debe recorrer todos los pasos, así que el espejo baja hasta 0. Es la misma
-situación que `review_owners_sons_parents!` en v48, donde saltarse el paso 0 era un error. Para que
-Julia y Lean coincidan, en Julia basta cambiar el `1` final por `0` en los dos bucles.
+**Rango.** En Julia los rangos empiezan en 1, así que `current_step-1:-1:1` ya recorre todos los
+pasos; en Lean, con pasos desde 0, es `current_step − 1 … 0`. (Una primera versión de este informe
+decía que Julia se saltaba el paso 0: era un error mío, corregido en v122.)
 
 Todo lo que dependía del barrido se ha adaptado y compila: conservación de cadenas
 (`ChainSound_aggPair`, nada de una solución se pierde), `Keeps`, `AggInvariants`, `AnchoredSurvive`,
@@ -120,4 +119,3 @@ estado final de pureRunW                           MInv (+ SMP, PMS, SN)        
 2. **Repetir las sondas con el barrido nuevo**: `rounds`, `gfpE`, `hered`, `walk` en aleatorias y en
    familias mayores. Si el borde deja de hacer rondas, `SPC` en todos los pasos sería el soporte entero
    y la pregunta de v120 queda en una sola pieza.
-3. **Alinear el rango en Julia** (paso 0), si estás de acuerdo.

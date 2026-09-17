@@ -476,10 +476,8 @@ def roundsCensus (G : GPathM) (st0 : RStat) : RStat := Id.run do
               let par := x.parent_id.isNone || nx.parents.any (fun c => rel x c && rel c x && rel c v)
               let son := x.id.step == cs - 1 ||
                 (children.getD x #[]).any (fun c => rel x c && rel c x && rel c v)
-              let failSteps := if inner x && inner v then
-                  steps.filter (fun l => !nx.owners.any (fun z => z.id.step == l && rel x z && rel v z))
-                else []
-              let agg := failSteps.isEmpty
+              let failSteps := steps.filter (fun l => !nx.owners.any (fun z => z.id.step == l && rel x z && rel v z))
+              let agg := failSteps.isEmpty && rel v x
               if par && son && agg then
                 R1 := R1.insert (x, v)
               else
@@ -566,7 +564,7 @@ def heredCensus (G : GPathM) (st0 : HerStat) : HerStat := Id.run do
   let cs := G.current_step
   let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
   let steps : List Int := (List.range cs.toNat).map (fun (s : Nat) => Int.ofNat s)
-  let inner := fun (p : PathNodeId) => 1 ≤ p.id.step && p.id.step ≤ cs - 2
+  let _inner := fun (p : PathNodeId) => 1 ≤ p.id.step && p.id.step ≤ cs - 2
   for i in [0:cs.toNat] do
     let k : Int := Int.ofNat i
     let gk := G.gowners.filter (fun q => q.id.step == k)
@@ -589,14 +587,14 @@ def heredCensus (G : GPathM) (st0 : HerStat) : HerStat := Id.run do
             if E m.id v && steps.all (fun l => !(wit m.id v l).isEmpty) then
               SPC := SPC.insert (m.id, v)
         for (x, v) in SPC.toList do
-          if inner x && inner v then
+          if true then
             st := { st with r1Pairs := st.r1Pairs + 1 }
             for l in steps do
               let ws := wit x v l
               let mut good := false
               for z in ws do
                 st := { st with witnesses := st.witnesses + 1 }
-                if !(inner z) || (SPC.contains (x, z) && SPC.contains (v, z)) then good := true
+                if SPC.contains (x, z) && SPC.contains (v, z) then good := true
                 else
                   st := { st with badWitnesses := st.badWitnesses + 1 }
                   if st.ex.length < 6 then
@@ -966,6 +964,18 @@ def runWalk (φ : Cnf) (walks seed : Nat) (st0 : WStat) : WStat := Id.run do
         sd := sd + 7919
   return st
 
+def runWalkAll (φ : Cnf) (walks seed : Nat) (st0 : WStat) : WStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  let mut sd := seed
+  for line in lines do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then
+        st := walkCensus G walks sd st
+        sd := sd + 7919
+  return st
+
 def reportW (name : String) (st : WStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: walks={st.walks} states={st.states} withChoice={st.choiceStates} pins={st.pins} INVALID={st.invalidPins} inexact={st.inexactPins} (boundary {st.inexactBoundaryPins}, INTERIOR {st.inexactInteriorPins}) | states: interior choice={st.statesInteriorChoice} (NO_EXACT_INTERIOR {st.statesInteriorChoiceNoExactInterior}) only-boundary choice={st.statesOnlyBoundaryChoice} (NO_EXACT {st.statesOnlyBoundaryNoExact}) STATES_NO_EXACT={st.statesNoExact} STATES_NO_VALID={st.statesNoValidPin} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
@@ -1036,6 +1046,15 @@ def main (args : List String) : IO Unit := do
         let t1 ← IO.monoMsNow
         IO.println s!"spc {path}: pins={st.pins} carriers(1,2,3,4,5+)={st.carriers.toList.drop 1} | interior E pairs={st.ePairsInterior} nonSPC={st.nonSpcInterior} (fail only at pinned step {st.failOnlyAtPinned}) SPC={st.spcInterior} | triangles={st.triangles} TRIANGLE_FAIL={st.triangleFail} | cells={st.cells} CELLS_NO_HALF={st.cellsNoHalf} witnesses={st.witnesses} both={st.witBoth} xOnly={st.witXonly} vOnly={st.witVonly} none={st.witNone} | boundaryPins={st.boundaryPins} xOnly with boundary pin={st.badPinBoundary} | failing steps of SPC v z: atPinned={st.badAtPinned} between={st.badBetween} outside={st.badOutside} atStep0orTop={st.badAtBoundaryStep} distOutside(0..7+)={st.badDist.toList} | {t1 - t0}ms"
         for e in st.ex do IO.println s!"  EX {e}"
+  | "walk" :: "all" :: walks :: seed :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runWalkAll φ walks.toNat! seed.toNat! {})
+        let t1 ← IO.monoMsNow
+        reportW s!"walk all lines {path}" st (t1 - t0)
   | "walk" :: "random" :: walks :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow

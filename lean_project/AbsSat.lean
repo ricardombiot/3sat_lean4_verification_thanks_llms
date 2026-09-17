@@ -148,6 +148,8 @@ import AbsSat.GraphPath.Model.SliceSupport
 import AbsSat.GraphPath.Model.AggInvariants
 import AbsSat.GraphPath.Model.SliceExact
 import AbsSat.GraphPath.Model.PinExactSome
+import AbsSat.GraphPath.Model.AdjacentOwners
+import AbsSat.GraphPath.Model.SpcSupport
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
