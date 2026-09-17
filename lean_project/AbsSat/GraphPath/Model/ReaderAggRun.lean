@@ -5,6 +5,7 @@ import AbsSat.GraphPath.Model.PrefixDecode
 import AbsSat.GraphPath.Model.ParentOwners
 import AbsSat.GraphPath.Model.SymTriReview
 import AbsSat.GraphPath.Model.AnchoredSurvive
+import AbsSat.GraphPath.Model.AggInvariants
 
 /-!
 # The reader on the Improves machine: validity of the verdict reduced to one pin
@@ -66,6 +67,8 @@ structure MInv (g : GPathM) : Prop where
   back : ReqBack φ g
   onMap : NodesOnMap φ g
   smp : Sons.SMP g
+  pms : Sons.PMS g
+  sn : Sons.SN g
 
 -- ============================================================
 -- Narrowings
@@ -98,7 +101,8 @@ theorem keeps_filterWeakAll (g : GPathM) (ws : List (Int × List NodeId)) :
     Keeps g (filterWeakAll g ws) :=
   keeps_foldl _ keeps_filterWeak ws g
 
-theorem MInv_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : MInv φ g) (hsmp : Sons.SMP g') :
+theorem MInv_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : MInv φ g) (hsmp : Sons.SMP g')
+    (hpms : Sons.PMS g') (hsn : Sons.SN g') :
     MInv φ g' where
   rctx := RCtx_of_keeps hk h.rctx
   mok := MachineOk_of_pruned hk.1 h.mok
@@ -115,6 +119,8 @@ theorem MInv_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : MInv φ g) (hsmp : 
     exact h.back n hn req hreq
   onMap := NodesOnMap_of_pruned φ hk.1 h.onMap
   smp := hsmp
+  pms := hpms
+  sn := hsn
 
 /-- The pins leave, at each pinned step, only the pinned map node among the global owners. -/
 theorem foldl_filterRequire_cleans (g : GPathM) (reqs : List NodeId) :
@@ -156,7 +162,8 @@ theorem MInv_addNode (hwf : WF φ) (F : GPathM) (d : NodeId) (title : String)
       Reader.nodup_addNode F d title hc.nodup hc.below hd⟩,
     MachineOk_addNode F d title h.mok, ParentId.TL_addNode F d title hd hc.below, ?_, ?_,
     by rw [← hup]; exact NodesOnMap_up φ F d title hdm h.onMap,
-    Sons.SMP_addNode F d title hd hc.below hc.shape.pbelow h.smp⟩
+    Sons.SMP_addNode F d title hd hc.below hc.shape.pbelow h.smp,
+    Sons.PMS_addNode F d title hd hc.below h.sn h.pms, Sons.SN_addNode F d title h.sn⟩
   · intro n' hn' req hreq q hq hstepq
     rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
     · rw [upMap_id] at hreq
@@ -200,7 +207,8 @@ theorem MInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : M
     Certifies.MachineOk_join g₁ g₂ h₁.mok, ParentId.TL_join g₁ g₂ hok h₁.tl h₂.tl,
     join_preserves_ReqFiltered (reqOfCnf φ) h₁.rf h₂.rf hok, ?_,
     NodesOnMap_join φ g₁ g₂ h₁.onMap h₂.onMap,
-    Sons.SMP_join g₁ g₂ c₁.shape.pn c₂.shape.pn h₁.smp h₂.smp⟩
+    Sons.SMP_join g₁ g₂ c₁.shape.pn c₂.shape.pn h₁.smp h₂.smp,
+    Sons.PMS_join g₁ g₂ h₁.sn h₂.sn h₁.pms h₂.pms, Sons.SN_join g₁ g₂ h₁.sn h₂.sn⟩
   intro n hn req hreq
   rcases ParentOwners.mem_join_nodes' hn with ⟨a, ha, hid, _⟩ | hn₂
   · rw [hid] at hreq ⊢
@@ -219,7 +227,8 @@ theorem MInv_initSeed (hwf : WF φ) (d : NodeId) (hd : d ∈ mapNodes φ 0) :
       Sons.RootAtZero_initSeed d "", ParentId.PMP_initSeed d "", ?_, ?_⟩,
     Certifies.MachineOk_initSeed d "", ParentId.TL_initSeed d "" hstep,
     initSeed_ReqFiltered (reqOfCnf φ) d "" hstep (reqOfCnf_backward φ hwf d), ?_,
-    NodesOnMap_initSeed φ d "" (by rw [hstep]; exact hd), Sons.SMP_initSeed d ""⟩
+    NodesOnMap_initSeed φ d "" (by rw [hstep]; exact hd), Sons.SMP_initSeed d "",
+    Sons.PMS_initSeed d "", Sons.SN_initSeed d ""⟩
   · intro n hn
     rw [hmem n hn, initSeed_current]
     show d.step < 1
@@ -290,6 +299,9 @@ theorem MInv_sent (hwf : WF φ) (k : Int) (kv : NodeId × GPathM) (hkv : StateOk
     unfold Parents.NotRoot; rw [hwn]; exact hm.rctx.shape.notroot
   have hmF : MInv φ F :=
     MInv_of_keeps φ hk hm (AnchoredSurvive.SMP_filterAllAgg _ hsW hnW _)
+      (AggInvariants.PMS_filterAllAgg _ _ (by unfold Sons.PMS; rw [hwn]; exact hm.pms))
+      (AggInvariants.SN_filterAllAgg _ _ (by
+        unfold Sons.SN GownersNodes.HasNode; rw [hwn]; exact hm.sn))
   have hvF : isValid F = true := by
     by_cases h : isValid F = true
     · exact h

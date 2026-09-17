@@ -389,6 +389,232 @@ def reportG (name : String) (st : GStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: pins={st.pins} sliceNodes={st.sliceNodes} GFP_NODES_LOST={st.gfpNodesLost} | R0={st.r0} gfp={st.gfpPairs} final={st.finalPairs} FINAL_NOT_GFP={st.finalNotGfp} gfpNotFinal={st.gfpNotFinal} | rounds={st.rounds} maxRounds={st.maxRounds} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+structure RStat where
+  pins : Nat := 0
+  maxRounds : Nat := 0
+  killed : Array Nat := Array.replicate 16 0
+  fAgg : Array Nat := Array.replicate 16 0
+  fPar : Array Nat := Array.replicate 16 0
+  fSon : Array Nat := Array.replicate 16 0
+  onlyAgg : Array Nat := Array.replicate 16 0
+  onlyPar : Array Nat := Array.replicate 16 0
+  onlySon : Array Nat := Array.replicate 16 0
+  aggAtMid : Array Nat := Array.replicate 16 0
+  noCarrier : Array Nat := Array.replicate 16 0
+  boundary : Array Nat := Array.replicate 16 0
+  interiorKilled : Array Nat := Array.replicate 16 0
+  interiorNonAgg : Array Nat := Array.replicate 16 0
+  nodesLost : Array Nat := Array.replicate 16 0
+  cellsDrop : Array Nat := Array.replicate 16 0
+  cellsOne : Array Nat := Array.replicate 16 0
+  cellsOneStart : Nat := 0
+  cellsOneEnd : Nat := 0
+  cellsOneEndCarrierOnly : Nat := 0
+  cells : Nat := 0
+  minSupportEnd : Nat := 1000000
+  ex : List String := []
+
+def bump (a : Array Nat) (r : Nat) (k : Nat := 1) : Array Nat :=
+  let i := min r 15
+  a.modify i (· + k)
+
+/-- The rounds of the largest `Sup` relation on the slice: what falls in each round, and why. -/
+def roundsCensus (G : GPathM) (st0 : RStat) : RStat := Id.run do
+  let mut st := st0
+  let cs := G.current_step
+  let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let children : Std.HashMap PathNodeId (Array PathNodeId) := G.nodes.foldl (fun acc m =>
+    m.parents.foldl (fun acc c => acc.insert c ((acc.getD c #[]).push m.id)) acc) {}
+  let steps : List Int := (List.range cs.toNat).map (fun (s : Nat) => Int.ofNat s)
+  for i in [0:cs.toNat] do
+    let k : Int := Int.ofNat i
+    let gk := G.gowners.filter (fun q => q.id.step == k)
+    let ids := (gk.map (·.id)).eraseDups
+    if ids.length > 1 then
+      for mid in ids do
+        if !isValid (filterAllAgg G [mid]) then continue
+        st := { st with pins := st.pins + 1 }
+        let slice := G.nodes.filter (fun m => m.owners.any (fun q => q.id == mid))
+        let mut S : Std.HashSet PathNodeId := Std.HashSet.ofList (slice.map (·.id))
+        let S00 := S
+        let mut R : Std.HashSet (PathNodeId × PathNodeId) := {}
+        for m in slice do
+          for v in m.owners do
+            if S00.contains v then R := R.insert (m.id, v)
+        -- a cell (x, l) is nontrivial when l is neither x's own step nor the pinned step
+        let nontrivial := fun (x : PathNodeId) (l : Int) => l != x.id.step && l != mid.step
+        let support := fun (Rc : Std.HashSet (PathNodeId × PathNodeId)) (x : PathNodeId) (l : Int) =>
+          match tbl.get? x with
+          | none => 0
+          | some nx => (nx.owners.filter (fun v => v.id.step == l && Rc.contains (x, v))).length
+        let mut prevSup : Std.HashMap (PathNodeId × Int) Nat := {}
+        for x in S00.toList do
+          for l in steps do
+            if nontrivial x l then
+              let c := support R x l
+              prevSup := prevSup.insert (x, l) c
+              if c == 1 then st := { st with cellsOneStart := st.cellsOneStart + 1 }
+        st := { st with cells := st.cells + prevSup.size }
+        let carrierShared := fun (x v : PathNodeId) =>
+          match tbl.get? x, tbl.get? v with
+          | some nx, some nv => nx.owners.any (fun q => q.id == mid && nv.owners.contains q)
+          | _, _ => false
+        let mut round := 0
+        let mut changed := true
+        while changed && round < 1000 do
+          let R0 := R
+          let S0 := S
+          let rel := fun (a b : PathNodeId) => R0.contains (a, b)
+          let inner := fun (p : PathNodeId) => 1 ≤ p.id.step && p.id.step ≤ cs - 2
+          let mut R1 : Std.HashSet (PathNodeId × PathNodeId) := {}
+          for (x, v) in R0.toList do
+            match tbl.get? x with
+            | none => pure ()
+            | some nx =>
+              if !(S0.contains x && S0.contains v) then
+                continue
+              let par := x.parent_id.isNone || nx.parents.any (fun c => rel x c && rel c x && rel c v)
+              let son := x.id.step == cs - 1 ||
+                (children.getD x #[]).any (fun c => rel x c && rel c x && rel c v)
+              let failSteps := if inner x && inner v then
+                  steps.filter (fun l => !nx.owners.any (fun z => z.id.step == l && rel x z && rel v z))
+                else []
+              let agg := failSteps.isEmpty
+              if par && son && agg then
+                R1 := R1.insert (x, v)
+              else
+                st := { st with killed := bump st.killed round }
+                if !agg then st := { st with fAgg := bump st.fAgg round }
+                if !par then st := { st with fPar := bump st.fPar round }
+                if !son then st := { st with fSon := bump st.fSon round }
+                if !agg && par && son then st := { st with onlyAgg := bump st.onlyAgg round }
+                if agg && !par && son then st := { st with onlyPar := bump st.onlyPar round }
+                if agg && par && !son then st := { st with onlySon := bump st.onlySon round }
+                if failSteps.contains mid.step then st := { st with aggAtMid := bump st.aggAtMid round }
+                if !carrierShared x v then st := { st with noCarrier := bump st.noCarrier round }
+                if !(inner x && inner v) then st := { st with boundary := bump st.boundary round }
+                else
+                  st := { st with interiorKilled := bump st.interiorKilled round }
+                  if agg then
+                    st := { st with interiorNonAgg := bump st.interiorNonAgg round }
+                    if st.ex.length < 10 then
+                      st := { st with ex := st.ex ++ [s!"INTERIOR NON-AGG R{round} pin {mid.step}.{mid.index}: {showPid x} -/-> {showPid v} par {par} son {son}"] }
+                if round ≥ 1 && st.ex.length < 10 then
+                  st := { st with ex := st.ex ++ [s!"R{round} pin {mid.step}.{mid.index}: {showPid x} -/-> {showPid v} agg-fail-steps {failSteps.take 4} par {par} son {son} carrier {carrierShared x v}"] }
+          let mut S1 : Std.HashSet PathNodeId := {}
+          for x in S0.toList do
+            match tbl.get? x with
+            | none => pure ()
+            | some nx =>
+              if steps.all (fun l => nx.owners.any (fun v => v.id.step == l && R1.contains (x, v))) then
+                S1 := S1.insert x
+              else
+                st := { st with nodesLost := bump st.nodesLost round }
+          -- supports after the round
+          for x in S1.toList do
+            for l in steps do
+              if nontrivial x l then
+                let c := support R1 x l
+                if c < prevSup.getD (x, l) 0 then st := { st with cellsDrop := bump st.cellsDrop round }
+                if c == 1 then st := { st with cellsOne := bump st.cellsOne round }
+                prevSup := prevSup.insert (x, l) c
+          changed := R1.size != R0.size || S1.size != S0.size
+          R := R1
+          S := S1
+          round := round + 1
+        st := { st with maxRounds := max st.maxRounds round }
+        for x in S.toList do
+          for l in steps do
+            if nontrivial x l then
+              let c := support R x l
+              st := { st with minSupportEnd := min st.minSupportEnd c }
+              if c == 1 then
+                st := { st with cellsOneEnd := st.cellsOneEnd + 1 }
+  return st
+
+def runRounds (φ : Cnf) (st0 : RStat) : RStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  match lines.getLast? with
+  | none => pure ()
+  | some line =>
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := roundsCensus G st
+  return st
+
+def reportR (name : String) (st : RStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} maxRounds={st.maxRounds} nontrivial cells={st.cells} single-support cells start={st.cellsOneStart} end={st.cellsOneEnd} minSupportEnd={st.minSupportEnd} | {ms}ms"
+  let n := min st.maxRounds 16
+  for r in [0:n] do
+    IO.println s!"  round {r}: killed={st.killed[r]!} failAgg={st.fAgg[r]!} failPar={st.fPar[r]!} failSon={st.fSon[r]!} onlyAgg={st.onlyAgg[r]!} onlyPar={st.onlyPar[r]!} onlySon={st.onlySon[r]!} aggFailsAtPinnedStep={st.aggAtMid[r]!} noCarrier={st.noCarrier[r]!} boundaryPair={st.boundary[r]!} interiorKilled={st.interiorKilled[r]!} INTERIOR_NON_AGG={st.interiorNonAgg[r]!} NODES_LOST={st.nodesLost[r]!} cellsDropped={st.cellsDrop[r]!} singleSupportCells={st.cellsOne[r]!}"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+structure HerStat where
+  pins : Nat := 0
+  r1Pairs : Nat := 0
+  witnesses : Nat := 0
+  badWitnesses : Nat := 0
+  badBoundaryZ : Nat := 0
+  cellsNoGood : Nat := 0
+  ex : List String := []
+
+/-- Slice pair consistency `SPC x v`: both in the slice, `v` owns-entry of `x`, and at every step a
+common owner in the slice. Is every witness of an interior `SPC` pair itself `SPC` with both ends? -/
+def heredCensus (G : GPathM) (st0 : HerStat) : HerStat := Id.run do
+  let mut st := st0
+  let cs := G.current_step
+  let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let steps : List Int := (List.range cs.toNat).map (fun (s : Nat) => Int.ofNat s)
+  let inner := fun (p : PathNodeId) => 1 ≤ p.id.step && p.id.step ≤ cs - 2
+  for i in [0:cs.toNat] do
+    let k : Int := Int.ofNat i
+    let gk := G.gowners.filter (fun q => q.id.step == k)
+    let ids := (gk.map (·.id)).eraseDups
+    if ids.length > 1 then
+      for mid in ids do
+        if !isValid (filterAllAgg G [mid]) then continue
+        st := { st with pins := st.pins + 1 }
+        let slice := G.nodes.filter (fun m => m.owners.any (fun q => q.id == mid))
+        let S : Std.HashSet PathNodeId := Std.HashSet.ofList (slice.map (·.id))
+        let E := fun (x v : PathNodeId) => S.contains x && S.contains v &&
+          (match tbl.get? x with | some nx => nx.owners.contains v | none => false)
+        let wit : PathNodeId → PathNodeId → Int → List PathNodeId := fun x v l =>
+          match tbl.get? x with
+          | some nx => nx.owners.filter (fun (z : PathNodeId) => z.id.step == l && E x z && E v z)
+          | none => []
+        let mut SPC : Std.HashSet (PathNodeId × PathNodeId) := {}
+        for m in slice do
+          for v in m.owners do
+            if E m.id v && steps.all (fun l => !(wit m.id v l).isEmpty) then
+              SPC := SPC.insert (m.id, v)
+        for (x, v) in SPC.toList do
+          if inner x && inner v then
+            st := { st with r1Pairs := st.r1Pairs + 1 }
+            for l in steps do
+              let ws := wit x v l
+              let mut good := false
+              for z in ws do
+                st := { st with witnesses := st.witnesses + 1 }
+                if !(inner z) || (SPC.contains (x, z) && SPC.contains (v, z)) then good := true
+                else
+                  st := { st with badWitnesses := st.badWitnesses + 1 }
+                  if st.ex.length < 6 then
+                    st := { st with ex := st.ex ++ [s!"BAD WITNESS pin {mid.step}.{mid.index}: {showPid x} {showPid v} via {showPid z} at {l}"] }
+              if !good then st := { st with cellsNoGood := st.cellsNoGood + 1 }
+  return st
+
+def runHered (φ : Cnf) (st0 : HerStat) : HerStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  match lines.getLast? with
+  | none => pure ()
+  | some line =>
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := heredCensus G st
+  return st
+
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do
   let lines := aggLines φ
   let n := lines.length
@@ -445,6 +671,33 @@ def main (args : List String) : IO Unit := do
         st := runFormula φ false st
       let t1 ← IO.monoMsNow
       report s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "hered" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runHered φ {})
+        let t1 ← IO.monoMsNow
+        IO.println s!"hered {path}: pins={st.pins} interior SPC pairs={st.r1Pairs} witnesses={st.witnesses} BAD={st.badWitnesses} (boundary z {st.badBoundaryZ}) CELLS_WITHOUT_GOOD_WITNESS={st.cellsNoGood} | {t1 - t0}ms"
+        for e in st.ex do IO.println s!"  EX {e}"
+  | "rounds" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : RStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runRounds φ st
+      let t1 ← IO.monoMsNow
+      reportR s!"rounds seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "rounds" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runRounds φ {})
+        let t1 ← IO.monoMsNow
+        reportR s!"rounds {path}" st (t1 - t0)
   | "gfpE" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow

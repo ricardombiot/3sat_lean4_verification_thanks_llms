@@ -145,6 +145,8 @@ import AbsSat.GraphPath.Model.AggFixpoint
 import AbsSat.GraphPath.Model.PinExactBoundary
 import AbsSat.GraphPath.Model.AnchoredSurvive
 import AbsSat.GraphPath.Model.SliceSupport
+import AbsSat.GraphPath.Model.AggInvariants
+import AbsSat.GraphPath.Model.SliceExact
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
