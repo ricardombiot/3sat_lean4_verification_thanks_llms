@@ -190,6 +190,26 @@ theorem join_node?_right (g₁ g₂ : GPathM) (pid : PathNodeId) (m : PNodeM)
         intro x hx hxid
         exact (List.find?_eq_none.mp hnone x hx) (by simp [hxid])
 
+/-- **Provenance of a node the left side lacks.** When `g₁` has no node with this id, the
+join's record for it is exactly `g₂`'s: the merge has nothing to add. -/
+theorem join_node?_only_right (g₁ g₂ : GPathM) (pid : PathNodeId)
+    (h1 : g₁.node? pid = none) : (join g₁ g₂).node? pid = g₂.node? pid := by
+  have hnone : g₁.nodes.find? (fun x : PNodeM => x.id == pid) = none := h1
+  have hp : (fun x : PNodeM => (joinMap g₂ x).id == pid) = (fun x : PNodeM => x.id == pid) := by
+    funext x; rw [joinMap_id]
+  simp only [node?, join_nodes, List.find?_append, List.find?_map, Function.comp_def, hp,
+    hnone, Option.map_none, Option.none_or, List.find?_filter]
+  rw [find?_congr _ _ (fun x : PNodeM => x.id == pid) ?_]
+  · intro a _
+    cases hb : a.id == pid with
+    | false => simp
+    | true =>
+      have hid : a.id = pid := eq_of_beq hb
+      simp only [hid]
+      simp
+      intro x hx hxid
+      exact (List.find?_eq_none.mp hnone x hx) (by simp [hxid])
+
 theorem node?_isSome_of_mem (g : GPathM) (n : PNodeM) (hn : n ∈ g.nodes) :
     (g.node? n.id).isSome := by
   simp only [node?]

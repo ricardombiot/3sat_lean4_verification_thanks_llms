@@ -46,7 +46,28 @@ la cadena, un lado del `join`) coincida con el punto fijo sobre las tablas compl
 fijaciones, medida sin excepción en v119, v124 y v128 (19,2 M entradas, 1.725 fijaciones y 2,5 M owners
 comprobados), y nunca derivable de la consistencia local: hace falta pasar de pares a tríos.
 
-## 4. Una opción de diseño, tu decisión
+## 4. Demostrado: la mitad de nodos de `JoinSplit` (`JoinProvenance.lean`)
+
+La parte que **sí** sale la he formalizado, para que el hueco quede aislado en Lean y no solo en prosa:
+
+- `join_node?_only_right` (en `Join.lean`): si un lado no tiene un nodo, el registro de la unión para
+  ese nodo es **exactamente** el del otro lado; la fusión no añade nada.
+- `node_left_of_not_gowner`, `node_right_of_not_gowner`: en cualquier estrechamiento de la unión, un
+  nodo que posee una elección que un lado **no tiene entre sus owners globales** es nodo del otro lado.
+- `slice_one_side`: por tanto, la rebanada de una elección exclusiva de un lado tiene **todos** sus
+  nodos en ese lado.
+
+Es el mismo hecho que `no_chain_across_sides` daba para las cadenas parciales: **una elección de la
+unión no puede mezclar nodos de los dos lados**. Lo que queda de `JoinSplit` es, en consecuencia, dos
+cosas y solo dos:
+
+1. las **entradas** de owners en los nodos que los dos lados comparten, donde `mergeNode` une las
+   tablas — y decidir si una entrada aportada solo por la historia del otro lado puede sostener un par;
+2. las elecciones que **ya tenían los dos lados**, donde no hay lado privilegiado.
+
+La primera es la exactitud del punto fijo de la sección 3. La segunda es medible y no la he medido aún.
+
+## 5. Una opción de diseño, tu decisión
 
 Tu explicación del `join` sugiere una salida por diseño, no por demostración. Si cada entrada de owners
 llevara su **procedencia** (de qué historia viene), el `join` uniría entradas etiquetadas y el review
@@ -58,8 +79,9 @@ El coste es espacio: cada entrada llevaría la marca de su origen. La pregunta, 
 la abstracción que evita la explosión espacial o si basta con una marca por paso (el identificador del nodo
 del mapa de origen), que es mucho más barata.
 
-## 5. Lo que queda
+## 6. Lo que queda
 
 1. **El obstáculo único**: pasar de pares a tríos en el punto fijo del review. En cualquiera de sus tres
    formas; la del `join` es la más local.
-2. **O la vía de diseño** de la sección 4, si decides que el coste es aceptable.
+2. **Medir** el caso de elecciones compartidas por los dos lados (punto 2 de la sección 4).
+3. **O la vía de diseño** de la sección 5, si decides que el coste es aceptable.
