@@ -1186,6 +1186,11 @@ structure JStat where
   entriesChecked : Nat := 0
   borrowedEntries : Nat := 0
   sharedNodes : Nat := 0
+  exclChoices : Nat := 0
+  exclLost : Nat := 0
+  sharedChoices : Nat := 0
+  sharedLost : Nat := 0
+  sharedKeptBoth : Nat := 0
   ex : List String := []
 
 /-- Every join the Improves driver performs: under no pin and under every single pin of a step with a
@@ -1202,6 +1207,10 @@ def joinCensus (e h : GPathM) (st0 : JStat) : JStat := Id.run do
     let ids := ((J0.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
     if ids.length > 1 then
       for q in ids do cands := cands ++ [[q]]
+  let r1 : Std.HashSet PathNodeId := Std.HashSet.ofList e.gowners
+  let r2 : Std.HashSet PathNodeId := Std.HashSet.ofList h.gowners
+  let n1 : Std.HashSet PathNodeId := Std.HashSet.ofList (e.nodes.map (·.id))
+  let n2 : Std.HashSet PathNodeId := Std.HashSet.ofList (h.nodes.map (·.id))
   for C in cands do
     st := { st with constraints := st.constraints + 1 }
     let FJ := filterAllAgg J C
@@ -1214,23 +1223,25 @@ def joinCensus (e h : GPathM) (st0 : JStat) : JStat := Id.run do
     if !isValid F1 && !isValid F2 then
       st := { st with bothSidesInvalid := st.bothSidesInvalid + 1 }
       if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"JOIN VALID, BOTH SIDES INVALID under {C.map (fun r => s!"{r.step}.{r.index}")} (cs {cs})"] }
-    -- owner entries of the reviewed join, against the sides' own tables
-    let t1 : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
-      e.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
-    let t2 : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
-      h.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
     for m in FJ.nodes do
-      if (t1.contains m.id) && (t2.contains m.id) then st := { st with sharedNodes := st.sharedNodes + 1 }
-      for w in m.owners do
-        st := { st with entriesChecked := st.entriesChecked + 1 }
-        let in1 := match t1.get? m.id with | some o => o.contains w | none => false
-        let in2 := match t2.get? m.id with | some o => o.contains w | none => false
-        if !in1 && !in2 then
-          st := { st with borrowedEntries := st.borrowedEntries + 1 }
-          if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"ENTRY IN NEITHER SIDE {showPid m.id} <- {showPid w} under {C.map (fun r => s!"{r.step}.{r.index}")}"] }
+      if (n1.contains m.id) && (n2.contains m.id) then st := { st with sharedNodes := st.sharedNodes + 1 }
     let mut borrowed := 0
     for q in FJ.gowners do
       st := { st with gownersChecked := st.gownersChecked + 1 }
+      -- which side had this choice before the join?
+      let in1 := r1.contains q
+      let in2 := r2.contains q
+      if in1 && in2 then
+        st := { st with sharedChoices := st.sharedChoices + 1 }
+        if g1.contains q && g2.contains q then
+          st := { st with sharedKeptBoth := st.sharedKeptBoth + 1 }
+        else if !g1.contains q && !g2.contains q then
+          st := { st with sharedLost := st.sharedLost + 1 }
+      else if in1 || in2 then
+        st := { st with exclChoices := st.exclChoices + 1 }
+        if !((in1 && g1.contains q) || (in2 && g2.contains q)) then
+          st := { st with exclLost := st.exclLost + 1 }
+          if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"EXCLUSIVE CHOICE LOST {showPid q} (side {if in1 then 1 else 2}) under {C.map (fun r => s!"{r.step}.{r.index}")}"] }
       if !g1.contains q && !g2.contains q then borrowed := borrowed + 1
     if borrowed > 0 then
       st := { st with borrowedGowners := st.borrowedGowners + borrowed, constraintsWithBorrow := st.constraintsWithBorrow + 1 }
@@ -1256,7 +1267,7 @@ def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   return st
 
 def reportJ (name : String) (st : JStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} constraints={st.constraints} joinValid={st.joinValid} BOTH_SIDES_INVALID={st.bothSidesInvalid} gownersChecked={st.gownersChecked} BORROWED_GOWNERS={st.borrowedGowners} | sharedNodes={st.sharedNodes} entriesChecked={st.entriesChecked} ENTRIES_IN_NEITHER_SIDE={st.borrowedEntries} (in {st.constraintsWithBorrow} constraints) | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} constraints={st.constraints} joinValid={st.joinValid} BOTH_SIDES_INVALID={st.bothSidesInvalid} gownersChecked={st.gownersChecked} BORROWED_GOWNERS={st.borrowedGowners} (in {st.constraintsWithBorrow} constraints) | sharedNodes={st.sharedNodes} exclusive={st.exclChoices} EXCLUSIVE_LOST={st.exclLost} shared={st.sharedChoices} SHARED_LOST={st.sharedLost} sharedKeptBoth={st.sharedKeptBoth} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do
