@@ -69,6 +69,8 @@ structure MInv (g : GPathM) : Prop where
   smp : Sons.SMP g
   pms : Sons.PMS g
   sn : Sons.SN g
+  /-- The owners of a node are nodes. -/
+  own : ∀ n ∈ g.nodes, ∀ q ∈ n.owners, GownersNodes.HasNode g q
 
 -- ============================================================
 -- Narrowings
@@ -102,7 +104,8 @@ theorem keeps_filterWeakAll (g : GPathM) (ws : List (Int × List NodeId)) :
   keeps_foldl _ keeps_filterWeak ws g
 
 theorem MInv_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : MInv φ g) (hsmp : Sons.SMP g')
-    (hpms : Sons.PMS g') (hsn : Sons.SN g') :
+    (hpms : Sons.PMS g') (hsn : Sons.SN g')
+    (hown : ∀ n ∈ g'.nodes, ∀ q ∈ n.owners, GownersNodes.HasNode g' q) :
     MInv φ g' where
   rctx := RCtx_of_keeps hk h.rctx
   mok := MachineOk_of_pruned hk.1 h.mok
@@ -121,6 +124,7 @@ theorem MInv_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : MInv φ g) (hsmp : 
   smp := hsmp
   pms := hpms
   sn := hsn
+  own := hown
 
 /-- The pins leave, at each pinned step, only the pinned map node among the global owners. -/
 theorem foldl_filterRequire_cleans (g : GPathM) (reqs : List NodeId) :
@@ -163,7 +167,7 @@ theorem MInv_addNode (hwf : WF φ) (F : GPathM) (d : NodeId) (title : String)
     MachineOk_addNode F d title h.mok, ParentId.TL_addNode F d title hd hc.below, ?_, ?_,
     by rw [← hup]; exact NodesOnMap_up φ F d title hdm h.onMap,
     Sons.SMP_addNode F d title hd hc.below hc.shape.pbelow h.smp,
-    Sons.PMS_addNode F d title hd hc.below h.sn h.pms, Sons.SN_addNode F d title h.sn⟩
+    Sons.PMS_addNode F d title hd hc.below h.sn h.pms, Sons.SN_addNode F d title h.sn, ?_⟩
   · intro n' hn' req hreq q hq hstepq
     rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
     · rw [upMap_id] at hreq
@@ -189,6 +193,24 @@ theorem MInv_addNode (hwf : WF φ) (F : GPathM) (d : NodeId) (title : String)
     · rw [upMap_id] at hreq ⊢
       exact h.back m hm req hreq
     · exact reqOfCnf_backward φ hwf d req hreq
+  · -- owners are nodes
+    have hup_old : ∀ q, GownersNodes.HasNode F q → GownersNodes.HasNode (addNode F d title) q := by
+      rintro q ⟨m, hmm, hmid⟩
+      refine ⟨upMap F d m, ?_, by rw [upMap_id]; exact hmid⟩
+      rw [addNode_nodes]; exact List.mem_append_left _ (List.mem_map.mpr ⟨m, hmm, rfl⟩)
+    have hup_new : GownersNodes.HasNode (addNode F d title) (newPid F d) := by
+      refine ⟨addOwner (newPid F d) (upNode F d title), ?_, rfl⟩
+      rw [addNode_nodes]; exact List.mem_append_right _ List.mem_cons_self
+    intro n' hn' q hq
+    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    · rw [upMap_owners] at hq
+      rcases List.mem_append.mp hq with hq | hq
+      · exact hup_old q (h.own m hm q hq)
+      · rw [List.mem_singleton.mp hq]; exact hup_new
+    · have hq' : q ∈ F.gowners ++ [newPid F d] := hq
+      rcases List.mem_append.mp hq' with hq | hq
+      · exact hup_old q (hc.gn q hq)
+      · rw [List.mem_singleton.mp hq]; exact hup_new
 
 theorem MInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : MInv φ g₁) (h₂ : MInv φ g₂) :
     MInv φ (join g₁ g₂) := by
@@ -208,12 +230,26 @@ theorem MInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : M
     join_preserves_ReqFiltered (reqOfCnf φ) h₁.rf h₂.rf hok, ?_,
     NodesOnMap_join φ g₁ g₂ h₁.onMap h₂.onMap,
     Sons.SMP_join g₁ g₂ c₁.shape.pn c₂.shape.pn h₁.smp h₂.smp,
-    Sons.PMS_join g₁ g₂ h₁.sn h₂.sn h₁.pms h₂.pms, Sons.SN_join g₁ g₂ h₁.sn h₂.sn⟩
+    Sons.PMS_join g₁ g₂ h₁.sn h₂.sn h₁.pms h₂.pms, Sons.SN_join g₁ g₂ h₁.sn h₂.sn, ?_⟩
   intro n hn req hreq
   rcases ParentOwners.mem_join_nodes' hn with ⟨a, ha, hid, _⟩ | hn₂
   · rw [hid] at hreq ⊢
     exact h₁.back a ha req hreq
   · exact h₂.back n hn₂ req hreq
+  · -- owners are nodes
+    have side : ∀ (g : GPathM), Grown g (join g₁ g₂) → ∀ q, GownersNodes.HasNode g q →
+        GownersNodes.HasNode (join g₁ g₂) q := by
+      rintro g hg q ⟨m, hmm, hmid⟩
+      have hs := node?_isSome_of_mem g m hmm
+      obtain ⟨m', hm'⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n', hn', _⟩ := hg.node?_grown m.id m' hm'
+      exact ⟨n', List.mem_of_find?_eq_some hn', by rw [node?_id_eq _ m.id n' hn', hmid]⟩
+    intro n hn q hq
+    rcases ParentOwners.mem_join_nodes' hn with ⟨a, ha, _, hown⟩ | hn₂
+    · rcases hown q hq with hqa | ⟨b, hb, _, hqb⟩
+      · exact side g₁ (grown_join_left g₁ g₂) q (h₁.own a ha q hqa)
+      · exact side g₂ (grown_join_right g₁ g₂ hok) q (h₂.own b hb q hqb)
+    · exact side g₂ (grown_join_right g₁ g₂ hok) q (h₂.own n hn₂ q hq)
 
 theorem MInv_initSeed (hwf : WF φ) (d : NodeId) (hd : d ∈ mapNodes φ 0) :
     MInv φ (GPathM.initSeed d "") := by
@@ -228,7 +264,7 @@ theorem MInv_initSeed (hwf : WF φ) (d : NodeId) (hd : d ∈ mapNodes φ 0) :
     Certifies.MachineOk_initSeed d "", ParentId.TL_initSeed d "" hstep,
     initSeed_ReqFiltered (reqOfCnf φ) d "" hstep (reqOfCnf_backward φ hwf d), ?_,
     NodesOnMap_initSeed φ d "" (by rw [hstep]; exact hd), Sons.SMP_initSeed d "",
-    Sons.PMS_initSeed d "", Sons.SN_initSeed d ""⟩
+    Sons.PMS_initSeed d "", Sons.SN_initSeed d "", ?_⟩
   · intro n hn
     rw [hmem n hn, initSeed_current]
     show d.step < 1
@@ -239,6 +275,13 @@ theorem MInv_initSeed (hwf : WF φ) (d : NodeId) (hd : d ∈ mapNodes φ 0) :
   · intro n hn req hreq
     rw [hmem n hn] at hreq ⊢
     exact reqOfCnf_backward φ hwf d req hreq
+  · intro n hn q hq
+    have hn' := hn
+    rw [initSeed_nodes] at hn'
+    have hnq := List.mem_singleton.mp hn'
+    rw [hnq] at hq
+    have hq' := List.mem_singleton.mp hq
+    exact ⟨n, hn, by rw [hmem n hn, hq']⟩
 
 -- ============================================================
 -- Along the driver
@@ -297,11 +340,6 @@ theorem MInv_sent (hwf : WF φ) (k : Int) (kv : NodeId × GPathM) (hkv : StateOk
     unfold Sons.SMP; rw [hwn]; exact hm.smp
   have hnW : Parents.NotRoot (filterWeakAll kv.2 (weakReqOfCnf φ d)) := by
     unfold Parents.NotRoot; rw [hwn]; exact hm.rctx.shape.notroot
-  have hmF : MInv φ F :=
-    MInv_of_keeps φ hk hm (AnchoredSurvive.SMP_filterAllAgg _ hsW hnW _)
-      (AggInvariants.PMS_filterAllAgg _ _ (by unfold Sons.PMS; rw [hwn]; exact hm.pms))
-      (AggInvariants.SN_filterAllAgg _ _ (by
-        unfold Sons.SN GownersNodes.HasNode; rw [hwn]; exact hm.sn))
   have hvF : isValid F = true := by
     by_cases h : isValid F = true
     · exact h
@@ -310,6 +348,25 @@ theorem MInv_sent (hwf : WF φ) (k : Int) (kv : NodeId × GPathM) (hkv : StateOk
         simp only [upFilteringWeak, GPathM.up, F, if_neg h]
       rw [he] at hval
       exact h hval
+  have hownF : ∀ n ∈ F.nodes, ∀ q ∈ n.owners, GownersNodes.HasNode F q := by
+    intro n hn q hq
+    obtain ⟨n₀, hn₀, _, hown₀, _⟩ := hk.1.nodes_derived n hn
+    obtain ⟨m, hmm, hmid⟩ := hm.own n₀ hn₀ q (hown₀ q hq)
+    have hq0 : 0 ≤ q.id.step := by rw [← hmid]; exact hm.rctx.snn m hmm
+    have hq1 : q.id.step < F.current_step := by
+      rw [hk.1.step_eq, ← hmid]; exact hm.rctx.below m hmm
+    have hRF : ReadableAgg F :=
+      ⟨filterWeakAll kv.2 (weakReqOfCnf φ d), reqOfCnf φ d,
+        RCtx_of_keeps (keeps_filterWeakAll _ _) hm.rctx, rfl⟩
+    have rcF := RCtx_of_readableAgg F hRF
+    have ctxF := Reader.Ctx_of_readable F (readable_of_readableAgg F hRF) hvF
+    have hnF : F.node? n.id = some n := node?_of_mem rcF.nodup n hn
+    exact rcF.gn q (ctxF.ownGow n.id n hnF q hq hq0 hq1)
+  have hmF : MInv φ F :=
+    MInv_of_keeps φ hk hm (AnchoredSurvive.SMP_filterAllAgg _ hsW hnW _)
+      (AggInvariants.PMS_filterAllAgg _ _ (by unfold Sons.PMS; rw [hwn]; exact hm.pms))
+      (AggInvariants.SN_filterAllAgg _ _ (by
+        unfold Sons.SN GownersNodes.HasNode; rw [hwn]; exact hm.sn)) hownF
   have heq : upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "" = addNode F d "" := by
     simp only [upFilteringWeak, GPathM.up, F] at hvF ⊢
     rw [if_pos hvF]

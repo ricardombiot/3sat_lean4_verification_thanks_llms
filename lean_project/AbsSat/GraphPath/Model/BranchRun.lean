@@ -398,6 +398,47 @@ theorem embedded_join (B₁ B₂ G₁ G₂ : GPathM) (h₁ : Embedded B₁ G₁)
       exact ⟨n', hn', fun q hq _ => ho' q (ho₂ q hq (hown₂ p m hB₂ q hq)),
         fun q hq _ => hp' q (hp₂ q hq (memPN B₂ hpn₂ hnd₂ m hb q hq))⟩
 
+/-- **Joining two inner states that sit inside the same outer state.** -/
+theorem embedded_join_same (B₁ B₂ G : GPathM) (h₁ : Embedded B₁ G) (h₂ : Embedded B₂ G)
+    (hown₁ : ∀ x m, B₁.node? x = some m → ∀ q ∈ m.owners, Mem B₁ q)
+    (hown₂ : ∀ x m, B₂.node? x = some m → ∀ q ∈ m.owners, Mem B₂ q)
+    (hpn₁ : Parents.PN B₁) (hpn₂ : Parents.PN B₂) (hnd₁ : NodupIds B₁) (hnd₂ : NodupIds B₂) :
+    Embedded (join B₁ B₂) G := by
+  have memPN : ∀ (B : GPathM), Parents.PN B → NodupIds B → ∀ a ∈ B.nodes, ∀ q ∈ a.parents, Mem B q := by
+    intro B hpn hnd a ha q hq
+    obtain ⟨mq, hmq, hmqid⟩ := hpn a ha q hq
+    exact ⟨mq, by rw [← hmqid]; exact node?_of_mem hnd mq hmq⟩
+  refine ⟨h₁.step, ?_, ?_⟩
+  · intro q hq
+    rcases List.mem_append.mp hq with hq | hq
+    · exact h₁.gow q hq
+    · exact h₂.gow q (List.mem_filter.mp hq).1
+  · intro p m hm
+    have hmem := List.mem_of_find?_eq_some hm
+    have hid := node?_id_eq _ p m hm
+    rcases mem_join_nodes_src hmem with ⟨a, ha, hida, ho, hpa⟩ | hb
+    · have hB₁ : B₁.node? p = some a := by rw [← hid, hida]; exact node?_of_mem hnd₁ a ha
+      obtain ⟨n, hn, ho₁, hp₁⟩ := h₁.node p a hB₁
+      have other : ∀ b ∈ B₂.nodes, b.id = a.id →
+          (∀ q ∈ b.owners, q ∈ n.owners) ∧ (∀ q ∈ b.parents, q ∈ n.parents) := by
+        intro b hb hbid
+        have hB₂ : B₂.node? p = some b := by rw [← hid, hida, ← hbid]; exact node?_of_mem hnd₂ b hb
+        obtain ⟨n₂, hn₂, ho₂, hp₂⟩ := h₂.node p b hB₂
+        rw [hn] at hn₂
+        cases hn₂
+        exact ⟨fun q hq => ho₂ q hq (hown₂ p b hB₂ q hq), fun q hq => hp₂ q hq (memPN B₂ hpn₂ hnd₂ b hb q hq)⟩
+      refine ⟨n, hn, fun q hq _ => ?_, fun q hq _ => ?_⟩
+      · rcases ho q hq with hqa | ⟨b, hb, hbid, hqb⟩
+        · exact ho₁ q hqa (hown₁ p a hB₁ q hqa)
+        · exact (other b hb hbid).1 q hqb
+      · rcases hpa q hq with hqa | ⟨b, hb, hbid, hqb⟩
+        · exact hp₁ q hqa (memPN B₁ hpn₁ hnd₁ a ha q hqa)
+        · exact (other b hb hbid).2 q hqb
+    · have hB₂ : B₂.node? p = some m := by rw [← hid]; exact node?_of_mem hnd₂ m hb
+      obtain ⟨n, hn, ho₂, hp₂⟩ := h₂.node p m hB₂
+      exact ⟨n, hn, fun q hq _ => ho₂ q hq (hown₂ p m hB₂ q hq),
+        fun q hq _ => hp₂ q hq (memPN B₂ hpn₂ hnd₂ m hb q hq)⟩
+
 /-- info: 'AbsSat.GraphPath.Model.BranchRun.embedded_join' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms embedded_join
