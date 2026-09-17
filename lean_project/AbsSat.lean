@@ -156,6 +156,10 @@ import AbsSat.GraphPath.Model.BranchRun
 import AbsSat.GraphPath.Model.BranchLines
 import AbsSat.GraphPath.Model.BranchCompat
 import AbsSat.GraphPath.Model.BranchReader
+import AbsSat.GraphPath.Model.Hereditary
+import AbsSat.GraphPath.Model.HereditaryBuild
+import AbsSat.GraphPath.Model.HereditaryUp
+import AbsSat.GraphPath.Model.HereditaryRun
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves

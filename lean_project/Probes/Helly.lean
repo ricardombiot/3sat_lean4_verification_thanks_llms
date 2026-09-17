@@ -1175,6 +1175,73 @@ def reportK (name : String) (st : KStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: pins={st.pins} bothValid={st.bothValid} bothInvalid={st.bothInvalid} PIN_VALID_RUN_NOT={st.pinValidRunNot} RUN_VALID_PIN_NOT={st.runValidPinNot} | node sets equal={st.nodesEqual} pin-only nodes={st.pinExtraNodes} run-only nodes={st.runExtraNodes} | owner tables equal={st.ownersEqual} pin-only entries={st.pinExtraOwners} run-only entries={st.runExtraOwners} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+structure JStat where
+  joins : Nat := 0
+  constraints : Nat := 0
+  joinValid : Nat := 0
+  bothSidesInvalid : Nat := 0
+  borrowedGowners : Nat := 0
+  constraintsWithBorrow : Nat := 0
+  gownersChecked : Nat := 0
+  ex : List String := []
+
+/-- Every join the Improves driver performs: under no pin and under every single pin of a step with a
+choice, is every global owner of the pinned join a global owner of a pinned side? -/
+def joinCensus (e h : GPathM) (st0 : JStat) : JStat := Id.run do
+  let mut st := { st0 with joins := st0.joins + 1 }
+  let J := join e h
+  let J0 := filterAllAgg J []
+  if !isValid J0 then return st
+  let cs := J0.current_step
+  let mut cands : List (List NodeId) := [[]]
+  for i in [0:cs.toNat] do
+    let k : Int := Int.ofNat i
+    let ids := ((J0.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+    if ids.length > 1 then
+      for q in ids do cands := cands ++ [[q]]
+  for C in cands do
+    st := { st with constraints := st.constraints + 1 }
+    let FJ := filterAllAgg J C
+    if !isValid FJ then continue
+    st := { st with joinValid := st.joinValid + 1 }
+    let F1 := filterAllAgg e C
+    let F2 := filterAllAgg h C
+    let g1 : Std.HashSet PathNodeId := if isValid F1 then Std.HashSet.ofList F1.gowners else {}
+    let g2 : Std.HashSet PathNodeId := if isValid F2 then Std.HashSet.ofList F2.gowners else {}
+    if !isValid F1 && !isValid F2 then
+      st := { st with bothSidesInvalid := st.bothSidesInvalid + 1 }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"JOIN VALID, BOTH SIDES INVALID under {C.map (fun r => s!"{r.step}.{r.index}")} (cs {cs})"] }
+    let mut borrowed := 0
+    for q in FJ.gowners do
+      st := { st with gownersChecked := st.gownersChecked + 1 }
+      if !g1.contains q && !g2.contains q then borrowed := borrowed + 1
+    if borrowed > 0 then
+      st := { st with borrowedGowners := st.borrowedGowners + borrowed, constraintsWithBorrow := st.constraintsWithBorrow + 1 }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"BORROWED {borrowed} gowners under {C.map (fun r => s!"{r.step}.{r.index}")} (cs {cs})"] }
+  return st
+
+/-- The Improves driver, with every join inspected. -/
+def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let h := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid h then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e h then st := joinCensus e h st
+          | none => pure ()
+          next := insertPure next d h
+    line := next
+  return st
+
+def reportJ (name : String) (st : JStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} constraints={st.constraints} joinValid={st.joinValid} BOTH_SIDES_INVALID={st.bothSidesInvalid} gownersChecked={st.gownersChecked} BORROWED_GOWNERS={st.borrowedGowners} (in {st.constraintsWithBorrow} constraints) | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do
   let lines := aggLines φ
   let n := lines.length
@@ -1241,6 +1308,23 @@ def main (args : List String) : IO Unit := do
         let t1 ← IO.monoMsNow
         IO.println s!"spc {path}: pins={st.pins} carriers(1,2,3,4,5+)={st.carriers.toList.drop 1} | interior E pairs={st.ePairsInterior} nonSPC={st.nonSpcInterior} (fail only at pinned step {st.failOnlyAtPinned}) SPC={st.spcInterior} | triangles={st.triangles} TRIANGLE_FAIL={st.triangleFail} | cells={st.cells} CELLS_NO_HALF={st.cellsNoHalf} witnesses={st.witnesses} both={st.witBoth} xOnly={st.witXonly} vOnly={st.witVonly} none={st.witNone} | boundaryPins={st.boundaryPins} xOnly with boundary pin={st.badPinBoundary} | failing steps of SPC v z: atPinned={st.badAtPinned} between={st.badBetween} outside={st.badOutside} atStep0orTop={st.badAtBoundaryStep} distOutside(0..7+)={st.badDist.toList} | {t1 - t0}ms"
         for e in st.ex do IO.println s!"  EX {e}"
+  | "joins" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : JStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runJoins φ st
+      let t1 ← IO.monoMsNow
+      reportJ s!"joins seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "joins" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runJoins φ {})
+        let t1 ← IO.monoMsNow
+        reportJ s!"joins {path}" st (t1 - t0)
   | "commute" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
