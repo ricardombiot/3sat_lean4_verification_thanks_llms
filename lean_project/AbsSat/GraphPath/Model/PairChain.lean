@@ -168,6 +168,55 @@ def FilterKeepsPairChain : Prop :=
   ∀ g reqs, ReadableAgg g → PairChain g → isValid (filterAllAgg g reqs) = true →
     PairChain (filterAllAgg g reqs)
 
+/-- **A pin fixes the whole line it pins.** In a valid pinned state every node on the pinned step
+carries the pinned map node: a node owns itself, so it is a global owner, and the pin has dropped
+every global owner of that step with another map node.
+
+So a chain of the *pinned* state respects the pin by itself: there is nothing to steer. What
+`FilterKeepsPairChain` needs is not a chain steered through the pin but a chain of `g` carrying the
+pair that **survives** the pin — the no-solution-lost property, one pair at a time. -/
+theorem node_id_of_pin (g : GPathM) (reqs : List NodeId) (ctx : Pinned.Ctx (filterAllAgg g reqs))
+    (hbelow : ∀ n ∈ (filterAllAgg g reqs).nodes, n.id.id.step < (filterAllAgg g reqs).current_step)
+    (hnd : NodupIds (filterAllAgg g reqs)) (req : NodeId) (hreq : req ∈ reqs) (h0 : 0 ≤ req.step)
+    (n : PNodeM) (hn : n ∈ (filterAllAgg g reqs).nodes) (hstep : n.id.id.step = req.step) :
+    n.id.id = req := by
+  have hx : (filterAllAgg g reqs).node? n.id = some n := node?_of_mem hnd n hn
+  have hself : n.id ∈ n.owners := ctx.self n.id n hx
+  have hgow : n.id ∈ (filterAllAgg g reqs).gowners :=
+    ctx.ownGow n.id n hx n.id hself (by rw [hstep]; exact h0) (hbelow n hn)
+  have hpre : n.id ∈ (reqs.foldl filterRequire g).gowners :=
+    (pruned_reviewAgg (reqs.foldl filterRequire g)).gowners_sub _ hgow
+  rcases (LocalContradiction.mem_foldl_filterRequire reqs _ n.id hpre).2 req hreq with h | h
+  · exact absurd hstep h
+  · exact h
+
+/-- **The open lemma reduces to steering the chain through the pins.** A chain of `g` that
+respects the pins survives the filter and the whole aggressive review (`ChainSound_filterAllAgg`,
+the no-solution-lost result), so all `FilterKeepsPairChain` needs is that the chain carrying an
+owner pair of the *filtered* state can be chosen to pass through the pinned map nodes.
+
+This is where `ParentWitness` bites: below a node with a single parent the chain is not a choice
+at all (`ParentWitness.owners_below_unique` — the past of such a node is a unique path, forced by
+the map node its identifier names), so the steering is free there. What is left is the merged
+nodes, those whose parents come from several grandparent histories. -/
+theorem pairChain_of_steered (g : GPathM) (reqs : List NodeId)
+    (hsteer : ∀ x n, (filterAllAgg g reqs).node? x = some n → ∀ w ∈ n.owners,
+      0 ≤ w.id.step → w.id.step < (filterAllAgg g reqs).current_step →
+      ∃ sel, ChainSound g sel ∧ sel x.id.step = x ∧ sel w.id.step = w ∧
+        ∀ req ∈ reqs, 0 ≤ req.step → req.step < g.current_step → (sel req.step).id = req) :
+    PairChain (filterAllAgg g reqs) := by
+  intro x n hx w hw h0 h1
+  obtain ⟨sel, hs, hsx, hsw, hreqs⟩ := hsteer x n hx w hw h0 h1
+  exact ⟨sel, ChainSound_filterAllAgg g reqs sel hs hreqs, hsx, hsw⟩
+
+/-- info: 'AbsSat.GraphPath.Model.PairChain.pairChain_of_steered' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairChain_of_steered
+
+/-- info: 'AbsSat.GraphPath.Model.PairChain.node_id_of_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms node_id_of_pin
+
 /-- `PairChain` along the reader, from the base state, given the open lemma. -/
 theorem pairChain_readFrom (hkeep : FilterKeepsPairChain) (g₀ : GPathM) (hR₀ : ReadableAgg g₀)
     (h₀ : PairChain g₀) : ∀ g, ReadFrom g₀ g → isValid g = true → PairChain g := by

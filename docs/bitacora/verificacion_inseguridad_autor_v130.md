@@ -60,11 +60,34 @@ una rebanada, porque eso exige un testigo común; tiene que permitir que **el te
 Eso es precisamente `ChainSound` / `PairChain` de v123 —cada par de owners sobre una cadena completa,
 cada uno con la suya— medido con **0 excepciones** en todas las líneas y recorridos del lector.
 
-## 4. Lo que queda
+## 4. El ataque a `FilterKeepsPairChain` con el lema de padres
 
-1. **La obligación abierta vuelve a ser `FilterKeepsPairChain`** (v123): el filtro y el review dejan cada
-   par de owners sobre una cadena completa. Es la forma correcta del soporte a la vista de la sección 3,
-   y la única de las tres rutas que la medida no ha tocado.
+Con el lema en la mano ataqué la obligación abierta de v123. Tres piezas nuevas, todas demostradas:
+
+- **`owners_below_unique`** (`ParentWitness.lean`): **con un solo padre por nodo, el pasado de un nodo
+  es un camino único** — tiene como máximo un owner en cada paso por debajo. En el paso inmediato son
+  sus padres, que son iguales; más abajo los dos vienen de ese mismo padre, por la coherencia del
+  review. Es tu cadena de identificadores como teorema: donde la fusión de ramas no interviene, la
+  historia de un nodo **no es una elección**, y la cadena que `PairChain` pide por debajo sale gratis.
+- **`node_id_of_pin`** (`PairChain.lean`): en un estado fijado válido, **todos** los nodos del paso
+  fijado llevan el nodo de mapa de la fijación (un nodo se posee a sí mismo, luego es owner global, y
+  la fijación ha borrado los owners globales de ese paso con otro nodo de mapa). Consecuencia: una
+  cadena del estado **fijado** respeta la fijación por sí sola; no hay nada que dirigir.
+- **`pairChain_of_steered`**: la reducción exacta, ahora reformulada por lo anterior. Lo que falta no
+  es *dirigir* una cadena por la fijación, sino que la cadena que lleva el par **sobreviva** a la
+  fijación: tu propio "no se pierde ninguna solución", par a par.
+
+**No la cierra**, y digo por qué: una cadena de `g` que lleva el par puede pasar por el paso fijado
+con otro nodo de mapa, y entonces hay que reencaminarla; reencaminar necesita un padre común a los
+dos extremos y a la fijación, que es el trío de la sección 2. Donde los nodos tienen un solo padre no
+hay nada que reencaminar (`owners_below_unique`); el residuo son otra vez los nodos fusionados.
+
+## 5. Lo que queda
+
+1. **La obligación abierta es `FilterKeepsPairChain`** (v123), ahora en su forma más limpia gracias a
+   `node_id_of_pin`: la cadena de cada par de owners **sobrevive** a la fijación. Medida sin excepciones
+   en v123 (todas las líneas y recorridos del lector); es la única de las tres rutas que la medida no ha
+   tocado.
 2. **No insistir** en rutas con testigo común: rebanada del ancla (esta sección 2), cierre de triángulos
    `SPC` (v122) y soporte estático (v119) están refutadas por medida.
 3. La vía de diseño de v129 §5 (marcar la procedencia de las entradas) sigue siendo tuya, con el coste
