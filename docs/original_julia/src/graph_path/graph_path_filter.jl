@@ -182,19 +182,26 @@ function agressive_consistence_filter!(gpath :: GPath)
                             node_w = PathCollectionLines.get_node(gpath.table_lines, node_id_w)
                             is_valid_w = is_valid_node(gpath, node_w)
                             if is_valid_w
-                            # intersección de los owners 
-                                owners_copy = deepcopy(node_x.owners)
-                                PathDocumentOwners.intersect!(owners_copy, node_w.owners)
-
-                                if !PathDocumentOwners.is_valid(owners_copy)
-                                    # No existe ningun camino en donde ambos sean compatibles, entonces dejan de ser owners.
+                                if !symmetric_entry(gpath, node_x, node_w)
                                     PathDocumentNode.remove_owner!(node_x, node_id_w)
-                                    PathDocumentNode.remove_owner!(node_w, node_x.id)
-                                    is_valid_x = is_valid_node(gpath, node_x)
-                                    is_valid_w = is_valid_node(gpath, node_w)
-                                    println("Apply Agressive Consistence <-- ")
+                                    println("Apply Agressive: [Asymetric Detection] <-- ")
                                     gpath.review_owners = true
+                                else
+                                    # intersección de los owners 
+                                    owners_copy = deepcopy(node_x.owners)
+                                    PathDocumentOwners.intersect!(owners_copy, node_w.owners)
+
+                                    if !PathDocumentOwners.is_valid(owners_copy)
+                                        # No existe ningun camino en donde ambos sean compatibles, entonces dejan de ser owners.
+                                        PathDocumentNode.remove_owner!(node_x, node_id_w)
+                                        PathDocumentNode.remove_owner!(node_w, node_x.id)
+                                        is_valid_x = is_valid_node(gpath, node_x)
+                                        is_valid_w = is_valid_node(gpath, node_w)
+                                        println("Apply Agressive [Consistence] <-- ")
+                                        gpath.review_owners = true
+                                    end
                                 end
+
                             end
                         end
                     end
@@ -207,6 +214,15 @@ function agressive_consistence_filter!(gpath :: GPath)
             end)
         end
     end
+end
+
+function symmetric_entry(gpath :: GPath, path_node_x :: PathDocNode, 
+                         path_node_w :: PathDocNode) :: Bool
+    # ¿Está w en los owners de x Y está x en los owners de w?
+    x_owns_w = PathDocumentOwners.is_owner(path_node_x.owners, path_node_w.id)
+    w_owns_x = PathDocumentOwners.is_owner(path_node_w.owners, path_node_x.id)
+    
+    return x_owns_w && w_owns_x
 end
 
 
