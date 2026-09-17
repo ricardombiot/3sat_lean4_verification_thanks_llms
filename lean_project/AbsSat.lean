@@ -141,6 +141,8 @@ import AbsSat.GraphPath.Model.AggressiveReview
 import AbsSat.GraphPath.Model.ReaderAgg
 import AbsSat.GraphPath.Model.ReaderAggRun
 import AbsSat.GraphPath.Model.PinExact
+import AbsSat.GraphPath.Model.AggFixpoint
+import AbsSat.GraphPath.Model.PinExactBoundary
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves

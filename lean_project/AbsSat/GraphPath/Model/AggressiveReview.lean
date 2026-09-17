@@ -57,11 +57,13 @@ def dropList (os : List PathNodeId) (w : PathNodeId) : List PathNodeId :=
 def dropOwnerPair (g : GPathM) (x w : PathNodeId) (xo wo : List PathNodeId) : GPathM :=
   updateAt (updateAt g x (uniMap (dropList xo w))) w (uniMap (dropList wo x))
 
-/-- One owner pair of `x`, checked against the tables as they stand. -/
+/-- One owner pair of `x`, checked against the tables as they stand. The sweep only calls it with
+`w` among `x`'s current owners; the `contains` test makes that explicit, so that a pair that fires
+always removes something (`AggFixpoint.aggPair_eqOrLt`). -/
 def aggPair (g : GPathM) (x w : PathNodeId) : GPathM :=
   match g.node? x, g.node? w with
   | some nx, some nw =>
-    if isValidNode g nw && !sharesEveryStep g.current_step nx.owners nw.owners then
+    if nx.owners.contains w && isValidNode g nw && !sharesEveryStep g.current_step nx.owners nw.owners then
       dropOwnerPair g x w nx.owners nw.owners
     else g
   | _, _ => g
