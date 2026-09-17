@@ -17,7 +17,8 @@ members. `Sup g S R` asks:
 * **coverage**: at every step, a member has an `R`-owner;
 * **parents / sons**: an `R`-owner of a non-root member is an `R`-owner of some parent that is
   `R`-linked both ways to the member (the same for sons, through the parent table);
-* **pairs**: two `R`-linked members on the swept steps have, at every step, a common `R`-owner.
+* **pairs**: two `R`-linked members have, at every step, a common `R`-owner;
+* **symmetry**: `R` is symmetric (the author's sweep drops asymmetric owner entries, report v121).
 
 `AOk` adds the two structural invariants the sweeps use (`Sons.SMP`, `Parents.NotRoot`). Proved:
 every operation of the base review and of the author's sweep keeps `AOk` (the members, with their
@@ -49,9 +50,8 @@ structure Sup (g : GPathM) (S : PathNodeId → Prop) (R : PathNodeId → PathNod
     ∃ c ∈ d.parents, R x c ∧ R c x ∧ R c v
   son : ∀ x, S x → x.id.step ≠ g.current_step - 1 → ∀ v, R x v →
     ∃ c m, g.node? c = some m ∧ x ∈ m.parents ∧ R x c ∧ R c x ∧ R c v
-  agg : ∀ x v, R x v → 1 ≤ x.id.step → x.id.step ≤ g.current_step - 2 →
-    1 ≤ v.id.step → v.id.step ≤ g.current_step - 2 →
-    ∀ l, 0 ≤ l → l < g.current_step → ∃ z, R x z ∧ R v z ∧ z.id.step = l
+  agg : ∀ x v, R x v → ∀ l, 0 ≤ l → l < g.current_step → ∃ z, R x z ∧ R v z ∧ z.id.step = l
+  sym : ∀ x v, R x v → R v x
 
 /-- `Sup` plus the structural invariants the sweeps use. -/
 structure AOk (g : GPathM) (S : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop) : Prop where
@@ -72,7 +72,7 @@ theorem Sup_updateAt (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
     fun p n hn => updateAt_node? g id (fowA b) (fun _ => rfl) p n hn
   have hpar : ∀ n : PNodeM, (match n.id == id with | true => fowA b n | false => n).parents = n.parents := by
     intro n; cases n.id == id <;> rfl
-  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg⟩
+  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym⟩
   · intro p hp
     obtain ⟨n, hn'⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     rw [hn p n hn']; rfl
@@ -120,7 +120,7 @@ theorem Sup_unlink (g : GPathM) (id : PathNodeId) (h : Sup g S R) :
       · intro he
         have : m = n₀ := Option.some.inj ((show g.node? id = some m by rw [← he]; exact hm).symm.trans hid)
         rw [← this, hnid]; exact h.own c x m hcx hm
-    refine ⟨?_, ?_, ?_, h.dom, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_, h.dom, ?_, ?_, ?_, ?_, ?_, h.sym⟩
     · intro p hp; rw [unlinkIncompatible_gowners]; exact h.gow p hp
     · intro p hp
       obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node p hp)
@@ -143,9 +143,9 @@ theorem Sup_unlink (g : GPathM) (id : PathNodeId) (h : Sup g S R) :
       obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son x hS hlast v hr
       obtain ⟨n, hn0⟩ := Option.isSome_iff_exists.mp (h.node x hS)
       exact ⟨c, _, hn c m hm, hkeep c x m n hm hn0 hxm h2 h1, h1, h2, h3⟩
-    · intro x v hr hx1 hx2 hv1 hv2 l hlo hhi
-      rw [hcur] at hx2 hv2 hhi
-      exact h.agg x v hr hx1 hx2 hv1 hv2 l hlo hhi
+    · intro x v hr l hlo hhi
+      rw [hcur] at hhi
+      exact h.agg x v hr l hlo hhi
 
 -- ============================================================
 -- Removing a non-member
@@ -156,7 +156,7 @@ theorem Sup_removeNode (g : GPathM) (id : PathNodeId) (h : Sup g S R) (hns : ¬ 
   have hne : ∀ p, S p → p ≠ id := fun p hp he => hns (he ▸ hp)
   have hn : ∀ p m, S p → g.node? p = some m → (removeNode g id).node? p = some (unlink id m) :=
     fun p m hp hm => removeNode_node? g id p m hm (hne p hp)
-  refine ⟨?_, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg⟩
+  refine ⟨?_, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym⟩
   · intro p hp
     rw [removeNode_gowners]
     exact List.mem_filter.mpr ⟨h.gow p hp, bne_iff_ne.mpr (hne p hp)⟩
@@ -472,7 +472,7 @@ theorem AOk_review (g : GPathM) (h : AOk g S R) : AOk (review g) S R := AOk_revi
 
 theorem AOk_filterRequire (g : GPathM) (h : AOk g S R) (req : NodeId)
     (hpin : ∀ p, S p → p.id.step = req.step → p.id = req) : AOk (filterRequire g req) S R := by
-  refine ⟨⟨?_, h.sup.node, h.sup.step, h.sup.dom, h.sup.own, h.sup.cov, h.sup.par, h.sup.son, h.sup.agg⟩,
+  refine ⟨⟨?_, h.sup.node, h.sup.step, h.sup.dom, h.sup.own, h.sup.cov, h.sup.par, h.sup.son, h.sup.agg, h.sup.sym⟩,
     Sons.SMP_filterRequire g req h.smp, Parents.NotRoot_of_pruned (pruned_filterRequire g req) h.nr⟩
   intro p hp
   refine List.mem_filter.mpr ⟨h.sup.gow p hp, ?_⟩
@@ -490,105 +490,76 @@ theorem AOk_filterRequire (g : GPathM) (h : AOk g S R) (req : NodeId)
 -- The author's sweep
 -- ============================================================
 
-/-- Two `R`-linked members on the swept steps always pass the author's test. -/
+/-- Two `R`-linked members always pass the author's consistency test. -/
 theorem shares_of_R (g : GPathM) (h : Sup g S R) (x w : PathNodeId) (nx nw : PNodeM)
-    (hx : g.node? x = some nx) (hw : g.node? w = some nw)
-    (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ g.current_step - 2)
-    (hw1 : 1 ≤ w.id.step) (hw2 : w.id.step ≤ g.current_step - 2)
-    (hr : R x w ∨ R w x) : sharesEveryStep g.current_step nx.owners nw.owners = true := by
+    (hx : g.node? x = some nx) (hw : g.node? w = some nw) (hr : R x w) :
+    sharesEveryStep g.current_step nx.owners nw.owners = true := by
   unfold sharesEveryStep
   refine List.all_eq_true.mpr (fun k hk => ?_)
   obtain ⟨hlo, hhi⟩ := PickInduction.intRange_bounds hk
-  obtain ⟨z, hz1, hz2, hzs⟩ : ∃ z, R x z ∧ R w z ∧ z.id.step = k := by
-    rcases hr with hr | hr
-    · exact h.agg x w hr hx1 hx2 hw1 hw2 k hlo (by omega)
-    · obtain ⟨z, a, b, c⟩ := h.agg w x hr hw1 hw2 hx1 hx2 k hlo (by omega)
-      exact ⟨z, b, a, c⟩
+  obtain ⟨z, hz1, hz2, hzs⟩ := h.agg x w hr k hlo (by omega)
   have hany : (ownersAt nx.owners k).any (fun r => nw.owners.contains r) = true :=
     List.any_eq_true.mpr ⟨z, List.mem_filter.mpr ⟨h.own x z nx hz1 hx, beq_iff_eq.mpr hzs⟩,
       List.elem_eq_true_of_mem (h.own w z nw hz2 hw)⟩
   rw [hany, Bool.or_true]
 
-theorem Sup_aggPair (g : GPathM) (h : Sup g S R) (x w : PathNodeId)
-    (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ g.current_step - 2)
-    (hw1 : 1 ≤ w.id.step) (hw2 : w.id.step ≤ g.current_step - 2) :
-    Sup (aggPair g x w) S R := by
+theorem Sup_aggPair (g : GPathM) (h : Sup g S R) (x w : PathNodeId) : Sup (aggPair g x w) S R := by
   unfold aggPair
   split
   · next nx nw hx hw =>
     split
-    · next hcond =>
-      have hsh : sharesEveryStep g.current_step nx.owners nw.owners = false := by
-        simp only [Bool.and_eq_true, Bool.not_eq_true'] at hcond
-        exact hcond.2
+    · next hasym =>
+      -- asymmetric entry: never an `R`-link, since `R` is symmetric and `R`-owners are owners
+      have hnx : nw.owners.contains x = false := by
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at hasym
+        exact hasym.2
       have hnxw : ¬ R x w := fun hr => by
-        rw [shares_of_R g h x w nx nw hx hw hx1 hx2 hw1 hw2 (Or.inl hr)] at hsh
-        exact Bool.noConfusion hsh
-      have hnwx : ¬ R w x := fun hr => by
-        rw [shares_of_R g h x w nx nw hx hw hx1 hx2 hw1 hw2 (Or.inr hr)] at hsh
-        exact Bool.noConfusion hsh
+        have hc : nw.owners.contains x = true := List.elem_eq_true_of_mem (h.own w x nw (h.sym x w hr) hw)
+        rw [hnx] at hc
+        exact Bool.noConfusion hc
       have hb1 : S x → ∀ v, R x v → v ∈ dropList nx.owners w := fun _ v hr =>
         mem_dropList _ w v (h.own x v nx hr hx) (fun he => hnxw (he ▸ hr))
-      have hb2 : S w → ∀ v, R w v → v ∈ dropList nw.owners x := fun _ v hr =>
-        mem_dropList _ x v (h.own w v nw hr hw) (fun he => hnwx (he ▸ hr))
-      exact Sup_updateAt _ w _ hb2 (Sup_updateAt g x _ hb1 h)
-    · exact h
+      exact Sup_updateAt g x _ hb1 h
+    · split
+      · next hcond =>
+        have hsh : sharesEveryStep g.current_step nx.owners nw.owners = false := by
+          simp only [Bool.and_eq_true, Bool.not_eq_true'] at hcond
+          exact hcond.2
+        have hnxw : ¬ R x w := fun hr => by
+          rw [shares_of_R g h x w nx nw hx hw hr] at hsh
+          exact Bool.noConfusion hsh
+        have hnwx : ¬ R w x := fun hr => hnxw (h.sym w x hr)
+        have hb1 : S x → ∀ v, R x v → v ∈ dropList nx.owners w := fun _ v hr =>
+          mem_dropList _ w v (h.own x v nx hr hx) (fun he => hnxw (he ▸ hr))
+        have hb2 : S w → ∀ v, R w v → v ∈ dropList nw.owners x := fun _ v hr =>
+          mem_dropList _ x v (h.own w v nw hr hw) (fun he => hnwx (he ▸ hr))
+        exact Sup_updateAt _ w _ hb2 (Sup_updateAt g x _ hb1 h)
+      · exact h
   · exact h
 
 theorem SMP_aggPair (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) : Sons.SMP (aggPair g x w) := by
   unfold aggPair
   split
   · split
-    · exact Sons.SMP_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
-        (Sons.SMP_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs)
-    · exact hs
+    · exact Sons.SMP_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs
+    · split
+      · exact Sons.SMP_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
+          (Sons.SMP_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs)
+      · exact hs
   · exact hs
 
-theorem AOk_aggPair (g : GPathM) (h : AOk g S R) (x w : PathNodeId)
-    (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ g.current_step - 2)
-    (hw1 : 1 ≤ w.id.step) (hw2 : w.id.step ≤ g.current_step - 2) :
-    AOk (aggPair g x w) S R :=
-  ⟨Sup_aggPair g h.sup x w hx1 hx2 hw1 hw2, SMP_aggPair g h.smp x w,
+theorem AOk_aggPair (g : GPathM) (h : AOk g S R) (x w : PathNodeId) : AOk (aggPair g x w) S R :=
+  ⟨Sup_aggPair g h.sup x w, SMP_aggPair g h.smp x w,
     Parents.NotRoot_of_pruned (pruned_aggPair g x w) h.nr⟩
 
-theorem AOk_pairs (x : PathNodeId) (cs : Int) (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ cs - 2) :
-    ∀ (ws : List PathNodeId), (∀ w ∈ ws, 1 ≤ w.id.step ∧ w.id.step ≤ cs - 2) →
-      ∀ g : GPathM, g.current_step = cs → AOk g S R →
-        AOk (ws.foldl (fun g w => aggPair g x w) g) S R ∧
-        (ws.foldl (fun g w => aggPair g x w) g).current_step = cs := by
-  intro ws
-  induction ws with
-  | nil => intro _ g hc h; exact ⟨h, hc⟩
-  | cons w rest ih =>
-    intro hws g hc h
-    simp only [List.foldl_cons]
-    obtain ⟨hw1, hw2⟩ := hws w List.mem_cons_self
-    refine ih (fun v hv => hws v (List.mem_cons_of_mem _ hv)) _ ?_
-      (AOk_aggPair g h x w hx1 (by rw [hc]; exact hx2) hw1 (by rw [hc]; exact hw2))
-    rw [(pruned_aggPair g x w).step_eq]; exact hc
+private theorem AOk_foldl {β : Type} (f : GPathM → β → GPathM) (hf : ∀ g b, AOk g S R → AOk (f g b) S R) :
+    ∀ (l : List β) (g : GPathM), AOk g S R → AOk (l.foldl f g) S R := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b rest ih => intro g h; exact ih _ (hf g b h)
 
-theorem AOk_pairSteps (x : PathNodeId) (cs : Int) (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ cs - 2) :
-    ∀ (ks : List Int), (∀ k ∈ ks, 1 ≤ k ∧ k ≤ cs - 2) →
-      ∀ g : GPathM, g.current_step = cs → AOk g S R →
-        AOk (ks.foldl (fun g kw => (ownersAtNow g x kw).foldl (fun g w => aggPair g x w) g) g) S R ∧
-        (ks.foldl (fun g kw => (ownersAtNow g x kw).foldl (fun g w => aggPair g x w) g) g).current_step
-          = cs := by
-  intro ks
-  induction ks with
-  | nil => intro _ g hc h; exact ⟨h, hc⟩
-  | cons k rest ih =>
-    intro hks g hc h
-    simp only [List.foldl_cons]
-    obtain ⟨hk1, hk2⟩ := hks k List.mem_cons_self
-    have hws : ∀ w ∈ ownersAtNow g x k, 1 ≤ w.id.step ∧ w.id.step ≤ cs - 2 := by
-      intro w hw
-      have hs : w.id.step = k := eq_of_beq (List.mem_filter.mp hw).2
-      rw [hs]; exact ⟨hk1, hk2⟩
-    obtain ⟨h', hc'⟩ := AOk_pairs x cs hx1 hx2 _ hws g hc h
-    exact ih (fun j hj => hks j (List.mem_cons_of_mem _ hj)) _ hc' h'
-
-theorem AOk_aggNode (g : GPathM) (h : AOk g S R) (x : PathNodeId)
-    (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ g.current_step - 2) : AOk (aggNode g x) S R := by
+theorem AOk_aggNode (g : GPathM) (h : AOk g S R) (x : PathNodeId) : AOk (aggNode g x) S R := by
   have hfin : ∀ g₁ : GPathM, AOk g₁ S R → AOk
       (match g₁.node? x with
         | none => g₁
@@ -608,42 +579,13 @@ theorem AOk_aggNode (g : GPathM) (h : AOk g S R) (x : PathNodeId)
   · exact h
   · apply hfin
     split
-    · exact (AOk_pairSteps x g.current_step hx1 hx2 _
-        (fun k hk => PickInduction.intRange_bounds (List.mem_reverse.mp hk)) g rfl h).1
+    · exact AOk_foldl _ (fun g kw hg => AOk_foldl _ (fun g w hg => AOk_aggPair g hg x w) _ g hg) _ g h
     · exact h
 
 theorem AOk_aggSweep (g : GPathM) (h : AOk g S R) : AOk (aggSweep g) S R := by
   unfold aggSweep
   split
-  · have hline : ∀ (k : Int), 1 ≤ k → ∀ cs, k ≤ cs - 2 → ∀ (ids : List PathNodeId),
-        (∀ id ∈ ids, id.id.step = k) → ∀ g' : GPathM, g'.current_step = cs → AOk g' S R →
-          AOk (ids.foldl aggNode g') S R ∧ (ids.foldl aggNode g').current_step = cs := by
-      intro k hk1 cs hk2 ids
-      induction ids with
-      | nil => intro _ g' hc h'; exact ⟨h', hc⟩
-      | cons i rest ih =>
-        intro hids g' hc h'
-        simp only [List.foldl_cons]
-        have hi := hids i List.mem_cons_self
-        refine ih (fun j hj => hids j (List.mem_cons_of_mem _ hj)) _ ?_
-          (AOk_aggNode g' h' i (by rw [hi]; exact hk1) (by rw [hi, hc]; exact hk2))
-        rw [(pruned_aggNode g' i).step_eq]; exact hc
-    have hsteps : ∀ (ks : List Int), (∀ k ∈ ks, 1 ≤ k ∧ k ≤ g.current_step - 2) →
-        ∀ g' : GPathM, g'.current_step = g.current_step → AOk g' S R →
-          AOk (ks.foldl (fun g k => ((g.line k).map (·.id)).foldl aggNode g) g') S R ∧
-          (ks.foldl (fun g k => ((g.line k).map (·.id)).foldl aggNode g) g').current_step
-            = g.current_step := by
-      intro ks
-      induction ks with
-      | nil => intro _ g' hc h'; exact ⟨h', hc⟩
-      | cons k rest ih =>
-        intro hks g' hc h'
-        simp only [List.foldl_cons]
-        obtain ⟨hk1, hk2⟩ := hks k List.mem_cons_self
-        obtain ⟨h'', hc''⟩ := hline k hk1 g.current_step hk2 _
-          (fun id hid => Survive.step_of_mem_line g' k id hid) g' hc h'
-        exact ih (fun j hj => hks j (List.mem_cons_of_mem _ hj)) _ hc'' h''
-    exact (hsteps _ (fun k hk => PickInduction.intRange_bounds (List.mem_reverse.mp hk)) g rfl h).1
+  · exact AOk_foldl _ (fun g k hg => AOk_foldl _ (fun g x hg => AOk_aggNode g hg x) _ g hg) _ g h
   · exact h
 
 theorem AOk_reviewAggFuel : ∀ (fuel : Nat) (g : GPathM), AOk g S R → AOk (reviewAggFuel fuel g) S R := by
@@ -688,7 +630,7 @@ theorem AOk_empty (g : GPathM) (hs : Sons.SMP g) (hn : Parents.NotRoot g) :
     AOk g (fun _ => False) (fun _ _ => False) :=
   ⟨⟨fun _ h => h.elim, fun _ h => h.elim, fun _ h => h.elim, fun _ _ h => h.elim,
     fun _ _ _ h => h.elim, fun _ h => h.elim, fun _ _ h => h.elim, fun _ h => h.elim,
-    fun _ _ h => h.elim⟩, hs, hn⟩
+    fun _ _ h => h.elim, fun _ _ h => h.elim⟩, hs, hn⟩
 
 /-- The aggressive review keeps `SMP` (the empty set's `AOk`). -/
 theorem SMP_filterAllAgg (g : GPathM) (hs : Sons.SMP g) (hn : Parents.NotRoot g) (reqs : List NodeId) :

@@ -37,8 +37,10 @@ theorem inv_aggPair (g : GPathM) (x w : PathNodeId) (h : P g) : P (aggPair g x w
   unfold aggPair
   split
   · split
-    · exact hup _ _ _ (hup _ _ _ h)
-    · exact h
+    · exact hup _ _ _ h
+    · split
+      · exact hup _ _ _ (hup _ _ _ h)
+      · exact h
   · exact h
 
 include hup hrm in
@@ -47,7 +49,7 @@ theorem inv_aggNode (g : GPathM) (x : PathNodeId) (h : P g) : P (aggNode g x) :=
   split
   · exact h
   · next nx _ =>
-    have hA : P ((intRange 1 (g.current_step - 2)).reverse.foldl
+    have hA : P ((intRange 0 (g.current_step - 1)).reverse.foldl
         (fun g kw => (ownersAtNow g x kw).foldl (fun g w => aggPair g x w) g) g) :=
       inv_foldl P _ (fun g kw hg => inv_foldl P (fun g w => aggPair g x w)
         (fun g w hg => inv_aggPair P hup g x w hg) (ownersAtNow g x kw) g hg) _ g h

@@ -615,6 +615,361 @@ def runHered (φ : Cnf) (st0 : HerStat) : HerStat := Id.run do
       if isValid G then st := heredCensus G st
   return st
 
+structure SpcStat where
+  pins : Nat := 0
+  carriers : Array Nat := Array.replicate 6 0
+  spcInterior : Nat := 0
+  triangles : Nat := 0
+  triangleFail : Nat := 0
+  cells : Nat := 0
+  cellsNoHalf : Nat := 0
+  witnesses : Nat := 0
+  witXonly : Nat := 0
+  witVonly : Nat := 0
+  witBoth : Nat := 0
+  witNone : Nat := 0
+  ePairsInterior : Nat := 0
+  nonSpcInterior : Nat := 0
+  failOnlyAtPinned : Nat := 0
+  boundaryPins : Nat := 0
+  badAtPinned : Nat := 0
+  badBetween : Nat := 0
+  badOutside : Nat := 0
+  badAtBoundaryStep : Nat := 0
+  badPinBoundary : Nat := 0
+  badDist : Array Nat := Array.replicate 8 0
+  ex : List String := []
+
+/-- Structure of `SPC` (slice pair consistency) on the interior steps. -/
+def spcCensus (G : GPathM) (st0 : SpcStat) : SpcStat := Id.run do
+  let mut st := st0
+  let cs := G.current_step
+  let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let steps : List Int := (List.range cs.toNat).map (fun (s : Nat) => Int.ofNat s)
+  let inner := fun (p : PathNodeId) => 1 ≤ p.id.step && p.id.step ≤ cs - 2
+  for i in [0:cs.toNat] do
+    let k : Int := Int.ofNat i
+    let gk := G.gowners.filter (fun q => q.id.step == k)
+    let ids := (gk.map (·.id)).eraseDups
+    if ids.length > 1 then
+      for mid in ids do
+        if !isValid (filterAllAgg G [mid]) then continue
+        st := { st with pins := st.pins + 1 }
+        if mid.step == 0 || mid.step == cs - 1 then st := { st with boundaryPins := st.boundaryPins + 1 }
+        let nc := (G.nodes.filter (fun m => m.id.id == mid)).length
+        st := { st with carriers := st.carriers.modify (min nc 5) (· + 1) }
+        let slice := G.nodes.filter (fun m => m.owners.any (fun q => q.id == mid))
+        let S : Std.HashSet PathNodeId := Std.HashSet.ofList (slice.map (·.id))
+        let E := fun (x v : PathNodeId) => S.contains x && S.contains v &&
+          (match tbl.get? x with | some nx => nx.owners.contains v | none => false)
+        let wit : PathNodeId → PathNodeId → Int → List PathNodeId := fun x v l =>
+          match tbl.get? x with
+          | some nx => nx.owners.filter (fun (z : PathNodeId) => z.id.step == l && E x z && E v z)
+          | none => []
+        let mut SPC : Std.HashSet (PathNodeId × PathNodeId) := {}
+        for m in slice do
+          for v in m.owners do
+            if E m.id v then
+              let fails := steps.filter (fun l => (wit m.id v l).isEmpty)
+              if fails.isEmpty then SPC := SPC.insert (m.id, v)
+              else if inner m.id && inner v then
+                st := { st with nonSpcInterior := st.nonSpcInterior + 1 }
+                if fails == [mid.step] then st := { st with failOnlyAtPinned := st.failOnlyAtPinned + 1 }
+              if inner m.id && inner v then st := { st with ePairsInterior := st.ePairsInterior + 1 }
+        -- SPC neighbours of each node
+        let nbr : Std.HashMap PathNodeId (Array PathNodeId) := SPC.toList.foldl (fun acc (x, v) =>
+          acc.insert x ((acc.getD x #[]).push v)) {}
+        for (x, v) in SPC.toList do
+          if !(inner x && inner v) || x == v then continue
+          st := { st with spcInterior := st.spcInterior + 1 }
+          -- 1. triangle closure: SPC x v, SPC x z, z owns-entry of v  ⇒  SPC v z
+          for z in nbr.getD x #[] do
+            if inner z && z != v && z != x && E v z then
+              st := { st with triangles := st.triangles + 1 }
+              if !SPC.contains (v, z) then
+                st := { st with triangleFail := st.triangleFail + 1 }
+                if st.ex.length < 6 then
+                  st := { st with ex := st.ex ++ [s!"TRIANGLE pin {mid.step}.{mid.index}: SPC {showPid x}-{showPid v}, SPC {showPid x}-{showPid z}, not SPC {showPid v}-{showPid z}"] }
+          -- 2. witnesses by which end they are SPC with
+          for l in steps do
+            if l == x.id.step || l == v.id.step || l == mid.step then continue
+            let ws := (wit x v l).filter inner
+            if ws.isEmpty then continue
+            st := { st with cells := st.cells + 1 }
+            let mut half := false
+            for z in ws do
+              st := { st with witnesses := st.witnesses + 1 }
+              let a := SPC.contains (x, z)
+              let b := SPC.contains (v, z)
+              if a then half := true
+              if a && b then st := { st with witBoth := st.witBoth + 1 }
+              else if a then
+                st := { st with witXonly := st.witXonly + 1 }
+                if mid.step == 0 || mid.step == cs - 1 then st := { st with badPinBoundary := st.badPinBoundary + 1 }
+                -- where does SPC v z fail?
+                for l' in steps do
+                  if (wit v z l').isEmpty then
+                    let lo := min v.id.step z.id.step
+                    let hi := max v.id.step z.id.step
+                    if l' == mid.step then st := { st with badAtPinned := st.badAtPinned + 1 }
+                    else if lo < l' && l' < hi then st := { st with badBetween := st.badBetween + 1 }
+                    else st := { st with badOutside := st.badOutside + 1 }
+                    if l' == 0 || l' == cs - 1 then st := { st with badAtBoundaryStep := st.badAtBoundaryStep + 1 }
+                    let d := if l' < lo then lo - l' else if l' > hi then l' - hi else 0
+                    st := { st with badDist := st.badDist.modify (min d.toNat 7) (· + 1) }
+              else if b then st := { st with witVonly := st.witVonly + 1 }
+              else st := { st with witNone := st.witNone + 1 }
+            if !half then st := { st with cellsNoHalf := st.cellsNoHalf + 1 }
+  return st
+
+def runSpc (φ : Cnf) (st0 : SpcStat) : SpcStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  match lines.getLast? with
+  | none => pure ()
+  | some line =>
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := spcCensus G st
+  return st
+
+structure P2Stat where
+  pairs : Nat := 0
+  valid : Nat := 0
+  invalid : Nat := 0
+  sliceRemoved : Nat := 0
+  outsideKept : Nat := 0
+  seqDiffers : Nat := 0
+  invalidWithFullSlice : Nat := 0
+  invalidSliceEmptyStep : Nat := 0
+  ex : List String := []
+
+/-- Every pair of pins at different steps: exact double slice, and order independence. -/
+def pins2Census (G : GPathM) (st0 : P2Stat) : P2Stat := Id.run do
+  let mut st := st0
+  let cs := G.current_step
+  let mut choice : List NodeId := []
+  for i in [0:cs.toNat] do
+    let k : Int := Int.ofNat i
+    let ids := ((G.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+    if ids.length > 1 then choice := choice ++ ids
+  let ids := G.nodes.map (·.id)
+  let steps : List Int := (List.range cs.toNat).map (fun (s : Nat) => Int.ofNat s)
+  for a in choice do
+    let Ga := filterAllAgg G [a]
+    for b in choice do
+      if b.step ≤ a.step then continue
+      st := { st with pairs := st.pairs + 1 }
+      let G2 := filterAllAgg G [a, b]
+      let slice := G.nodes.filter (fun m => m.owners.any (fun q => q.id == a) && m.owners.any (fun q => q.id == b))
+      let sliceIds : Std.HashSet PathNodeId := Std.HashSet.ofList (slice.map (·.id))
+      if isValid G2 then
+        st := { st with valid := st.valid + 1 }
+        let alive : Std.HashSet PathNodeId := Std.HashSet.ofList (G2.nodes.map (·.id))
+        for x in ids do
+          if sliceIds.contains x && !alive.contains x then
+            st := { st with sliceRemoved := st.sliceRemoved + 1 }
+            if st.ex.length < 6 then st := { st with ex := st.ex ++ [s!"2-PIN SLICE NODE REMOVED {showPid x} pins {a.step}.{a.index} {b.step}.{b.index}"] }
+          if !sliceIds.contains x && alive.contains x then st := { st with outsideKept := st.outsideKept + 1 }
+        -- order: pin a, review, pin b, review
+        let Gs := if isValid Ga then filterAllAgg Ga [b] else Ga
+        let aliveS : List PathNodeId := Gs.nodes.map (·.id)
+        if aliveS.length != G2.nodes.length || aliveS.any (fun x => !alive.contains x) then
+          st := { st with seqDiffers := st.seqDiffers + 1 }
+      else
+        st := { st with invalid := st.invalid + 1 }
+        let full := steps.all (fun l => slice.any (fun m => m.id.id.step == l))
+        if full then
+          st := { st with invalidWithFullSlice := st.invalidWithFullSlice + 1 }
+        else st := { st with invalidSliceEmptyStep := st.invalidSliceEmptyStep + 1 }
+  return st
+
+def runPins2 (φ : Cnf) (st0 : P2Stat) : P2Stat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  match lines.getLast? with
+  | none => pure ()
+  | some line =>
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := pins2Census G st
+  return st
+
+structure D2Stat where
+  firstPins : Nat := 0
+  secondPins : Nat := 0
+  invalid : Nat := 0
+  sliceNodes : Nat := 0
+  sliceRemoved : Nat := 0
+  outsideKept : Nat := 0
+  lostCarrier : Nat := 0
+  removedBoundaryPin : Nat := 0
+  removedInteriorPin : Nat := 0
+  interiorSecondPins : Nat := 0
+  pinsRemoving : Nat := 0
+  removedSteps : List Int := []
+  ex : List String := []
+
+/-- Depth two of the reader: after a valid pin `a`, every pin `b` of the new state, with the slice
+of `b` read in the new state. Also: nodes of the base double slice that lost their `b` carrier. -/
+def depth2Census (G : GPathM) (st0 : D2Stat) : D2Stat := Id.run do
+  let mut st := st0
+  let cs := G.current_step
+  let choiceOf := fun (H : GPathM) => Id.run do
+    let mut out : List NodeId := []
+    for i in [0:cs.toNat] do
+      let k : Int := Int.ofNat i
+      let ids := ((H.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+      if ids.length > 1 then out := out ++ ids
+    return out
+  for a in choiceOf G do
+    let Ga := filterAllAgg G [a]
+    if !isValid Ga then continue
+    st := { st with firstPins := st.firstPins + 1 }
+    for b in choiceOf Ga do
+      st := { st with secondPins := st.secondPins + 1 }
+      let bBoundary := b.step == 0 || b.step == cs - 1
+      if !bBoundary then st := { st with interiorSecondPins := st.interiorSecondPins + 1 }
+      let Gb := filterAllAgg Ga [b]
+      if !isValid Gb then
+        st := { st with invalid := st.invalid + 1 }
+        if st.ex.length < 6 then st := { st with ex := st.ex ++ [s!"INVALID depth-2 pin {a.step}.{a.index} then {b.step}.{b.index}"] }
+        continue
+      let slice := Ga.nodes.filter (fun m => m.owners.any (fun q => q.id == b))
+      let sliceIds : Std.HashSet PathNodeId := Std.HashSet.ofList (slice.map (·.id))
+      st := { st with sliceNodes := st.sliceNodes + slice.length }
+      let alive : Std.HashSet PathNodeId := Std.HashSet.ofList (Gb.nodes.map (·.id))
+      let before := st.sliceRemoved
+      for m in Ga.nodes do
+        if sliceIds.contains m.id && !alive.contains m.id then
+          st := { st with sliceRemoved := st.sliceRemoved + 1 }
+          if bBoundary then st := { st with removedBoundaryPin := st.removedBoundaryPin + 1 }
+          else st := { st with removedInteriorPin := st.removedInteriorPin + 1 }
+          if !st.removedSteps.contains m.id.id.step then st := { st with removedSteps := st.removedSteps ++ [m.id.id.step] }
+          if st.ex.length < 6 then st := { st with ex := st.ex ++ [s!"DEPTH-2 SLICE NODE REMOVED {showPid m.id} pins {a.step}.{a.index} then {b.step}.{b.index}"] }
+        if !sliceIds.contains m.id && alive.contains m.id then st := { st with outsideKept := st.outsideKept + 1 }
+      if st.sliceRemoved > before then st := { st with pinsRemoving := st.pinsRemoving + 1 }
+      -- base double slice members alive in Ga that lost every b carrier
+      for m in G.nodes do
+        if m.owners.any (fun q => q.id == a) && m.owners.any (fun q => q.id == b) then
+          match Ga.node? m.id with
+          | some m' => if !(m'.owners.any (fun q => q.id == b)) then st := { st with lostCarrier := st.lostCarrier + 1 }
+          | none => pure ()
+  return st
+
+def runDepth2 (φ : Cnf) (st0 : D2Stat) : D2Stat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  match lines.getLast? with
+  | none => pure ()
+  | some line =>
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := depth2Census G st
+  return st
+
+structure WStat where
+  walks : Nat := 0
+  states : Nat := 0
+  choiceStates : Nat := 0
+  pins : Nat := 0
+  invalidPins : Nat := 0
+  inexactPins : Nat := 0
+  inexactBoundaryPins : Nat := 0
+  inexactInteriorPins : Nat := 0
+  statesNoExact : Nat := 0
+  statesInteriorChoice : Nat := 0
+  statesInteriorChoiceNoExactInterior : Nat := 0
+  statesOnlyBoundaryChoice : Nat := 0
+  statesOnlyBoundaryNoExact : Nat := 0
+  statesNoValidPin : Nat := 0
+  ex : List String := []
+
+/-- Is the pin of `mid` on `H` valid, and does it keep its slice exactly? -/
+def pinCheck (H : GPathM) (mid : NodeId) : Bool × Bool := Id.run do
+  let H' := filterAllAgg H [mid]
+  if !isValid H' then return (false, false)
+  let alive : Std.HashSet PathNodeId := Std.HashSet.ofList (H'.nodes.map (·.id))
+  let exact := H.nodes.all (fun m => (m.owners.any (fun q => q.id == mid)) == alive.contains m.id)
+  return (true, exact)
+
+/-- Random reader walks: at every visited state, every pin at every step with a choice. -/
+def walkCensus (G : GPathM) (walks : Nat) (seed : Nat) (st0 : WStat) : WStat := Id.run do
+  let mut st := st0
+  let cs := G.current_step
+  let mut rng := seed
+  let mid0 : NodeId := { step := 0, index := 0 }
+  for _ in [0:walks] do
+    st := { st with walks := st.walks + 1 }
+    let mut H := G
+    let mut go := true
+    let mut depth := 0
+    while go && depth < 200 do
+      depth := depth + 1
+      st := { st with states := st.states + 1 }
+      let mut cands : List NodeId := []
+      for i in [0:cs.toNat] do
+        let k : Int := Int.ofNat i
+        let ids := ((H.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+        if ids.length > 1 then cands := cands ++ ids
+      if cands.isEmpty then
+        go := false
+        continue
+      st := { st with choiceStates := st.choiceStates + 1 }
+      let isB := fun (m : NodeId) => m.step == 0 || m.step == cs - 1
+      let hasInterior := cands.any (fun m => !isB m)
+      if hasInterior then st := { st with statesInteriorChoice := st.statesInteriorChoice + 1 }
+      else st := { st with statesOnlyBoundaryChoice := st.statesOnlyBoundaryChoice + 1 }
+      let mut valid : List NodeId := []
+      let mut anyExact := false
+      let mut anyExactInterior := false
+      for m in cands do
+        st := { st with pins := st.pins + 1 }
+        let (v, e) := pinCheck H m
+        if !v then st := { st with invalidPins := st.invalidPins + 1 }
+        else
+          valid := valid ++ [m]
+          if e then
+            anyExact := true
+            if !isB m then anyExactInterior := true
+          else
+            st := { st with inexactPins := st.inexactPins + 1 }
+            if isB m then st := { st with inexactBoundaryPins := st.inexactBoundaryPins + 1 }
+            else
+              st := { st with inexactInteriorPins := st.inexactInteriorPins + 1 }
+              if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"INEXACT INTERIOR pin {m.step}.{m.index} at depth {depth}"] }
+      if !anyExact then
+        st := { st with statesNoExact := st.statesNoExact + 1 }
+        if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"STATE WITHOUT EXACT PIN at depth {depth} ({cands.length} candidates, {valid.length} valid)"] }
+      if hasInterior && !anyExactInterior then st := { st with statesInteriorChoiceNoExactInterior := st.statesInteriorChoiceNoExactInterior + 1 }
+      if !hasInterior && !anyExact then st := { st with statesOnlyBoundaryNoExact := st.statesOnlyBoundaryNoExact + 1 }
+      if valid.isEmpty then
+        st := { st with statesNoValidPin := st.statesNoValidPin + 1 }
+        go := false
+        continue
+      rng := (rng * 1103515245 + 12345) % 2147483648
+      let pick := valid.getD (rng % valid.length) mid0
+      H := filterAllAgg H [pick]
+  return st
+
+def runWalk (φ : Cnf) (walks seed : Nat) (st0 : WStat) : WStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  match lines.getLast? with
+  | none => pure ()
+  | some line =>
+    let mut sd := seed
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then
+        st := walkCensus G walks sd st
+        sd := sd + 7919
+  return st
+
+def reportW (name : String) (st : WStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: walks={st.walks} states={st.states} withChoice={st.choiceStates} pins={st.pins} INVALID={st.invalidPins} inexact={st.inexactPins} (boundary {st.inexactBoundaryPins}, INTERIOR {st.inexactInteriorPins}) | states: interior choice={st.statesInteriorChoice} (NO_EXACT_INTERIOR {st.statesInteriorChoiceNoExactInterior}) only-boundary choice={st.statesOnlyBoundaryChoice} (NO_EXACT {st.statesOnlyBoundaryNoExact}) STATES_NO_EXACT={st.statesNoExact} STATES_NO_VALID={st.statesNoValidPin} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runFormula (φ : Cnf) (allLines : Bool) (st0 : HStat) : HStat := Id.run do
   let lines := aggLines φ
   let n := lines.length
@@ -671,6 +1026,62 @@ def main (args : List String) : IO Unit := do
         st := runFormula φ false st
       let t1 ← IO.monoMsNow
       report s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "spc" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSpc φ {})
+        let t1 ← IO.monoMsNow
+        IO.println s!"spc {path}: pins={st.pins} carriers(1,2,3,4,5+)={st.carriers.toList.drop 1} | interior E pairs={st.ePairsInterior} nonSPC={st.nonSpcInterior} (fail only at pinned step {st.failOnlyAtPinned}) SPC={st.spcInterior} | triangles={st.triangles} TRIANGLE_FAIL={st.triangleFail} | cells={st.cells} CELLS_NO_HALF={st.cellsNoHalf} witnesses={st.witnesses} both={st.witBoth} xOnly={st.witXonly} vOnly={st.witVonly} none={st.witNone} | boundaryPins={st.boundaryPins} xOnly with boundary pin={st.badPinBoundary} | failing steps of SPC v z: atPinned={st.badAtPinned} between={st.badBetween} outside={st.badOutside} atStep0orTop={st.badAtBoundaryStep} distOutside(0..7+)={st.badDist.toList} | {t1 - t0}ms"
+        for e in st.ex do IO.println s!"  EX {e}"
+  | "walk" :: "random" :: walks :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : WStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runWalk φ walks.toNat! seed st
+      let t1 ← IO.monoMsNow
+      reportW s!"walk seed {seed} ({cases} formulas, {nvMin}+ vars, {walks} walks per state)" st (t1 - t0)
+  | "walk" :: walks :: seed :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runWalk φ walks.toNat! seed.toNat! {})
+        let t1 ← IO.monoMsNow
+        reportW s!"walk {path}" st (t1 - t0)
+  | "depth2" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runDepth2 φ {})
+        let t1 ← IO.monoMsNow
+        IO.println s!"depth2 {path}: first pins={st.firstPins} second pins={st.secondPins} INVALID={st.invalid} slice nodes={st.sliceNodes} SLICE_REMOVED={st.sliceRemoved} (second pin on step 0/top {st.removedBoundaryPin}, interior {st.removedInteriorPin}; in {st.pinsRemoving} pins; interior second pins {st.interiorSecondPins}; removed nodes' steps {st.removedSteps}) OUTSIDE_KEPT={st.outsideKept} | base double-slice nodes alive after a that lost every b carrier={st.lostCarrier} | {t1 - t0}ms"
+        for e in st.ex do IO.println s!"  EX {e}"
+  | "pins2" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPins2 φ {})
+        let t1 ← IO.monoMsNow
+        IO.println s!"pins2 {path}: pairs={st.pairs} valid={st.valid} invalid={st.invalid} (double slice present at every step {st.invalidWithFullSlice}, some step empty {st.invalidSliceEmptyStep}) | valid: SLICE_REMOVED={st.sliceRemoved} OUTSIDE_KEPT={st.outsideKept} SEQUENTIAL_DIFFERS={st.seqDiffers} | {t1 - t0}ms"
+        for e in st.ex do IO.println s!"  EX {e}"
+  | "hered" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : HerStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runHered φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"hered seed {seed} ({cases} formulas, {nvMin}+ vars): pins={st.pins} interior SPC pairs={st.r1Pairs} witnesses={st.witnesses} BAD={st.badWitnesses} CELLS_WITHOUT_GOOD_WITNESS={st.cellsNoGood} | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
   | "hered" :: paths =>
     for path in paths do
       match ← loadCnf path with

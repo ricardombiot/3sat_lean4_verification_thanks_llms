@@ -12,16 +12,18 @@ import AbsSat.GraphPath.Model.L6Up
 into a property of the state it returns.
 
 * Every step of the sweep either leaves the state unchanged or strictly lowers the measure
-  (`aggPair_eqOrLt`, `aggNode_eqOrLt`). A pair that fails the author's test while `w` is an owner of
-  `x` is always dropped, and that strictly lowers the measure (`measure_aggPair_lt`).
-* **`aggOk_of_noProgress`** — if the sweep does not lower the measure of a valid state, every owner
-  pair `x`, `w` on the steps the sweep visits (`1 … current_step − 2`), both valid nodes, passes the
-  test: at every step `w` has owners, `x` has an owner there that `w` also owns.
+  (`aggPair_eqOrLt`, `aggNode_eqOrLt`). A pair that fires — `w` a valid owner of `x` but `x` not an
+  owner of `w`, or the two tables sharing nothing at some step — always removes an entry, and that
+  strictly lowers the measure (`measure_aggPair_lt`).
+* **`aggOk_of_noProgress`** — if the sweep, which visits **every** step (`current_step − 1 … 0`),
+  does not lower the measure of a valid state, every owner pair `x`, `w` of valid nodes passes both
+  tests: `x` is an owner of `w`, and at every step `w` has owners, `x` has one there that `w` also owns.
 * **`aggOk_reviewAgg`** — so every valid result of `reviewAgg` has that property (`AggOk`).
-* **`ownSym_of_aggOk`** — and owner tables are symmetric on those steps: a node's owners at its own
-  step are only itself (`OOS`), so the test at `x`'s step forces `x` into `w`'s table.
+* **`ownSym_of_aggOk`** — in particular owner tables of valid nodes are symmetric, on every step.
 
-The steps `0` and `current_step − 1` are outside the sweep, and neither result covers them.
+Before the author's 14-sept change (report v121) the sweep skipped steps `0` and `current_step − 1`
+and had no symmetry test; symmetry then came only from the consistency test through `OOS`, and only
+on the interior steps.
 -/
 
 namespace AbsSat.GraphPath.Model.AggFixpoint
@@ -200,35 +202,53 @@ theorem aggPair_eqOrLt (g : GPathM) (x w : PathNodeId) : EqOrLt g (aggPair g x w
   split
   · next nx nw hx hw =>
     split
-    · next hcond =>
+    · next hasym =>
       have hmem : w ∈ nx.owners := by
-        simp only [Bool.and_eq_true] at hcond
-        exact List.contains_iff_mem.mp hcond.1.1
-      refine Or.inr (Nat.lt_of_le_of_lt ?_ (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem)))
-      exact measure_updateAt_le _ w _ (weight_uniMap_le _)
-    · exact Or.inl rfl
+        simp only [Bool.and_eq_true] at hasym
+        exact List.contains_iff_mem.mp hasym.1.1
+      exact Or.inr (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem))
+    · split
+      · next hcond =>
+        have hmem : w ∈ nx.owners := by
+          simp only [Bool.and_eq_true] at hcond
+          exact List.contains_iff_mem.mp hcond.1.1
+        refine Or.inr (Nat.lt_of_le_of_lt ?_ (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem)))
+        exact measure_updateAt_le _ w _ (weight_uniMap_le _)
+      · exact Or.inl rfl
   · exact Or.inl rfl
 
-/-- A pair that fires strictly lowers the measure. -/
+/-- A pair that fires (asymmetric, or sharing nothing at some step) strictly lowers the measure. -/
 theorem measure_aggPair_lt (g : GPathM) (x w : PathNodeId) (nx nw : PNodeM)
     (hx : g.node? x = some nx) (hw : g.node? w = some nw) (hmem : w ∈ nx.owners)
     (hvw : isValidNode g nw = true)
-    (hs : sharesEveryStep g.current_step nx.owners nw.owners = false) :
+    (hfire : nw.owners.contains x = false ∨ sharesEveryStep g.current_step nx.owners nw.owners = false) :
     GPathM.measure (aggPair g x w) < GPathM.measure g := by
-  have hcond : (nx.owners.contains w && isValidNode g nw &&
-      !sharesEveryStep g.current_step nx.owners nw.owners) = true := by
-    simp only [List.contains_iff_mem.mpr hmem, hvw, hs, Bool.and_self, Bool.not_false]
-  have heq : aggPair g x w = dropOwnerPair g x w nx.owners nw.owners := by
-    unfold aggPair
-    rw [hx, hw]
-    simp only [hcond, if_pos]
-  rw [heq]
-  refine Nat.lt_of_le_of_lt ?_ (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem))
-  exact measure_updateAt_le _ w _ (weight_uniMap_le _)
+  have hcw : nx.owners.contains w = true := List.contains_iff_mem.mpr hmem
+  by_cases ha : (nx.owners.contains w && isValidNode g nw && !nw.owners.contains x) = true
+  · have heq : aggPair g x w = updateAt g x (uniMap (dropList nx.owners w)) := by
+      unfold aggPair
+      rw [hx, hw]
+      simp only [ha, if_pos]
+    rw [heq]
+    exact measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem)
+  · have hcond : (nx.owners.contains w && isValidNode g nw &&
+        !sharesEveryStep g.current_step nx.owners nw.owners) = true := by
+      rcases hfire with h | h
+      · exfalso
+        apply ha
+        simp only [hcw, hvw, h, Bool.and_self, Bool.not_false]
+      · simp only [hcw, hvw, h, Bool.and_self, Bool.not_false]
+    have heq : aggPair g x w = dropOwnerPair g x w nx.owners nw.owners := by
+      unfold aggPair
+      rw [hx, hw]
+      simp only [ha, hcond, if_pos, if_neg, Bool.false_eq_true, not_false_eq_true]
+    rw [heq]
+    refine Nat.lt_of_le_of_lt ?_ (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem))
+    exact measure_updateAt_le _ w _ (weight_uniMap_le _)
 
 /-- The pair checks of one node, before the node itself is re-examined. -/
 def aggPairsOf (g : GPathM) (x : PathNodeId) : GPathM :=
-  (intRange 1 (g.current_step - 2)).reverse.foldl
+  (intRange 0 (g.current_step - 1)).reverse.foldl
     (fun g kw => (ownersAtNow g x kw).foldl (fun g w => aggPair g x w) g) g
 
 theorem eqOrLt_aggPairsOf (g : GPathM) (x : PathNodeId) : EqOrLt g (aggPairsOf g x) :=
@@ -269,13 +289,14 @@ theorem aggNode_of_valid (g : GPathM) (x : PathNodeId) (nx : PNodeM) (hx : g.nod
 -- The stopping rule, as a property of the state
 -- ============================================================
 
-/-- **Every owner pair on the swept steps passes the author's test.** -/
+/-- **Every owner pair of valid nodes passes both of the author's tests**: the entry is symmetric, and
+the two tables share every step. -/
 def AggOk (g : GPathM) : Prop :=
   ∀ x nx w nw, g.node? x = some nx → g.node? w = some nw →
-    1 ≤ x.id.step → x.id.step ≤ g.current_step - 2 →
-    1 ≤ w.id.step → w.id.step ≤ g.current_step - 2 →
+    0 ≤ x.id.step → x.id.step < g.current_step →
+    0 ≤ w.id.step → w.id.step < g.current_step →
     w ∈ nx.owners → isValidNode g nx = true → isValidNode g nw = true →
-    sharesEveryStep g.current_step nx.owners nw.owners = true
+    x ∈ nw.owners ∧ sharesEveryStep g.current_step nx.owners nw.owners = true
 
 theorem mem_reverse_intRange {lo hi k : Int} (h1 : lo ≤ k) (h2 : k ≤ hi) :
     k ∈ (intRange lo hi).reverse :=
@@ -285,18 +306,27 @@ theorem mem_reverse_intRange {lo hi k : Int} (h1 : lo ≤ k) (h2 : k ≤ hi) :
 theorem aggOk_of_noProgress (g : GPathM) (hv : isValid g = true)
     (hnp : ¬ GPathM.measure (aggSweep g) < GPathM.measure g) : AggOk g := by
   intro x nx w nw hx hw hx1 hx2 hw1 hw2 hmem hvx hvw
-  cases hs : sharesEveryStep g.current_step nx.owners nw.owners with
-  | true => rfl
-  | false =>
-    exfalso
-    have hsweep : aggSweep g = (intRange 1 (g.current_step - 2)).reverse.foldl
+  by_cases hgood : x ∈ nw.owners ∧ sharesEveryStep g.current_step nx.owners nw.owners = true
+  · exact hgood
+  · exfalso
+    have hs : nw.owners.contains x = false ∨ sharesEveryStep g.current_step nx.owners nw.owners = false := by
+      by_cases hc : x ∈ nw.owners
+      · right
+        cases h : sharesEveryStep g.current_step nx.owners nw.owners with
+        | false => rfl
+        | true => exact absurd ⟨hc, h⟩ hgood
+      · left
+        cases h : nw.owners.contains x with
+        | false => rfl
+        | true => exact absurd (List.contains_iff_mem.mp h) hc
+    have hsweep : aggSweep g = (intRange 0 (g.current_step - 1)).reverse.foldl
         (fun g k => ((g.line k).map (·.id)).foldl aggNode g) g := by
       unfold aggSweep
       rw [if_pos hv]
     rw [hsweep] at hnp
     have houter := foldl_noProgress _
       (fun g k => eqOrLt_foldl _ aggNode_eqOrLt _ g) _ g hnp x.id.step
-      (mem_reverse_intRange hx1 hx2)
+      (mem_reverse_intRange hx1 (by omega))
     have hline : x ∈ (g.line x.id.step).map (·.id) := mem_line_of_node? g x nx hx _ rfl
     have hinner := foldl_noProgress _ aggNode_eqOrLt _ g
       (by rw [houter]; exact Nat.lt_irrefl _) x hline
@@ -308,7 +338,7 @@ theorem aggOk_of_noProgress (g : GPathM) (hv : isValid g = true)
       exact Nat.lt_irrefl _ (Nat.lt_of_le_of_lt hfin.le hlt)
     have hkw := foldl_noProgress _
       (fun g kw => eqOrLt_foldl _ (fun g w => aggPair_eqOrLt g x w) _ g) _ g hpairs w.id.step
-      (mem_reverse_intRange hw1 hw2)
+      (mem_reverse_intRange hw1 (by omega))
     have hof : ownersOf g x = nx.owners := by unfold ownersOf; rw [hx]
     have hwmem : w ∈ ownersAtNow g x w.id.step := by
       show w ∈ ownersAt (ownersOf g x) w.id.step
@@ -346,36 +376,21 @@ theorem aggOk_reviewAgg (g : GPathM) (hv : isValid (reviewAgg g) = true) : AggOk
   aggOk_reviewAggFuel _ g (Nat.lt_succ_self _) hv
 
 -- ============================================================
--- Symmetry on the swept steps
+-- Symmetry on every step
 -- ============================================================
 
-/-- **Owner tables are symmetric on the swept steps.** -/
-theorem ownSym_of_aggOk (g : GPathM) (hok : AggOk g) (hoos : SelfOwn.OOS g)
+/-- **Owner tables of valid nodes are symmetric**, on every step. -/
+theorem ownSym_of_aggOk (g : GPathM) (hok : AggOk g)
     (x w : PathNodeId) (nx nw : PNodeM) (hx : g.node? x = some nx) (hw : g.node? w = some nw)
-    (hx1 : 1 ≤ x.id.step) (hx2 : x.id.step ≤ g.current_step - 2)
-    (hw1 : 1 ≤ w.id.step) (hw2 : w.id.step ≤ g.current_step - 2)
+    (hx1 : 0 ≤ x.id.step) (hx2 : x.id.step < g.current_step)
+    (hw1 : 0 ≤ w.id.step) (hw2 : w.id.step < g.current_step)
     (hmem : w ∈ nx.owners) (hvx : isValidNode g nx = true) (hvw : isValidNode g nw = true) :
-    x ∈ nw.owners := by
-  have hsh := hok x nx w nw hx hw hx1 hx2 hw1 hw2 hmem hvx hvw
-  have hk : x.id.step ∈ intRange 0 (g.current_step - 1) := mem_intRange (by omega) (by omega)
-  have hat := List.all_eq_true.mp hsh x.id.step hk
-  have hent : hasStepEntry nw.owners x.id.step = true :=
-    List.all_eq_true.mp (owners_ok_of_isValidNode g nw hvw) x.id.step hk
-  simp only [hent, Bool.not_true, Bool.false_or] at hat
-  obtain ⟨r, hr, hrw⟩ := List.any_eq_true.mp hat
-  obtain ⟨hr1, hr2⟩ := List.mem_filter.mp hr
-  have hnxid : nx.id = x := node?_id_eq g x nx hx
-  have hreq : r = nx.id := hoos nx (List.mem_of_find?_eq_some hx) r hr1
-    (by rw [hnxid]; exact eq_of_beq hr2)
-  rw [hreq, hnxid] at hrw
-  exact List.contains_iff_mem.mp hrw
+    x ∈ nw.owners :=
+  (hok x nx w nw hx hw hx1 hx2 hw1 hw2 hmem hvx hvw).1
 
 /-- info: 'AbsSat.GraphPath.Model.AggFixpoint.aggOk_reviewAgg' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms aggOk_reviewAgg
 
-/-- info: 'AbsSat.GraphPath.Model.AggFixpoint.ownSym_of_aggOk' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms ownSym_of_aggOk
 
 end AbsSat.GraphPath.Model.AggFixpoint

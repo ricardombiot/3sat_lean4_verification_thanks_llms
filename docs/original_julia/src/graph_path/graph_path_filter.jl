@@ -168,7 +168,7 @@ end
 function agressive_consistence_filter!(gpath :: GPath)
     if gpath.is_valid 
         #! [for] $ O(S) $
-        for step in gpath.current_step-2:-1:1
+        for step in gpath.current_step-1:-1:1
             col_nodes = PathCollectionLines.get_step(gpath.table_lines, step)
 
             #! [fn-iter] $ O(7*7) $
@@ -176,15 +176,16 @@ function agressive_consistence_filter!(gpath :: GPath)
                 is_valid = is_valid_node(gpath, node_x)
                 if is_valid
                     #! [for] $ O(7*7) $
-                    for step_w in gpath.current_step-2:-1:1
+                    for step_w in gpath.current_step-1:-1:1
                         #! [for] $ O(7*7) $
                         for node_id_w in node_x.owners.table[step_w]
                             node_w = PathCollectionLines.get_node(gpath.table_lines, node_id_w)
+                            
                             is_valid_w = is_valid_node(gpath, node_w)
                             if is_valid_w
                                 if !symmetric_entry(gpath, node_x, node_w)
                                     PathDocumentNode.remove_owner!(node_x, node_id_w)
-                                    println("Apply Agressive: [Asymetric Detection] <-- ")
+                                    println("Apply Agressive: [Asymetric Detection] Step_x $(step) Step_w $(step_w) <-- ")
                                     gpath.review_owners = true
                                 else
                                     # intersección de los owners 
@@ -197,7 +198,7 @@ function agressive_consistence_filter!(gpath :: GPath)
                                         PathDocumentNode.remove_owner!(node_w, node_x.id)
                                         is_valid_x = is_valid_node(gpath, node_x)
                                         is_valid_w = is_valid_node(gpath, node_w)
-                                        println("Apply Agressive [Consistence] <-- ")
+                                        println("Apply Agressive [Consistence] Step_x $(step) Step_w $(step_w) <-- ")
                                         gpath.review_owners = true
                                     end
                                 end

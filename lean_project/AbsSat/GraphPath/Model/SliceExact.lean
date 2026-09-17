@@ -15,7 +15,7 @@ relation of the slice **in the state before the pin**.
 * parents / sons — the result of `filterAllAgg` is a result of `review`, whose tables are coherent with
   the union of the parents' (sons') owners (`review_owners_coherent_parents`/`_sons`); links are owners
   (`Bridge.linksInOwners_review`), a parent lists its son (`SMP`) and a son its parent (`PMS`);
-* pairs — the author's test holds on the result (`AggFixpoint.aggOk_reviewAgg`).
+* pairs and symmetry — both of the author's tests hold on the result (`AggFixpoint.aggOk_reviewAgg`).
 
 **`supported_iff_pinExact`**: on the reader's states, for a valid pin, `Supported g mid ↔ PinExact g mid`.
 So the open obligation of v119 is neither weaker nor stronger than `PinExact`: it is the same statement
@@ -133,7 +133,7 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
     rw [hent] at hc
     simp only [Bool.not_true, Bool.false_or, List.contains_iff_mem] at hc
     exact FabricAdd.exists_owner_of_mem_unionOwnersOf _ ids v hc
-  refine ⟨FinalRel g mid, fun p hp => hp.1, ?_, stepOfSlice, fun x v hr => ⟨hr.1, hr.2.1⟩, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨FinalRel g mid, fun p hp => hp.1, ?_, stepOfSlice, fun x v hr => ⟨hr.1, hr.2.1⟩, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · -- node
     rintro p ⟨_, n, hn, _⟩
     rw [hn]; rfl
@@ -212,11 +212,13 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
     exact ⟨c, m, hm, hpsub x hxpar, ⟨hx, hsc, n', hn', (hlinks x n' hn').2 c hc⟩,
       ⟨hsc, hx, m', hm', (hlinks c m' hm').1 x hxpar⟩, ⟨hsc, hvs, m', hm', hvm'⟩⟩
   · -- pairs
-    intro x v hr hx1 hx2 hv1 hv2 l hl0 hl1
+    intro x v hr l hl0 hl1
     obtain ⟨hxs, hvs, n', hn', hvm⟩ := hr
     obtain ⟨nv, hnv⟩ := nodeOfSlice v hvs
-    have hs := hagg x n' v nv hn' hnv hx1 (by rw [hcs]; exact hx2) hv1 (by rw [hcs]; exact hv2) hvm
-      (ctx'.nodeval x n' hn') (ctx'.nodeval v nv hnv)
+    obtain ⟨hx1, hx2⟩ := stepOfSlice x hxs
+    obtain ⟨hv1, hv2⟩ := stepOfSlice v hvs
+    have hs := (hagg x n' v nv hn' hnv hx1 (by rw [hcs]; exact hx2) hv1 (by rw [hcs]; exact hv2) hvm
+      (ctx'.nodeval x n' hn') (ctx'.nodeval v nv hnv)).2
     have hl := List.all_eq_true.mp hs l (mem_intRange hl0 (by rw [hcs]; omega))
     obtain ⟨r0, hr0, hr0s⟩ := ownerAt v nv hnv l hl0 hl1
     have hent : hasStepEntry nv.owners l = true := List.any_eq_true.mpr ⟨r0, hr0, beq_iff_eq.mpr hr0s⟩
@@ -228,6 +230,13 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
     have hrg := ctx'.ownGow x n' hn' r hrx (by omega) (by rw [hcs]; omega)
     have hsr := sliceOfGow r hrg
     exact ⟨r, ⟨hxs, hsr, n', hn', hrx⟩, ⟨hvs, hsr, nv, hnv, List.contains_iff_mem.mp hrv⟩, hrs'⟩
+  · -- symmetry
+    rintro x v ⟨hxs, hvs, n', hn', hvm⟩
+    obtain ⟨nv, hnv⟩ := nodeOfSlice v hvs
+    obtain ⟨hx1, hx2⟩ := stepOfSlice x hxs
+    obtain ⟨hv1, hv2⟩ := stepOfSlice v hvs
+    exact ⟨hvs, hxs, nv, hnv, (hagg x n' v nv hn' hnv hx1 (by rw [hcs]; exact hx2) hv1
+      (by rw [hcs]; exact hv2) hvm (ctx'.nodeval x n' hn') (ctx'.nodeval v nv hnv)).1⟩
 
 /-- The link invariants along the reader's states. -/
 theorem links_readFrom (g₀ : GPathM) (hR₀ : ReadableAgg g₀) (hs₀ : Sons.SMP g₀) (hp₀ : Sons.PMS g₀)

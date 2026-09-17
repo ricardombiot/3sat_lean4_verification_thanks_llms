@@ -16,8 +16,8 @@ map node `mid`.
 * **`pinExact_of_supported`** — `Supported` gives `PinExact`.
 * `smp_readFrom` — every state the reader visits keeps `Sons.SMP` (`MInv.smp` at the start, and the
   aggressive review keeps it).
-* **`sat_of_supported_boundary`** — the soundness of the Improves verdict from `Supported` and
-  `BoundarySym` along the reader's states.
+* **`sat_of_supported`** — the soundness of the Improves verdict from `Supported` along the reader's
+  states.
 
 The probe `helly gfp` / `helly gfpE` (report v119) measured that the largest relation meeting the
 `Sup` conditions inside the slice's owner entries coincides with the owner tables the cascade leaves:
@@ -79,12 +79,11 @@ theorem smp_readFrom (g₀ : GPathM) (hR₀ : ReadableAgg g₀) (hs₀ : Sons.SM
     exact SMP_filterAllAgg g' ih
       (RCtx_of_readableAgg g' (readableAgg_of_readFrom g₀ hR₀ g' hF')).shape.notroot [mid]
 
-/-- **Soundness of the Improves verdict from a supported slice at every pin, and symmetry on the
-extreme steps, along the reader's states.** -/
-theorem sat_of_supported_boundary (φ : Cnf) (hwf : WF φ) (kv : NodeId × GPathM)
+/-- **Soundness of the Improves verdict from a supported slice at every pin along the reader's
+states.** -/
+theorem sat_of_supported (φ : Cnf) (hwf : WF φ) (kv : NodeId × GPathM)
     (hkv : kv ∈ PureDriverImproves.pureRunW φ)
     (hv : isValid (filterAllAgg kv.2 []) = true)
-    (hb : ∀ g, ReadFrom (filterAllAgg kv.2 []) g → isValid g = true → BoundarySym g)
     (hsup : ∀ g, ReadFrom (filterAllAgg kv.2 []) g → isValid g = true →
       ∀ p ∈ g.gowners, Supported g p.id) :
     Satisfiable φ := by
@@ -92,15 +91,15 @@ theorem sat_of_supported_boundary (φ : Cnf) (hwf : WF φ) (kv : NodeId × GPath
   have hR₀ : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
   have hs₀ : Sons.SMP (filterAllAgg kv.2 []) :=
     SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
-  refine sat_of_pinExact_boundary φ hwf kv hkv hv hb (fun g hF hvg p hp => ?_)
+  refine sat_of_pinExactAgg φ hwf kv hkv hv (fun g hF hvg p hp => ?_)
   have hR : ReadableAgg g := readableAgg_of_readFrom _ hR₀ g hF
   have rc := RCtx_of_readableAgg g hR
   exact pinExact_of_supported g (Reader.Ctx_of_readable g (readable_of_readableAgg g hR) hvg)
     rc.nodup rc.oos rc.snn rc.below (smp_readFrom _ hR₀ hs₀ g hF) rc.shape.notroot p.id
     (hsup g hF hvg p hp)
 
-/-- info: 'AbsSat.GraphPath.Model.SliceSupport.sat_of_supported_boundary' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.SliceSupport.sat_of_supported' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms sat_of_supported_boundary
+#print axioms sat_of_supported
 
 end AbsSat.GraphPath.Model.SliceSupport

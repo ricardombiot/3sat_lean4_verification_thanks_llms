@@ -57,13 +57,21 @@ def dropList (os : List PathNodeId) (w : PathNodeId) : List PathNodeId :=
 def dropOwnerPair (g : GPathM) (x w : PathNodeId) (xo wo : List PathNodeId) : GPathM :=
   updateAt (updateAt g x (uniMap (dropList xo w))) w (uniMap (dropList wo x))
 
-/-- One owner pair of `x`, checked against the tables as they stand. The sweep only calls it with
-`w` among `x`'s current owners; the `contains` test makes that explicit, so that a pair that fires
-always removes something (`AggFixpoint.aggPair_eqOrLt`). -/
+/-- One owner pair of `x`, checked against the tables as they stand (Julia, 14-sept-2026):
+
+* **asymmetric** (`symmetric_entry`): `w` is a valid owner of `x` but `x` is not an owner of `w` —
+  `w` stops owning `x`, in that direction only;
+* **inconsistent**: the entry is symmetric but the two tables share nothing at some step — both
+  directions go.
+
+The sweep only calls it with `w` among `x`'s current owners; the `contains` tests make that explicit,
+so that a pair that fires always removes something (`AggFixpoint.aggPair_eqOrLt`). -/
 def aggPair (g : GPathM) (x w : PathNodeId) : GPathM :=
   match g.node? x, g.node? w with
   | some nx, some nw =>
-    if nx.owners.contains w && isValidNode g nw && !sharesEveryStep g.current_step nx.owners nw.owners then
+    if nx.owners.contains w && isValidNode g nw && !nw.owners.contains x then
+      updateAt g x (uniMap (dropList nx.owners w))
+    else if nx.owners.contains w && isValidNode g nw && !sharesEveryStep g.current_step nx.owners nw.owners then
       dropOwnerPair g x w nx.owners nw.owners
     else g
   | _, _ => g
@@ -72,25 +80,25 @@ def aggPair (g : GPathM) (x w : PathNodeId) : GPathM :=
 def ownersAtNow (g : GPathM) (x : PathNodeId) (kw : Int) : List PathNodeId :=
   ownersAt (ownersOf g x) kw
 
-/-- One node: every owner pair at steps `current_step - 2 … 1`, then remove `x` if invalid. -/
+/-- One node: every owner pair at steps `current_step - 1 … 0`, then remove `x` if invalid. -/
 def aggNode (g : GPathM) (x : PathNodeId) : GPathM :=
   match g.node? x with
   | none => g
   | some nx =>
     let g₁ :=
       if isValidNode g nx then
-        (intRange 1 (g.current_step - 2)).reverse.foldl
+        (intRange 0 (g.current_step - 1)).reverse.foldl
           (fun g kw => (ownersAtNow g x kw).foldl (fun g w => aggPair g x w) g) g
       else g
     match g₁.node? x with
     | none => g₁
     | some n₁ => if isValidNode g₁ n₁ then g₁ else removeNode g₁ x
 
-/-- **The sweep** (`agressive_consistence_filter!`): steps `current_step - 2 … 1`, the nodes of each
-step in order, each against the state left by the previous ones. -/
+/-- **The sweep** (`agressive_consistence_filter!`): every step, `current_step - 1 … 0`, the nodes of
+each step in order, each against the state left by the previous ones. -/
 def aggSweep (g : GPathM) : GPathM :=
   if isValid g then
-    (intRange 1 (g.current_step - 2)).reverse.foldl
+    (intRange 0 (g.current_step - 1)).reverse.foldl
       (fun g k => ((g.line k).map (·.id)).foldl aggNode g) g
   else g
 
@@ -136,8 +144,10 @@ theorem pruned_aggPair (g : GPathM) (x w : PathNodeId) : Pruned g (aggPair g x w
   unfold aggPair
   split
   · split
-    · exact Pruned.trans (pruned_updateAt_uniMap _ _ _) (pruned_updateAt_uniMap _ _ _)
-    · exact Pruned.refl g
+    · exact pruned_updateAt_uniMap _ _ _
+    · split
+      · exact Pruned.trans (pruned_updateAt_uniMap _ _ _) (pruned_updateAt_uniMap _ _ _)
+      · exact Pruned.refl g
   · exact Pruned.refl g
 
 theorem pruned_aggNode (g : GPathM) (x : PathNodeId) : Pruned g (aggNode g x) := by
@@ -235,6 +245,21 @@ theorem ChainSound_aggPair (g : GPathM) (x w : PathNodeId) (sel : Int → PathNo
   unfold aggPair
   split
   · next nx nw hx hw =>
+    split
+    · next hasym =>
+      simp only [Bool.and_eq_true, Bool.not_eq_true'] at hasym
+      -- `x` and `w` are not both on the chain: chain nodes own each other
+      refine ChainSound_updateAt_gen g x _ sel h ?_
+      intro j hj0 hj hjx i hi0 hi
+      have hnx : g.node? (sel j) = some nx := by rw [hjx]; exact hx
+      refine mem_dropList _ w _ (chain_mem_owners g sel h j hj0 hj nx hnx i hi0 hi) ?_
+      intro hiw
+      have hw' : g.node? (sel i) = some nw := by rw [hiw]; exact hw
+      have hmem := chain_mem_owners g sel h i hi0 hi nw hw' j hj0 hj
+      rw [hjx] at hmem
+      have hc : nw.owners.contains x = true := List.elem_eq_true_of_mem hmem
+      rw [hasym.2] at hc
+      exact Bool.noConfusion hc
     split
     · next hcond =>
       rw [Bool.and_eq_true, Bool.not_eq_true'] at hcond

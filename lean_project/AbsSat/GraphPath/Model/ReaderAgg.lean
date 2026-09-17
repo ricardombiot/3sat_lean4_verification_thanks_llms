@@ -82,8 +82,10 @@ theorem keeps_aggPair (g : GPathM) (x w : PathNodeId) : Keeps g (aggPair g x w) 
   unfold aggPair
   split
   · split
-    · exact Keeps.trans (keeps_updateAt_uniMap _ _ _) (keeps_updateAt_uniMap _ _ _)
-    · exact Keeps.refl g
+    · exact keeps_updateAt_uniMap _ _ _
+    · split
+      · exact Keeps.trans (keeps_updateAt_uniMap _ _ _) (keeps_updateAt_uniMap _ _ _)
+      · exact Keeps.refl g
   · exact Keeps.refl g
 
 theorem keeps_aggNode (g : GPathM) (x : PathNodeId) : Keeps g (aggNode g x) := by
