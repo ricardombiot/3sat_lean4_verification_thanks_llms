@@ -162,6 +162,7 @@ import AbsSat.GraphPath.Model.HereditaryUp
 import AbsSat.GraphPath.Model.HereditaryRun
 import AbsSat.GraphPath.Model.JoinProvenance
 import AbsSat.GraphPath.Model.ParentWitness
+import AbsSat.GraphPath.Model.RunEnv
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves

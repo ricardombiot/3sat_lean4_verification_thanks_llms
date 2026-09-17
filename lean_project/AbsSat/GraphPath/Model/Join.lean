@@ -210,6 +210,40 @@ theorem join_node?_only_right (g₁ g₂ : GPathM) (pid : PathNodeId)
       intro x hx hxid
       exact (List.find?_eq_none.mp hnone x hx) (by simp [hxid])
 
+/-- Either a state has no node with this id, or it has one. -/
+private theorem node?_cases (g : GPathM) (pid : PathNodeId) :
+    g.node? pid = none ∨ ∃ n, g.node? pid = some n := by
+  generalize hg : g.node? pid = o
+  cases o with
+  | none => exact Or.inl rfl
+  | some n => exact Or.inr ⟨n, rfl⟩
+
+/-- **Provenance of an owner entry.** Every entry a joined node carries comes from one of the two
+sides: the merge unions the tables and invents nothing. -/
+theorem join_owners_source (g₁ g₂ : GPathM) (pid : PathNodeId) (n : PNodeM)
+    (h : (join g₁ g₂).node? pid = some n) (w : PathNodeId) (hw : w ∈ n.owners) :
+    (∃ m, g₁.node? pid = some m ∧ w ∈ m.owners) ∨ (∃ m, g₂.node? pid = some m ∧ w ∈ m.owners) := by
+  rcases node?_cases g₁ pid with h1 | ⟨m, h1⟩
+  · refine Or.inr ⟨n, ?_, hw⟩
+    rw [← join_node?_only_right g₁ g₂ pid h1]; exact h
+  · have hid : m.id = pid := node?_id_eq g₁ pid m h1
+    have hj := join_node?_left g₁ g₂ pid m h1
+    rw [hj] at h
+    have hn : n = joinMap g₂ m := (Option.some_inj.mp h).symm
+    rcases node?_cases g₂ m.id with h2 | ⟨m₂, h2⟩
+    · refine Or.inl ⟨m, h1, ?_⟩
+      have hmm : joinMap g₂ m = m := by simp only [joinMap, h2]
+      rw [hn, hmm] at hw; exact hw
+    · have heq : joinMap g₂ m = mergeNode m m₂ := by simp only [joinMap, h2]
+      rw [hn, heq] at hw
+      have how : (mergeNode m m₂).owners
+          = m.owners ++ m₂.owners.filter (fun q => !m.owners.contains q) := rfl
+      rw [how] at hw
+      rcases List.mem_append.mp hw with hl | hr
+      · exact Or.inl ⟨m, h1, hl⟩
+      · refine Or.inr ⟨m₂, ?_, (List.mem_filter.mp hr).1⟩
+        rw [← hid]; exact h2
+
 theorem node?_isSome_of_mem (g : GPathM) (n : PNodeM) (hn : n ∈ g.nodes) :
     (g.node? n.id).isSome := by
   simp only [node?]
