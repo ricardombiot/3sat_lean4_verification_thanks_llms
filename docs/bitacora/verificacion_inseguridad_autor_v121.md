@@ -93,6 +93,7 @@ Todo lo que dependía del barrido se ha adaptado y compila: conservación de cad
 | `depth2` | Tseitin K4 par | 3.936 | 0 | **0** (antes 32) |
 | `walk` (6 paseos) | Tseitin K4 par | 960 | 0 | **0** (antes 2) |
 | `walk` (6 paseos) | `par_k3_direct_asc_fresh` | 1.198 | 0 | **0** |
+| `walk` (2 paseos por estado final) | aleatorias, 6–8 variables (semilla 1001, 20 fórmulas; 36 paseos, 110 estados) | 3.677 | 0 | **0** |
 
 En los paseos, todos los estados con elección tienen una fijación exacta, y ninguno tiene elección
 solo en los pasos extremos.
