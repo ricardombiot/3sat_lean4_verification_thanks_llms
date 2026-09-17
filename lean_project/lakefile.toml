@@ -113,3 +113,7 @@ root = "FrontierDeriveMain"
 [[lean_exe]]
 name = "join-borrow"
 root = "Probes.JoinBorrow"
+
+[[lean_exe]]
+name = "helly"
+root = "Probes.Helly"
