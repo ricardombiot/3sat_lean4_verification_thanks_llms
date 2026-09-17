@@ -147,3 +147,43 @@ de owners en lugar de una asignación, la puerta B se abre con maquinaria que ya
 
 **Lo que no cambia con nada de esto**: todo lo anterior es sobre el veredicto de *esta* máquina. La
 dirección UNSAT está cerrada; la dirección SAT queda a una de esas dos puertas.
+
+---
+
+## 5. Apéndice: el puente de §4 no se sostiene, y hay una puerta más simple
+
+Puse el puente de §4 a trabajar y hay que descartarlo, además de una medida que cierra la puerta A.
+Y de paso aparece una puerta mejor. Lo escribo en el orden en que ocurrió.
+
+**El puente de §4 es circular.** El argumento de conservación (§2.1) arranca de una **asignación** —un
+objeto semántico que satisface φ— y de ahí saca que su cadena sobrevive a los filtros. Un par de owners
+no es un objeto semántico: repetir el argumento con un par pide justo la cadena que se quiere construir.
+Refutado por análisis, no por medida.
+
+**La puerta A, medida y refutada.** Faltaba medir las entradas prestadas **dentro de la rebanada**
+(`helly slices`): para cada nodo alto exclusivo de un lado, su rebanada en la unión restringida, y cada
+par de owners de dentro contra las tablas **de ese lado**. En Tseitin K4 par: 32 uniones, 896
+restricciones, 1.229 nodos altos exclusivos, 31.459 nodos de rebanada, 810.999 pares y **1.328 pares
+ajenos**. El soporte de la rebanada **sí** usa entradas que el lado no tiene, así que `JoinSplit` no se
+cierra por ahí. (Ya lo apuntaba v130: la condición de padres falla en esa rebanada; la medida lo confirma
+por el otro lado.)
+
+**La puerta más simple** (`NoDeadEndVerdict.lean`, demostrado, axiomas limpios). Todas las reducciones
+de §2.3 hablan de fijaciones, uniones o pares. Esta no:
+
+- **`sat_of_denotS`** — la forma **mínima**: el veredicto es sólido en cuanto el estado del lector
+  **denota** un camino. Una sola cadena basta, y decodifica a un modelo. Todo lo demás de §2.3 es una
+  manera de producir esa cadena.
+- **`sat_of_noDeadEnd`** — y la forma **local** que la da: si el estado del lector **no tiene callejones
+  sin salida** (`NoDeadEnd`: toda cadena parcial desde el paso alto se extiende un paso), leer da un
+  modelo. Lo demás es gratis: el **ancla del paso alto siempre existe** (`NoDeadEnd.topAnchor_of`, ya
+  demostrado) y una cadena que llega al paso 0 es exactamente una cadena `ChainSound`.
+
+Es decir, todo el problema abierto se reduce a: **una cadena parcial de un estado válido se extiende un
+paso hacia abajo.** Un estado, un paso, sin cuantificar sobre fijaciones, pares ni uniones. Es tu propia
+afirmación —cada nodo está en al menos un camino, y el review es lo que lo mantiene— en su forma más
+desnuda.
+
+**El camino, corregido**: no dos puertas, sino esta. `JoinsSplit` y `FilterKeepsPairChain` siguen siendo
+suficientes, pero son más fuertes de lo necesario; la obligación mínima es la de arriba, y es la que hay
+que atacar o medir.

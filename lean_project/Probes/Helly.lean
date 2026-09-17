@@ -1339,6 +1339,87 @@ def reportT (name : String) (st : TStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: states={st.states} nodes={st.nodes} multiParent={st.multiParent} checks={st.checks} TRIPLE_GAPS={st.gaps} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- The entries the slice of a side's top node uses
+-- ============================================================
+
+structure SStat where
+  joins : Nat := 0
+  constraints : Nat := 0
+  tops : Nat := 0
+  sliceNodes : Nat := 0
+  pairs : Nat := 0
+  foreignPairs : Nat := 0
+  ex : List String := []
+
+/-- For each top node exclusive to one side of a join, take its slice in the constrained join and
+check every owner pair inside it against **that side's own tables**: does the support of the slice
+ever use an entry the side does not have? That is the entry half of `JoinSplit`. -/
+def sliceCensus (e h : GPathM) (st0 : SStat) : SStat := Id.run do
+  let mut st := { st0 with joins := st0.joins + 1 }
+  let J := join e h
+  let J0 := filterAllAgg J []
+  if !isValid J0 then return st
+  let cs := J0.current_step
+  let t1 : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    e.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let t2 : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    h.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut cands : List (List NodeId) := [[]]
+  for i in [0:cs.toNat] do
+    let k : Int := Int.ofNat i
+    let ids := ((J0.gowners.filter (fun q => q.id.step == k)).map (·.id)).eraseDups
+    if ids.length > 1 then
+      for q in ids do cands := cands ++ [[q]]
+  for C in cands do
+    let B := filterAllAgg J C
+    if !isValid B then continue
+    st := { st with constraints := st.constraints + 1 }
+    let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+      B.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+    for m in B.nodes.filter (fun m => m.id.id.step == cs - 1) do
+      -- which side has this top node, exclusively?
+      let side1 := t1.contains m.id && !t2.contains m.id
+      let side2 := t2.contains m.id && !t1.contains m.id
+      if !(side1 || side2) then continue
+      st := { st with tops := st.tops + 1 }
+      let tside := if side1 then t1 else t2
+      let slice : List PathNodeId :=
+        (B.nodes.filter (fun n => (tbl.getD n.id {}).contains m.id)).map (·.id)
+      let sliceSet : Std.HashSet PathNodeId := Std.HashSet.ofList slice
+      st := { st with sliceNodes := st.sliceNodes + slice.length }
+      for x in slice do
+        let xo := tbl.getD x {}
+        for v in xo.toList.filter (fun v => sliceSet.contains v) do
+          st := { st with pairs := st.pairs + 1 }
+          let own := (tside.getD x {}).contains v
+          if !own then
+            st := { st with foreignPairs := st.foreignPairs + 1 }
+            if st.ex.length < 8 then
+              st := { st with ex := st.ex ++
+                [s!"FOREIGN ENTRY in slice of {showPid m.id} (side {if side1 then 1 else 2}): {showPid x} <- {showPid v}"] }
+  return st
+
+def runSlices (φ : Cnf) (st0 : SStat) : SStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let h := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid h then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) => if okJoin e h then st := sliceCensus e h st
+          | none => pure ()
+          next := insertPure next d h
+    line := next
+  return st
+
+def reportS (name : String) (st : SStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} constraints={st.constraints} exclusiveTops={st.tops} sliceNodes={st.sliceNodes} pairs={st.pairs} FOREIGN_PAIRS={st.foreignPairs} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 /-- The Improves driver, with every join inspected. -/
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
@@ -1443,6 +1524,15 @@ def main (args : List String) : IO Unit := do
         st := runTriples φ true st
       let t1 ← IO.monoMsNow
       reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "slices" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSlices φ {})
+        let t1 ← IO.monoMsNow
+        reportS s!"slices {path}" st (t1 - t0)
   | "triplesPin" :: paths =>
     for path in paths do
       match ← loadCnf path with
