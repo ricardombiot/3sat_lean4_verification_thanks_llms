@@ -18,7 +18,9 @@ members. `Sup g S R` asks:
 * **parents / sons**: an `R`-owner of a non-root member is an `R`-owner of some parent that is
   `R`-linked both ways to the member (the same for sons, through the parent table);
 * **pairs**: two `R`-linked members have, at every step, a common `R`-owner;
-* **symmetry**: `R` is symmetric (the author's sweep drops asymmetric owner entries, report v121).
+* **symmetry**: `R` is symmetric (the author's sweep drops asymmetric owner entries, report v121);
+* **links**: two members `R`-linked both ways on neighbouring steps are a parent link (report v125;
+  it lets a whole sub-construction, links included, be followed through the review).
 
 `AOk` adds the two structural invariants the sweeps use (`Sons.SMP`, `Parents.NotRoot`). Proved:
 every operation of the base review and of the author's sweep keeps `AOk` (the members, with their
@@ -52,6 +54,8 @@ structure Sup (g : GPathM) (S : PathNodeId → Prop) (R : PathNodeId → PathNod
     ∃ c m, g.node? c = some m ∧ x ∈ m.parents ∧ R x c ∧ R c x ∧ R c v
   agg : ∀ x v, R x v → ∀ l, 0 ≤ l → l < g.current_step → ∃ z, R x z ∧ R v z ∧ z.id.step = l
   sym : ∀ x v, R x v → R v x
+  /-- Two members linked both ways on neighbouring steps are a parent link. -/
+  link : ∀ x c d, R x c → R c x → c.id.step + 1 = x.id.step → g.node? x = some d → c ∈ d.parents
 
 /-- `Sup` plus the structural invariants the sweeps use. -/
 structure AOk (g : GPathM) (S : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop) : Prop where
@@ -72,7 +76,7 @@ theorem Sup_updateAt (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
     fun p n hn => updateAt_node? g id (fowA b) (fun _ => rfl) p n hn
   have hpar : ∀ n : PNodeM, (match n.id == id with | true => fowA b n | false => n).parents = n.parents := by
     intro n; cases n.id == id <;> rfl
-  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym⟩
+  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym, ?_⟩
   · intro p hp
     obtain ⟨n, hn'⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     rw [hn p n hn']; rfl
@@ -94,6 +98,11 @@ theorem Sup_updateAt (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
   · intro x hS hlast v hr
     obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son x hS hlast v hr
     exact ⟨c, _, hn c m hm, by rw [hpar]; exact hxm, h1, h2, h3⟩
+  · intro x c d' hxc hcx hs hd'
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node x (h.dom x c hxc).1)
+    rw [hn x d hd] at hd'
+    rw [← Option.some.inj hd', hpar]
+    exact h.link x c d hxc hcx hs hd
 
 -- ============================================================
 -- The unlink
@@ -120,7 +129,7 @@ theorem Sup_unlink (g : GPathM) (id : PathNodeId) (h : Sup g S R) :
       · intro he
         have : m = n₀ := Option.some.inj ((show g.node? id = some m by rw [← he]; exact hm).symm.trans hid)
         rw [← this, hnid]; exact h.own c x m hcx hm
-    refine ⟨?_, ?_, ?_, h.dom, ?_, ?_, ?_, ?_, ?_, h.sym⟩
+    refine ⟨?_, ?_, ?_, h.dom, ?_, ?_, ?_, ?_, ?_, h.sym, ?_⟩
     · intro p hp; rw [unlinkIncompatible_gowners]; exact h.gow p hp
     · intro p hp
       obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node p hp)
@@ -146,6 +155,12 @@ theorem Sup_unlink (g : GPathM) (id : PathNodeId) (h : Sup g S R) :
     · intro x v hr l hlo hhi
       rw [hcur] at hhi
       exact h.agg x v hr l hlo hhi
+    · intro x c d' hxc hcx hs hd'
+      obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node x (h.dom x c hxc).1)
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node c (h.dom x c hxc).2)
+      rw [hn x d hd] at hd'
+      rw [← Option.some.inj hd']
+      exact hkeep x c d m hd hm (h.link x c d hxc hcx hs hd) hxc hcx
 
 -- ============================================================
 -- Removing a non-member
@@ -156,7 +171,7 @@ theorem Sup_removeNode (g : GPathM) (id : PathNodeId) (h : Sup g S R) (hns : ¬ 
   have hne : ∀ p, S p → p ≠ id := fun p hp he => hns (he ▸ hp)
   have hn : ∀ p m, S p → g.node? p = some m → (removeNode g id).node? p = some (unlink id m) :=
     fun p m hp hm => removeNode_node? g id p m hm (hne p hp)
-  refine ⟨?_, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym⟩
+  refine ⟨?_, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym, ?_⟩
   · intro p hp
     rw [removeNode_gowners]
     exact List.mem_filter.mpr ⟨h.gow p hp, bne_iff_ne.mpr (hne p hp)⟩
@@ -180,6 +195,12 @@ theorem Sup_removeNode (g : GPathM) (id : PathNodeId) (h : Sup g S R) (hns : ¬ 
     obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son x hS hlast v hr
     exact ⟨c, _, hn c m (h.dom x c h1).2 hm,
       List.mem_filter.mpr ⟨hxm, bne_iff_ne.mpr (hne x hS)⟩, h1, h2, h3⟩
+  · intro x c d' hxc hcx hs hd'
+    have hS := (h.dom x c hxc).1
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node x hS)
+    rw [hn x d hS hd] at hd'
+    rw [← Option.some.inj hd']
+    exact List.mem_filter.mpr ⟨h.link x c d hxc hcx hs hd, bne_iff_ne.mpr (hne c (h.dom x c hxc).2)⟩
 
 -- ============================================================
 -- A member passes the validity test
@@ -472,7 +493,7 @@ theorem AOk_review (g : GPathM) (h : AOk g S R) : AOk (review g) S R := AOk_revi
 
 theorem AOk_filterRequire (g : GPathM) (h : AOk g S R) (req : NodeId)
     (hpin : ∀ p, S p → p.id.step = req.step → p.id = req) : AOk (filterRequire g req) S R := by
-  refine ⟨⟨?_, h.sup.node, h.sup.step, h.sup.dom, h.sup.own, h.sup.cov, h.sup.par, h.sup.son, h.sup.agg, h.sup.sym⟩,
+  refine ⟨⟨?_, h.sup.node, h.sup.step, h.sup.dom, h.sup.own, h.sup.cov, h.sup.par, h.sup.son, h.sup.agg, h.sup.sym, h.sup.link⟩,
     Sons.SMP_filterRequire g req h.smp, Parents.NotRoot_of_pruned (pruned_filterRequire g req) h.nr⟩
   intro p hp
   refine List.mem_filter.mpr ⟨h.sup.gow p hp, ?_⟩
@@ -630,7 +651,7 @@ theorem AOk_empty (g : GPathM) (hs : Sons.SMP g) (hn : Parents.NotRoot g) :
     AOk g (fun _ => False) (fun _ _ => False) :=
   ⟨⟨fun _ h => h.elim, fun _ h => h.elim, fun _ h => h.elim, fun _ _ h => h.elim,
     fun _ _ _ h => h.elim, fun _ h => h.elim, fun _ _ h => h.elim, fun _ h => h.elim,
-    fun _ _ h => h.elim, fun _ _ h => h.elim⟩, hs, hn⟩
+    fun _ _ h => h.elim, fun _ _ h => h.elim, fun _ _ _ h => h.elim⟩, hs, hn⟩
 
 /-- The aggressive review keeps `SMP` (the empty set's `AOk`). -/
 theorem SMP_filterAllAgg (g : GPathM) (hs : Sons.SMP g) (hn : Parents.NotRoot g) (reqs : List NodeId) :

@@ -130,7 +130,7 @@ theorem supported_of_spcStable (g : GPathM) (a : Adj g) (hok : AggOk g) (mid : N
     SliceSupport.Supported g mid := by
   refine ⟨Spc g mid, fun p hp => hp.1, fun p hp => ?_, fun p hp => slice_bounds g a hp,
     fun x v h => ⟨h.1, h.2.1⟩, fun x v n h hn => ownedBy_of g h.2.2.1 hn, ?_, ?_, ?_,
-    fun x v h l hl0 hl1 => ?_, fun x v h => spc_symm g a hok mid x v h⟩
+    fun x v h l hl0 hl1 => ?_, fun x v h => spc_symm g a hok mid x v h, ?_⟩
   · obtain ⟨_, n, hn, _⟩ := hp
     rw [hn]; rfl
   · -- cover
@@ -175,6 +175,10 @@ theorem supported_of_spcStable (g : GPathM) (a : Adj g) (hok : AggOk g) (mid : N
   · -- pairs
     obtain ⟨z, hzs, hxz, hvz⟩ := hst x v h l hl0 hl1
     exact ⟨z, hxz, hvz, hzs⟩
+  · -- links
+    intro x c d hxc _ hs hd
+    have hc0 := (slice_bounds g a hxc.2.1).1
+    exact (owners_below_iff_parents g a x d hd (by omega) c (by omega)).mp (ownedBy_of g hxc.2.2.1 hd)
 
 /-- **Soundness of the Improves verdict from one stable slice per reader state.** -/
 theorem sat_of_someSpcStable (φ : Cnf) (hwf : WF φ) (kv : NodeId × GPathM)

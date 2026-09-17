@@ -32,15 +32,17 @@ open AbsSat.GraphPath.Model.AnchoredSurvive
 open AbsSat.GraphPath.Model.AggFixpoint
 open AbsSat.GraphPath.Model.AdjacentOwners
 
-/-- `B` sits inside `G`. -/
+/-- The members: the nodes of `B`. -/
+def Mem (B : GPathM) (p : PathNodeId) : Prop := ∃ m, B.node? p = some m
+
+/-- `B` sits inside `G`: same current step, `B`'s global owners are `G`'s, and every node of `B` is a
+node of `G` keeping, among `B`'s nodes, its owners and its parents. -/
 structure Embedded (B G : GPathM) : Prop where
   step : B.current_step = G.current_step
   gow : ∀ p ∈ B.gowners, p ∈ G.gowners
   node : ∀ p m, B.node? p = some m →
-    ∃ n, G.node? p = some n ∧ (∀ q ∈ m.owners, q ∈ n.owners) ∧ (∀ q ∈ m.parents, q ∈ n.parents)
-
-/-- The members: the nodes of `B`. -/
-def Mem (B : GPathM) (p : PathNodeId) : Prop := ∃ m, B.node? p = some m
+    ∃ n, G.node? p = some n ∧ (∀ q ∈ m.owners, Mem B q → q ∈ n.owners) ∧
+      (∀ q ∈ m.parents, Mem B q → q ∈ n.parents)
 
 /-- The relation: `B`'s owner tables, between nodes of `B`. -/
 def Rel (B : GPathM) (x v : PathNodeId) : Prop := ∃ m, B.node? x = some m ∧ v ∈ m.owners ∧ Mem B v
@@ -87,13 +89,13 @@ end
 theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.SMP B)
     (he : Embedded B G) : Sup G (Mem B) (Rel B) := by
   have gnode : ∀ p m, B.node? p = some m → ∀ n, G.node? p = some n →
-      (∀ q ∈ m.owners, q ∈ n.owners) ∧ (∀ q ∈ m.parents, q ∈ n.parents) := by
+      (∀ q ∈ m.owners, Mem B q → q ∈ n.owners) ∧ (∀ q ∈ m.parents, Mem B q → q ∈ n.parents) := by
     intro p m hm n hn
     obtain ⟨n', hn', ho, hp⟩ := he.node p m hm
     rw [hn] at hn'
     cases hn'
     exact ⟨ho, hp⟩
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · -- global owners
     rintro p ⟨m, hm⟩
     obtain ⟨h0, h1⟩ := mem_bounds B a ⟨m, hm⟩
@@ -109,8 +111,8 @@ theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.
     rintro x v ⟨m, hm, _, hv⟩
     exact ⟨⟨m, hm⟩, hv⟩
   · -- owners
-    rintro x v n ⟨m, hm, hvm, _⟩ hn
-    exact (gnode x m hm n hn).1 v hvm
+    rintro x v n ⟨m, hm, hvm, hv⟩ hn
+    exact (gnode x m hm n hn).1 v hvm hv
   · -- cover
     rintro x ⟨m, hm⟩ l hl0 hl1
     rw [← he.step] at hl1
@@ -144,7 +146,7 @@ theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.
         hsmp m hmem c hc mc (List.mem_of_find?_eq_some hmc) (node?_id_eq B c mc hmc)
       rw [hid] at hson
       exact (a.links c mc hmc).2 x hson
-    have hdp := (gnode x m hm d hd).2 c hc
+    have hdp := (gnode x m hm d hd).2 c hc ⟨mc, hmc⟩
     exact ⟨c, hdp, ⟨m, hm, (a.links x m hm).1 c hc, ⟨mc, hmc⟩⟩, ⟨mc, hmc, hxc, ⟨m, hm⟩⟩,
       ⟨mc, hmc, hvc, hv⟩⟩
   · -- sons
@@ -168,7 +170,7 @@ theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.
       have h' := a.pms m hmem c hc mc (List.mem_of_find?_eq_some hmc) (node?_id_eq B c mc hmc)
       rwa [hid] at h'
     obtain ⟨nc, hnc, _, hncp⟩ := he.node c mc hmc
-    exact ⟨c, nc, hnc, hncp x hxp, ⟨m, hm, (a.links x m hm).2 c hc, ⟨mc, hmc⟩⟩,
+    exact ⟨c, nc, hnc, hncp x hxp ⟨m, hm⟩, ⟨m, hm, (a.links x m hm).2 c hc, ⟨mc, hmc⟩⟩,
       ⟨mc, hmc, (a.links c mc hmc).1 x hxp, ⟨m, hm⟩⟩, ⟨mc, hmc, hvc, hv⟩⟩
   · -- pairs
     intro x v hxv l hl0 hl1
@@ -194,6 +196,11 @@ theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.
     obtain ⟨hv0, hv1⟩ := mem_bounds B a ⟨mv, hmv⟩
     exact ⟨mv, hmv, ownSym_of_aggOk B hok x v m mv hm hmv hx0 hx1 hv0 hv1 hvm (a.ctx.nodeval x m hm)
       (a.ctx.nodeval v mv hmv), ⟨m, hm⟩⟩
+  · -- links: in `B` an owner on the step just below is a parent
+    rintro x c d ⟨m, hm, hcm, hc⟩ _ hs hd
+    have hc0 := (mem_bounds B a hc).1
+    have hcp := (owners_below_iff_parents B a x m hm (by omega) c (by omega)).mp hcm
+    exact (gnode x m hm d hd).2 c hcp hc
 
 /-- **A valid embedded state survives every compatible pin of the whole state, which stays valid.** -/
 theorem survives_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.SMP B)

@@ -133,7 +133,7 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
     rw [hent] at hc
     simp only [Bool.not_true, Bool.false_or, List.contains_iff_mem] at hc
     exact FabricAdd.exists_owner_of_mem_unionOwnersOf _ ids v hc
-  refine ⟨FinalRel g mid, fun p hp => hp.1, ?_, stepOfSlice, fun x v hr => ⟨hr.1, hr.2.1⟩, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨FinalRel g mid, fun p hp => hp.1, ?_, stepOfSlice, fun x v hr => ⟨hr.1, hr.2.1⟩, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · -- node
     rintro p ⟨_, n, hn, _⟩
     rw [hn]; rfl
@@ -237,6 +237,37 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
     obtain ⟨hv1, hv2⟩ := stepOfSlice v hvs
     exact ⟨hvs, hxs, nv, hnv, (hagg x n' v nv hn' hnv hx1 (by rw [hcs]; exact hx2) hv1
       (by rw [hcs]; exact hv2) hvm (ctx'.nodeval x n' hn') (ctx'.nodeval v nv hnv)).1⟩
+  · -- links: an owner on the step just below is a parent (coherence, and `OOS` on the parent)
+    rintro x c d ⟨hxs, hcs', n', hn', hcn⟩ _ hs hd
+    obtain ⟨hc0, hc1⟩ := stepOfSlice c hcs'
+    obtain ⟨_, hx1⟩ := stepOfSlice x hxs
+    have hmem' := List.mem_of_find?_eq_some hn'
+    have hid' := node?_id_eq _ x n' hn'
+    have hroot : n'.id.parent_id.isNone = false := by
+      have hnr := rc'.shape.notroot n' hmem' (by rw [hid']; omega)
+      cases hp : n'.id.parent_id with
+      | none => exact absurd hp hnr
+      | some _ => rfl
+    obtain ⟨c0, hc0p⟩ := List.exists_mem_of_ne_nil _
+      (SymTriReview.have_parents_of_isValidNode _ n' (ctx'.nodeval x n' hn') hroot)
+    obtain ⟨mc0, hmc0, hmc0id⟩ := rc'.shape.pn n' hmem' c0 hc0p
+    have hc0node : (filterAllAgg g [mid]).node? c0 = some mc0 := by
+      rw [← hmc0id]; exact node?_of_mem rc'.nodup mc0 hmc0
+    have hk : x.id.step ∈ intRange 1 ((filterAllAgg g [mid]).current_step - 1) :=
+      mem_intRange (by omega) (by rw [hcs]; omega)
+    have hcoh := cohP _ hk x (mem_line_of_node? _ x n' hn' _ rfl) n' hn'
+    obtain ⟨c', hc', m', hm', hcm'⟩ := fromUnion n'.parents n'.owners c hcoh hcn
+      (unionEntry n'.parents c0 mc0 hc0p hc0node _ hc0 hc1)
+    have hc'step : c'.id.step = x.id.step - 1 := by rw [← hid']; exact rc'.shape.pbelow n' hmem' c' hc'
+    have hm'id := node?_id_eq _ c' m' hm'
+    have hcc' : c = c' := by
+      have := rc'.oos m' (List.mem_of_find?_eq_some hm') c hcm' (by rw [hm'id]; omega)
+      rw [this, hm'id]
+    obtain ⟨n₀, hn₀, _, hpsub⟩ := derived x n' hn'
+    rw [hd] at hn₀
+    cases hn₀
+    rw [hcc']
+    exact hpsub c' hc'
 
 /-- The link invariants along the reader's states. -/
 theorem links_readFrom (g₀ : GPathM) (hR₀ : ReadableAgg g₀) (hs₀ : Sons.SMP g₀) (hp₀ : Sons.PMS g₀)
