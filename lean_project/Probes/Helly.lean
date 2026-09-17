@@ -1266,6 +1266,62 @@ def joinCensus (e h : GPathM) (st0 : JStat) : JStat := Id.run do
       if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"BORROWED {borrowed} gowners under {C.map (fun r => s!"{r.step}.{r.index}")} (cs {cs})"] }
   return st
 
+-- ============================================================
+-- The triple the `par` condition needs, at nodes with several parents
+-- ============================================================
+
+structure TStat where
+  states : Nat := 0
+  nodes : Nat := 0
+  multiParent : Nat := 0
+  checks : Nat := 0
+  gaps : Nat := 0
+  ex : List String := []
+
+/-- At every node with more than one parent (the residue `ParentWitness.par_witness_triple`
+leaves open), for every top node it owns and every owner it has: is some parent of the node an
+owner of both? That is exactly the triple the `par` condition of a restricted support needs. -/
+def tripleCensus (g : GPathM) (st0 : TStat) : TStat := Id.run do
+  let mut st := { st0 with states := st0.states + 1 }
+  let cs := g.current_step
+  let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let tops : List PathNodeId := (g.nodes.filter (fun m => m.id.id.step == cs - 1)).map (·.id)
+  for n in g.nodes do
+    st := { st with nodes := st.nodes + 1 }
+    if n.parents.length > 1 && n.id.id.step > 0 then
+      st := { st with multiParent := st.multiParent + 1 }
+      let no := tbl.getD n.id {}
+      for z in tops do
+        if no.contains z then
+          let zo := tbl.getD z {}
+          for v in n.owners do
+            st := { st with checks := st.checks + 1 }
+            let vo := tbl.getD v {}
+            if !(n.parents.any (fun c => vo.contains c && zo.contains c)) then
+              st := { st with gaps := st.gaps + 1 }
+              if st.ex.length < 8 then
+                st := { st with ex := st.ex ++
+                  [s!"NO TRIPLE PARENT x={showPid n.id} v={showPid v} z={showPid z}"] }
+  return st
+
+def runTriples (φ : Cnf) (allLines : Bool) (st0 : TStat) : TStat := Id.run do
+  let lines := aggLines φ
+  let n := lines.length
+  let mut st := st0
+  let mut i := 0
+  for line in lines do
+    i := i + 1
+    if allLines || i == n then
+      for kv in line do
+        let G := filterAllAgg kv.2 []
+        if isValid G then st := tripleCensus G st
+  return st
+
+def reportT (name : String) (st : TStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} nodes={st.nodes} multiParent={st.multiParent} checks={st.checks} TRIPLE_GAPS={st.gaps} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 /-- The Improves driver, with every join inspected. -/
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
@@ -1362,6 +1418,23 @@ def main (args : List String) : IO Unit := do
         st := runJoins φ st
       let t1 ← IO.monoMsNow
       reportJ s!"joins seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "triples" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : TStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runTriples φ true st
+      let t1 ← IO.monoMsNow
+      reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "triples" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runTriples φ true {})
+        let t1 ← IO.monoMsNow
+        reportT s!"triples {path}" st (t1 - t0)
   | "joins" :: paths =>
     for path in paths do
       match ← loadCnf path with
