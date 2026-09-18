@@ -2245,7 +2245,9 @@ structure SpStat where
   fSym : Nat := 0
   fLink : Nat := 0
   inSide : Nat := 0
-  UNANCHORED : Nat := 0        -- (x, v) in side S's tables but not anchored at a top of S
+  UNANCHORED : Nat := 0
+  domChecks : Nat := 0
+  NOT_DOMINATED : Nat := 0     -- an anchored node's side entry that its anchor lacks        -- (x, v) in side S's tables but not anchored at a top of S
   ex : List String := []
 
 def SpStat.bad (st : SpStat) (field : String) (msg : String) : SpStat :=
@@ -2306,10 +2308,15 @@ def splitCheck (a b : GPathM) (st0 : SpStat) : SpStat := Id.run do
   let relR (x v : PathNodeId) : Bool := match tR.get? x with | some m => m.owners.contains v && tR.contains v | none => false
   let relIn (t : Std.HashMap PathNodeId PNodeM) (x v : PathNodeId) : Bool :=
     relR x v && (match t.get? x with | some m => m.owners.contains v && t.contains v | none => false)
-  let top := (R.nodes.filter (fun m => m.id.id.step == cs - 1)).map (·.id)
+  let topShared := ((R.nodes.filter (fun m => m.id.id.step == cs - 1)).map (·.id)).any (fun z => ta.contains z && tb.contains z)
+  if topShared then st := { st with bothTop := st.bothTop + 1 }
+  -- the separation step: the highest step where no node of R is on both sides
+  let mut sep : Int := cs - 1
+  while sep ≥ 0 && ((R.nodes.filter (fun m => m.id.id.step == sep)).map (·.id)).any (fun z => ta.contains z && tb.contains z) do
+    sep := sep - 1
+  let top := (R.nodes.filter (fun m => m.id.id.step == sep)).map (·.id)
   let topsA := top.filter ta.contains
   let topsB := top.filter tb.contains
-  if top.any (fun z => ta.contains z && tb.contains z) then st := { st with bothTop := st.bothTop + 1 }
   let partA (x v : PathNodeId) : Bool := relIn ta x v && topsA.any (fun z => relIn ta x z && relIn ta v z)
   let partB (x v : PathNodeId) : Bool := relIn tb x v && topsB.any (fun z => relIn tb x z && relIn tb v z)
   for m in R.nodes do
@@ -2325,6 +2332,18 @@ def splitCheck (a b : GPathM) (st0 : SpStat) : SpStat := Id.run do
       if !(partA m.id v || partB m.id v) then
         st := { st with UNCOVERED := st.UNCOVERED + 1 }
         if st.ex.length < 10 then st := { st with ex := st.ex ++ [s!"UNCOVERED {showPid m.id} {showPid v} inA={relIn ta m.id v} inB={relIn tb m.id v}"] }
+  -- anchor dominance: an anchored node's side entries are its anchor's
+  for (t, tops) in [(ta, topsA), (tb, topsB)] do
+    for z in tops do
+      for m in R.nodes do
+        let x := m.id
+        if !(relIn t x z) then continue
+        for w in m.owners do
+          if !(relIn t x w) then continue
+          st := { st with domChecks := st.domChecks + 1 }
+          if !(relIn t z w) then
+            st := { st with NOT_DOMINATED := st.NOT_DOMINATED + 1 }
+            if st.ex.length < 10 then st := { st with ex := st.ex ++ [s!"NOT DOMINATED anchor {showPid z} node {showPid x} entry {showPid w}"] }
   st := checkPart "a" R a (relIn ta) topsA st
   st := checkPart "b" R b (relIn tb) topsB st
   return st
@@ -2354,7 +2373,7 @@ def runSplit (φ : Cnf) (st0 : SpStat) : SpStat := Id.run do
   return st
 
 def reportSp (name : String) (st : SpStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} entries={st.entries} UNCOVERED={st.UNCOVERED} bothTop={st.bothTop} inSide={st.inSide} UNANCHORED={st.UNANCHORED} | fails gow={st.fGow} node={st.fNode} own={st.fOwn} cov={st.fCov} par={st.fPar} son={st.fSon} agg={st.fAgg} sym={st.fSym} link={st.fLink} | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} entries={st.entries} UNCOVERED={st.UNCOVERED} bothTop={st.bothTop} inSide={st.inSide} UNANCHORED={st.UNANCHORED} domChecks={st.domChecks} NOT_DOMINATED={st.NOT_DOMINATED} | fails gow={st.fGow} node={st.fNode} own={st.fOwn} cov={st.fCov} par={st.fPar} son={st.fSon} agg={st.fAgg} sym={st.fSym} link={st.fLink} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 -- ============================================================

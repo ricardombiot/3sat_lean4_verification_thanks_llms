@@ -74,6 +74,28 @@ def PartSplit (a b : GPathM) : Prop :=
     Sup a (PMem (reviewAgg (join a b)) a) (Part (reviewAgg (join a b)) a) ∧
     Sup b (PMem (reviewAgg (join a b)) b) (Part (reviewAgg (join a b)) b)
 
+/-- A node of both `R` and `S` at step `t`. -/
+def AtIn (R S : GPathM) (t : Int) (z : PathNodeId) : Prop := Mem R z ∧ Mem S z ∧ z.id.step = t
+
+/-- **The part of `S` anchored at step `t`**: entries of `R` in `S`'s tables, with a common owner at step
+`t` that is a node of `S`, through entries also in `S`'s tables. -/
+def PartAt (R S : GPathM) (t : Int) (x v : PathNodeId) : Prop :=
+  RelIn R S x v ∧ ∃ z, AtIn R S t z ∧ RelIn R S x z ∧ RelIn R S v z
+
+/-- `t` separates the two sides inside `R`: no node of `R` at step `t` is a node of both. -/
+def Separates (R a b : GPathM) (t : Int) : Prop :=
+  0 ≤ t ∧ t < R.current_step ∧ ∀ z, Mem R z → z.id.step = t → Mem a z → Mem b z → False
+
+/-- **The split at the separation step.** Measured: at the driver's joins (where the top step
+separates) and at the joins of pieces `split_branch` merges (where it lies lower), the parts anchored
+at the highest separating step cover `R` and satisfy every condition of `Sup` (probes `helly split`,
+`helly pieces`). -/
+def PartSplitAt (a b : GPathM) (t : Int) : Prop :=
+  (∀ x v, Rel (reviewAgg (join a b)) x v →
+      PartAt (reviewAgg (join a b)) a t x v ∨ PartAt (reviewAgg (join a b)) b t x v) ∧
+    Sup a (fun x => ∃ v, PartAt (reviewAgg (join a b)) a t x v) (PartAt (reviewAgg (join a b)) a t) ∧
+    Sup b (fun x => ∃ v, PartAt (reviewAgg (join a b)) b t x v) (PartAt (reviewAgg (join a b)) b t)
+
 /-- **A split of the reviewed join's support**: two support relations, one inside each side, that
 together cover every entry of the reviewed join. -/
 def SplitOk (a b : GPathM) : Prop :=
@@ -82,6 +104,9 @@ def SplitOk (a b : GPathM) : Prop :=
     (∀ x v, Rel (reviewAgg (join a b)) x v → RA x v ∨ RB x v) ∧ Sup a SA RA ∧ Sup b SB RB
 
 theorem splitOk_of_partSplit (a b : GPathM) (h : PartSplit a b) : SplitOk a b :=
+  ⟨_, _, _, _, h.1, h.2.1, h.2.2⟩
+
+theorem splitOk_of_partSplitAt (a b : GPathM) (t : Int) (h : PartSplitAt a b t) : SplitOk a b :=
   ⟨_, _, _, _, h.1, h.2.1, h.2.2⟩
 
 /-- **The support of the reviewed join splits** into supports of the two pinned sides. -/
