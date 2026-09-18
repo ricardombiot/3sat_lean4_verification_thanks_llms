@@ -1949,6 +1949,60 @@ def reportF (name : String) (st : FStat) (ms : Nat) : IO Unit := do
   for e in st.ex do IO.println s!"  EX {e}"
   for e in st.exSig do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Nested joins (v138): are joins whose futures nest harmless for the descent?
+-- ============================================================
+
+/-- The future class of a join: 0 same, 1 nested, 2 differ; `none` if truncated. -/
+def futureClass (φ : Cnf) (d : NodeId) (e h : GPathM) (budget : Nat) : Option Nat := Id.run do
+  let cs := e.current_step
+  let fut := futureNodes φ d
+  match pasts e budget, pasts h budget with
+  | some qe, some qh =>
+    let me := maximal (qe.toList.map (signature φ cs fut))
+    let mh := maximal (qh.toList.map (signature φ cs fut))
+    let covers (A B : Std.HashSet (List NodeId)) : Bool :=
+      B.toList.all (fun b => A.toList.any (fun a => b.all a.contains))
+    let eh := covers me mh
+    let he := covers mh me
+    return some (if eh && he then 0 else if eh || he then 1 else 2)
+  | _, _ => return none
+
+structure NStat where
+  byClass : Array DStat := #[{}, {}, {}]
+  joins : Array Nat := #[0, 0, 0]
+  truncated : Nat := 0
+
+def runNested (φ : Cnf) (budget : Nat) (st0 : NStat) : NStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              match futureClass φ d e hst budget with
+              | none => st := { st with truncated := st.truncated + 1 }
+              | some c =>
+                let J := filterAllAgg (join e hst) []
+                st := { st with joins := st.joins.modify c (· + 1) }
+                if isValid J then
+                  st := { st with byClass := st.byClass.modify c (fun ds => deadCensus J budget ds) }
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportN (name : String) (st : NStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: truncated={st.truncated} | {ms}ms"
+  for (lbl, i) in [("same", 0), ("nested", 1), ("differ", 2)] do
+    let d := st.byClass.getD i {}
+    IO.println s!"  {lbl}: joins={st.joins.getD i 0} extensions={d.extensions} full={d.full} DEAD_ENDS={d.deadEnds} near={d.nearChecks} NEAR_NOT_ENOUGH={d.nearNotEnough} nest={d.nestChecks} NEST_FAILS={d.NEST_FAILS} truncated={d.truncated}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2061,6 +2115,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
         let t1 ← IO.monoMsNow
         reportQ s!"clique {path}" st (t1 - t0)
+  | "nested" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : NStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runNested φ 200000 st
+      let t1 ← IO.monoMsNow
+      reportN s!"nested seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "nested" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runNested φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportN s!"nested {path}" st (t1 - t0)
   | "futures" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
