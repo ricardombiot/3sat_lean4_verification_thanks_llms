@@ -2436,6 +2436,91 @@ def reportPc (name : String) (st : PcStat) (ms : Nat) : IO Unit := do
   reportDi "  distrib" st.di 0
   reportSp "  split" st.sp 0
 
+-- ============================================================
+-- The oracle inside the machine (v138): is each machine state the join of the valid single-path
+-- states with its key, and does the send distribute over that join?
+-- ============================================================
+
+structure OStat where
+  lines : Nat := 0
+  states : Nat := 0
+  paths : Nat := 0
+  NO_PATH : Nat := 0          -- a valid machine state with no valid single path at its key
+  equal : Nat := 0            -- machine state = join of the single-path states (as sets)
+  machineExtra : Nat := 0     -- machine state has entries the join lacks
+  joinExtra : Nat := 0        -- the join has entries the machine lacks
+  sends : Nat := 0
+  sendEqual : Nat := 0
+  SEND_EXCEEDS : Nat := 0     -- send(U) not contained in join of valid send(B)
+  SEND_ALIVE_ALL_DEAD : Nat := 0
+  capped : Nat := 0
+  ex : List String := []
+
+def joinAll (bs : List GPathM) : Option GPathM :=
+  match bs with
+  | [] => none
+  | b :: rest => some (rest.foldl join b)
+
+def runOracle (φ : Cnf) (cap : Nat) (st0 : OStat) : OStat := Id.run do
+  let mut st := st0
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  let mut line := pureInit φ
+  let mut singles : List (NodeId × GPathM) := pureInit φ
+  for _ in [0:(stepCount φ).toNat] do
+    if singles.length > cap then
+      st := { st with capped := st.capped + 1 }
+      return st
+    st := { st with lines := st.lines + 1, paths := st.paths + singles.length }
+    -- compare each machine state with the join of its key's single-path states
+    for kv in line do
+      if !isValid kv.2 then continue
+      st := { st with states := st.states + 1 }
+      let bs := (singles.filter (fun x => x.1 == kv.1)).map (·.2)
+      match joinAll bs with
+      | none =>
+        st := { st with NO_PATH := st.NO_PATH + 1 }
+        if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"NO PATH key {kv.1.step}:{kv.1.index}"] }
+      | some U =>
+        let (xn, mn, xo, mo, xg, mg) := diffStates kv.2 U
+        if xn + mn + xo + mo + xg + mg == 0 then st := { st with equal := st.equal + 1 }
+        st := { st with machineExtra := st.machineExtra + xn + xo + xg, joinExtra := st.joinExtra + mn + mo + mg }
+        -- the send from U against the join of the single-path sends
+        for d in mapSons φ kv.1.step kv.1.index do
+          st := { st with sends := st.sends + 1 }
+          let sU := send U d
+          let alive := (bs.map (fun b => send b d)).filter isValid
+          if isValid sU then
+            match joinAll alive with
+            | none =>
+              st := { st with SEND_ALIVE_ALL_DEAD := st.SEND_ALIVE_ALL_DEAD + 1 }
+              if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"SEND ALIVE, ALL PATHS DEAD key {kv.1.step}:{kv.1.index} -> {d.step}:{d.index}"] }
+            | some R =>
+              let (xn', mn', xo', mo', xg', mg') := diffStates sU R
+              if xn' + xo' + xg' == 0 then
+                if mn' + mo' + mg' == 0 then st := { st with sendEqual := st.sendEqual + 1 }
+              else
+                st := { st with SEND_EXCEEDS := st.SEND_EXCEEDS + 1 }
+                if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"SEND EXCEEDS key {kv.1.step}:{kv.1.index} -> {d.step}:{d.index}: nodes={xn'} owners={xo'} gow={xg'}"] }
+    -- advance both
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then next := insertPure next d hst
+    line := next
+    let mut ns : List (NodeId × GPathM) := []
+    for kv in singles do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let b := send kv.2 d
+        if isValid b then ns := (d, b) :: ns
+    singles := ns.reverse
+  return st
+
+def reportO (name : String) (st : OStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: lines={st.lines} states={st.states} singlePaths={st.paths} NO_PATH={st.NO_PATH} equal={st.equal} machineExtra={st.machineExtra} joinExtra={st.joinExtra} | sends={st.sends} sendEqual={st.sendEqual} SEND_EXCEEDS={st.SEND_EXCEEDS} SEND_ALIVE_ALL_DEAD={st.SEND_ALIVE_ALL_DEAD} capped={st.capped} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2599,6 +2684,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runRestrict φ {})
         let t1 ← IO.monoMsNow
         reportRs s!"restrict {path}" st (t1 - t0)
+  | "oracle" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : OStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runOracle φ 20000 st
+      let t1 ← IO.monoMsNow
+      reportO s!"oracle seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "oracle" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runOracle φ 20000 {})
+        let t1 ← IO.monoMsNow
+        reportO s!"oracle {path}" st (t1 - t0)
   | "distrib" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
