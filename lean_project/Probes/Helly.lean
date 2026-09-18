@@ -1420,6 +1420,138 @@ def reportS (name : String) (st : SStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} constraints={st.constraints} exclusiveTops={st.tops} sliceNodes={st.sliceNodes} pairs={st.pairs} FOREIGN_PAIRS={st.foreignPairs} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Transitivity of ownership on ordered triples
+-- ============================================================
+
+structure TrStat where
+  states : Nat := 0
+  nodes : Nat := 0
+  triples : Nat := 0
+  failures : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+/-- The induction step of the frontal attack on `NoDeadEnd`: if `a` owns `b` and `b` owns `c`, with
+`a.step < b.step < c.step`, does `a` own `c`? With that, a partial chain extends by the owner the
+pair consistency of its lowest pick already provides. -/
+def transCensus (g : GPathM) (budget : Nat) (st0 : TrStat) : TrStat := Id.run do
+  let mut st := { st0 with states := st0.states + 1 }
+  let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut seen := 0
+  for nb in g.nodes do
+    st := { st with nodes := st.nodes + 1 }
+    let b := nb.id
+    -- c above b owning b, a below b owned by b
+    for c in nb.owners.filter (fun c => c.id.step > b.id.step) do
+      let co := tbl.getD c {}
+      if !co.contains b then continue
+      for a in nb.owners.filter (fun a => a.id.step < b.id.step) do
+        if seen > budget then
+          st := { st with truncated := st.truncated + 1 }
+          return st
+        seen := seen + 1
+        st := { st with triples := st.triples + 1 }
+        if !co.contains a then
+          st := { st with failures := st.failures + 1 }
+          if st.ex.length < 8 then
+            st := { st with ex := st.ex ++
+              [s!"NOT TRANSITIVE a={showPid a} b={showPid b} c={showPid c}"] }
+  return st
+
+def runTrans (φ : Cnf) (allLines : Bool) (budget : Nat) (st0 : TrStat) : TrStat := Id.run do
+  let lines := aggLines φ
+  let n := lines.length
+  let mut st := st0
+  let mut i := 0
+  for line in lines do
+    i := i + 1
+    if allLines || i == n then
+      for kv in line do
+        let G := filterAllAgg kv.2 []
+        if isValid G then st := transCensus G budget st
+  return st
+
+def reportTr (name : String) (st : TrStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} nodes={st.nodes} triples={st.triples} NOT_TRANSITIVE={st.failures} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- No dead ends, measured directly
+-- ============================================================
+
+structure DStat where
+  states : Nat := 0
+  anchors : Nat := 0
+  extensions : Nat := 0
+  full : Nat := 0
+  deadEnds : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+/-- `NoDeadEnd`, measured as it is stated: every partial chain from the top step down extends by
+one pick. Explores every partial chain (the property is universal), under a budget. -/
+partial def deadWalk (g : GPathM) (tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId))
+    (chain : List PathNodeId) (lo : Int) (st0 : DStat) (budget : Nat) : DStat × Nat := Id.run do
+  let mut st := st0
+  let mut bud := budget
+  if lo == 0 then
+    return ({ st with full := st.full + 1 }, bud)
+  let x := chain.head!
+  let parents := match g.node? x with | some n => n.parents | none => []
+  let cands := parents.filter (fun c =>
+    c.id.step == lo - 1
+    && (match g.node? c with | some _ => true | none => false)
+    && chain.all (fun y => (tbl.getD y {}).contains c)
+    && g.gowners.contains c
+    && (tbl.getD c {}).contains c
+    && (if lo - 1 == 0 then c.parent_id.isNone else !c.parent_id.isNone))
+  if cands.isEmpty then
+    st := { st with deadEnds := st.deadEnds + 1 }
+    if st.ex.length < 6 then
+      st := { st with ex := st.ex ++
+        [s!"DEAD END at step {lo - 1} under chain {chain.map showPid}"] }
+    return (st, bud)
+  for c in cands do
+    if bud == 0 then
+      return ({ st with truncated := st.truncated + 1 }, 0)
+    bud := bud - 1
+    st := { st with extensions := st.extensions + 1 }
+    let (st', bud') := deadWalk g tbl (c :: chain) (lo - 1) st bud
+    st := st'
+    bud := bud'
+  return (st, bud)
+
+def deadCensus (g : GPathM) (budget : Nat) (st0 : DStat) : DStat := Id.run do
+  let mut st := { st0 with states := st0.states + 1 }
+  let cs := g.current_step
+  let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut bud := budget
+  for n in g.nodes.filter (fun n => n.id.id.step == cs - 1) do
+    let q := n.id
+    if !(g.gowners.contains q && (tbl.getD q {}).contains q) then continue
+    if !(if cs - 1 == 0 then q.parent_id.isNone else !q.parent_id.isNone) then continue
+    st := { st with anchors := st.anchors + 1 }
+    let (st', bud') := deadWalk g tbl [q] (cs - 1) st bud
+    st := st'
+    bud := bud'
+  return st
+
+def runDead (φ : Cnf) (budget : Nat) (st0 : DStat) : DStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  for line in lines do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := deadCensus G budget st
+  return st
+
+def reportD (name : String) (st : DStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} anchors={st.anchors} extensions={st.extensions} fullChains={st.full} DEAD_ENDS={st.deadEnds} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 /-- The Improves driver, with every join inspected. -/
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
@@ -1524,6 +1656,24 @@ def main (args : List String) : IO Unit := do
         st := runTriples φ true st
       let t1 ← IO.monoMsNow
       reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "dead" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runDead φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportD s!"dead {path}" st (t1 - t0)
+  | "trans" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runTrans φ true 3000000 {})
+        let t1 ← IO.monoMsNow
+        reportTr s!"trans {path}" st (t1 - t0)
   | "slices" :: paths =>
     for path in paths do
       match ← loadCnf path with
