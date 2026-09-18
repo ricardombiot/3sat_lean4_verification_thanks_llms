@@ -32,6 +32,8 @@ open AbsSat.GraphPath.Model.AggressiveReview
 open AbsSat.GraphPath.Model.PureDriverImproves
 open AbsSat.GraphMap.CnfMapImproves (weakReqOfCnf)
 
+instance : _root_.Inhabited NodeId := ⟨{ step := 0, index := 0 }⟩
+
 instance : _root_.Inhabited PathNodeId := ⟨{ id := { step := 0, index := 0 }, parent_id := none }⟩
 
 instance : _root_.Inhabited PNodeM := ⟨{ id := default, title := "", parents := [], sons := [], owners := [] }⟩
@@ -3125,6 +3127,114 @@ def runGhosts (φ : Cnf) (budget : Nat) : IO Unit := do
   let rows := tally.toList.toArray.qsort (fun a b => a.1 < b.1)
   for (k, n) in rows do IO.println s!"  {n}  {k}"
 
+-- ============================================================
+-- Adversarial search (v141) on the isolated lemma: requirement systems "y@t ⇒ r@i", all their solutions
+-- as a state with exact tables, every map pin; look for ghosts the base review leaves undetectable
+-- (a counterexample to GhostsLine) or that survive the full review (a counterexample to FilterSlices)
+-- ============================================================
+
+structure AdvScore where
+  finalCE : Nat := 0     -- ghosts surviving the full review
+  baseCE : Nat := 0      -- ghosts after the base review, symmetric and sharing every step
+  baseGhosts : Nat := 0  -- ghosts after the base review (search signal)
+  deriving Repr
+
+def AdvScore.value (a : AdvScore) : Nat := 1000000 * a.finalCE + 1000 * a.baseCE + a.baseGhosts
+
+/-- The node ids of a map path's single-path state. -/
+def pathIds (p : List NodeId) : List PathNodeId :=
+  (List.range p.length).map (fun i =>
+    { id := p[i]!, parent_id := if i == 0 then none else some p[i - 1]! })
+
+def advEval (steps width : Nat) (reqs : List (NodeId × NodeId)) : AdvScore := Id.run do
+  let mut all : List (List NodeId) := [[]]
+  for sIdx in [0:steps] do
+    let choices : List Nat := if sIdx + 1 == steps then [0] else List.range width
+    all := all.flatMap (fun p => choices.map (fun i => p ++ [⟨(sIdx : Int), (i : Int)⟩]))
+  let ok (p : List NodeId) : Bool := reqs.all (fun (a, b) => !(p.contains a) || p.contains b)
+  let sols := all.filter ok
+  if sols.length < 2 then return {}
+  let states := sols.map pathState
+  let U := match states with | [] => GPathM.empty | g :: rest => rest.foldl join g
+  if !isValid U then return {}
+  let ids := sols.map pathIds
+  let mut sc : AdvScore := {}
+  for sIdx in [0:steps - 1] do
+    for i in [0:width] do
+      let pin : NodeId := ⟨(sIdx : Int), (i : Int)⟩
+      let through := (sols.zip ids).filter (fun (p, _) => p.contains pin)
+      let onPath (x v : PathNodeId) : Bool := through.any (fun (_, q) => q.contains x && q.contains v)
+      let P := [pin].foldl filterRequire U
+      let B := review P
+      let R := filterAllAgg U [pin]
+      if isValid B then
+        for n in B.nodes do
+          for v in n.owners do
+            if v == n.id then continue
+            match B.node? v with
+            | none => pure ()
+            | some nv =>
+              if onPath n.id v then continue
+              sc := { sc with baseGhosts := sc.baseGhosts + 1 }
+              if nv.owners.contains n.id && sharesEveryStep B.current_step n.owners nv.owners then
+                sc := { sc with baseCE := sc.baseCE + 1 }
+      if isValid R then
+        for n in R.nodes do
+          for v in n.owners do
+            if v == n.id || (R.node? v).isNone then continue
+            if !onPath n.id v then sc := { sc with finalCE := sc.finalCE + 1 }
+  return sc
+
+def advMutate (steps width : Nat) (reqs : List (NodeId × NodeId)) (rng0 : AbsSat.SatMachine.DiffTest.Rng) :
+    List (NodeId × NodeId) × AbsSat.SatMachine.DiffTest.Rng := Id.run do
+  let mut rng := rng0
+  let (r1, op) := rng.below 3
+  rng := r1
+  let fresh : AbsSat.SatMachine.DiffTest.Rng → (NodeId × NodeId) × AbsSat.SatMachine.DiffTest.Rng := fun r => Id.run do
+    let (a1, t) := r.below (steps - 2)
+    let (a2, y) := a1.below width
+    let (a3, i) := a2.below (t + 1)
+    let (a4, rr) := a3.below width
+    return ((⟨((t + 1 : Nat) : Int), (y : Int)⟩, ⟨(i : Int), (rr : Int)⟩), a4)
+  if op == 0 || reqs.isEmpty then
+    let (q, r2) := fresh rng
+    return (reqs ++ [q], r2)
+  else if op == 1 then
+    let (r2, j) := rng.below reqs.length
+    return (reqs.eraseIdx j, r2)
+  else
+    let (r2, j) := rng.below reqs.length
+    let (q, r3) := fresh r2
+    return (reqs.set j q, r3)
+
+def runAdversarial (steps width iters restarts seed : Nat) : IO Unit := do
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  let mut bestEver : AdvScore := {}
+  let mut evals := 0
+  for rs in [0:restarts] do
+    -- a random start
+    let mut reqs : List (NodeId × NodeId) := []
+    let (r0, n0) := rng.below (2 * steps)
+    rng := r0
+    for _ in [0:n0 + 1] do
+      let (q, r1) := advMutate steps width [] rng
+      rng := r1
+      reqs := reqs ++ q
+    let mut cur := advEval steps width reqs
+    evals := evals + 1
+    for _ in [0:iters] do
+      let (cand, r2) := advMutate steps width reqs rng
+      rng := r2
+      let sc := advEval steps width cand
+      evals := evals + 1
+      if sc.value ≥ cur.value then
+        reqs := cand
+        cur := sc
+      if sc.baseCE > 0 || sc.finalCE > 0 then
+        IO.println s!"  COUNTEREXAMPLE restart {rs}: {repr sc} reqs={cand.map (fun (a, b) => ((a.step, a.index), (b.step, b.index)))}"
+    if cur.value > bestEver.value then bestEver := cur
+  IO.println s!"adversarial steps={steps} width={width} iters={iters} restarts={restarts} seed={seed}: evals={evals} best={repr bestEver}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3297,6 +3407,9 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSliceClosed φ 2000000 {})
         let t1 ← IO.monoMsNow
         reportSc s!"sliceclosed {path}" st (t1 - t0)
+  | "adversarial" :: steps :: width :: iters :: restarts :: seeds =>
+    for seed in seeds.map String.toNat! do
+      runAdversarial steps.toNat! width.toNat! iters.toNat! restarts.toNat! seed
   | "ghosts" :: paths =>
     for path in paths do
       match ← loadCnf path with
