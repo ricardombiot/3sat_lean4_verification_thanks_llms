@@ -242,6 +242,37 @@ theorem extend_pair (g : GPathM) (a : Adj g) (hok : AggOk g) (hpos : 2 < g.curre
   rw [show g.current_step - 2 - 1 = g.current_step - 3 from by omega] at hgoal
   exact ⟨c, hgoal⟩
 
+
+-- ============================================================
+-- The one statement left
+-- ============================================================
+
+/-- **The single statement the whole verdict rests on.** The picks of a partial chain have an owner
+in common on the step below.
+
+The sweep already gives this **pair by pair** (`AggFixpoint.aggOk_reviewAgg`: any two owners share
+an entry at every step). What is missing is the step from pairs to the whole set of picks — and the
+picks are a *clique* of the pairwise-compatibility relation, with a common neighbour for every pair
+on that step. In the language of constraint propagation: the machine maintains 2-consistency and the
+descent needs k-consistency, which does not follow for an arbitrary network and follows here only
+from the structure the machine keeps (the tables of a node are born from one history, `RunEnv`). -/
+def CommonOwner (g : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo : Int), 0 < lo → lo ≤ g.current_step - 1 → SoundFrom g sel lo →
+    ∃ c nc, g.node? c = some nc ∧ c.id.step = lo - 1 ∧
+      ∀ k, lo ≤ k → k < g.current_step → c ∈ ownersOf g (sel k)
+
+/-- **And with it the state has no dead ends**, so the verdict follows
+(`NoDeadEndVerdict.sat_of_noDeadEnd`). -/
+theorem noDeadEnd_of_commonOwner (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (h : CommonOwner g) : NoDeadEnd.NoDeadEnd g := by
+  intro sel lo hlo0 hlo hs
+  obtain ⟨c, nc, hc, hcs, hown⟩ := h sel lo hlo0 hlo hs
+  exact ⟨c, extend_of_common_owner g a hok hlo0 hlo hs hc hcs hown⟩
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.noDeadEnd_of_commonOwner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms noDeadEnd_of_commonOwner
+
 /-- info: 'AbsSat.GraphPath.Model.Descent.extend_of_common_owner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms extend_of_common_owner

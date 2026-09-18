@@ -1780,6 +1780,14 @@ def main (args : List String) : IO Unit := do
         st := runTriples φ true st
       let t1 ← IO.monoMsNow
       reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "cover" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : CovStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runCover φ 200000 st
+      let t1 ← IO.monoMsNow
+      reportCov s!"cover seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
   | "cover" :: paths =>
     for path in paths do
       match ← loadCnf path with

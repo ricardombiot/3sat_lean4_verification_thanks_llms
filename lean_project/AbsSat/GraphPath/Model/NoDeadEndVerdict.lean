@@ -1,6 +1,7 @@
 -- lean_project/AbsSat/GraphPath/Model/NoDeadEndVerdict.lean
 import AbsSat.GraphPath.Model.NoDeadEnd
 import AbsSat.GraphPath.Model.HereditaryBuild
+import AbsSat.GraphPath.Model.Descent
 
 /-!
 # The verdict from one step: no dead ends in the final state
@@ -76,6 +77,28 @@ theorem sat_of_noDeadEnd (hwf : WF φ) (kv : NodeId × GPathM) (hkv : kv ∈ Pur
   obtain ⟨p, hpd⟩ := NoDeadEnd.nonempty_of_noDeadEnd _ hpos ha hnd
   exact ReaderAggRun.sat_of_denot_final φ hwf kv hkv p
     (denot_of_pruned (pruned_filterAllAgg kv.2 []) hm.rctx.nodup p (denot_of_denotS hpd))
+
+/-- **The verdict from the one statement left.** If the picks of every partial chain of the
+reader's state have an owner in common on the step below, reading gives a model of `φ`. Everything
+else on the way is proved: the anchor at the top step, the descent step from a common owner, and
+the decoding of a complete chain. -/
+theorem sat_of_commonOwner (hwf : WF φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (hco : Descent.CommonOwner (filterAllAgg kv.2 [])) : Satisfiable φ := by
+  obtain ⟨hm, _, _⟩ := ReaderAggRun.pureRunW_state φ hwf kv hkv
+  obtain ⟨hR, _, hp, hn⟩ := Fw_facts kv.2 hm.rctx hm.smp hm.pms hm.sn []
+  have hfw : Fw kv.2 [] = filterAllAgg kv.2 [] := by
+    simp only [Fw, PureDriverImproves.filterWeakAll_nil]
+  rw [hfw] at hR hp hn
+  have a := AdjacentOwners.adj_of_readable _ hR hv hp hn
+  have hok := AggFixpoint.aggOk_reviewAgg _ hv
+  exact sat_of_noDeadEnd φ hwf kv hkv hv
+    (Descent.noDeadEnd_of_commonOwner _ a hok hco)
+
+/-- info: 'AbsSat.GraphPath.Model.NoDeadEndVerdict.sat_of_commonOwner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_commonOwner
 
 /-- info: 'AbsSat.GraphPath.Model.NoDeadEndVerdict.sat_of_noDeadEnd' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
