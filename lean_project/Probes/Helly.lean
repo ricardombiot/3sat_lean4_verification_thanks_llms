@@ -1490,6 +1490,8 @@ structure DStat where
   deadEnds : Nat := 0
   nearChecks : Nat := 0
   nearNotEnough : Nat := 0
+  nestChecks : Nat := 0
+  NEST_FAILS : Nat := 0
   truncated : Nat := 0
   ex : List String := []
 
@@ -1510,6 +1512,19 @@ partial def deadWalk (g : GPathM) (tbl : Std.HashMap PathNodeId (Std.HashSet Pat
     && (tbl.getD c {}).contains c
     && (if lo - 1 == 0 then c.parent_id.isNone else !c.parent_id.isNone))
   let cands := base.filter (fun c => chain.all (fun y => (tbl.getD y {}).contains c))
+  -- are the candidate sets NESTED along the chain? (a candidate good for a higher pick should be
+  -- good for the lower ones; then the intersection is the anchor's set, non-empty by pairs)
+  let picks := chain  -- head is the lowest pick
+  for (ylow, i) in picks.zipIdx do
+    for yhigh in (picks.drop (i + 1)) do
+      for c in base do
+        if (tbl.getD yhigh {}).contains c then
+          st := { st with nestChecks := st.nestChecks + 1 }
+          if !(tbl.getD ylow {}).contains c then
+            st := { st with NEST_FAILS := st.NEST_FAILS + 1 }
+            if st.ex.length < 6 then
+              st := { st with ex := st.ex ++
+                [s!"NOT NESTED at step {lo - 1}: c={showPid c} ok for {showPid yhigh} but not for {showPid ylow}"] }
   -- does the pick immediately above already decide the parent?
   match chain with
   | _ :: y :: _ =>
@@ -1564,7 +1579,7 @@ def runDead (φ : Cnf) (budget : Nat) (st0 : DStat) : DStat := Id.run do
   return st
 
 def reportD (name : String) (st : DStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: states={st.states} anchors={st.anchors} extensions={st.extensions} fullChains={st.full} DEAD_ENDS={st.deadEnds} nearChecks={st.nearChecks} NEAR_NOT_ENOUGH={st.nearNotEnough} truncated={st.truncated} | {ms}ms"
+  IO.println s!"{name}: states={st.states} anchors={st.anchors} extensions={st.extensions} fullChains={st.full} DEAD_ENDS={st.deadEnds} nearChecks={st.nearChecks} NEAR_NOT_ENOUGH={st.nearNotEnough} nestChecks={st.nestChecks} NEST_FAILS={st.NEST_FAILS} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 -- ============================================================
@@ -1676,6 +1691,60 @@ def reportCov (name : String) (st : CovStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} chains={st.chains} oneSide={st.oneSide} mixed={st.mixed} mixedExtends={st.mixedExtends} MIXED_STUCK={st.MIXED_STUCK} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Is the slice of a node a clique?
+-- ============================================================
+
+structure QStat where
+  states : Nat := 0
+  pairs : Nat := 0
+  failures : Nat := 0
+  topPairs : Nat := 0
+  topFailures : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+/-- For every node, are two of its owners compatible with each other? If the slice of a node is a
+clique, the descent needs no k-consistency: the anchor is the common witness. Counted for every
+node and, separately, for the nodes of the top step (the anchors). -/
+def cliqueCensus (g : GPathM) (budget : Nat) (st0 : QStat) : QStat := Id.run do
+  let mut st := { st0 with states := st0.states + 1 }
+  let cs := g.current_step
+  let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut seen := 0
+  for d in g.nodes do
+    let isTop := d.id.id.step == cs - 1
+    for a in d.owners do
+      for b in d.owners.filter (fun b => b.id.step > a.id.step) do
+        if seen > budget then
+          st := { st with truncated := st.truncated + 1 }
+          return st
+        seen := seen + 1
+        let ok := (tbl.getD b {}).contains a
+        st := { st with pairs := st.pairs + 1 }
+        if isTop then st := { st with topPairs := st.topPairs + 1 }
+        if !ok then
+          st := { st with failures := st.failures + 1 }
+          if isTop then st := { st with topFailures := st.topFailures + 1 }
+          if st.ex.length < 6 then
+            st := { st with ex := st.ex ++
+              [s!"SLICE NOT CLIQUE d={showPid d.id}{if isTop then " (TOP)" else ""} a={showPid a} b={showPid b}"] }
+  return st
+
+def runClique (φ : Cnf) (budget : Nat) (st0 : QStat) : QStat := Id.run do
+  let lines := aggLines φ
+  let mut st := st0
+  for line in lines do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if isValid G then st := cliqueCensus G budget st
+  return st
+
+def reportQ (name : String) (st : QStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} pairs={st.pairs} NOT_CLIQUE={st.failures} | topPairs={st.topPairs} TOP_NOT_CLIQUE={st.topFailures} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 /-- The Improves driver, with every join inspected. -/
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
@@ -1780,6 +1849,15 @@ def main (args : List String) : IO Unit := do
         st := runTriples φ true st
       let t1 ← IO.monoMsNow
       reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "clique" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
+        let t1 ← IO.monoMsNow
+        reportQ s!"clique {path}" st (t1 - t0)
   | "cover" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
