@@ -1567,6 +1567,115 @@ def reportD (name : String) (st : DStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: states={st.states} anchors={st.anchors} extensions={st.extensions} fullChains={st.full} DEAD_ENDS={st.deadEnds} nearChecks={st.nearChecks} NEAR_NOT_ENOUGH={st.nearNotEnough} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- JoinCoveredF: is a partial chain of a join a chain of one side?
+-- ============================================================
+
+structure CovStat where
+  joins : Nat := 0
+  chains : Nat := 0
+  oneSide : Nat := 0
+  mixed : Nat := 0
+  mixedExtends : Nat := 0
+  MIXED_STUCK : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+/-- Is this partial chain (lowest pick first) entirely a chain of `side`? -/
+def chainInSide (side : GPathM) (tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId))
+    (gow : Std.HashSet PathNodeId) (chain : List PathNodeId) : Bool :=
+  chain.all (fun x =>
+    (match side.node? x with | some _ => true | none => false)
+    && gow.contains x
+    && (tbl.getD x {}).contains x
+    && chain.all (fun y => x == y || (tbl.getD y {}).contains x))
+  && (chain.zip (chain.drop 1)).all (fun (lo, hi) =>
+    (match side.node? hi with | some n => n.parents.contains lo | none => false)
+    && (match side.node? lo with | some n => n.sons.contains hi | none => false))
+
+/-- Walk every partial chain of the join and classify it. -/
+partial def coverWalk (J e h : GPathM)
+    (tJ tE tH : Std.HashMap PathNodeId (Std.HashSet PathNodeId))
+    (gE gH : Std.HashSet PathNodeId) (chain : List PathNodeId) (lo : Int)
+    (st0 : CovStat) (budget : Nat) : CovStat × Nat := Id.run do
+  let mut st := st0
+  let mut bud := budget
+  st := { st with chains := st.chains + 1 }
+  -- classify this partial chain
+  if chainInSide e tE gE chain || chainInSide h tH gH chain then
+    st := { st with oneSide := st.oneSide + 1 }
+  else
+    st := { st with mixed := st.mixed + 1 }
+  if lo == 0 then
+    return (st, bud)
+  let x := chain.head!
+  let parents := match J.node? x with | some n => n.parents | none => []
+  let cands := parents.filter (fun c =>
+    c.id.step == lo - 1
+    && (match J.node? c with | some _ => true | none => false)
+    && chain.all (fun y => (tJ.getD y {}).contains c)
+    && J.gowners.contains c
+    && (tJ.getD c {}).contains c
+    && (if lo - 1 == 0 then c.parent_id.isNone else !c.parent_id.isNone))
+  -- a mixed chain that cannot extend in the join is the counterexample to look for
+  if !(chainInSide e tE gE chain || chainInSide h tH gH chain) then
+    if cands.isEmpty then
+      st := { st with MIXED_STUCK := st.MIXED_STUCK + 1 }
+      if st.ex.length < 6 then
+        st := { st with ex := st.ex ++ [s!"MIXED STUCK at step {lo - 1}: {chain.map showPid}"] }
+    else
+      st := { st with mixedExtends := st.mixedExtends + 1 }
+  for c in cands do
+    if bud == 0 then
+      return ({ st with truncated := st.truncated + 1 }, 0)
+    bud := bud - 1
+    let (st', bud') := coverWalk J e h tJ tE tH gE gH (c :: chain) (lo - 1) st bud
+    st := st'
+    bud := bud'
+  return (st, bud)
+
+def coverCensus (e h : GPathM) (budget : Nat) (st0 : CovStat) : CovStat := Id.run do
+  let mut st := { st0 with joins := st0.joins + 1 }
+  let J := filterAllAgg (join e h) []
+  if !isValid J then return st
+  let cs := J.current_step
+  let mk (g : GPathM) : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let tJ := mk J
+  let tE := mk e
+  let tH := mk h
+  let gE : Std.HashSet PathNodeId := Std.HashSet.ofList e.gowners
+  let gH : Std.HashSet PathNodeId := Std.HashSet.ofList h.gowners
+  let mut bud := budget
+  for n in J.nodes.filter (fun n => n.id.id.step == cs - 1) do
+    let q := n.id
+    if !(J.gowners.contains q && (tJ.getD q {}).contains q) then continue
+    if !(if cs - 1 == 0 then q.parent_id.isNone else !q.parent_id.isNone) then continue
+    let (st', bud') := coverWalk J e h tJ tE tH gE gH [q] (cs - 1) st bud
+    st := st'
+    bud := bud'
+  return st
+
+def runCover (φ : Cnf) (budget : Nat) (st0 : CovStat) : CovStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) => if okJoin e hst then st := coverCensus e hst budget st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportCov (name : String) (st : CovStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} chains={st.chains} oneSide={st.oneSide} mixed={st.mixed} mixedExtends={st.mixedExtends} MIXED_STUCK={st.MIXED_STUCK} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 /-- The Improves driver, with every join inspected. -/
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
@@ -1671,6 +1780,15 @@ def main (args : List String) : IO Unit := do
         st := runTriples φ true st
       let t1 ← IO.monoMsNow
       reportT s!"triples seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "cover" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runCover φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportCov s!"cover {path}" st (t1 - t0)
   | "dead" :: paths =>
     for path in paths do
       match ← loadCnf path with

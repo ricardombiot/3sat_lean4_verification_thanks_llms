@@ -134,7 +134,36 @@ Y el residuo está localizado: la compleción solo hace falta **por debajo** del
 cadena, porque por encima los picks ya están en el estado filtrado, donde todo nodo de un paso
 fijado lleva el nodo de mapa de la fijación (`PairChain.node_id_of_pin`).
 
-## 9. Lo que queda
+**Un aviso honesto sobre este teorema.** `ReqCompletion` es **equivalente** a la conclusión, no más
+débil: si el estado filtrado no tiene callejones, el descenso completa la cadena dentro del propio
+estado filtrado, y esa compleción es una cadena del estado sin filtrar que respeta las fijaciones. Así
+que `noDeadEnd_filterAllAgg_of_completion` es una **reformulación** del caso del filtro en la moneda de
+"no se pierde ninguna solución" —útil porque conecta con un teorema ya demostrado y con tu forma de
+razonarlo— pero **no** reduce el problema a algo más pequeño. Lo digo para que no cuente como avance
+más de lo que es.
+
+## 9. Medido: las cadenas de una unión **nunca** se mezclan
+
+`helly cover` recorre todas las cadenas parciales de cada unión del driver y las clasifica: ¿es cadena
+de uno de los dos lados, o es mezclada?
+
+| familia | uniones | cadenas parciales | de un lado | **mezcladas** |
+|---|---|---|---|---|
+| Tseitin K4 par | 32 | 2.350 | 2.350 | **0** |
+| Tseitin K3,3 par | 102 | 29.219 | 29.219 | **0** |
+
+`truncated = 0`: recorrido entero. **El caso mezclado está vacío**, así que `JoinCoveredF` se cumple sin
+necesitar ni la cláusula de extensión. Y ojo, esto **no** contradice los 1.328 pares ajenos de §5 de
+v131: hay pares de la rebanada que se sostienen con entradas del otro lado, pero **nunca forman una
+cadena** — las condiciones de cadena (enlaces de padre e hijo, pertenencia mutua, owners globales,
+auto-pertenencia) son mucho más fuertes que "par en una rebanada".
+
+Y del lado de la demostración, `DescentJoin.chain_in_left_slice`: **la entrada al ancla es siempre del
+lado que la tiene**. El ancla no es nodo del otro lado, y los owners de un nodo son nodos de su propio
+estado, así que cada pick está en la rebanada del ancla **en las tablas de su propio lado**. Lo que
+queda del caso mezclado son solo las entradas **entre picks**.
+
+## 10. Lo que queda
 
 1. **La compleción por debajo** (`ReqCompletion`): es lo único que queda del filtro.
 2. Del `join` queda solo `JoinCovered` para las cadenas **mezcladas** —las que se sostienen con

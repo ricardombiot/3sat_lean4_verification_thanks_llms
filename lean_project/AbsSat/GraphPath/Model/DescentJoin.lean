@@ -173,6 +173,52 @@ theorem picks_left_of_exclusive_anchor (g₁ g₂ : GPathM)
   exact JoinProvenance.slice_of_exclusive_top g₁ g₂ (join g₁ g₂) (Pruned.refl (join g₁ g₂)) hnd
     ho₂ hgn₂ hstep hnk hzk (by rw [hzstep]; omega) (by rw [hzstep]; omega) hz
 
+/-- **The entry to the anchor is the left side's own.** A pick of the chain owns the anchor in the
+*join*; the entry cannot come from the right side, because the owners of a node are nodes of the
+same state and the right side has no anchor. So every pick sits in the left side's own slice of the
+anchor, in its own table — what is left of a mixed chain is only the entries **between picks**. -/
+theorem chain_in_left_slice (g₁ g₂ : GPathM)
+    (hnd : NodupIds (join g₁ g₂)) (ho₂ : JoinProvenance.OwnGow g₂) (hgn₂ : GownersNodes.GN g₂)
+    (hon₂ : ∀ n ∈ g₂.nodes, ∀ q ∈ n.owners, GownersNodes.HasNode g₂ q)
+    (hstep : (join g₁ g₂).current_step = g₂.current_step)
+    {sel : Int → PathNodeId} {lo : Int}
+    (hs : SoundFrom (join g₁ g₂) sel lo)
+    (hz : g₂.node? (sel ((join g₁ g₂).current_step - 1)) = none)
+    (hpos : 0 < (join g₁ g₂).current_step) :
+    ∀ k, lo ≤ k → k < (join g₁ g₂).current_step →
+      ∃ m, g₁.node? (sel k) = some m ∧ sel ((join g₁ g₂).current_step - 1) ∈ m.owners := by
+  intro k hk0 hk1
+  -- the pick is a node of the left side
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp
+    (picks_left_of_exclusive_anchor g₁ g₂ hnd ho₂ hgn₂ hstep hs hz hpos k hk0 hk1)
+  refine ⟨m, hm, ?_⟩
+  -- and it owns the anchor in the join
+  obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp (hs.node k hk0 hk1).1
+  have hzk : sel ((join g₁ g₂).current_step - 1) ∈ nk.owners := by
+    by_cases heq : k = (join g₁ g₂).current_step - 1
+    · rw [← heq]
+      have hso := hs.self_owned k hk0 hk1
+      simpa only [ownersOf, hnk] using hso
+    · have how := hs.owned ((join g₁ g₂).current_step - 1) k (by omega) hk0 (by omega) hk1
+        (fun hc => heq hc.symm)
+      have h' := (List.mem_filter.mp how).1
+      simpa only [ownersOf, hnk] using h'
+  -- the entry cannot be the right side's: it has no anchor
+  rcases join_owners_source g₁ g₂ (sel k) nk hnk _ hzk with ⟨m₁, hm₁, hw₁⟩ | ⟨m₂, hm₂, hw₂⟩
+  · have hmm : m₁ = m := by
+      rw [hm] at hm₁
+      exact (Option.some_inj.mp hm₁).symm
+    rw [← hmm]; exact hw₁
+  · exfalso
+    have hhas := hon₂ m₂ (List.mem_of_find?_eq_some hm₂) _ hw₂
+    have hsome := (GownersNodes.hasNode_iff g₂ _).mp hhas
+    rw [hz] at hsome
+    exact absurd hsome (by simp)
+
+/-- info: 'AbsSat.GraphPath.Model.DescentJoin.chain_in_left_slice' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_in_left_slice
+
 /-- info: 'AbsSat.GraphPath.Model.DescentJoin.noDeadEnd_join_of_covered' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms noDeadEnd_join_of_covered
