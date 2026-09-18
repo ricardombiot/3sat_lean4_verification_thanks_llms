@@ -151,6 +151,10 @@ de uno de los dos lados, o es mezclada?
 |---|---|---|---|---|
 | Tseitin K4 par | 32 | 2.350 | 2.350 | **0** |
 | Tseitin K3,3 par | 102 | 29.219 | 29.219 | **0** |
+| Tseitin cubo par | 114 | 137.183 | 137.183 | **0** |
+| Tseitin prisma par | 66 | 17.137 | 17.137 | **0** |
+
+En total: 314 uniones y 185.889 cadenas parciales, ninguna mezclada.
 
 `truncated = 0`: recorrido entero. **El caso mezclado está vacío**, así que `JoinCoveredF` se cumple sin
 necesitar ni la cláusula de extensión. Y ojo, esto **no** contradice los 1.328 pares ajenos de §5 de
