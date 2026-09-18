@@ -3525,8 +3525,9 @@ def greedyFirst (byStep : Std.HashMap Int (List PathNodeId)) (rel : PathNodeId �
     | none => return false
   return true
 
-def runGreedy (φ : Cnf) (budget : Nat) (st0 : GreedyStat) : GreedyStat := Id.run do
+def runGreedy (φ : Cnf) (budget sample : Nat) (st0 : GreedyStat) : GreedyStat := Id.run do
   let mut st := st0
+  let mut tick := 0
   for line in aggLines φ do
     for kv in line do
       let G := filterAllAgg kv.2 []
@@ -3550,6 +3551,8 @@ def runGreedy (φ : Cnf) (budget : Nat) (st0 : GreedyStat) : GreedyStat := Id.ru
           for q in n.owners do
             if !(q.id.step < x.id.step) then continue
             if !rtbl.contains q then continue
+            tick := tick + 1
+            if tick % sample != 0 then continue
             st := { st with entries := st.entries + 1 }
             let down := ((List.range x.id.step.toNat).reverse.map (fun (i : Nat) => (i : Int))).filter (· != q.id.step)
             let up := ((List.range (cs - 1 - x.id.step).toNat).map (fun (i : Nat) => x.id.step + 1 + (i : Int)))
@@ -3756,13 +3759,13 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSplice φ 200000 15 {})
         let t1 ← IO.monoMsNow
         reportSplice s!"splice {path}" st (t1 - t0)
-  | "greedy" :: paths =>
+  | "greedy" :: sample :: budget :: paths =>
     for path in paths do
       match ← loadCnf path with
       | none => IO.println s!"{path}: bad cnf"
       | some φ =>
         let t0 ← IO.monoMsNow
-        let st ← IO.lazyPure (fun _ => runGreedy φ 2000 {})
+        let st ← IO.lazyPure (fun _ => runGreedy φ budget.toNat! sample.toNat! {})
         let t1 ← IO.monoMsNow
         reportGreedy s!"greedy {path}" st (t1 - t0)
   | "seqpin" :: paths =>
