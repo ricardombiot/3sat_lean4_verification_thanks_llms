@@ -185,6 +185,7 @@ import AbsSat.GraphPath.Model.SeqPin
 import AbsSat.GraphPath.Model.WeakPairs
 import AbsSat.GraphPath.Model.Greedy
 import AbsSat.GraphPath.Model.PinExtends
+import AbsSat.GraphPath.Model.PinSplit
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
