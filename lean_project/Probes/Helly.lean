@@ -2671,6 +2671,212 @@ def reportPu (name : String) (st : PuStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: trials={st.trials} unionValid={st.unionValid} equal={st.equal} EXTRA={st.EXTRA} MISSING={st.MISSING} ALIVE_NO_PATH={st.ALIVE_NO_PATH} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Linked chains (v139): in a reviewed state, is every parent-linked chain of surviving nodes pairwise
+-- owned?
+-- ============================================================
+
+structure LkStat where
+  states : Nat := 0
+  chains : Nat := 0
+  owned : Nat := 0
+  NOT_OWNED : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+partial def linkedWalk (g : GPathM) (tbl : Std.HashMap PathNodeId PNodeM) (gow : Std.HashSet PathNodeId)
+    (chain : List PathNodeId) (st0 : LkStat) (budget : Nat) : LkStat × Nat := Id.run do
+  let mut st := st0
+  let x := chain.head!
+  if x.id.step == 0 then
+    st := { st with chains := st.chains + 1 }
+    let ok := chain.all (fun p => chain.all (fun q => p == q ||
+      (match tbl.get? p with | some m => m.owners.contains q | none => false)))
+    if ok then st := { st with owned := st.owned + 1 }
+    else
+      st := { st with NOT_OWNED := st.NOT_OWNED + 1 }
+      if st.ex.length < 4 then st := { st with ex := st.ex ++ [s!"LINKED NOT OWNED {chain.map showPid}"] }
+    return (st, budget)
+  let parents := match tbl.get? x with | some m => m.parents.filter (fun p => gow.contains p && tbl.contains p) | none => []
+  let mut bud := budget
+  for p in parents do
+    if bud == 0 then return ({ st with truncated := st.truncated + 1 }, 0)
+    bud := bud - 1
+    let (st', b') := linkedWalk g tbl gow (p :: chain) st bud
+    st := st'
+    bud := b'
+  return (st, bud)
+
+def runLinked (φ : Cnf) (budget : Nat) (st0 : LkStat) : LkStat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      st := { st with states := st.states + 1 }
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (st', b') := linkedWalk G tbl gow [n.id] st bud
+        st := st'
+        bud := b'
+  return st
+
+def reportLk (name : String) (st : LkStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} linkedChains={st.chains} owned={st.owned} NOT_OWNED={st.NOT_OWNED} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- Helly-3 on exact states (v139): pairwise co-realizable entry (x, v) and pinned map node m at step s
+-- (some z with id m owning both) ⟹ a solution chain through x, v and a node of map m at step s?
+-- ============================================================
+
+structure H3Stat where
+  states : Nat := 0
+  chains : Nat := 0
+  checks : Nat := 0
+  HELLY3_FAIL : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+partial def solWalk (tbl : Std.HashMap PathNodeId PNodeM) (gow : Std.HashSet PathNodeId)
+    (chain : List PathNodeId) (acc : Array (List PathNodeId)) (budget : Nat) : Array (List PathNodeId) × Nat := Id.run do
+  let x := chain.head!
+  -- keep only pairwise-owned partial chains
+  if x.id.step == 0 then return (acc.push chain, budget)
+  let parents := match tbl.get? x with | some m => m.parents.filter (fun p => gow.contains p && tbl.contains p) | none => []
+  let mut acc := acc
+  let mut bud := budget
+  for p in parents do
+    let pm := tbl.get! p
+    if !chain.all (fun q => pm.owners.contains q && (match tbl.get? q with | some qm => qm.owners.contains p | none => false)) then continue
+    if bud == 0 then return (acc, 0)
+    bud := bud - 1
+    let (a', b') := solWalk tbl gow (p :: chain) acc bud
+    acc := a'
+    bud := b'
+  return (acc, bud)
+
+def runHelly3 (φ : Cnf) (budget : Nat) (st0 : H3Stat) : H3Stat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      st := { st with states := st.states + 1 }
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut sols : Array (List PathNodeId) := #[]
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (a', b') := solWalk tbl gow [n.id] sols bud
+        sols := a'
+        bud := b'
+      if bud == 0 then
+        st := { st with truncated := st.truncated + 1 }
+        continue
+      st := { st with chains := st.chains + sols.size }
+      -- for each solution: its node ids indexed by step
+      let solArr := sols.map (fun c => c.toArray)
+      -- chains through each node
+      let mut through : Std.HashMap PathNodeId (List Nat) := {}
+      for i in [0:solArr.size] do
+        for p in solArr[i]! do
+          through := through.insert p (i :: through.getD p [])
+      for m in G.nodes do
+        let x := m.id
+        for v in m.owners do
+          if v == x || !tbl.contains v then continue
+          let cx := through.getD x []
+          let cxv := cx.filter (fun i => solArr[i]!.contains v)
+          for sIdx in [0:cs.toNat] do
+            let sI : Int := sIdx
+            if sI == x.id.step || sI == v.id.step then continue
+            -- map ids at step s owned by both x and v through some node
+            let zs := (m.owners.filter (fun z => z.id.step == sI)).filter (fun z =>
+              match tbl.get? v with | some vm => vm.owners.contains z | none => false)
+            let maps := (zs.map (·.id)).eraseDups
+            for mid in maps do
+              st := { st with checks := st.checks + 1 }
+              let ok := cxv.any (fun i => solArr[i]!.any (fun p => p.id == mid))
+              if !ok then
+                st := { st with HELLY3_FAIL := st.HELLY3_FAIL + 1 }
+                if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"HELLY3 FAIL x={showPid x} v={showPid v} map={mid.step}.{mid.index}"] }
+  return st
+
+def reportH3 (name : String) (st : H3Stat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} solutionChains={st.chains} checks={st.checks} HELLY3_FAIL={st.HELLY3_FAIL} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- FilterSound for arbitrary single pins on the machine's exact states (v139)
+-- ============================================================
+
+structure PeStat where
+  states : Nat := 0
+  pins : Nat := 0
+  pinValid : Nat := 0
+  exact : Nat := 0
+  EXTRA : Nat := 0
+  VALID_NO_SOL : Nat := 0
+  MISSING : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+def runPinExact (φ : Cnf) (budget : Nat) (st0 : PeStat) : PeStat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      st := { st with states := st.states + 1 }
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut sols : Array (List PathNodeId) := #[]
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (a', b') := solWalk tbl gow [n.id] sols bud
+        sols := a'
+        bud := b'
+      if bud == 0 then
+        st := { st with truncated := st.truncated + 1 }
+        continue
+      let maps := (G.gowners.map (·.id)).eraseDups
+      for m in maps do
+        if m.step == cs - 1 then continue
+        st := { st with pins := st.pins + 1 }
+        let R := filterAllAgg G [m]
+        let through := sols.toList.filter (fun c => c.any (fun p => p.id == m))
+        if !isValid R then
+          if !through.isEmpty then
+            st := { st with MISSING := st.MISSING + 1 }
+          continue
+        st := { st with pinValid := st.pinValid + 1 }
+        match through.map (fun c => pathState (c.map (·.id))) with
+        | [] =>
+          st := { st with VALID_NO_SOL := st.VALID_NO_SOL + 1 }
+          if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"VALID, NO SOLUTION through pin {m.step}.{m.index} (state key {kv.1.step}.{kv.1.index})"] }
+        | g :: rest =>
+          let A := rest.foldl join g
+          let (xn, mn, xo, mo, xg, mg) := diffStates R A
+          if xn + xo + xg == 0 && mn + mo + mg == 0 then st := { st with exact := st.exact + 1 }
+          if xn + xo + xg != 0 then
+            st := { st with EXTRA := st.EXTRA + 1 }
+            if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"EXTRA after pin {m.step}.{m.index}: nodes={xn} owners={xo} gow={xg} (state key {kv.1.step}.{kv.1.index})"] }
+          if mn + mo + mg != 0 then st := { st with MISSING := st.MISSING + 1 }
+  return st
+
+def reportPe (name : String) (st : PeStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} pins={st.pins} pinValid={st.pinValid} exact={st.exact} EXTRA={st.EXTRA} VALID_NO_SOL={st.VALID_NO_SOL} MISSING={st.MISSING} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2834,6 +3040,57 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runRestrict φ {})
         let t1 ← IO.monoMsNow
         reportRs s!"restrict {path}" st (t1 - t0)
+  | "pinexact" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : PeStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runPinExact φ 200000 st
+      let t1 ← IO.monoMsNow
+      reportPe s!"pinexact seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "pinexact" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPinExact φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportPe s!"pinexact {path}" st (t1 - t0)
+  | "helly3" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : H3Stat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runHelly3 φ 200000 st
+      let t1 ← IO.monoMsNow
+      reportH3 s!"helly3 seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "helly3" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runHelly3 φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportH3 s!"helly3 {path}" st (t1 - t0)
+  | "linked" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : LkStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runLinked φ 200000 st
+      let t1 ← IO.monoMsNow
+      reportLk s!"linked seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "linked" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runLinked φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportLk s!"linked {path}" st (t1 - t0)
   | "pathcsp" :: steps :: width :: nreq :: trials :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
