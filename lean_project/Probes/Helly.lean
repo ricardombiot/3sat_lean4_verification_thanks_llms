@@ -2876,6 +2876,60 @@ def runPinExact (φ : Cnf) (budget : Nat) (st0 : PeStat) : PeStat := Id.run do
           if mn + mo + mg != 0 then st := { st with MISSING := st.MISSING + 1 }
   return st
 
+/-- Subsets of `l` with at least two elements and missing at least one (capped). -/
+def weakSubsets (l : List NodeId) (cap : Nat) : List (List NodeId) :=
+  let n := l.length
+  if n < 3 then [] else
+  ((List.range (2 ^ n)).filterMap fun mask =>
+    let sub := (l.zipIdx).filterMap fun (x, i) => if (mask >>> i) % 2 == 1 then some x else none
+    if sub.length ≥ 2 && sub.length < n then some sub else none).take cap
+
+/-- v144: one weak requirement (a set of allowed map nodes at a step) on an exact reader's state, then
+the review: is the result exactly the union of the surviving paths? -/
+def runWeakExact (φ : Cnf) (budget : Nat) (cap : Nat) (st0 : PeStat) : PeStat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      st := { st with states := st.states + 1 }
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut sols : Array (List PathNodeId) := #[]
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (a', b') := solWalk tbl gow [n.id] sols bud
+        sols := a'
+        bud := b'
+      if bud == 0 then
+        st := { st with truncated := st.truncated + 1 }
+        continue
+      let maps := (G.gowners.map (·.id)).eraseDups
+      for s in ((List.range (cs - 1).toNat).map (fun (i : Nat) => (i : Int)) : List Int) do
+        let here := maps.filter (·.step == s)
+        for sub in weakSubsets here cap do
+          st := { st with pins := st.pins + 1 }
+          let R := filterAllAgg (filterWeak G (s, sub)) []
+          let through := sols.toList.filter (fun c => c.any (fun p => p.id.step == s && sub.contains p.id))
+          if !isValid R then
+            if !through.isEmpty then st := { st with MISSING := st.MISSING + 1 }
+            continue
+          st := { st with pinValid := st.pinValid + 1 }
+          match through.map (fun c => pathState (c.map (·.id))) with
+          | [] =>
+            st := { st with VALID_NO_SOL := st.VALID_NO_SOL + 1 }
+          | g :: rest =>
+            let A := rest.foldl join g
+            let (xn, mn, xo, mo, xg, mg) := diffStates R A
+            if xn + xo + xg == 0 && mn + mo + mg == 0 then st := { st with exact := st.exact + 1 }
+            if xn + xo + xg != 0 then
+              st := { st with EXTRA := st.EXTRA + 1 }
+              if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"EXTRA after weak step {s} set size {sub.length}: nodes={xn} owners={xo} gow={xg}"] }
+            if mn + mo + mg != 0 then st := { st with MISSING := st.MISSING + 1 }
+  return st
+
 def reportPe (name : String) (st : PeStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: states={st.states} pins={st.pins} pinValid={st.pinValid} exact={st.exact} EXTRA={st.EXTRA} VALID_NO_SOL={st.VALID_NO_SOL} MISSING={st.MISSING} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
@@ -3486,6 +3540,23 @@ def main (args : List String) : IO Unit := do
       | some φ =>
         IO.println s!"why {path}"
         runWhy φ 200000 8
+  | "weakexact" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : PeStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runWeakExact φ 200000 12 st
+      let t1 ← IO.monoMsNow
+      reportPe s!"weakexact seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "weakexact" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runWeakExact φ 200000 12 {})
+        let t1 ← IO.monoMsNow
+        reportPe s!"weakexact {path}" st (t1 - t0)
   | "pinexact" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow

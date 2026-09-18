@@ -43,7 +43,7 @@ open AbsSat.GraphPath.Model.ReaderAggRun (MInv)
 open AbsSat.GraphPath.Model.Answer (Answer readGreedy certificate answer)
 open AbsSat.GraphPath.Model.Exactness (TablesSound)
 open AbsSat.GraphPath.Model.RoundInvariant (GhostsLine filterSlices_of_ghosts)
-open AbsSat.GraphPath.Model.SliceInvariant (run_slices)
+open AbsSat.GraphPath.Model.SliceInvariant (FilterSlices run_slices)
 open AbsSat.GraphPath.Model.MapReachable (NodesOnMap NodesOnMap_of_pruned ChainOnMap chainOnMap_of_nodesOnMap)
 open AbsSat.GraphPath.Model.PickInduction (gowner_of_isValid)
 
@@ -238,8 +238,9 @@ theorem none_of_findSome_none {α β : Type} (f : α → Option β) :
       · exact hy
       · exact ih h x hx'
 
-/-- **The machine always answers**: under `GhostsLine` and `ReaderPinExact`, it never says *unknown*. -/
-theorem answer_ne_unknown (hwf : WF φ) (hG : GhostsLine φ) (hPE : ReaderPinExact) :
+/-- **The machine always answers** as soon as the run's sends keep the slices (`FilterSlices`) and one
+pin keeps the reader's states exact (`ReaderPinExact`). -/
+theorem answer_ne_unknown_of_slices (hwf : WF φ) (hF : FilterSlices φ) (hPE : ReaderPinExact) :
     answer φ ≠ .unknown := by
   unfold answer
   simp only
@@ -261,7 +262,7 @@ theorem answer_ne_unknown (hwf : WF φ) (hG : GhostsLine φ) (hPE : ReaderPinExa
     have hcast : (0 : Int) + (((stepCount φ - 1).toNat : Nat) : Int) = stepCount φ - 1 := by omega
     rw [hcast] at hl
     have ht : TablesSound (filterAllAgg kv.2 []) :=
-      filterSlices_of_ghosts φ hG _ kv (hl.1.2 kv hkv) hm (run_slices φ hwf (filterSlices_of_ghosts φ hG) kv hkv)
+      hF _ kv (hl.1.2 kv hkv) hm (run_slices φ hwf hF kv hkv)
         [] [] hv
     have hpr := pruned_filterAllAgg kv.2 []
     have hcsG : (filterAllAgg kv.2 []).current_step = stepCount φ := by rw [hpr.step_eq, hstep]
@@ -289,6 +290,11 @@ theorem answer_ne_unknown (hwf : WF φ) (hG : GhostsLine φ) (hPE : ReaderPinExa
       have := none_of_findSome_none _ _ hnone _ hg
       rw [hcert] at this
       cases this
+
+/-- **The machine always answers**: under `GhostsLine` and `ReaderPinExact`, it never says *unknown*. -/
+theorem answer_ne_unknown (hwf : WF φ) (hG : GhostsLine φ) (hPE : ReaderPinExact) :
+    answer φ ≠ .unknown :=
+  answer_ne_unknown_of_slices φ hwf (filterSlices_of_ghosts φ hG) hPE
 
 /-- info: 'AbsSat.GraphPath.Model.ReaderComplete.answer_ne_unknown' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
