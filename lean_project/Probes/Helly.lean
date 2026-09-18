@@ -2,6 +2,7 @@ import AbsSat.Cnf.Dimacs
 import AbsSat.SatMachine.DiffTest
 import AbsSat.GraphPath.Model.AggressiveReview
 import AbsSat.GraphPath.Model.PureDriverImproves
+import AbsSat.GraphPath.Model.Answer
 import Std.Data.HashSet
 import Std.Data.HashMap
 
@@ -3407,6 +3408,19 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSliceClosed φ 2000000 {})
         let t1 ← IO.monoMsNow
         reportSc s!"sliceclosed {path}" st (t1 - t0)
+  | "answer" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => AbsSat.GraphPath.Model.Answer.answer φ)
+        let t1 ← IO.monoMsNow
+        let txt := match a with
+          | .unsat => "UNSAT"
+          | .sat asg => s!"SAT (certificate checked: {AbsSat.Cnf.satB asg φ}) {(List.range φ.nVars).map (fun v => if asg v then 1 else 0)}"
+          | .unknown => "UNKNOWN"
+        IO.println s!"answer {path}: {txt} | {t1 - t0}ms"
   | "adversarial" :: steps :: width :: iters :: restarts :: seeds =>
     for seed in seeds.map String.toNat! do
       runAdversarial steps.toNat! width.toNat! iters.toNat! restarts.toNat! seed
