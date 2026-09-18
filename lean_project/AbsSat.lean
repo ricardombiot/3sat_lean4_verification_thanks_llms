@@ -170,6 +170,7 @@ import AbsSat.GraphPath.Model.DescentJoin
 import AbsSat.GraphPath.Model.DescentFilter
 import AbsSat.GraphPath.Model.Exactness
 import AbsSat.GraphPath.Model.CertificateSet
+import AbsSat.GraphPath.Model.SendDistrib
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
