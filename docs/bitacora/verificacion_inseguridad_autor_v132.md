@@ -102,10 +102,24 @@ Ataqué el descenso por construcción, como apuntabas, y **el caso UP sale enter
 
 De la inducción sobre la construcción quedan el **filtro** y el **join**.
 
-## 7. Lo que queda
+## 7. El caso `join` (`DescentJoin.lean`)
 
-1. **Los dos casos que faltan** de la inducción por construcción: el **filtro** (que la extensión
-   elegida sobreviva a la poda) y el **join** (cadenas mezcladas, ya reducido en `JoinDescent` a
-   `JoinCovered`, con `chain_on_one_side` demostrado).
-2. **No** volver a reglas locales: las tres candidatas están refutadas por medida (§4).
-3. La medida de §3 ya cubre cinco familias con el espacio de cadenas recorrido entero.
+- `soundOn_of_soundFrom` y `soundFrom_of_soundOn` — `SoundFrom` es `SoundOn` hasta el paso alto, así
+  que el trabajo de descenso que ya había (en moneda `SoundOn`) se enchufa con la reducción nueva:
+  `noDeadEnd_of_descendAll`.
+- **`noDeadEnd_join_of_covered`** — **una unión mantiene el descenso**, dado `JoinCovered`: una cadena
+  parcial de la unión que lo sea de un lado se extiende allí y la extensión sube.
+- **`picks_left_of_exclusive_anchor`** — y la parte nueva: **los picks de una cadena parcial de una
+  unión viven todos en el lado que tiene su ancla.** Todo pick posee el ancla, y la rebanada de un nodo
+  que un lado no tiene está entera en el otro (`JoinProvenance.slice_of_exclusive_top`). Es decir: una
+  cadena mezclada **nunca mezcla nodos**, solo entradas de owners en los nodos que los dos lados
+  comparten. Eso es exactamente el contenido de `JoinCovered` y lo que mide la sonda.
+
+## 8. Lo que queda
+
+1. **El filtro**, que es el caso que queda de verdad: que la extensión elegida sobreviva a la poda.
+2. Del `join` queda solo `JoinCovered` para las cadenas **mezcladas** —las que se sostienen con
+   entradas de owners del otro lado en nodos compartidos—, con los nodos ya repartidos por
+   `picks_left_of_exclusive_anchor`.
+3. **No** volver a reglas locales: las tres candidatas están refutadas por medida (§4).
+4. La medida de §3 ya cubre cinco familias con el espacio de cadenas recorrido entero.
