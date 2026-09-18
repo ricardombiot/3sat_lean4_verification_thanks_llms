@@ -3247,6 +3247,36 @@ def runAdversarial (steps width iters restarts seed : Nat) : IO Unit := do
     if cur.value > bestEver.value then bestEver := cur
   IO.println s!"adversarial steps={steps} width={width} iters={iters} restarts={restarts} seed={seed}: evals={evals} best={repr bestEver}"
 
+-- ============================================================
+-- Sequential pins (v143): pinning a send's requirements all at once versus one by one, reviewing after
+-- each, on every send of the run
+-- ============================================================
+
+def runSeqPin (φ : Cnf) : IO Unit := do
+  let mut sends := 0
+  let mut bothValid := 0
+  let mut equal := 0
+  let mut validDiffers := 0
+  let mut differ := 0
+  for line in aggLines φ do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let rq := reqOfCnf φ d
+        if rq.length < 2 then continue
+        sends := sends + 1
+        let w := filterWeakAll kv.2 (weakReqOfCnf φ d)
+        let all := filterAllAgg w rq
+        let seq := rq.foldl (fun g r => filterAllAgg g [r]) w
+        let va := isValid all
+        let vs := isValid seq
+        if va != vs then
+          validDiffers := validDiffers + 1
+        else if va then
+          bothValid := bothValid + 1
+          let (xn, mn, xo, mo, xg, mg) := diffStates all seq
+          if xn + mn + xo + mo + xg + mg == 0 then equal := equal + 1 else differ := differ + 1
+  IO.println s!"seqpin: sends with ≥2 pins={sends} bothValid={bothValid} equal={equal} DIFFER={differ} VALIDITY_DIFFERS={validDiffers}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3419,6 +3449,13 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSliceClosed φ 2000000 {})
         let t1 ← IO.monoMsNow
         reportSc s!"sliceclosed {path}" st (t1 - t0)
+  | "seqpin" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        IO.print s!"{path}: "
+        runSeqPin φ
   | "answer" :: paths =>
     for path in paths do
       match ← loadCnf path with
