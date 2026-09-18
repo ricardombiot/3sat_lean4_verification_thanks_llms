@@ -3571,6 +3571,68 @@ def reportGreedy (name : String) (st : GreedyStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: pins={st.pins} entries={st.entries} firstChoiceOk={st.firstOk} FIRST_STUCK={st.FIRST_STUCK} | exhaustive: completeBranches={st.branches} stuckBranches={st.stuckBranches} entriesWithAStuckBranch={st.entriesWithStuckBranch} capped={st.capped} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- v144: PinExtends — in every valid state the reader can reach from a valid final state, every step
+-- admits a pin that keeps it valid. Walks: pin a random unpinned step with a random valid choice.
+-- ============================================================
+
+structure PxStat where
+  finals : Nat := 0
+  validFinals : Nat := 0
+  walks : Nat := 0
+  statesChecked : Nat := 0
+  stepChecks : Nat := 0
+  FAIL : Nat := 0
+  walksComplete : Nat := 0
+  ex : List String := []
+
+def pxNext (x : Nat) : Nat := (x * 1103515245 + 12345) % 2147483648
+
+def runPinExt (φ : Cnf) (walksPer : Nat) (seed : Nat) (st0 : PxStat) : PxStat := Id.run do
+  let mut st := st0
+  let mut rnd := seed
+  let finals := (aggLines φ).getLast?.getD []
+  for kv in finals do
+    st := { st with finals := st.finals + 1 }
+    let g0 := filterAllAgg kv.2 []
+    if !isValid g0 then continue
+    st := { st with validFinals := st.validFinals + 1 }
+    let cs := g0.current_step
+    let steps : List Int := (List.range cs.toNat).map (fun (i : Nat) => (i : Int))
+    for _ in [0:walksPer] do
+      st := { st with walks := st.walks + 1 }
+      let mut S := g0
+      let mut unpinned := steps
+      let mut ok := true
+      while ok && !unpinned.isEmpty do
+        st := { st with statesChecked := st.statesChecked + 1 }
+        -- every step must admit a valid pin
+        let mut choices : List (Int × List NodeId) := []
+        for l in steps do
+          st := { st with stepChecks := st.stepChecks + 1 }
+          let ids := ((S.gowners.filter (·.id.step == l)).map (·.id)).eraseDups
+          let good := ids.filter (fun m => isValid (filterAllAgg S [m]))
+          if good.isEmpty then
+            st := { st with FAIL := st.FAIL + 1 }
+            if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"no valid pin at step {l} (state key {kv.1.step}.{kv.1.index}, {steps.length - unpinned.length} pins so far)"] }
+            ok := false
+          choices := choices ++ [(l, good)]
+        if !ok then break
+        -- pin a random unpinned step with a random valid choice
+        rnd := pxNext rnd
+        let l := unpinned[rnd % unpinned.length]!
+        let good := (choices.find? (·.1 == l)).map (·.2) |>.getD []
+        rnd := pxNext rnd
+        let m := good[rnd % good.length]!
+        S := filterAllAgg S [m]
+        unpinned := unpinned.filter (· != l)
+      if ok then st := { st with walksComplete := st.walksComplete + 1 }
+  return st
+
+def reportPx (name : String) (st : PxStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: finals={st.finals} validFinals={st.validFinals} walks={st.walks} complete={st.walksComplete} statesChecked={st.statesChecked} stepChecks={st.stepChecks} FAIL={st.FAIL} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3768,6 +3830,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runGreedy φ budget.toNat! sample.toNat! {})
         let t1 ← IO.monoMsNow
         reportGreedy s!"greedy {path}" st (t1 - t0)
+  | "pinext" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : PxStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runPinExt φ 3 seed st
+      let t1 ← IO.monoMsNow
+      reportPx s!"pinext seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "pinext" :: walks :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPinExt φ walks.toNat! 7 {})
+        let t1 ← IO.monoMsNow
+        reportPx s!"pinext {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
