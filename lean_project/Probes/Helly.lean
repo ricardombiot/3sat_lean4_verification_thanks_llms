@@ -2112,6 +2112,119 @@ def reportDi (name : String) (st : DiStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} checks={st.sends} bothDead={st.bothDead} oneAlive={st.oneAlive} bothAlive={st.bothAlive} VALIDITY_DIFFERS={st.VALIDITY_DIFFERS} equal={st.equal} DIFFER={st.DIFFER} | extraNodes={st.extraNodes} missingNodes={st.missingNodes} extraOwners={st.extraOwners} missingOwners={st.missingOwners} extraGow={st.extraGow} missingGow={st.missingGow} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Restriction (v138): is the review of a join, restricted to one side, a fixpoint of the review?
+-- ============================================================
+
+structure RsStat where
+  checks : Nat := 0
+  joinValid : Nat := 0
+  idemFail : Nat := 0          -- reviewAgg R ≠ R (the review is not idempotent)
+  sides : Nat := 0             -- non-empty restrictions examined
+  restrValid : Nat := 0
+  FIX_FAIL : Nat := 0          -- reviewAgg (R|a) removes something from R|a
+  removedEntries : Nat := 0
+  insideSide : Nat := 0        -- R|a ⊆ reviewAgg a (as measured before)
+  NOT_INSIDE : Nat := 0
+  covers : Nat := 0            -- R ⊆ join (review (R|a)) (review (R|b))
+  COVER_FAIL : Nat := 0
+  ex : List String := []
+
+/-- `R` restricted to the nodes, links and entries `a` has. -/
+def restrictTo (R a : GPathM) : GPathM := Id.run do
+  let ta : Std.HashMap PathNodeId PNodeM := a.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let mut nodes : List PNodeM := []
+  for n in R.nodes do
+    match ta.get? n.id with
+    | none => pure ()
+    | some m =>
+      let n1 : PNodeM := { n with owners := n.owners.filter m.owners.contains }
+      let n2 : PNodeM := { n1 with parents := n.parents.filter m.parents.contains }
+      let n3 : PNodeM := { n2 with sons := n.sons.filter m.sons.contains }
+      nodes := nodes ++ [n3]
+  -- links to nodes that are gone are dropped too
+  let ids : Std.HashSet PathNodeId := Std.HashSet.ofList (nodes.map (·.id))
+  nodes := nodes.map (fun n =>
+    let n1 : PNodeM := { n with owners := n.owners.filter ids.contains }
+    let n2 : PNodeM := { n1 with parents := n.parents.filter ids.contains }
+    { n2 with sons := n.sons.filter ids.contains })
+  let gow := R.gowners.filter (fun q => a.gowners.contains q && ids.contains q)
+  return { R with nodes := nodes, gowners := gow }
+
+/-- Entries of `a` that `b` lacks (nodes, owners, gowners): `b` is only a sub-state of `a` if 0. -/
+def lacks (a b : GPathM) : Nat :=
+  let (xn, _, xo, _, xg, _) := diffStates a b
+  xn + xo + xg
+
+def restrictCheck (tag : String) (a b : GPathM) (st0 : RsStat) : RsStat := Id.run do
+  let mut st := { st0 with checks := st0.checks + 1 }
+  let R := reviewAgg (join a b)
+  if !isValid R then return st
+  st := { st with joinValid := st.joinValid + 1 }
+  if lacks R (reviewAgg R) + lacks (reviewAgg R) R != 0 then st := { st with idemFail := st.idemFail + 1 }
+  -- the cover: every entry of R survives the review of some side's restriction
+  let Fa := reviewAgg (restrictTo R a)
+  let Fb := reviewAgg (restrictTo R b)
+  let cov : Option GPathM :=
+    if isValid Fa && isValid Fb then some (join Fa Fb) else if isValid Fa then some Fa
+    else if isValid Fb then some Fb else none
+  match cov with
+  | none =>
+    st := { st with COVER_FAIL := st.COVER_FAIL + 1 }
+    if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"COVER FAIL {tag}: both reviewed restrictions invalid"] }
+  | some C =>
+    if lacks R C == 0 then st := { st with covers := st.covers + 1 }
+    else
+      st := { st with COVER_FAIL := st.COVER_FAIL + 1 }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"COVER FAIL {tag}: {lacks R C} entries of R outside"] }
+  for (side, lbl) in [(a, "a"), (b, "b")] do
+    let Rs := restrictTo R side
+    if Rs.nodes.isEmpty then continue
+    st := { st with sides := st.sides + 1 }
+    if !isValid Rs then continue
+    st := { st with restrValid := st.restrValid + 1 }
+    let F := reviewAgg Rs
+    let rem := lacks Rs F
+    if rem != 0 then
+      st := { st with FIX_FAIL := st.FIX_FAIL + 1 }
+      st := { st with removedEntries := st.removedEntries + rem }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"FIX FAIL {tag} side {lbl}: review removes {rem} entries of R|{lbl} (valid after: {isValid F})"] }
+    let rS := reviewAgg side
+    if isValid rS then
+      if lacks Rs rS == 0 then st := { st with insideSide := st.insideSide + 1 }
+      else
+        st := { st with NOT_INSIDE := st.NOT_INSIDE + 1 }
+        if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"NOT INSIDE {tag} side {lbl}: {lacks Rs rS} entries"] }
+  return st
+
+def runRestrict (φ : Cnf) (st0 : RsStat) : RsStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  let pinned (g : GPathM) (d : NodeId) : GPathM :=
+    (reqOfCnf φ d).foldl filterRequire (filterWeakAll g (weakReqOfCnf φ d))
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              st := restrictCheck s!"review key {d.step}:{d.index}" e hst st
+              for d' in mapSons φ d.step d.index do
+                st := restrictCheck s!"send key {d.step}:{d.index} -> {d'.step}:{d'.index}" (pinned e d') (pinned hst d') st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportRs (name : String) (st : RsStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: checks={st.checks} joinValid={st.joinValid} idemFail={st.idemFail} sides={st.sides} restrValid={st.restrValid} FIX_FAIL={st.FIX_FAIL} removedEntries={st.removedEntries} insideSide={st.insideSide} NOT_INSIDE={st.NOT_INSIDE} covers={st.covers} COVER_FAIL={st.COVER_FAIL} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2224,6 +2337,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
         let t1 ← IO.monoMsNow
         reportQ s!"clique {path}" st (t1 - t0)
+  | "restrict" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : RsStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runRestrict φ st
+      let t1 ← IO.monoMsNow
+      reportRs s!"restrict seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "restrict" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runRestrict φ {})
+        let t1 ← IO.monoMsNow
+        reportRs s!"restrict {path}" st (t1 - t0)
   | "distrib" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
