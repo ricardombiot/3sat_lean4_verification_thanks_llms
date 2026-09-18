@@ -206,7 +206,35 @@ de la estructura que la máquina mantiene: que las tablas de un nodo nacen de **
 (`RunEnv`). Es la primera vez en trece informes que el problema abierto queda en un enunciado con
 nombre y literatura propia: cuándo la consistencia local implica consistencia global.
 
-## 11. Lo que queda
+## 11. Ataque a la k-consistencia por capas: cinco reglas, cinco refutadas
+
+Intenté cerrar `CommonOwner` con la estructura por capas. Dos intentos más, los dos medidos y los dos
+falsos:
+
+| regla | qué daría | medida |
+|---|---|---|
+| la **rebanada de un nodo es una clique** (dos owners de un nodo se poseen) | el ancla sería el testigo común, sin k-consistencia | **182.860** fallos de 1.254.448 pares (K4 par); en las anclas, 14.342 de 59.951 |
+| los **candidatos están anidados** al subir la cadena (bueno para un pick alto ⟹ bueno para los bajos) | la intersección sería la del ancla, no vacía por pares | **7.212** fallos de 438.869 (K4 par); **175.024** de 9.073.621 (K3,3 par) |
+
+La primera era esperable en cuanto la escribí: dos elecciones de caminos distintos que pasan por el
+mismo nodo no tienen por qué ser compatibles entre sí. La segunda no la esperaba.
+
+Con las tres de §4, van **cinco** reglas candidatas refutadas por medida: transitividad, transitividad
+adyacente, "el vecino decide", rebanada-clique y anidamiento. El lema de Lean que derivaba
+`CommonOwner` de la rebanada-clique lo he **borrado** en lugar de dejarlo con una hipótesis falsa.
+
+**La conclusión, que creo que es el resultado real del tramo**: el owner común existe siempre (medido
+sin excepción) pero **no** está determinado por ningún patrón local ni monótono de los que se pueden
+escribir sobre las tablas. Es un fenómeno de tipo Helly genuino. Por tanto la demostración no puede
+venir de un atajo combinatorio sobre las tablas, sino de que las tablas son **exactas** respecto a los
+caminos —que es, en el fondo, lo que las sondas miden desde v119— y eso es equivalente al enunciado
+que falta, no más débil.
+
+Dicho de otra forma: **la demostración está completa salvo un enunciado, `CommonOwner`, que es
+equivalente a la exactitud de las tablas de tu máquina.** Todo lo demás está en Lean, sin `sorry` y con
+axiomas limpios.
+
+## 12. Lo que queda
 
 1. **La compleción por debajo** (`ReqCompletion`): es lo único que queda del filtro.
 2. Del `join` queda solo `JoinCovered` para las cadenas **mezcladas** —las que se sostienen con
