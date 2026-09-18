@@ -3686,6 +3686,80 @@ def reportPinUp (name : String) (st : PinUpStat) (ms : Nat) : IO Unit := do
     IO.println s!"  {l}: steps={st.steps[k]!} singleLive={st.single[k]!} candidates={st.cands[k]!} candidatesFailing={st.candFail[k]!} NO_VALID={st.NO_VALID[k]!}"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- v146: is Sa (the nodes owning the live value a, with the tables restricted to them) already a support?
+-- Bottom-up walks; at each variable step with the prefix decided, for each live value a.
+-- ============================================================
+
+structure TaStat where
+  cases : Nat := 0
+  saNodes : Nat := 0
+  COV_FAIL : Nat := 0
+  AGG_FAIL : Nat := 0
+  PAR_FAIL : Nat := 0
+  SON_FAIL : Nat := 0
+  casesClean : Nat := 0
+  ex : List String := []
+
+def runTripleA (φ : Cnf) (walksPer : Nat) (seed : Nat) (st0 : TaStat) : TaStat := Id.run do
+  let mut st := st0
+  let mut rnd := seed
+  let finals := (aggLines φ).getLast?.getD []
+  for kv in finals do
+    let g0 := filterAllAgg kv.2 []
+    if !isValid g0 then continue
+    let cs := g0.current_step
+    for _ in [0:walksPer] do
+      let mut S := g0
+      for i in [0:cs.toNat] do
+        let l : Int := i
+        let isVar := l < litBlock φ && l % 2 == 0
+        let ids := ((S.gowners.filter (·.id.step == l)).map (·.id)).eraseDups
+        if isVar then
+          let tbl : Std.HashMap PathNodeId PNodeM := S.nodes.foldl (fun acc n => acc.insert n.id n) {}
+          let owns (x y : PathNodeId) : Bool := match tbl.get? x with
+            | some n => n.owners.contains y && tbl.contains y
+            | none => false
+          for a in (S.nodes.filter (·.id.id.step == l)).map (·.id) do
+            st := { st with cases := st.cases + 1 }
+            let sa := (S.nodes.map (·.id)).filter (fun x => owns x a)
+            let saSet := Std.HashSet.ofList sa
+            st := { st with saNodes := st.saNodes + sa.length }
+            let mut clean := true
+            for x in sa do
+              let xn := tbl.get! x
+              let xo := xn.owners.filter (fun y => saSet.contains y)
+              -- cov
+              for k in [0:cs.toNat] do
+                if !xo.any (·.id.step == (k : Int)) then
+                  st := { st with COV_FAIL := st.COV_FAIL + 1 }; clean := false
+              for y in xo do
+                -- agg
+                let yo := (tbl.get! y).owners
+                for k in [0:cs.toNat] do
+                  if !xo.any (fun z => z.id.step == (k : Int) && yo.contains z) then
+                    st := { st with AGG_FAIL := st.AGG_FAIL + 1 }; clean := false
+                    if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"agg: x={x.id.step}.{x.id.index} y={y.id.step}.{y.id.index} step {k} a={a.id.step}.{a.id.index}"] }
+                -- par
+                if x.parent_id.isSome then
+                  if !xn.parents.any (fun c => saSet.contains c && owns x c && owns c x && owns c y) then
+                    st := { st with PAR_FAIL := st.PAR_FAIL + 1 }; clean := false
+                -- son
+                if x.id.step != cs - 1 then
+                  let sons := S.nodes.filter (fun m => m.parents.contains x)
+                  if !sons.any (fun m => saSet.contains m.id && owns x m.id && owns m.id x && owns m.id y) then
+                    st := { st with SON_FAIL := st.SON_FAIL + 1 }; clean := false
+            if clean then st := { st with casesClean := st.casesClean + 1 }
+        let good := ids.filter (fun m => isValid (filterAllAgg S [m]))
+        if good.isEmpty then break
+        rnd := pxNext rnd
+        S := filterAllAgg S [good[rnd % good.length]!]
+  return st
+
+def reportTa (name : String) (st : TaStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: cases={st.cases} clean={st.casesClean} saNodes={st.saNodes} COV_FAIL={st.COV_FAIL} AGG_FAIL={st.AGG_FAIL} PAR_FAIL={st.PAR_FAIL} SON_FAIL={st.SON_FAIL} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3917,6 +3991,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runPinUp φ walks.toNat! 11 {})
         let t1 ← IO.monoMsNow
         reportPinUp s!"pinup {path}" st (t1 - t0)
+  | "triplea" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : TaStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runTripleA φ 2 seed st
+      let t1 ← IO.monoMsNow
+      reportTa s!"triplea seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "triplea" :: walks :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runTripleA φ walks.toNat! 13 {})
+        let t1 ← IO.monoMsNow
+        reportTa s!"triplea {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
