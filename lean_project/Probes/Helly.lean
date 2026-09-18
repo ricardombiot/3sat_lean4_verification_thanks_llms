@@ -2244,6 +2244,8 @@ structure SpStat where
   fAgg : Nat := 0
   fSym : Nat := 0
   fLink : Nat := 0
+  inSide : Nat := 0
+  UNANCHORED : Nat := 0        -- (x, v) in side S's tables but not anchored at a top of S
   ex : List String := []
 
 def SpStat.bad (st : SpStat) (field : String) (msg : String) : SpStat :=
@@ -2314,6 +2316,12 @@ def splitCheck (a b : GPathM) (st0 : SpStat) : SpStat := Id.run do
     for v in m.owners do
       if !tR.contains v then continue
       st := { st with entries := st.entries + 1 }
+      for (t, part, lbl) in [(ta, partA, "a"), (tb, partB, "b")] do
+        if relIn t m.id v then
+          st := { st with inSide := st.inSide + 1 }
+          if !part m.id v then
+            st := { st with UNANCHORED := st.UNANCHORED + 1 }
+            if st.ex.length < 10 then st := { st with ex := st.ex ++ [s!"UNANCHORED side {lbl} {showPid m.id} {showPid v}"] }
       if !(partA m.id v || partB m.id v) then
         st := { st with UNCOVERED := st.UNCOVERED + 1 }
         if st.ex.length < 10 then st := { st with ex := st.ex ++ [s!"UNCOVERED {showPid m.id} {showPid v} inA={relIn ta m.id v} inB={relIn tb m.id v}"] }
@@ -2346,8 +2354,68 @@ def runSplit (φ : Cnf) (st0 : SpStat) : SpStat := Id.run do
   return st
 
 def reportSp (name : String) (st : SpStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} entries={st.entries} UNCOVERED={st.UNCOVERED} bothTop={st.bothTop} | fails gow={st.fGow} node={st.fNode} own={st.fOwn} cov={st.fCov} par={st.fPar} son={st.fSon} agg={st.fAgg} sym={st.fSym} link={st.fLink} | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} entries={st.entries} UNCOVERED={st.UNCOVERED} bothTop={st.bothTop} inSide={st.inSide} UNANCHORED={st.UNANCHORED} | fails gow={st.fGow} node={st.fNode} own={st.fOwn} cov={st.fCov} par={st.fPar} son={st.fSon} agg={st.fAgg} sym={st.fSym} link={st.fLink} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- Pieces (v139): the joins `split_branch` performs — merging the runs of single-key pieces —
+-- checked against the distributive equations and the support split
+-- ============================================================
+
+structure PcStat where
+  splits : Nat := 0
+  merges : Nat := 0
+  sharedTop : Nat := 0
+  di : DiStat := {}
+  sp : SpStat := {}
+  capped : Nat := 0
+
+def runPieces (φ : Cnf) (maxK : Nat) (cap : Nat) (st0 : PcStat) : PcStat := Id.run do
+  let mut st := st0
+  let lines := aggLines φ
+  let n := lines.length
+  let pinnedF (g : GPathM) (d : NodeId) : GPathM :=
+    (reqOfCnf φ d).foldl filterRequire (filterWeakAll g (weakReqOfCnf φ d))
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for k in [0:min n maxK] do
+    let Lk := lines[k]!
+    if Lk.length < 2 then continue
+    if Lk.length > cap then
+      st := { st with capped := st.capped + 1 }
+      continue
+    st := { st with splits := st.splits + 1 }
+    let mut pieces : List PureLine := Lk.map (fun x => [x])
+    for _ in [k:n - 1] do
+      -- merge the pieces' current lines, checking every join the merge performs
+      let mut acc : PureLine := []
+      for P in pieces do
+        for kv in P do
+          match acc.find? (fun x => x.1 == kv.1) with
+          | some (_, e) =>
+            if okJoin e kv.2 then
+              st := { st with merges := st.merges + 1 }
+              let cs := e.current_step
+              let topE := (e.nodes.filter (fun m => m.id.id.step == cs - 1)).map (·.id)
+              if topE.any (fun z => (kv.2.node? z).isSome) then st := { st with sharedTop := st.sharedTop + 1 }
+              let J := join e kv.2
+              let mut di := st.di
+              di := distribCheck s!"piece review {kv.1.step}:{kv.1.index}" (filterAllAgg J []) (filterAllAgg e []) (filterAllAgg kv.2 []) di
+              let mut sp := st.sp
+              sp := splitCheck e kv.2 sp
+              for d in mapSons φ kv.1.step kv.1.index do
+                di := distribCheck s!"piece send {kv.1.step}:{kv.1.index} -> {d.step}:{d.index}" (send J d) (send e d) (send kv.2 d) di
+                sp := splitCheck (pinnedF e d) (pinnedF kv.2 d) sp
+              st := { st with di := di, sp := sp }
+          | none => pure ()
+          acc := insertPure acc kv.1 kv.2
+      pieces := pieces.map (fun P => advanceLine φ P)
+  return st
+
+def reportPc (name : String) (st : PcStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: splits={st.splits} merges={st.merges} sharedTop={st.sharedTop} capped={st.capped} | {ms}ms"
+  reportDi "  distrib" st.di 0
+  reportSp "  split" st.sp 0
 
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
@@ -2461,6 +2529,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
         let t1 ← IO.monoMsNow
         reportQ s!"clique {path}" st (t1 - t0)
+  | "pieces" :: "random" :: maxK :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : PcStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runPieces φ maxK.toNat! 8 st
+      let t1 ← IO.monoMsNow
+      reportPc s!"pieces seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "pieces" :: maxK :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPieces φ maxK.toNat! 8 {})
+        let t1 ← IO.monoMsNow
+        reportPc s!"pieces {path}" st (t1 - t0)
   | "split" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow

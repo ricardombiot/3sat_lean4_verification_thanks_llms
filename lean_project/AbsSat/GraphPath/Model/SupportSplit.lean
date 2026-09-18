@@ -9,18 +9,20 @@ greatest fixpoint, and the project already has its fixpoint theory: a **support 
 state (`AnchoredSurvive.Sup`) survives the aggressive review of that state (`AOk_filterAllAgg`).
 
 So it is enough to split the support that the review of the join keeps into a support inside each
-side. The split is by the **top-step witness**: every entry `(x, v)` of the reviewed join `R` has, by
-the aggressive condition, a common owner `z` at the top step, and top nodes belong to one side (their
-ids carry the side's origin).
+side.
 
-* `Part R S x v` — `(x, v)` is an entry of `R` and of `S`'s tables, anchored at a top node `z` of `S`
-  through entries that are also in `S`'s tables.
-* **`SupportSplit`** — (A) every entry of `R` is in the part of one side, and (B) each part is a
-  support relation inside its side.
-* **`reviewJoin_of_split`** — `SupportSplit ⟹ ReviewJoin`: each part survives the review of its side,
-  so `R` sits inside the join of the reviewed sides, and a side with a part is valid.
+* **`reviewJoin_of_split`** — `SupportSplit ⟹ ReviewJoin`: if the entries of the reviewed join are
+  covered by a support relation inside each side, each survives the review of its side, so the reviewed
+  join sits inside the join of the reviewed sides, and a side with a member is valid.
+* **`sup_greatest`** — the union of all support relations inside a state is one. So the best split is
+  the greatest support of each side, and the only statement left is **`SupportCover`**: *every entry of
+  the reviewed join lies in a support relation inside one of the sides* — no borrowing, in its exact
+  form (`supportSplit_of_cover`, `sat_of_cover`).
 
-Probe `helly split`: (A) and every condition of (B) hold with no exception.
+A concrete split, `PartSplit` (entries anchored at a top node of the side), holds at every join the
+driver performs (probe `helly split`, 0 exceptions) but fails at the joins of single-key pieces that
+`split_branch` merges, where the sides can share a top node (probe `helly pieces`). The distributive
+equations themselves hold there too, so the open statement is `SupportCover`, not `PartSplit`.
 -/
 
 namespace AbsSat.GraphPath.Model.SupportSplit
@@ -62,12 +64,25 @@ def Part (R S : GPathM) (x v : PathNodeId) : Prop :=
 /-- The members of the part of `S`. -/
 def PMem (R S : GPathM) (x : PathNodeId) : Prop := ∃ v, Part R S x v
 
-/-- (A) the parts cover `R`, and (B) each part is a support relation inside its side. -/
-def SplitOk (a b : GPathM) : Prop :=
+/-- The top-anchored parts, as a candidate split. They satisfy every condition at the joins the driver
+performs (probe `helly split`), but **not** at the joins of single-key pieces that `split_branch`
+merges, where two sides can share a top node (probe `helly pieces`); the split below does not depend
+on them. -/
+def PartSplit (a b : GPathM) : Prop :=
   (∀ x v, Rel (reviewAgg (join a b)) x v →
       Part (reviewAgg (join a b)) a x v ∨ Part (reviewAgg (join a b)) b x v) ∧
     Sup a (PMem (reviewAgg (join a b)) a) (Part (reviewAgg (join a b)) a) ∧
     Sup b (PMem (reviewAgg (join a b)) b) (Part (reviewAgg (join a b)) b)
+
+/-- **A split of the reviewed join's support**: two support relations, one inside each side, that
+together cover every entry of the reviewed join. -/
+def SplitOk (a b : GPathM) : Prop :=
+  ∃ (SA : PathNodeId → Prop) (RA : PathNodeId → PathNodeId → Prop)
+    (SB : PathNodeId → Prop) (RB : PathNodeId → PathNodeId → Prop),
+    (∀ x v, Rel (reviewAgg (join a b)) x v → RA x v ∨ RB x v) ∧ Sup a SA RA ∧ Sup b SB RB
+
+theorem splitOk_of_partSplit (a b : GPathM) (h : PartSplit a b) : SplitOk a b :=
+  ⟨_, _, _, _, h.1, h.2.1, h.2.2⟩
 
 /-- **The support of the reviewed join splits** into supports of the two pinned sides. -/
 def SupportSplit : Prop :=
@@ -75,6 +90,54 @@ def SupportSplit : Prop :=
     MInv φ e → MInv φ h → ∀ (ws : List (Int × List NodeId)) (rq : List NodeId),
     isValid (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) = true →
       SplitOk (pinned e ws rq) (pinned h ws rq)
+
+-- ============================================================
+-- The greatest support inside a state
+-- ============================================================
+
+/-- A member of some support relation inside `S`. -/
+def GMem (S : GPathM) (x : PathNodeId) : Prop :=
+  ∃ (Sm : PathNodeId → Prop) (Rr : PathNodeId → PathNodeId → Prop), Sup S Sm Rr ∧ Sm x
+
+/-- An entry of some support relation inside `S`. -/
+def GRel (S : GPathM) (x v : PathNodeId) : Prop :=
+  ∃ (Sm : PathNodeId → Prop) (Rr : PathNodeId → PathNodeId → Prop), Sup S Sm Rr ∧ Rr x v
+
+/-- **The union of all support relations inside a state is a support relation.** Every condition of
+`Sup` is local to the relation that holds the entry, so the union keeps them all. -/
+theorem sup_greatest (S : GPathM) : Sup S (GMem S) (GRel S) where
+  gow p := fun ⟨_, _, h, hp⟩ => h.gow p hp
+  node p := fun ⟨_, _, h, hp⟩ => h.node p hp
+  step p := fun ⟨_, _, h, hp⟩ => h.step p hp
+  dom x v := fun ⟨Sm, Rr, h, hr⟩ => ⟨⟨Sm, Rr, h, (h.dom x v hr).1⟩, ⟨Sm, Rr, h, (h.dom x v hr).2⟩⟩
+  own x v n := fun ⟨_, _, h, hr⟩ hn => h.own x v n hr hn
+  cov x := fun ⟨Sm, Rr, h, hx⟩ l h0 h1 => by
+    obtain ⟨v, hv, hs⟩ := h.cov x hx l h0 h1
+    exact ⟨v, ⟨Sm, Rr, h, hv⟩, hs⟩
+  par x d := fun _ hd hne v ⟨Sm, Rr, h, hv⟩ => by
+    obtain ⟨c, hc, h1, h2, h3⟩ := h.par x d (h.dom x v hv).1 hd hne v hv
+    exact ⟨c, hc, ⟨Sm, Rr, h, h1⟩, ⟨Sm, Rr, h, h2⟩, ⟨Sm, Rr, h, h3⟩⟩
+  son x := fun _ hs v ⟨Sm, Rr, h, hv⟩ => by
+    obtain ⟨c, m, hm, hx, h1, h2, h3⟩ := h.son x (h.dom x v hv).1 hs v hv
+    exact ⟨c, m, hm, hx, ⟨Sm, Rr, h, h1⟩, ⟨Sm, Rr, h, h2⟩, ⟨Sm, Rr, h, h3⟩⟩
+  agg x v := fun ⟨Sm, Rr, h, hv⟩ l h0 h1 => by
+    obtain ⟨z, h1', h2', hz⟩ := h.agg x v hv l h0 h1
+    exact ⟨z, ⟨Sm, Rr, h, h1'⟩, ⟨Sm, Rr, h, h2'⟩, hz⟩
+  sym x v := fun ⟨Sm, Rr, h, hv⟩ => ⟨Sm, Rr, h, h.sym x v hv⟩
+  link x c d := fun ⟨Sm, Rr, h, h1⟩ _ hs hd => h.link x c d h1 (h.sym x c h1) hs hd
+
+/-- **No borrowing, in its exact form**: every entry of the reviewed join lies in a support relation
+inside one of the two pinned sides. -/
+def SupportCover : Prop :=
+  ∀ (k : Int) (key : NodeId) (e h : GPathM), StateOkF φ k (key, e) → StateOkF φ k (key, h) →
+    MInv φ e → MInv φ h → ∀ (ws : List (Int × List NodeId)) (rq : List NodeId),
+    isValid (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) = true →
+      ∀ x v, Rel (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) x v →
+        GRel (pinned e ws rq) x v ∨ GRel (pinned h ws rq) x v
+
+theorem supportSplit_of_cover (hC : SupportCover φ) : SupportSplit φ := by
+  intro k key e h hse hsh hme hmh ws rq hv
+  exact ⟨_, _, _, _, hC k key e h hse hsh hme hmh ws rq hv, sup_greatest _, sup_greatest _⟩
 
 -- ============================================================
 -- Supports give validity and embeddings
@@ -223,7 +286,7 @@ theorem nonneg_of_mapNodes (k : Int) (d : NodeId) (h : d ∈ mapNodes φ k) : 0 
 /-- **The review of a join, from the split of its support.** -/
 theorem reviewJoin_of_split (_hwf : WF φ) (hS : SupportSplit φ) : ReviewJoin φ := by
   intro k key e h hse hsh hme hmh ws rq hv
-  obtain ⟨hcov, hsa, hsb⟩ := hS k key e h hse hsh hme hmh ws rq hv
+  obtain ⟨SA, RA, SB, RB, hcov, hsa, hsb⟩ := hS k key e h hse hsh hme hmh ws rq hv
   -- the reviewed join is a reader's state
   have hok := okJoin_of_stateOkF φ k key e h hse hsh
   have hmJ := MInv_join φ e h hok hme hmh
@@ -285,26 +348,35 @@ theorem reviewJoin_of_split (_hwf : WF φ) (hS : SupportSplit φ) : ReviewJoin �
       intro x v hr
       rcases hcov x v hr with h1 | h1
       · exact h1
-      · have := valid_of_sup _ _ _ supB x ⟨v, h1⟩
+      · have := valid_of_sup _ _ _ supB x (hsb.dom x v h1).1
         rw [hvB] at this; exact absurd this (by decide)
   | false =>
-    have noA : ∀ x v, ¬ Part (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) (pinned e ws rq) x v := by
+    have noA : ∀ x v, ¬ RA x v := by
       intro x v h1
-      have := valid_of_sup _ _ _ supA x ⟨v, h1⟩
+      have := valid_of_sup _ _ _ supA x (hsa.dom x v h1).1
       rw [hvA] at this; exact absurd this (by decide)
-    have allB : ∀ x v, Rel (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) x v →
-        Part (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) (pinned h ws rq) x v := by
+    have allB : ∀ x v, Rel (reviewAgg (join (pinned e ws rq) (pinned h ws rq))) x v → RB x v := by
       intro x v hr
       rcases hcov x v hr with h1 | h1
       · exact absurd h1 (noA x v)
       · exact h1
-    exact Or.inr (Or.inr ⟨valid_of_sup _ _ _ supB p ⟨p, allB p p (rel_self _ ad hmem)⟩,
+    exact Or.inr (Or.inr ⟨valid_of_sup _ _ _ supB p (hsb.dom p p (allB p p (rel_self _ ad hmem))).1,
       embedded_of_cover _ ad _ _ _ supB hstepB allB⟩)
 
 /-- **The Improves verdict from the split of the review's support.** -/
 theorem sat_of_split (hwf : WF φ) (hS : SupportSplit φ) (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
   sat_of_reviewJoin φ hwf (reviewJoin_of_split φ hwf hS) kv hkv hv
+
+/-- **The Improves verdict from no borrowing**: every entry of a reviewed join lies in a support inside
+one of its sides. -/
+theorem sat_of_cover (hwf : WF φ) (hC : SupportCover φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
+  sat_of_split φ hwf (supportSplit_of_cover φ hC) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.SupportSplit.sat_of_cover' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_cover
 
 /-- info: 'AbsSat.GraphPath.Model.SupportSplit.sat_of_split' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
