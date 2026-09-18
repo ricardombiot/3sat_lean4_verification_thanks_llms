@@ -115,9 +115,28 @@ De la inducción sobre la construcción quedan el **filtro** y el **join**.
   cadena mezclada **nunca mezcla nodos**, solo entradas de owners en los nodos que los dos lados
   comparten. Eso es exactamente el contenido de `JoinCovered` y lo que mide la sonda.
 
-## 8. Lo que queda
+## 8. El caso del filtro (`DescentFilter.lean`)
 
-1. **El filtro**, que es el caso que queda de verdad: que la extensión elegida sobreviva a la poda.
+Tu intuición —*la extensión elegida no puede morir a la poda, porque el review exige que exista al
+menos un camino válido*— es exactamente el punto, y **ya es un teorema para cadenas completas**:
+`AggressiveReview.ChainSound_filterAllAgg` dice que una cadena del estado que respeta las fijaciones
+sobrevive a las fijaciones y al review agresivo entero. Es tu "no se pierde ninguna solución".
+
+Lo que falta es la **compleción**: que la cadena parcial del estado filtrado se complete, dentro del
+estado sin filtrar, a una cadena completa que cumpla los requisitos del filtro. Con eso el caso sale:
+
+- `soundFrom_congr` — una cadena parcial solo depende de sus picks desde `lo` hacia arriba.
+- `ReqCompletion` — la obligación, enunciada así.
+- **`noDeadEnd_filterAllAgg_of_completion`** — **el filtro mantiene el descenso dada la compleción**:
+  la cadena completada sobrevive al filtro, y su pick un paso por debajo **es** la extensión.
+
+Y el residuo está localizado: la compleción solo hace falta **por debajo** del pick más bajo de la
+cadena, porque por encima los picks ya están en el estado filtrado, donde todo nodo de un paso
+fijado lleva el nodo de mapa de la fijación (`PairChain.node_id_of_pin`).
+
+## 9. Lo que queda
+
+1. **La compleción por debajo** (`ReqCompletion`): es lo único que queda del filtro.
 2. Del `join` queda solo `JoinCovered` para las cadenas **mezcladas** —las que se sostienen con
    entradas de owners del otro lado en nodos compartidos—, con los nodos ya repartidos por
    `picks_left_of_exclusive_anchor`.

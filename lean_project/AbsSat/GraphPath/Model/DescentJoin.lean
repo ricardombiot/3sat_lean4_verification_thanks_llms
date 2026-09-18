@@ -67,6 +67,83 @@ theorem noDeadEnd_join_of_covered (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ =
     NoDeadEnd (join g₁ g₂) :=
   noDeadEnd_of_descendAll (descendAll_join g₁ g₂ hok h₁ h₂ hcov)
 
+/-- **A partial chain of a state is one of any state that grows it.** Every condition of
+`SoundFrom` is a membership, and growth only adds. -/
+theorem soundFrom_of_grown {g g' : GPathM} (hgr : Grown g g') {sel : Int → PathNodeId} {lo : Int}
+    (hs : SoundFrom g sel lo) : SoundFrom g' sel lo := by
+  have hlook : ∀ k, lo ≤ k → k < g.current_step → ∃ n n', g.node? (sel k) = some n ∧
+      g'.node? (sel k) = some n' ∧ (∀ q ∈ n.owners, q ∈ n'.owners) ∧
+      (∀ p ∈ n.parents, p ∈ n'.parents) ∧ (∀ s ∈ n.sons, s ∈ n'.sons) := by
+    intro k h1 h2
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hs.node k h1 h2).1
+    obtain ⟨n', hn', ho, hp, hsn⟩ := hgr.node?_grown _ n hn
+    exact ⟨n, n', hn, hn', ho, hp, hsn⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro k h1 h2
+    obtain ⟨_, _, _, hn', _⟩ := hlook k h1 (by rw [hgr.step_eq] at h2; exact h2)
+    exact ⟨by rw [hn']; rfl, (hs.node k h1 (by rw [hgr.step_eq] at h2; exact h2)).2⟩
+  · intro k h1 h2
+    rw [hgr.step_eq] at h2
+    obtain ⟨n, n', hn, hn', _, hp, _⟩ := hlook (k + 1) (by omega) h2
+    have hpl := hs.parent_link k h1 h2
+    rw [hn] at hpl
+    simp only [Option.map_some, Option.getD_some] at hpl
+    rw [hn']
+    simpa only [Option.map_some, Option.getD_some] using hp _ hpl
+  · intro i j hi1 hj1 hi2 hj2 hij
+    rw [hgr.step_eq] at hi2 hj2
+    obtain ⟨n, n', hn, hn', ho, _, _⟩ := hlook j hj1 hj2
+    have how := hs.owned i j hi1 hj1 hi2 hj2 hij
+    rw [ownersOf, hn] at how
+    rw [ownersOf, hn']
+    obtain ⟨hmem, hstep⟩ := List.mem_filter.mp how
+    exact List.mem_filter.mpr ⟨ho _ hmem, hstep⟩
+  · intro k h1 h2
+    rw [hgr.step_eq] at h2
+    exact hgr.gowners_grown _ (hs.gowner k h1 h2)
+  · intro k h1 h2
+    rw [hgr.step_eq] at h2
+    obtain ⟨n, n', hn, hn', ho, _, _⟩ := hlook k h1 h2
+    have hso := hs.self_owned k h1 h2
+    rw [ownersOf, hn] at hso
+    rw [ownersOf, hn']
+    exact ho _ hso
+  · intro k h1 h2
+    rw [hgr.step_eq] at h2
+    obtain ⟨n, n', hn, hn', _, _, hsn⟩ := hlook k h1 (by omega)
+    have hsl := hs.son_link k h1 h2
+    simp only [sonsOf, hn] at hsl
+    simp only [sonsOf, hn']
+    exact hsn _ hsl
+  · intro k h1 h2
+    rw [hgr.step_eq] at h2
+    exact hs.root_shape k h1 h2
+
+/-- Every partial chain of a join is a partial chain of one of its sides, or it extends. The
+`SoundFrom` form of `JoinDescent.JoinCovered`. -/
+def JoinCoveredF (g₁ g₂ : GPathM) : Prop :=
+  ∀ sel lo, 0 < lo → lo ≤ (join g₁ g₂).current_step - 1 → SoundFrom (join g₁ g₂) sel lo →
+    SoundFrom g₁ sel lo ∨ SoundFrom g₂ sel lo ∨
+      ∃ c, SoundFrom (join g₁ g₂) (upd sel (lo - 1) c) (lo - 1)
+
+/-- **A join keeps the descent**, from the descent on its sides and `JoinCoveredF`. -/
+theorem noDeadEnd_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : NoDeadEnd g₁) (h₂ : NoDeadEnd g₂) (hcov : JoinCoveredF g₁ g₂) :
+    NoDeadEnd (join g₁ g₂) := by
+  intro sel lo hlo0 hlo hs
+  rcases hcov sel lo hlo0 hlo hs with hs1 | hs2 | hext
+  · have hstep := (grown_join_left g₁ g₂).step_eq
+    obtain ⟨c, hc⟩ := h₁ sel lo hlo0 (by rw [hstep] at hlo; omega) hs1
+    exact ⟨c, soundFrom_of_grown (grown_join_left g₁ g₂) hc⟩
+  · have hstep := (grown_join_right g₁ g₂ hok).step_eq
+    obtain ⟨c, hc⟩ := h₂ sel lo hlo0 (by rw [hstep] at hlo; omega) hs2
+    exact ⟨c, soundFrom_of_grown (grown_join_right g₁ g₂ hok) hc⟩
+  · exact hext
+
+/-- info: 'AbsSat.GraphPath.Model.DescentJoin.noDeadEnd_join' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms noDeadEnd_join
+
 /-- **The picks of a partial chain of a join live on the side that has its anchor.** Every pick
 owns the anchor, and the slice of a node one side does not have lies entirely on the other. So a
 mixed chain never mixes *nodes* — only owner entries, at the nodes the two sides share. -/
