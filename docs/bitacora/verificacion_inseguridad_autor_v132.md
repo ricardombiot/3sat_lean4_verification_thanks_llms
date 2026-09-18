@@ -162,10 +162,25 @@ v131: hay pares de la rebanada que se sostienen con entradas del otro lado, pero
 cadena** — las condiciones de cadena (enlaces de padre e hijo, pertenencia mutua, owners globales,
 auto-pertenencia) son mucho más fuertes que "par en una rebanada".
 
-Y del lado de la demostración, `DescentJoin.chain_in_left_slice`: **la entrada al ancla es siempre del
-lado que la tiene**. El ancla no es nodo del otro lado, y los owners de un nodo son nodos de su propio
-estado, así que cada pick está en la rebanada del ancla **en las tablas de su propio lado**. Lo que
-queda del caso mezclado son solo las entradas **entre picks**.
+Y del lado de la demostración, tres piezas:
+
+- `chain_in_left_slice` — **la entrada al ancla es siempre del lado que la tiene**. El ancla no es nodo
+  del otro lado, y los owners de un nodo son nodos de su propio estado, así que cada pick está en la
+  rebanada del ancla **en las tablas de su propio lado**.
+- **`soundFrom_left_of_entries`** — **una cadena parcial de la unión es cadena de un lado en cuanto sus
+  entradas lo son.** Todo lo demás sale gratis: los picks son nodos de ese lado, un nodo se posee a sí
+  mismo y por tanto es owner global allí, la forma de raíz solo habla de identificadores, y —esto es lo
+  que no esperaba— **los enlaces de padre e hijo se siguen de las entradas**, porque en un estado
+  revisado los owners de los pasos contiguos son exactamente los padres y los hijos (`AdjacentOwners`).
+  Cuatro de las siete condiciones eran gratis y dos más se derivan.
+- `EntriesOnOneSide` y `joinCoveredF_of_entries` / `noDeadEnd_join_of_entries` — el residuo del caso
+  `join`, en **una sola** condición: que para cada cadena parcial, un lado tenga todas las entradas
+  entre sus picks. Es lo que la sonda mide sin excepción.
+
+**Lo que no he conseguido**: demostrar esa condición de entradas. Sé que es cierta en 185.889 cadenas y
+que el ancla ya está resuelta, pero no veo qué obliga a que una entrada **entre dos picks compartidos**
+sea del lado del ancla: el barrido de la unión se conforma con que compartan owners en cada paso, y eso
+lo cumplen vía nodos del lado 1. Puede ser un teorema o puede ser propiedad de estas familias.
 
 ## 10. Lo que queda
 

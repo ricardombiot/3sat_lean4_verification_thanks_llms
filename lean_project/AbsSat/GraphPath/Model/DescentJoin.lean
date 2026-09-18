@@ -31,6 +31,7 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.NoDeadEnd (SoundFrom upd NoDeadEnd)
 open AbsSat.GraphPath.Model.DescentInvariant (SoundOn DescendAll)
 open AbsSat.GraphPath.Model.JoinDescent (JoinCovered descendAll_join)
+open AbsSat.GraphPath.Model.AdjacentOwners (Adj owners_below_iff_parents owners_above_iff_sons)
 
 /-- `SoundFrom` is `SoundOn` up to the top step. -/
 theorem soundOn_of_soundFrom {g : GPathM} {sel : Int → PathNodeId} {lo : Int}
@@ -218,6 +219,99 @@ theorem chain_in_left_slice (g₁ g₂ : GPathM)
 /-- info: 'AbsSat.GraphPath.Model.DescentJoin.chain_in_left_slice' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms chain_in_left_slice
+
+/-- **A partial chain of a join is a chain of one side as soon as its entries are.** Everything
+else is free: the picks are that side's nodes, a node owns itself and is therefore a global owner
+there, the root shape is about identifiers only, and the **parent and son links follow from the
+entries**, because in a reviewed state the owners on the neighbouring steps are exactly the parents
+and the sons (`AdjacentOwners`). So `JoinCoveredF` reduces to one statement about the owner entries
+**between picks**. -/
+theorem soundFrom_left_of_entries (g₁ B : GPathM) (a₁ : Adj g₁)
+    (hstep : B.current_step = g₁.current_step)
+    {sel : Int → PathNodeId} {lo : Int} (hlo : 0 ≤ lo)
+    (hs : SoundFrom B sel lo)
+    (hnodes : ∀ k, lo ≤ k → k < g₁.current_step → ∃ m, g₁.node? (sel k) = some m)
+    (hentries : ∀ i j, lo ≤ i → lo ≤ j → i < g₁.current_step → j < g₁.current_step → i ≠ j →
+      ∀ m, g₁.node? (sel j) = some m → sel i ∈ m.owners) :
+    SoundFrom g₁ sel lo := by
+  have hstepk : ∀ k, lo ≤ k → k < g₁.current_step → (sel k).id.step = k := by
+    intro k h1 h2
+    exact (hs.node k h1 (by rw [hstep]; exact h2)).2
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro k h1 h2
+    obtain ⟨m, hm⟩ := hnodes k h1 h2
+    exact ⟨by rw [hm]; rfl, hstepk k h1 h2⟩
+  · -- parent link: an owner on the step below is a parent
+    intro k h1 h2
+    obtain ⟨m, hm⟩ := hnodes (k + 1) (by omega) h2
+    rw [hm]
+    have hown := hentries k (k + 1) h1 (by omega) (by omega) h2 (by omega) m hm
+    exact (owners_below_iff_parents g₁ a₁ (sel (k + 1)) m hm
+      (by rw [hstepk (k + 1) (by omega) h2]; omega) (sel k)
+      (by rw [hstepk k h1 (by omega), hstepk (k + 1) (by omega) h2]; omega)).mp hown
+  · -- pairwise ownership
+    intro i j hi1 hj1 hi2 hj2 hij
+    obtain ⟨m, hm⟩ := hnodes j hj1 hj2
+    rw [ownersOf, hm]
+    exact List.mem_filter.mpr ⟨hentries i j hi1 hj1 hi2 hj2 hij m hm,
+      beq_iff_eq.mpr (hstepk i hi1 hi2)⟩
+  · -- global owner: a node owns itself, and its owners in range are global owners
+    intro k h1 h2
+    obtain ⟨m, hm⟩ := hnodes k h1 h2
+    exact a₁.ctx.ownGow (sel k) m hm (sel k) (a₁.ctx.self (sel k) m hm)
+      (by rw [hstepk k h1 h2]; omega) (by rw [hstepk k h1 h2]; exact h2)
+  · -- self ownership
+    intro k h1 h2
+    obtain ⟨m, hm⟩ := hnodes k h1 h2
+    simpa only [ownersOf, hm] using a₁.ctx.self (sel k) m hm
+  · -- son link: an owner on the step above is a son
+    intro k h1 h2
+    obtain ⟨m, hm⟩ := hnodes k h1 (by omega)
+    have hown := hentries (k + 1) k (by omega) h1 h2 (by omega) (by omega) m hm
+    simp only [sonsOf, hm]
+    exact (owners_above_iff_sons g₁ a₁ (sel k) m hm
+      (by rw [hstepk k h1 (by omega)]; omega) (sel (k + 1))
+      (by rw [hstepk (k + 1) (by omega) h2, hstepk k h1 (by omega)])).mp hown
+  · intro k h1 h2
+    exact hs.root_shape k h1 (by rw [hstep]; exact h2)
+
+/-- info: 'AbsSat.GraphPath.Model.DescentJoin.soundFrom_left_of_entries' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms soundFrom_left_of_entries
+
+/-- **The residue of the join case**, in one statement: for every partial chain of the join, one
+side has all the picks as nodes and all the entries between them. Measured with no exception
+(`helly cover`, v132 §9: 314 joins, 185.889 partial chains, none mixed). -/
+def EntriesOnOneSide (g₁ g₂ : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo : Int), 0 ≤ lo → SoundFrom (join g₁ g₂) sel lo →
+    ((∀ k, lo ≤ k → k < g₁.current_step → ∃ m, g₁.node? (sel k) = some m) ∧
+      (∀ i j, lo ≤ i → lo ≤ j → i < g₁.current_step → j < g₁.current_step → i ≠ j →
+        ∀ m, g₁.node? (sel j) = some m → sel i ∈ m.owners)) ∨
+    ((∀ k, lo ≤ k → k < g₂.current_step → ∃ m, g₂.node? (sel k) = some m) ∧
+      (∀ i j, lo ≤ i → lo ≤ j → i < g₂.current_step → j < g₂.current_step → i ≠ j →
+        ∀ m, g₂.node? (sel j) = some m → sel i ∈ m.owners))
+
+/-- **So the join case reduces to the entries.** With the entries on one side, every partial chain
+of the join is a partial chain of that side — which is `JoinCoveredF`, and with it the join keeps
+the descent (`noDeadEnd_join`). -/
+theorem joinCoveredF_of_entries (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (a₁ : Adj g₁) (a₂ : Adj g₂) (h : EntriesOnOneSide g₁ g₂) : JoinCoveredF g₁ g₂ := by
+  intro sel lo hlo0 _ hs
+  rcases h sel lo (by omega) hs with ⟨hn, he⟩ | ⟨hn, he⟩
+  · exact Or.inl (soundFrom_left_of_entries g₁ (join g₁ g₂) a₁
+      (grown_join_left g₁ g₂).step_eq (by omega) hs hn he)
+  · exact Or.inr (Or.inl (soundFrom_left_of_entries g₂ (join g₁ g₂) a₂
+      (grown_join_right g₁ g₂ hok).step_eq (by omega) hs hn he))
+
+/-- **The join keeps the descent, from the entries.** -/
+theorem noDeadEnd_join_of_entries (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (a₁ : Adj g₁) (a₂ : Adj g₂) (h₁ : NoDeadEnd g₁) (h₂ : NoDeadEnd g₂)
+    (h : EntriesOnOneSide g₁ g₂) : NoDeadEnd (join g₁ g₂) :=
+  noDeadEnd_join g₁ g₂ hok h₁ h₂ (joinCoveredF_of_entries g₁ g₂ hok a₁ a₂ h)
+
+/-- info: 'AbsSat.GraphPath.Model.DescentJoin.noDeadEnd_join_of_entries' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms noDeadEnd_join_of_entries
 
 /-- info: 'AbsSat.GraphPath.Model.DescentJoin.noDeadEnd_join_of_covered' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
