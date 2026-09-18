@@ -120,8 +120,4 @@ Dos caminos, y la elección es tuya:
    exactitud sale por construcción y `CommonOwner` se demuestra, a costa de espacio — el mismo coste que
    separar los padres en el ID (v130 §3).
 
-## 8. Pendiente, fuera de mi alcance
 
-El `push` a `origin` falla con 403 (credenciales `ricautomation`); los commits de esta sesión están en
-local sobre `spaik`. Y la URL de `origin` lleva un token personal en claro: conviene revocarlo y
-reconfigurar el remoto.
