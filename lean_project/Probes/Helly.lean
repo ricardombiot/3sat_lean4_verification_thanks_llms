@@ -1746,6 +1746,209 @@ def reportQ (name : String) (st : QStat) (ms : Nat) : IO Unit := do
   for e in st.ex do IO.println s!"  EX {e}"
 
 /-- The Improves driver, with every join inspected. -/
+-- ============================================================
+-- Keys and futures (v137): do two states with the same key see the same future?
+-- ============================================================
+
+structure FStat where
+  joins : Nat := 0
+  noFuture : Nat := 0          -- the future asks nothing of the past
+  sameFuture : Nat := 0        -- both sides project the same pasts onto the future's steps
+  nested : Nat := 0            -- one side's projections contain the other's
+  differ : Nat := 0            -- neither contains the other
+  projE : Nat := 0
+  projH : Nat := 0
+  projJ : Nat := 0
+  JOIN_SPURIOUS : Nat := 0     -- projections of the join that neither side has
+  relSteps : Nat := 0
+  pastSteps : Nat := 0
+  truncated : Nat := 0
+  sigSame : Nat := 0           -- both sides admit the same maximal sets of future nodes
+  sigNested : Nat := 0
+  sigDiffer : Nat := 0
+  sigE : Nat := 0
+  sigH : Nat := 0
+  futNodes : Nat := 0
+  exSig : List String := []
+  ex : List String := []
+
+/-- Every complete chain of `g` (lowest pick first), with the reader's candidate rule. -/
+partial def fullChains (g : GPathM) (tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId))
+    (chain : List PathNodeId) (lo : Int) (acc : Array (List PathNodeId)) (budget : Nat) :
+    Array (List PathNodeId) × Nat := Id.run do
+  if lo == 0 then return (acc.push chain, budget)
+  let x := chain.head!
+  let parents := match g.node? x with | some n => n.parents | none => []
+  let cands := parents.filter (fun c =>
+    c.id.step == lo - 1
+    && (match g.node? c with | some _ => true | none => false)
+    && chain.all (fun y => (tbl.getD y {}).contains c)
+    && g.gowners.contains c
+    && (tbl.getD c {}).contains c
+    && (if lo - 1 == 0 then c.parent_id.isNone else !c.parent_id.isNone))
+  let mut acc := acc
+  let mut bud := budget
+  for c in cands do
+    if bud == 0 then return (acc, 0)
+    bud := bud - 1
+    let (a', b') := fullChains g tbl (c :: chain) (lo - 1) acc bud
+    acc := a'
+    bud := b'
+  return (acc, bud)
+
+/-- The complete chains of a state, as arrays of map nodes indexed by step; `none` if truncated. -/
+def pasts (g : GPathM) (budget : Nat) : Option (Array (Array NodeId)) := Id.run do
+  let cs := g.current_step
+  let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut acc : Array (List PathNodeId) := #[]
+  let mut bud := budget
+  for n in g.nodes.filter (fun n => n.id.id.step == cs - 1) do
+    let q := n.id
+    if !(g.gowners.contains q && (tbl.getD q {}).contains q) then continue
+    if !(if cs - 1 == 0 then q.parent_id.isNone else !q.parent_id.isNone) then continue
+    let (a', b') := fullChains g tbl [q] (cs - 1) acc bud
+    acc := a'
+    bud := b'
+    if bud == 0 then return none
+  return some (acc.map (fun ch => ch.toArray.map (·.id)))
+
+/-- The future map nodes (reachable from `d`) a past admits: all their backward requirements, hard
+and weak, are met by it. -/
+def signature (φ : Cnf) (cs : Int) (fut : List NodeId) (p : Array NodeId) : List NodeId :=
+  fut.filter (fun y =>
+    (reqOfCnf φ y).all (fun r => !(0 ≤ r.step && r.step < cs) || p.getD r.step.toNat ⟨-1, -1⟩ == r)
+    && (weakReqOfCnf φ y).all (fun w => !(0 ≤ w.1 && w.1 < cs) || w.2.contains (p.getD w.1.toNat ⟨-1, -1⟩)))
+
+/-- Keep only the maximal sets of a family (by inclusion). -/
+def maximal (fam : List (List NodeId)) : Std.HashSet (List NodeId) := Id.run do
+  let uniq := (Std.HashSet.ofList fam).toList
+  let mut out : Std.HashSet (List NodeId) := {}
+  for a in uniq do
+    if !(uniq.any (fun b => b != a && a.all b.contains)) then out := out.insert a
+  return out
+
+def futureNodes (φ : Cnf) (d : NodeId) : List NodeId := Id.run do
+  let last := stepCount φ - 1
+  let mut frontier : List NodeId := [d]
+  let mut out : List NodeId := []
+  let mut k := d.step
+  while k < last do
+    let mut nxt : Std.HashSet NodeId := {}
+    for x in frontier do
+      for y in mapSons φ x.step x.index do nxt := nxt.insert y
+    frontier := nxt.toList
+    out := out ++ frontier
+    k := k + 1
+  return out
+
+/-- The projections of a state's complete chains onto the steps `rel`; `none` if truncated. -/
+def projections (g : GPathM) (rel : List Int) (budget : Nat) : Option (Std.HashSet (List NodeId)) := Id.run do
+  let cs := g.current_step
+  let tbl : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    g.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut acc : Array (List PathNodeId) := #[]
+  let mut bud := budget
+  for n in g.nodes.filter (fun n => n.id.id.step == cs - 1) do
+    let q := n.id
+    if !(g.gowners.contains q && (tbl.getD q {}).contains q) then continue
+    if !(if cs - 1 == 0 then q.parent_id.isNone else !q.parent_id.isNone) then continue
+    let (a', b') := fullChains g tbl [q] (cs - 1) acc bud
+    acc := a'
+    bud := b'
+    if bud == 0 then return none
+  let mut out : Std.HashSet (List NodeId) := {}
+  for ch in acc do
+    let arr := ch.toArray
+    out := out.insert (rel.map (fun k => (arr[k.toNat]!).id))
+  return some out
+
+/-- The past steps the future of key `d` asks about: the requirements (hard and weak) of every map
+node reachable from `d`, restricted to steps below `cs`. -/
+def futureSteps (φ : Cnf) (d : NodeId) (cs : Int) : List Int := Id.run do
+  let last := stepCount φ - 1
+  let mut frontier : List NodeId := [d]
+  let mut steps : Std.HashSet Int := {}
+  let mut k := d.step
+  while k < last do
+    let mut nxt : Std.HashSet NodeId := {}
+    for x in frontier do
+      for y in mapSons φ x.step x.index do nxt := nxt.insert y
+    frontier := nxt.toList
+    for y in frontier do
+      for r in reqOfCnf φ y do
+        if r.step < cs && 0 ≤ r.step then steps := steps.insert r.step
+      for w in weakReqOfCnf φ y do
+        if w.1 < cs && 0 ≤ w.1 then steps := steps.insert w.1
+    k := k + 1
+  return (steps.toList.toArray.qsort (· < ·)).toList
+
+def futureCensus (φ : Cnf) (d : NodeId) (e h : GPathM) (budget : Nat) (st0 : FStat) : FStat := Id.run do
+  let mut st := { st0 with joins := st0.joins + 1 }
+  let cs := e.current_step
+  let rel := futureSteps φ d cs
+  st := { st with relSteps := st.relSteps + rel.length, pastSteps := st.pastSteps + cs.toNat }
+  let J := filterAllAgg (join e h) []
+  match projections e rel budget, projections h rel budget, projections J rel budget with
+  | some pe, some ph, some pj =>
+    st := { st with projE := st.projE + pe.size, projH := st.projH + ph.size, projJ := st.projJ + pj.size }
+    let spurious := pj.toList.filter (fun p => !(pe.contains p || ph.contains p))
+    if !spurious.isEmpty then
+      st := { st with JOIN_SPURIOUS := st.JOIN_SPURIOUS + spurious.length }
+    if rel.isEmpty then
+      st := { st with noFuture := st.noFuture + 1 }
+    else
+      let eh := pe.toList.all ph.contains
+      let he := ph.toList.all pe.contains
+      if eh && he then st := { st with sameFuture := st.sameFuture + 1 }
+      else if eh || he then st := { st with nested := st.nested + 1 }
+      else
+        st := { st with differ := st.differ + 1 }
+        if st.ex.length < 4 then
+          st := { st with ex := st.ex ++ [s!"DIFFER key {d.step}:{d.index} cs={cs} rel={rel} |E|={pe.size} |H|={ph.size} |E∩H|={(pe.toList.filter ph.contains).length}"] }
+  | _, _, _ => st := { st with truncated := st.truncated + 1 }
+  -- finer: the maximal sets of future nodes each side's pasts admit
+  let fut := futureNodes φ d
+  match pasts e budget, pasts h budget with
+  | some qe, some qh =>
+    let me := maximal (qe.toList.map (signature φ cs fut))
+    let mh := maximal (qh.toList.map (signature φ cs fut))
+    st := { st with sigE := st.sigE + me.size, sigH := st.sigH + mh.size, futNodes := st.futNodes + fut.length }
+    -- a side's future is the down-closure of its maximal sets; compare down-closures
+    let covers (A B : Std.HashSet (List NodeId)) : Bool :=
+      B.toList.all (fun b => A.toList.any (fun a => b.all a.contains))
+    let eh := covers me mh
+    let he := covers mh me
+    if eh && he then st := { st with sigSame := st.sigSame + 1 }
+    else if eh || he then st := { st with sigNested := st.sigNested + 1 }
+    else
+      st := { st with sigDiffer := st.sigDiffer + 1 }
+      if st.exSig.length < 4 then
+        st := { st with exSig := st.exSig ++ [s!"SIG DIFFER key {d.step}:{d.index} cs={cs} fut={fut.length} maxE={me.size} maxH={mh.size}"] }
+  | _, _ => pure ()
+  return st
+
+def runFutures (φ : Cnf) (budget : Nat) (st0 : FStat) : FStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := up (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) => if okJoin e hst then st := futureCensus φ d e hst budget st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportF (name : String) (st : FStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} noFuture={st.noFuture} sameFuture={st.sameFuture} nested={st.nested} differ={st.differ} truncated={st.truncated} | relSteps/pastSteps={st.relSteps}/{st.pastSteps} | projections E={st.projE} H={st.projH} J={st.projJ} JOIN_SPURIOUS={st.JOIN_SPURIOUS} | signatures: same={st.sigSame} nested={st.sigNested} differ={st.sigDiffer} maxE={st.sigE} maxH={st.sigH} futNodes={st.futNodes} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+  for e in st.exSig do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -1858,6 +2061,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
         let t1 ← IO.monoMsNow
         reportQ s!"clique {path}" st (t1 - t0)
+  | "futures" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : FStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runFutures φ 200000 st
+      let t1 ← IO.monoMsNow
+      reportF s!"futures seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "futures" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runFutures φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportF s!"futures {path}" st (t1 - t0)
   | "cover" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
