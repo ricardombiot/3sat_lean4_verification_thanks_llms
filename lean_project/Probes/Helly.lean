@@ -3760,6 +3760,85 @@ def reportTa (name : String) (st : TaStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: cases={st.cases} clean={st.casesClean} saNodes={st.saNodes} COV_FAIL={st.COV_FAIL} AGG_FAIL={st.AGG_FAIL} PAR_FAIL={st.PAR_FAIL} SON_FAIL={st.SON_FAIL} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- v146: at the driver's joins, is each entry of the reviewed join carried by the tables of the side of
+-- one of its top anchors?
+-- ============================================================
+
+structure SideStat where
+  joins : Nat := 0
+  topsShared : Nat := 0
+  entries : Nat := 0
+  inA : Nat := 0
+  inB : Nat := 0
+  inBoth : Nat := 0
+  sideOk : Nat := 0          -- in the tables of a side where it has a common top anchor
+  crossOnly : Nat := 0       -- only anchors on the side whose tables lack the entry
+  NO_ANCHOR : Nat := 0
+  ex : List String := []
+
+def sideCheck (a b : GPathM) (st0 : SideStat) : SideStat := Id.run do
+  let mut st := st0
+  let R := reviewAgg (join a b)
+  if !isValid R then return st
+  st := { st with joins := st.joins + 1 }
+  let cs := R.current_step
+  let tA : Std.HashMap PathNodeId PNodeM := a.nodes.foldl (fun acc n => acc.insert n.id n) {}
+  let tB : Std.HashMap PathNodeId PNodeM := b.nodes.foldl (fun acc n => acc.insert n.id n) {}
+  let tR : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc n => acc.insert n.id n) {}
+  let tops := (R.nodes.filter (·.id.id.step == cs - 1)).map (·.id)
+  for z in tops do
+    if tA.contains z && tB.contains z then st := { st with topsShared := st.topsShared + 1 }
+  let ownsIn (t : Std.HashMap PathNodeId PNodeM) (x y : PathNodeId) : Bool :=
+    match t.get? x with | some n => n.owners.contains y | none => false
+  for n in R.nodes do
+    let x := n.id
+    for v in n.owners do
+      if !tR.contains v then continue
+      st := { st with entries := st.entries + 1 }
+      let ia := ownsIn tA x v
+      let ib := ownsIn tB x v
+      if ia then st := { st with inA := st.inA + 1 }
+      if ib then st := { st with inB := st.inB + 1 }
+      if ia && ib then st := { st with inBoth := st.inBoth + 1 }
+      let anchors := tops.filter (fun z => ownsIn tR x z && ownsIn tR v z)
+      let ancA := anchors.any (fun z => tA.contains z)
+      let ancB := anchors.any (fun z => tB.contains z)
+      if anchors.isEmpty then st := { st with NO_ANCHOR := st.NO_ANCHOR + 1 }
+      else if (ia && ancA) || (ib && ancB) then st := { st with sideOk := st.sideOk + 1 }
+      else
+        st := { st with crossOnly := st.crossOnly + 1 }
+        if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"cross: x={x.id.step}.{x.id.index} v={v.id.step}.{v.id.index} inA={ia} inB={ib} ancA={ancA} ancB={ancB}"] }
+  return st
+
+def runSideCls (φ : Cnf) (st0 : SideStat) : SideStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  let pinned (g : GPathM) (d : NodeId) : GPathM :=
+    (reqOfCnf φ d).foldl filterRequire (filterWeakAll g (weakReqOfCnf φ d))
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              st := sideCheck e hst st
+              for d' in mapSons φ d.step d.index do
+                st := sideCheck (pinned e d') (pinned hst d') st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportSide (name : String) (st : SideStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} topsShared={st.topsShared} entries={st.entries} inA={st.inA} inB={st.inB} inBoth={st.inBoth} sideOk={st.sideOk} CROSS_ONLY={st.crossOnly} NO_ANCHOR={st.NO_ANCHOR} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -4008,6 +4087,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runTripleA φ walks.toNat! 13 {})
         let t1 ← IO.monoMsNow
         reportTa s!"triplea {path}" st (t1 - t0)
+  | "sidecls" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : SideStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runSideCls φ st
+      let t1 ← IO.monoMsNow
+      reportSide s!"sidecls seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "sidecls" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSideCls φ {})
+        let t1 ← IO.monoMsNow
+        reportSide s!"sidecls {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
