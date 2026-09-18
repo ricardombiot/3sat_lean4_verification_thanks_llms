@@ -2521,6 +2521,156 @@ def reportO (name : String) (st : OStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: lines={st.lines} states={st.states} singlePaths={st.paths} NO_PATH={st.NO_PATH} equal={st.equal} machineExtra={st.machineExtra} joinExtra={st.joinExtra} | sends={st.sends} sendEqual={st.sendEqual} SEND_EXCEEDS={st.SEND_EXCEEDS} SEND_ALIVE_ALL_DEAD={st.SEND_ALIVE_ALL_DEAD} capped={st.capped} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Path unions (v139): the review of a union of single paths, after unary pins, against the union
+-- of the paths that pass the pins — on random unions, not only the machine's
+-- ============================================================
+
+structure PuStat where
+  trials : Nat := 0
+  unionValid : Nat := 0
+  equal : Nat := 0
+  EXTRA : Nat := 0             -- the reviewed union keeps entries no passing path has
+  MISSING : Nat := 0           -- a passing path lost
+  noneAlive : Nat := 0
+  ALIVE_NO_PATH : Nat := 0     -- the reviewed union is valid but no path passes
+  ex : List String := []
+
+/-- The single-path state of a map path. -/
+def pathState (p : List NodeId) : GPathM :=
+  match p with
+  | [] => GPathM.empty
+  | d :: rest => rest.foldl (fun g d' => addNode g d' "") (GPathM.initSeed d "")
+
+/-- Close a set of map paths under recombination at shared map nodes: a prefix ending at a map node and
+a suffix leaving it make a path. -/
+def recombine (ps : List (List NodeId)) : List (List NodeId) := Id.run do
+  let mut cur := ps.eraseDups
+  let mut changed := true
+  while changed do
+    changed := false
+    let mut add : List (List NodeId) := []
+    for p in cur do
+      for q in cur do
+        for i in [0:p.length] do
+          if p[i]? == q[i]? then
+            let r := p.take (i + 1) ++ q.drop (i + 1)
+            if !cur.contains r && !add.contains r then add := add ++ [r]
+    if !add.isEmpty then
+      cur := cur ++ add
+      changed := true
+  return cur
+
+/-- All map paths (last step fixed at index 0) satisfying random requirements
+"(t, y) ⇒ (i, r)", with `nreq` requirements. -/
+def csPaths (steps width nreq : Nat) (rng0 : AbsSat.SatMachine.DiffTest.Rng) :
+    List (List NodeId) × AbsSat.SatMachine.DiffTest.Rng := Id.run do
+  let mut rng := rng0
+  let mut reqs : List (NodeId × NodeId) := []
+  for _ in [0:nreq] do
+    let (r1, t) := rng.below (steps - 2)
+    let (r2, y) := r1.below width
+    let (r3, i) := r2.below (t + 1)
+    let (r4, r) := r3.below width
+    rng := r4
+    reqs := reqs ++ [(⟨((t + 1 : Nat) : Int), (y : Int)⟩, ⟨(i : Int), (r : Int)⟩)]
+  -- enumerate
+  let mut all : List (List NodeId) := [[]]
+  for sIdx in [0:steps] do
+    let choices : List Nat := if sIdx + 1 == steps then [0] else List.range width
+    all := all.flatMap (fun p => choices.map (fun i => p ++ [⟨(sIdx : Int), (i : Int)⟩]))
+  let ok (p : List NodeId) : Bool :=
+    reqs.all (fun (a, b) => !(p.contains a) || p.contains b)
+  return (all.filter ok, rng)
+
+def runPathCsp (steps width nreq trials seed : Nat) : PuStat := Id.run do
+  let mut st : PuStat := {}
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  for _ in [0:trials] do
+    let (ps, r0) := csPaths steps width nreq rng
+    rng := r0
+    if ps.isEmpty then continue
+    let (r2, npins) := rng.below 3
+    rng := r2
+    let mut pins : List NodeId := []
+    for _ in [0:npins + 1] do
+      let (r3, s) := rng.below (steps - 1)
+      let (r4, i) := r3.below width
+      rng := r4
+      pins := pins ++ [⟨(s : Int), (i : Int)⟩]
+    let passes (p : List NodeId) : Bool := pins.all (fun r => p.all (fun n => n.step != r.step || n == r))
+    let states := ps.map pathState
+    let U := match states with | [] => GPathM.empty | g :: rest => rest.foldl join g
+    let R := filterAllAgg U pins
+    st := { st with trials := st.trials + 1 }
+    let alive := (ps.filter passes).map pathState
+    if !isValid R then continue
+    st := { st with unionValid := st.unionValid + 1 }
+    match alive with
+    | [] =>
+      st := { st with ALIVE_NO_PATH := st.ALIVE_NO_PATH + 1 }
+    | g :: rest =>
+      let A := rest.foldl join g
+      let (xn, mn, xo, mo, xg, mg) := diffStates R A
+      if xn + xo + xg == 0 && mn + mo + mg == 0 then st := { st with equal := st.equal + 1 }
+      if xn + xo + xg != 0 then
+        st := { st with EXTRA := st.EXTRA + 1 }
+        if st.ex.length < 4 then st := { st with ex := st.ex ++ [s!"EXTRA owners={xo} paths={ps.length} pins={pins.map (fun r => (r.step, r.index))}"] }
+      if mn + mo + mg != 0 then st := { st with MISSING := st.MISSING + 1 }
+  return st
+
+def runPathUnion (steps width paths trials seed : Nat) (closed : Bool := false) : PuStat := Id.run do
+  let mut st : PuStat := {}
+  let mut rng := AbsSat.SatMachine.DiffTest.Rng.ofSeed seed
+  for _ in [0:trials] do
+    -- random map paths ending at the same final map node
+    let mut ps : List (List NodeId) := []
+    for _ in [0:paths] do
+      let mut p : List NodeId := []
+      for s in [0:steps] do
+        if s + 1 == steps then p := p ++ [⟨(s : Int), 0⟩]
+        else
+          let (r1, i) := rng.below width
+          rng := r1
+          p := p ++ [⟨(s : Int), (i : Int)⟩]
+      ps := ps ++ [p]
+    ps := if closed then recombine ps else ps.eraseDups
+    -- random unary pins below the top
+    let (r2, npins) := rng.below 3
+    rng := r2
+    let mut pins : List NodeId := []
+    for _ in [0:npins + 1] do
+      let (r3, s) := rng.below (steps - 1)
+      let (r4, i) := r3.below width
+      rng := r4
+      pins := pins ++ [⟨(s : Int), (i : Int)⟩]
+    let passes (p : List NodeId) : Bool := pins.all (fun r => p.all (fun n => n.step != r.step || n == r))
+    let states := ps.map pathState
+    let U := match states with | [] => GPathM.empty | g :: rest => rest.foldl join g
+    let R := filterAllAgg U pins
+    st := { st with trials := st.trials + 1 }
+    let alive := (ps.filter passes).map pathState
+    if !isValid R then
+      continue
+    st := { st with unionValid := st.unionValid + 1 }
+    match alive with
+    | [] =>
+      st := { st with ALIVE_NO_PATH := st.ALIVE_NO_PATH + 1 }
+      if st.ex.length < 6 then st := { st with ex := st.ex ++ [s!"ALIVE NO PATH paths={ps.map (fun p => p.map (·.index))} pins={pins.map (fun r => (r.step, r.index))}"] }
+    | g :: rest =>
+      let A := rest.foldl join g
+      let (xn, mn, xo, mo, xg, mg) := diffStates R A
+      if xn + xo + xg == 0 && mn + mo + mg == 0 then st := { st with equal := st.equal + 1 }
+      if xn + xo + xg != 0 then
+        st := { st with EXTRA := st.EXTRA + 1 }
+        if st.ex.length < 6 then st := { st with ex := st.ex ++ [s!"EXTRA nodes={xn} owners={xo} gow={xg} paths={ps.map (fun p => p.map (·.index))} pins={pins.map (fun r => (r.step, r.index))}"] }
+      if mn + mo + mg != 0 then st := { st with MISSING := st.MISSING + 1 }
+  return st
+
+def reportPu (name : String) (st : PuStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: trials={st.trials} unionValid={st.unionValid} equal={st.equal} EXTRA={st.EXTRA} MISSING={st.MISSING} ALIVE_NO_PATH={st.ALIVE_NO_PATH} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2684,6 +2834,24 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runRestrict φ {})
         let t1 ← IO.monoMsNow
         reportRs s!"restrict {path}" st (t1 - t0)
+  | "pathcsp" :: steps :: width :: nreq :: trials :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let st ← IO.lazyPure (fun _ => runPathCsp steps.toNat! width.toNat! nreq.toNat! trials.toNat! seed)
+      let t1 ← IO.monoMsNow
+      reportPu s!"pathcsp steps={steps} width={width} reqs={nreq} seed={seed}" st (t1 - t0)
+  | "pathunionrec" :: steps :: width :: paths :: trials :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let st ← IO.lazyPure (fun _ => runPathUnion steps.toNat! width.toNat! paths.toNat! trials.toNat! seed true)
+      let t1 ← IO.monoMsNow
+      reportPu s!"pathunion (recombination-closed) steps={steps} width={width} paths={paths} seed={seed}" st (t1 - t0)
+  | "pathunion" :: steps :: width :: paths :: trials :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let st ← IO.lazyPure (fun _ => runPathUnion steps.toNat! width.toNat! paths.toNat! trials.toNat! seed)
+      let t1 ← IO.monoMsNow
+      reportPu s!"pathunion steps={steps} width={width} paths={paths} seed={seed}" st (t1 - t0)
   | "oracle" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
