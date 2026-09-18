@@ -142,7 +142,4 @@ entrada.** Si hubiera que apostar por un cambio de diseño, apostaría por guard
 y ver cuánto del nivel de cadenas se deduce de él con las invariantes que ya hay —esa es una pregunta
 abierta concreta y, a diferencia de las cinco reglas refutadas, no la he medido todavía.
 
-## 7. Pendiente, fuera de mi alcance
 
-El `push` a `origin` sigue fallando con 403 (credenciales `ricautomation`); los commits están en local
-sobre `spaik`. La URL de `origin` lleva un token personal en claro: conviene revocarlo.
