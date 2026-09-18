@@ -2225,6 +2225,130 @@ def reportRs (name : String) (st : RsStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: checks={st.checks} joinValid={st.joinValid} idemFail={st.idemFail} sides={st.sides} restrValid={st.restrValid} FIX_FAIL={st.FIX_FAIL} removedEntries={st.removedEntries} insideSide={st.insideSide} NOT_INSIDE={st.NOT_INSIDE} covers={st.covers} COVER_FAIL={st.COVER_FAIL} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Split of supports (v139): split the review of a join by the side of the top-step witness,
+-- and check every condition of `Sup` for each part inside its side
+-- ============================================================
+
+structure SpStat where
+  joins : Nat := 0
+  entries : Nat := 0
+  UNCOVERED : Nat := 0         -- an entry with no top witness on either side
+  bothTop : Nat := 0           -- a top node present in both sides
+  fGow : Nat := 0
+  fNode : Nat := 0
+  fOwn : Nat := 0
+  fCov : Nat := 0
+  fPar : Nat := 0
+  fSon : Nat := 0
+  fAgg : Nat := 0
+  fSym : Nat := 0
+  fLink : Nat := 0
+  ex : List String := []
+
+def SpStat.bad (st : SpStat) (field : String) (msg : String) : SpStat :=
+  let st := match field with
+    | "gow" => { st with fGow := st.fGow + 1 } | "node" => { st with fNode := st.fNode + 1 }
+    | "own" => { st with fOwn := st.fOwn + 1 } | "cov" => { st with fCov := st.fCov + 1 }
+    | "par" => { st with fPar := st.fPar + 1 } | "son" => { st with fSon := st.fSon + 1 }
+    | "agg" => { st with fAgg := st.fAgg + 1 } | "sym" => { st with fSym := st.fSym + 1 }
+    | _ => { st with fLink := st.fLink + 1 }
+  if st.ex.length < 10 then { st with ex := st.ex ++ [msg] } else st
+
+/-- Check that the part of `R`'s relation anchored at `tops` is a support relation inside `g`. -/
+def checkPart (lbl : String) (R g : GPathM) (rel : PathNodeId → PathNodeId → Bool)
+    (tops : List PathNodeId) (st0 : SpStat) : SpStat := Id.run do
+  let mut st := st0
+  let cs := R.current_step
+  let tg : Std.HashMap PathNodeId PNodeM := g.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let tR : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let part (x v : PathNodeId) : Bool := rel x v && tops.any (fun z => rel x z && rel v z)
+  let members := R.nodes.map (·.id)
+  let ownersOfR (x : PathNodeId) : List PathNodeId := match tR.get? x with | some m => m.owners.filter (fun w => tR.contains w) | none => []
+  let inPart := members.filter (fun x => (ownersOfR x).any (fun v => part x v))
+  let gow := Std.HashSet.ofList g.gowners
+  for x in inPart do
+    if !gow.contains x then st := st.bad "gow" s!"{lbl} gow {showPid x}"
+    match tg.get? x with
+    | none => st := st.bad "node" s!"{lbl} node {showPid x}"
+    | some d =>
+      let vs := (ownersOfR x).filter (fun v => part x v)
+      -- cov
+      for l in intRange 0 (cs - 1) do
+        if !vs.any (fun v => v.id.step == l) then st := st.bad "cov" s!"{lbl} cov {showPid x} step {l}"
+      for v in vs do
+        if !d.owners.contains v then st := st.bad "own" s!"{lbl} own {showPid x} {showPid v}"
+        if !part v x then st := st.bad "sym" s!"{lbl} sym {showPid x} {showPid v}"
+        if x.parent_id.isSome then
+          if !d.parents.any (fun c => part x c && part c x && part c v) then
+            st := st.bad "par" s!"{lbl} par {showPid x} {showPid v}"
+        if x.id.step != cs - 1 then
+          let sons := g.nodes.filter (fun m => m.parents.contains x)
+          if !sons.any (fun m => part x m.id && part m.id x && part m.id v) then
+            st := st.bad "son" s!"{lbl} son {showPid x} {showPid v}"
+        for l in intRange 0 (cs - 1) do
+          if !(ownersOfR x).any (fun z => z.id.step == l && part x z && part v z) then
+            st := st.bad "agg" s!"{lbl} agg {showPid x} {showPid v} step {l}"
+        if v.id.step + 1 == x.id.step && part v x && !d.parents.contains v then
+          st := st.bad "link" s!"{lbl} link {showPid x} {showPid v}"
+  return st
+
+def splitCheck (a b : GPathM) (st0 : SpStat) : SpStat := Id.run do
+  let R := reviewAgg (join a b)
+  if !isValid R then return st0
+  let mut st := { st0 with joins := st0.joins + 1 }
+  let cs := R.current_step
+  let tR : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let ta : Std.HashMap PathNodeId PNodeM := a.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let tb : Std.HashMap PathNodeId PNodeM := b.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let relR (x v : PathNodeId) : Bool := match tR.get? x with | some m => m.owners.contains v && tR.contains v | none => false
+  let relIn (t : Std.HashMap PathNodeId PNodeM) (x v : PathNodeId) : Bool :=
+    relR x v && (match t.get? x with | some m => m.owners.contains v && t.contains v | none => false)
+  let top := (R.nodes.filter (fun m => m.id.id.step == cs - 1)).map (·.id)
+  let topsA := top.filter ta.contains
+  let topsB := top.filter tb.contains
+  if top.any (fun z => ta.contains z && tb.contains z) then st := { st with bothTop := st.bothTop + 1 }
+  let partA (x v : PathNodeId) : Bool := relIn ta x v && topsA.any (fun z => relIn ta x z && relIn ta v z)
+  let partB (x v : PathNodeId) : Bool := relIn tb x v && topsB.any (fun z => relIn tb x z && relIn tb v z)
+  for m in R.nodes do
+    for v in m.owners do
+      if !tR.contains v then continue
+      st := { st with entries := st.entries + 1 }
+      if !(partA m.id v || partB m.id v) then
+        st := { st with UNCOVERED := st.UNCOVERED + 1 }
+        if st.ex.length < 10 then st := { st with ex := st.ex ++ [s!"UNCOVERED {showPid m.id} {showPid v} inA={relIn ta m.id v} inB={relIn tb m.id v}"] }
+  st := checkPart "a" R a (relIn ta) topsA st
+  st := checkPart "b" R b (relIn tb) topsB st
+  return st
+
+def runSplit (φ : Cnf) (st0 : SpStat) : SpStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  let pinned (g : GPathM) (d : NodeId) : GPathM :=
+    (reqOfCnf φ d).foldl filterRequire (filterWeakAll g (weakReqOfCnf φ d))
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              st := splitCheck e hst st
+              for d' in mapSons φ d.step d.index do
+                st := splitCheck (pinned e d') (pinned hst d') st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportSp (name : String) (st : SpStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} entries={st.entries} UNCOVERED={st.UNCOVERED} bothTop={st.bothTop} | fails gow={st.fGow} node={st.fNode} own={st.fOwn} cov={st.fCov} par={st.fPar} son={st.fSon} agg={st.fAgg} sym={st.fSym} link={st.fLink} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2337,6 +2461,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
         let t1 ← IO.monoMsNow
         reportQ s!"clique {path}" st (t1 - t0)
+  | "split" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : SpStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runSplit φ st
+      let t1 ← IO.monoMsNow
+      reportSp s!"split seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "split" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSplit φ {})
+        let t1 ← IO.monoMsNow
+        reportSp s!"split {path}" st (t1 - t0)
   | "restrict" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
