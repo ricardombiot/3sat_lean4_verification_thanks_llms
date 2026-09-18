@@ -3071,6 +3071,17 @@ def runGhosts (φ : Cnf) (budget : Nat) : IO Unit := do
               [("clean", cleanInvalid), ("parents", reviewParents), ("sons", reviewSons)]
             for (lbl, op) in ops do
               let g' := op g
+              -- ghost nodes: live nodes of g' on no surviving solution
+              if inner == 1 && round == 1 then
+                let mut gn := 0
+                let mut live := 0
+                for n in g'.nodes do
+                  live := live + 1
+                  if !(through.any (fun c => c.contains n.id)) then gn := gn + 1
+                let key := s!"  NODES after pass-1 {lbl}: ghost nodes"
+                tally := tally.insert key (tally.getD key 0 + gn)
+                let key2 := s!"  NODES after pass-1 {lbl}: live nodes"
+                tally := tally.insert key2 (tally.getD key2 0 + live)
               -- survivors by direction, after this operation of the first pass
               if inner == 1 && round == 1 then
                 for (x, v) in alive do

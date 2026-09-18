@@ -180,6 +180,7 @@ import AbsSat.GraphPath.Model.RoundInvariant
 import AbsSat.GraphPath.Model.DeclaredVerdict
 import AbsSat.GraphPath.Model.Answer
 import AbsSat.GraphPath.Model.ReaderComplete
+import AbsSat.GraphPath.Model.NodeLevel
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
