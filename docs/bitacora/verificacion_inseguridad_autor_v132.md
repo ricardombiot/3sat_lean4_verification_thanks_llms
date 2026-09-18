@@ -154,7 +154,11 @@ de uno de los dos lados, o es mezclada?
 | Tseitin cubo par | 114 | 137.183 | 137.183 | **0** |
 | Tseitin prisma par | 66 | 17.137 | 17.137 | **0** |
 
-En total: 314 uniones y 185.889 cadenas parciales, ninguna mezclada.
+| aleatorias, semilla 1001 (20 fórmulas) | 2.442 | 347.179 | 347.179 | **0** |
+| aleatorias, semilla 2002 (20 fórmulas) | 2.923 | 494.833 | 494.833 | **0** |
+
+En total: **5.679 uniones y 1.027.901 cadenas parciales, ninguna mezclada**, y con las aleatorias
+dentro, así que no es un artefacto de las familias Tseitin.
 
 `truncated = 0`: recorrido entero. **El caso mezclado está vacío**, así que `JoinCoveredF` se cumple sin
 necesitar ni la cláusula de extensión. Y ojo, esto **no** contradice los 1.328 pares ajenos de §5 de
@@ -182,7 +186,27 @@ que el ancla ya está resuelta, pero no veo qué obliga a que una entrada **entr
 sea del lado del ancla: el barrido de la unión se conforma con que compartan owners en cada paso, y eso
 lo cumplen vía nodos del lado 1. Puede ser un teorema o puede ser propiedad de estas familias.
 
-## 10. Lo que queda
+## 10. Todo el veredicto sobre una sola afirmación
+
+Al desmontar el filtro aparece que el filtro, el `join` y el UP piden **todos** la misma cosa, y tiene
+nombre:
+
+- **`Descent.CommonOwner`** — los picks de una cadena parcial tienen un **owner común** en el paso
+  inferior.
+- `Descent.noDeadEnd_of_commonOwner` — de ahí sale `NoDeadEnd`.
+- **`NoDeadEndVerdict.sat_of_commonOwner`** — y de ahí el veredicto entero. Todo lo demás del camino
+  está demostrado: el ancla del paso alto, el escalón del descenso y la decodificación de la cadena.
+
+**Y lo que eso significa.** Tu barrido ya da esa afirmación **par a par**: dos owners cualesquiera
+comparten entrada en cada paso. Lo que falta es el salto de pares al conjunto entero de picks, y los
+picks son una **clique** de la relación de compatibilidad con vecino común para cada pareja en ese
+paso. En lenguaje de propagación de restricciones: la máquina mantiene **2-consistencia** y el
+descenso necesita **k-consistencia**. Eso es falso para una red cualquiera, y aquí solo puede seguirse
+de la estructura que la máquina mantiene: que las tablas de un nodo nacen de **una** historia
+(`RunEnv`). Es la primera vez en trece informes que el problema abierto queda en un enunciado con
+nombre y literatura propia: cuándo la consistencia local implica consistencia global.
+
+## 11. Lo que queda
 
 1. **La compleción por debajo** (`ReqCompletion`): es lo único que queda del filtro.
 2. Del `join` queda solo `JoinCovered` para las cadenas **mezcladas** —las que se sostienen con
