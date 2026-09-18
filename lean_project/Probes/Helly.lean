@@ -3068,6 +3068,18 @@ def runGhosts (φ : Cnf) (budget : Nat) : IO Unit := do
               [("clean", cleanInvalid), ("parents", reviewParents), ("sons", reviewSons)]
             for (lbl, op) in ops do
               let g' := op g
+              -- survivors by direction, after this operation of the first pass
+              if inner == 1 && round == 1 then
+                for (x, v) in alive do
+                  if !hasEntry g' x v then continue
+                  let xs := x.id.step
+                  let vs := v.id.step
+                  let cls :=
+                    if xs == m.step then "x at the pin"
+                    else if xs > m.step then (if vs < xs then "A: x above pin, v below x" else "B: x above pin, v above x")
+                    else (if vs > xs then "C: x below pin, v above x" else "D: x below pin, v below x")
+                  let key := s!"  after pass-1 {lbl}: {cls}"
+                  tally := tally.insert key (tally.getD key 0 + 1)
               let (gone, keep) := alive.partition (fun (x, v) => !hasEntry g' x v)
               for (x, v) in gone do
                 let nodeGone := (g'.node? x).isNone
@@ -3087,7 +3099,13 @@ def runGhosts (φ : Cnf) (budget : Nat) : IO Unit := do
             for (x, v) in alive do
               let key := match g.node? x, g.node? v with
                 | some nx, some nv =>
-                  if !nv.owners.contains x then "  pre-sweep ghost: ASYMMETRIC (v does not own x)"
+                  if !nv.owners.contains x then
+                    let dx := Int.natAbs (x.id.step - m.step)
+                    let dv := Int.natAbs (v.id.step - m.step)
+                    let side := if (x.id.step - m.step) * (v.id.step - m.step) > 0 then "same side" else "opposite sides"
+                    if dv < dx then s!"  pre-sweep ghost: ASYMMETRIC, the one that dropped is NEARER the pin ({side})"
+                    else if dv > dx then s!"  pre-sweep ghost: ASYMMETRIC, the one that dropped is FARTHER from the pin ({side})"
+                    else s!"  pre-sweep ghost: ASYMMETRIC, equally near ({side})"
                   else if !sharesEveryStep g.current_step nx.owners nv.owners then "  pre-sweep ghost: a step with NO COMMON OWNER"
                   else "  pre-sweep ghost: NOT DIRECTLY DETECTABLE"
                 | _, _ => "  pre-sweep ghost: node missing"
