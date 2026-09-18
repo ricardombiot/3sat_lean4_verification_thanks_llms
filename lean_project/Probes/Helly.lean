@@ -3004,6 +3004,109 @@ def reportSc (name : String) (st : ScStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: states={st.states} linkedChainsInSlices={st.chains} owned={st.owned} NOT_OWNED={st.NOT_OWNED} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Ghosts (v140): after a pin on an exact state, which operation of the review, in which round, removes
+-- each entry that no surviving solution holds (a "ghost"), and at what distance from the pinned step?
+-- ============================================================
+
+def hasEntry (g : GPathM) (x v : PathNodeId) : Bool :=
+  match g.node? x with | some n => n.owners.contains v | none => false
+
+def runGhosts (φ : Cnf) (budget : Nat) : IO Unit := do
+  let mut tally : Std.HashMap String Nat := {}
+  let mut ghostsTotal := 0
+  let mut nodeDeaths := 0
+  let mut survivors := 0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut sols : Array (List PathNodeId) := #[]
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (a', b') := solWalk tbl gow [n.id] sols bud
+        sols := a'
+        bud := b'
+      if bud == 0 then continue
+      let maps := (G.gowners.map (·.id)).eraseDups
+      for m in maps do
+        if m.step == cs - 1 then continue
+        let through := sols.toList.filter (fun c => c.any (fun p => p.id == m))
+        -- ghosts: entries of G no solution through the pin holds
+        let mut ghosts : List (PathNodeId × PathNodeId) := []
+        for n in G.nodes do
+          for v in n.owners do
+            if v == n.id || !tbl.contains v then continue
+            if !(through.any (fun c => c.contains n.id && c.contains v)) then
+              ghosts := (n.id, v) :: ghosts
+        if ghosts.isEmpty then continue
+        ghostsTotal := ghostsTotal + ghosts.length
+        -- the review, step by step
+        let mut g := [m].foldl filterRequire G
+        let mut alive := ghosts.filter (fun (x, v) => hasEntry g x v)
+        -- entries already gone with the pin (the node lost as a global owner does not remove entries)
+        let mut round := 0
+        let mut fuel := 200
+        let mut done := false
+        while !done && fuel > 0 do
+          fuel := fuel - 1
+          round := round + 1
+          -- base review to its fixpoint
+          let mut inner := 0
+          let mut innerDone := false
+          while !innerDone && inner < 200 do
+            inner := inner + 1
+            if !isValid g then
+              innerDone := true
+              continue
+            let m0 := GPathM.measure g
+            let ops : List (String × (GPathM → GPathM)) :=
+              [("clean", cleanInvalid), ("parents", reviewParents), ("sons", reviewSons)]
+            for (lbl, op) in ops do
+              let g' := op g
+              let (gone, keep) := alive.partition (fun (x, v) => !hasEntry g' x v)
+              for (x, v) in gone do
+                let nodeGone := (g'.node? x).isNone
+                if nodeGone then nodeDeaths := nodeDeaths + 1
+                let _dist := min (Int.natAbs (x.id.step - m.step)) (Int.natAbs (v.id.step - m.step))
+                let key := s!"pass {inner} {lbl}{if nodeGone then " (node removed)" else ""}"
+                tally := tally.insert key (tally.getD key 0 + 1)
+              alive := keep
+              g := g'
+            if GPathM.measure g ≥ m0 then innerDone := true
+          if !isValid g then
+            done := true
+            continue
+          let before := GPathM.measure g
+          -- before the sweep: is every surviving ghost directly detectable as a pair?
+          if round == 1 then
+            for (x, v) in alive do
+              let key := match g.node? x, g.node? v with
+                | some nx, some nv =>
+                  if !nv.owners.contains x then "  pre-sweep ghost: ASYMMETRIC (v does not own x)"
+                  else if !sharesEveryStep g.current_step nx.owners nv.owners then "  pre-sweep ghost: a step with NO COMMON OWNER"
+                  else "  pre-sweep ghost: NOT DIRECTLY DETECTABLE"
+                | _, _ => "  pre-sweep ghost: node missing"
+              tally := tally.insert key (tally.getD key 0 + 1)
+          let g' := aggSweep g
+          let (gone, keep) := alive.partition (fun (x, v) => !hasEntry g' x v)
+          for (x, v) in gone do
+            let nodeGone := (g'.node? x).isNone
+            if nodeGone then nodeDeaths := nodeDeaths + 1
+            let dist := min (Int.natAbs (x.id.step - m.step)) (Int.natAbs (v.id.step - m.step))
+            let key := s!"round {round} aggressive after {inner} passes dist {min dist 6}"
+            tally := tally.insert key (tally.getD key 0 + 1)
+          alive := keep
+          if GPathM.measure g' < before then g := g' else done := true
+        survivors := survivors + alive.length
+  IO.println s!"ghosts={ghostsTotal} survivors={survivors} nodeRemovals={nodeDeaths}"
+  let rows := tally.toList.toArray.qsort (fun a b => a.1 < b.1)
+  for (k, n) in rows do IO.println s!"  {n}  {k}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3176,6 +3279,13 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSliceClosed φ 2000000 {})
         let t1 ← IO.monoMsNow
         reportSc s!"sliceclosed {path}" st (t1 - t0)
+  | "ghosts" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        IO.println s!"ghosts {path}"
+        runGhosts φ 200000
   | "why" :: paths =>
     for path in paths do
       match ← loadCnf path with

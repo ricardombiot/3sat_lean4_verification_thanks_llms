@@ -54,6 +54,7 @@ variable (φ : Cnf)
 def FilterSlices : Prop :=
   ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → TablesSound kv.2 →
     ∀ (ws : List (Int × List NodeId)) (rq : List NodeId),
+      isValid (filterAllAgg (filterWeakAll kv.2 ws) rq) = true →
       TablesSound (filterAllAgg (filterWeakAll kv.2 ws) rq)
 
 /-- Every table of every state of a line is a slice. -/
@@ -100,7 +101,7 @@ theorem tablesSound_sent (_hwf : WF φ) (hF : FilterSlices φ) (k : Int) (kv : N
     rw [if_pos hvF]
   rw [heq]
   refine tablesSound_addNode F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega) rcF.below ?_
-    rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn (hF k kv hkv hm ht _ _)
+    rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn (hF k kv hkv hm ht _ _ hvF)
   · have hmo := hm.mok
     unfold MachineOk at hmo ⊢
     rw [hkF.1.step_eq, hkF.1.map_parent_eq]
@@ -185,7 +186,7 @@ theorem sat_of_slices (hwf : WF φ) (hF : FilterSlices φ) (kv : NodeId × GPath
     have := ConservationCore.stepCount_pos φ; omega
   rw [hcast] at hl
   have hsk := hl.1.2 kv hkv
-  have hts := hF _ kv hsk hm (run_slices φ hwf hF kv hkv) [] []
+  have hts := hF _ kv hsk hm (run_slices φ hwf hF kv hkv) [] [] hv
   have hfw : filterWeakAll kv.2 [] = kv.2 := rfl
   rw [hfw] at hts
   let G := filterAllAgg kv.2 []
