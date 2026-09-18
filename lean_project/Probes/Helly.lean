@@ -2003,6 +2003,115 @@ def reportN (name : String) (st : NStat) (ms : Nat) : IO Unit := do
     let d := st.byClass.getD i {}
     IO.println s!"  {lbl}: joins={st.joins.getD i 0} extensions={d.extensions} full={d.full} DEAD_ENDS={d.deadEnds} near={d.nearChecks} NEAR_NOT_ENOUGH={d.nearNotEnough} nest={d.nestChecks} NEST_FAILS={d.NEST_FAILS} truncated={d.truncated}"
 
+-- ============================================================
+-- Distributivity (v138): does the send (weak filter, pins, review, up) distribute over the join?
+-- ============================================================
+
+structure DiStat where
+  joins : Nat := 0
+  sends : Nat := 0
+  bothDead : Nat := 0
+  oneAlive : Nat := 0
+  bothAlive : Nat := 0
+  VALIDITY_DIFFERS : Nat := 0
+  equal : Nat := 0
+  DIFFER : Nat := 0
+  extraNodes : Nat := 0       -- nodes of F(join) not in join(F e, F h)
+  missingNodes : Nat := 0
+  extraOwners : Nat := 0      -- owner entries of F(join) not in join(F e, F h): borrowing
+  missingOwners : Nat := 0
+  extraGow : Nat := 0
+  missingGow : Nat := 0
+  ex : List String := []
+
+/-- Compare two states as sets: nodes, owners per node, and global owners. -/
+def diffStates (a b : GPathM) : Nat × Nat × Nat × Nat × Nat × Nat := Id.run do
+  let tb : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    b.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let ta : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+    a.nodes.foldl (fun acc m => acc.insert m.id (Std.HashSet.ofList m.owners)) {}
+  let mut xn := 0
+  let mut mn := 0
+  let mut xo := 0
+  let mut mo := 0
+  for m in a.nodes do
+    match tb.get? m.id with
+    | none => xn := xn + 1
+    | some ob => for w in m.owners.eraseDups do if !ob.contains w then xo := xo + 1
+  for m in b.nodes do
+    match ta.get? m.id with
+    | none => mn := mn + 1
+    | some oa => for w in m.owners.eraseDups do if !oa.contains w then mo := mo + 1
+  let ga := Std.HashSet.ofList a.gowners
+  let gb := Std.HashSet.ofList b.gowners
+  let xg := (a.gowners.eraseDups.filter (fun q => !gb.contains q)).length
+  let mg := (b.gowners.eraseDups.filter (fun q => !ga.contains q)).length
+  return (xn, mn, xo, mo, xg, mg)
+
+def distribCheck (tag : String) (FJ Fe Fh : GPathM) (st0 : DiStat) : DiStat := Id.run do
+  let mut st := { st0 with sends := st0.sends + 1 }
+  let vj := isValid FJ
+  let ve := isValid Fe
+  let vh := isValid Fh
+  let rhs : Option GPathM :=
+    if ve && vh then some (join Fe Fh) else if ve then some Fe else if vh then some Fh else none
+  if !ve && !vh then st := { st with bothDead := st.bothDead + 1 }
+  else if ve && vh then st := { st with bothAlive := st.bothAlive + 1 }
+  else st := { st with oneAlive := st.oneAlive + 1 }
+  match rhs with
+  | none =>
+    if vj then
+      st := { st with VALIDITY_DIFFERS := st.VALIDITY_DIFFERS + 1 }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"{tag}: join survives, both sides die"] }
+  | some r =>
+    if !vj then
+      st := { st with VALIDITY_DIFFERS := st.VALIDITY_DIFFERS + 1 }
+      if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"{tag}: a side survives, the join dies"] }
+    else
+      let (xn, mn, xo, mo, xg, mg) := diffStates FJ r
+      if xn + mn + xo + mo + xg + mg == 0 then st := { st with equal := st.equal + 1 }
+      else
+        st := { st with DIFFER := st.DIFFER + 1 }
+        if st.ex.length < 8 then
+          st := { st with ex := st.ex ++ [s!"{tag}: extraNodes={xn} missingNodes={mn} extraOwners={xo} missingOwners={mo} extraGow={xg} missingGow={mg}"] }
+      st := { st with extraNodes := st.extraNodes + xn }
+      st := { st with missingNodes := st.missingNodes + mn }
+      st := { st with extraOwners := st.extraOwners + xo }
+      st := { st with missingOwners := st.missingOwners + mo }
+      st := { st with extraGow := st.extraGow + xg }
+      st := { st with missingGow := st.missingGow + mg }
+  return st
+
+def runDistrib (φ : Cnf) (st0 : DiStat) : DiStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              st := { st with joins := st.joins + 1 }
+              let J := join e hst
+              -- the reader's review
+              st := distribCheck s!"review key {d.step}:{d.index}" (filterAllAgg J []) (filterAllAgg e []) (filterAllAgg hst []) st
+              -- every send the joined state will make
+              for d' in mapSons φ d.step d.index do
+                st := distribCheck s!"send key {d.step}:{d.index} -> {d'.step}:{d'.index}" (send J d') (send e d') (send hst d') st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportDi (name : String) (st : DiStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} checks={st.sends} bothDead={st.bothDead} oneAlive={st.oneAlive} bothAlive={st.bothAlive} VALIDITY_DIFFERS={st.VALIDITY_DIFFERS} equal={st.equal} DIFFER={st.DIFFER} | extraNodes={st.extraNodes} missingNodes={st.missingNodes} extraOwners={st.extraOwners} missingOwners={st.missingOwners} extraGow={st.extraGow} missingGow={st.missingGow} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -2115,6 +2224,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runClique φ 20000000 {})
         let t1 ← IO.monoMsNow
         reportQ s!"clique {path}" st (t1 - t0)
+  | "distrib" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : DiStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runDistrib φ st
+      let t1 ← IO.monoMsNow
+      reportDi s!"distrib seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "distrib" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runDistrib φ {})
+        let t1 ← IO.monoMsNow
+        reportDi s!"distrib {path}" st (t1 - t0)
   | "nested" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
