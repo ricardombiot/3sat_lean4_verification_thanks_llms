@@ -3331,6 +3331,153 @@ def runSeqPin (φ : Cnf) : IO Unit := do
           if xn + mn + xo + mo + xg + mg == 0 then equal := equal + 1 else differ := differ + 1
   IO.println s!"seqpin: sends with ≥2 pins={sends} bothValid={bothValid} equal={equal} DIFFER={differ} VALIDITY_DIFFERS={validDiffers}"
 
+-- ============================================================
+-- v144: do the weak requirements change the tables, or only the cost?
+-- ============================================================
+
+def aggLinesNoWeak (φ : Cnf) : List PureLine := Id.run do
+  let mut line := pureInit φ
+  let mut out := [line]
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := line.foldl (fun next kv =>
+      (mapSons φ kv.1.step kv.1.index).foldl (fun next d =>
+        let h := up (filterAllAgg kv.2 (reqOfCnf φ d)) d ""
+        if isValid h then insertPure next d h else next) next) []
+    out := out ++ [line]
+  return out
+
+def runWeakCmp (φ : Cnf) : IO Unit := do
+  -- per send, from the same state
+  let mut sends := 0
+  let mut bothValid := 0
+  let mut equal := 0
+  let mut differ := 0
+  let mut validDiffers := 0
+  for line in aggLines φ do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let rq := reqOfCnf φ d
+        let ws := weakReqOfCnf φ d
+        if ws.isEmpty then continue
+        sends := sends + 1
+        let a := filterAllAgg (filterWeakAll kv.2 ws) rq
+        let b := filterAllAgg kv.2 rq
+        if isValid a != isValid b then validDiffers := validDiffers + 1
+        else if isValid a then
+          bothValid := bothValid + 1
+          let (xn, mn, xo, mo, xg, mg) := diffStates a b
+          if xn + mn + xo + mo + xg + mg == 0 then equal := equal + 1 else differ := differ + 1
+  IO.println s!"weakcmp per send: sends with weak reqs={sends} bothValid={bothValid} equal={equal} DIFFER={differ} VALIDITY_DIFFERS={validDiffers}"
+  -- whole run, line by line
+  let la := aggLines φ
+  let lb := aggLinesNoWeak φ
+  let mut lines := 0
+  let mut keysDiffer := 0
+  let mut states := 0
+  let mut statesEqual := 0
+  let mut statesDiffer := 0
+  for (a, b) in la.zip lb do
+    lines := lines + 1
+    let ka := a.map (·.1)
+    let kb := b.map (·.1)
+    if !(ka.all (kb.contains ·) && kb.all (ka.contains ·)) then keysDiffer := keysDiffer + 1
+    for kv in a do
+      match b.find? (fun y => y.1 == kv.1) with
+      | none => pure ()
+      | some (_, h) =>
+        states := states + 1
+        let (xn, mn, xo, mo, xg, mg) := diffStates kv.2 h
+        if xn + mn + xo + mo + xg + mg == 0 then statesEqual := statesEqual + 1 else statesDiffer := statesDiffer + 1
+  IO.println s!"weakcmp whole run: lines={lines} KEYS_DIFFER={keysDiffer} states={states} equal={statesEqual} DIFFER={statesDiffer}"
+
+-- ============================================================
+-- v144: splicing two surviving paths at the middle node
+-- ============================================================
+
+structure SpliceStat where
+  pins : Nat := 0
+  -- index: 0 = kept & case A, 1 = kept & case B, 2 = removed & case A, 3 = removed & case B
+  entries : Array Nat := #[0, 0, 0, 0]
+  noPairs : Array Nat := #[0, 0, 0, 0]
+  allValid : Array Nat := #[0, 0, 0, 0]
+  someValid : Array Nat := #[0, 0, 0, 0]
+  noneValid : Array Nat := #[0, 0, 0, 0]
+  truth : Array Nat := #[0, 0, 0, 0]
+  truncated : Nat := 0
+
+def runSplice (φ : Cnf) (budget cap : Nat) (st0 : SpliceStat) : SpliceStat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut sols : Array (List PathNodeId) := #[]
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (a', b') := solWalk tbl gow [n.id] sols bud
+        sols := a'
+        bud := b'
+      if bud == 0 then
+        st := { st with truncated := st.truncated + 1 }
+        continue
+      let solSet : Std.HashSet (List PathNodeId) := Std.HashSet.ofList sols.toList
+      let at_ (c : List PathNodeId) (k : Int) : Option PathNodeId := c[k.toNat]?
+      let maps := (G.gowners.map (·.id)).eraseDups
+      for m in maps do
+        if m.step == cs - 1 then continue
+        let R := filterAllAgg G [m]
+        if !isValid R then continue
+        st := { st with pins := st.pins + 1 }
+        let rtbl : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc n => acc.insert n.id n) {}
+        let passM (c : List PathNodeId) : Bool := match at_ c m.step with | some y => y.id == m | none => false
+        for n in R.nodes do
+          let x := n.id
+          let gOwners := match tbl.get? x with | some g0 => g0.owners | none => []
+          for q in gOwners do
+            if !(q.id.step < x.id.step) then continue
+            if !rtbl.contains q then continue
+            if m.step == x.id.step || m.step == q.id.step then continue
+            let kept := n.owners.contains q
+            let caseB := q.id.step < m.step && m.step < x.id.step
+            let idx := (if kept then 0 else 2) + (if caseB then 1 else 0)
+            let passX (c : List PathNodeId) : Bool := at_ c x.id.step == some x
+            let passQ (c : List PathNodeId) : Bool := at_ c q.id.step == some q
+            -- the three points, top to bottom, and the splice step (the middle one)
+            let (p1, p2, mid) :=
+              if caseB then ((sols.toList.filter (fun c => passX c && passM c)).take cap,
+                             (sols.toList.filter (fun c => passM c && passQ c)).take cap, m.step)
+              else if m.step < q.id.step then ((sols.toList.filter (fun c => passX c && passQ c)).take cap,
+                             (sols.toList.filter (fun c => passQ c && passM c)).take cap, q.id.step)
+              else ((sols.toList.filter (fun c => passM c && passX c)).take cap,
+                    (sols.toList.filter (fun c => passX c && passQ c)).take cap, x.id.step)
+            let truth := sols.toList.any (fun c => passX c && passQ c && passM c)
+            let mut tested := 0
+            let mut valid := 0
+            for a in p1 do
+              for b in p2 do
+                if at_ a mid != at_ b mid then continue
+                tested := tested + 1
+                let sp := b.take mid.toNat ++ a.drop mid.toNat
+                if solSet.contains sp then valid := valid + 1
+            let inc (arr : Array Nat) : Array Nat := arr.modify idx (· + 1)
+            st := { st with entries := inc st.entries }
+            if truth then st := { st with truth := inc st.truth }
+            if tested == 0 then st := { st with noPairs := inc st.noPairs }
+            else if valid == tested then st := { st with allValid := inc st.allValid }
+            else if valid == 0 then st := { st with noneValid := inc st.noneValid }
+            else st := { st with someValid := inc st.someValid }
+  return st
+
+def reportSplice (name : String) (st : SpliceStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} truncated={st.truncated} | {ms}ms"
+  let labels := ["kept A (pin outside)", "kept B (pin between)", "removed A", "removed B"]
+  for (l, i) in labels.zipIdx do
+    IO.println s!"  {l}: entries={st.entries[i]!} truth={st.truth[i]!} noPairs={st.noPairs[i]!} allSplicesValid={st.allValid[i]!} someValid={st.someValid[i]!} noneValid={st.noneValid[i]!}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3503,6 +3650,22 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSliceClosed φ 2000000 {})
         let t1 ← IO.monoMsNow
         reportSc s!"sliceclosed {path}" st (t1 - t0)
+  | "weakcmp" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        IO.println s!"weakcmp {path}"
+        runWeakCmp φ
+  | "splice" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSplice φ 200000 15 {})
+        let t1 ← IO.monoMsNow
+        reportSplice s!"splice {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
