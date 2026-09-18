@@ -35,9 +35,18 @@ Queda tres picks o más.
 ## 3. Medido: el descenso nunca se atasca
 
 `helly dead` mide `NoDeadEnd` tal como está enunciado, recorriendo **todo** el espacio de cadenas
-parciales (no una muestra). En Tseitin K4 par: 108 estados, 140 anclas, 6.718 extensiones, 664 cadenas
-completas, **0 callejones sin salida**, `truncated = 0`. Tu intuición se sostiene: el lector no vuelve
-atrás.
+parciales (no una muestra), en cinco familias:
+
+| familia | estados | anclas | extensiones | cadenas completas | callejones |
+|---|---|---|---|---|---|
+| Tseitin K4 par | 108 | 140 | 6.718 | 664 | **0** |
+| Tseitin cubo par | 220 | 334 | 341.752 | 42.988 | **0** |
+| Tseitin K3,3 par | 164 | 266 | 59.962 | 5.364 | **0** |
+| Tseitin prisma par | 164 | 230 | 46.126 | 5.364 | **0** |
+| Tseitin Petersen par | 276 | 432 | 2.918.620 | 344.028 | **0** |
+
+`truncated = 0` en todas: el espacio de cadenas parciales se recorrió **entero**. Tu intuición se
+sostiene: el lector no vuelve atrás.
 
 ## 4. Tres reglas locales que lo cerrarían, y las tres son falsas
 
@@ -77,10 +86,26 @@ por regla local. La línea es `RunEnv` (v131 §1): la tabla de un nodo nace de *
 Hay que llevar eso hasta la propiedad del descenso: que el nodo que el paso inferior aporta a una cadena
 está en la tabla de todos sus picks **porque todos vienen de la misma historia**.
 
-## 6. Lo que queda
+## 6. Demostrado por construcción: el UP mantiene el descenso (`DescentUp.lean`)
 
-1. **La obligación**, en su forma más estrecha: tres picks o más tienen un owner común en el paso
-   inferior (`Descent.extend_of_common_owner` hace el resto).
-2. **La vía**: inducción sobre la construcción con las tablas de nacimiento de `RunEnv`, no una regla
-   local — las tres reglas locales candidatas están refutadas por medida.
-3. Extender la medida de §3 a más familias (cubo, K3,3, prisma, Petersen en marcha).
+Ataqué el descenso por construcción, como apuntabas, y **el caso UP sale entero**:
+
+- `soundFrom_g_of_A` y `soundFrom_A_of_g` — una cadena parcial del estado extendido, por debajo del
+  paso nuevo, es una cadena parcial del estado, y al revés si su pick de arriba es el nodo nuevo. Las
+  tablas solo difieren en el nodo nuevo, que está **por encima** de todos los pasos viejos.
+- **`noDeadEnd_addNode`** — **un UP mantiene el descenso.** Aquí es donde la tabla de nacimiento de
+  `RunEnv` hace el trabajo: el nodo que el UP crea **posee todas las elecciones del estado** (su tabla
+  nace siendo `gowners`), así que no impone ninguna restricción al descenso; y él está en la tabla de
+  todos porque `addNode` se lo añade a cada nodo. El primer escalón, desde el nodo nuevo solo, es
+  cualquier nodo de la línea alta.
+- `noDeadEnd_initSeed` — la semilla es vacua: su único paso es el alto.
+
+De la inducción sobre la construcción quedan el **filtro** y el **join**.
+
+## 7. Lo que queda
+
+1. **Los dos casos que faltan** de la inducción por construcción: el **filtro** (que la extensión
+   elegida sobreviva a la poda) y el **join** (cadenas mezcladas, ya reducido en `JoinDescent` a
+   `JoinCovered`, con `chain_on_one_side` demostrado).
+2. **No** volver a reglas locales: las tres candidatas están refutadas por medida (§4).
+3. La medida de §3 ya cubre cinco familias con el espacio de cadenas recorrido entero.
