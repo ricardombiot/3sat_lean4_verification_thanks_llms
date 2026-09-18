@@ -3478,6 +3478,96 @@ def reportSplice (name : String) (st : SpliceStat) (ms : Nat) : IO Unit := do
   for (l, i) in labels.zipIdx do
     IO.println s!"  {l}: entries={st.entries[i]!} truth={st.truth[i]!} noPairs={st.noPairs[i]!} allSplicesValid={st.allValid[i]!} someValid={st.someValid[i]!} noneValid={st.noneValid[i]!}"
 
+-- ============================================================
+-- v144: the greedy construction — from an entry (x, q) of a pinned reviewed state, fill the steps
+-- below x (downward), then above x (upward), each time with a node that owns and is owned by every
+-- node already chosen. Does it ever get stuck?
+-- ============================================================
+
+structure GreedyStat where
+  pins : Nat := 0
+  entries : Nat := 0
+  firstOk : Nat := 0
+  FIRST_STUCK : Nat := 0
+  branches : Nat := 0
+  stuckBranches : Nat := 0
+  entriesWithStuckBranch : Nat := 0
+  capped : Nat := 0
+  ex : List String := []
+
+/-- Exhaustive search in the fixed order; returns (complete branches, stuck branches, budget left). -/
+partial def greedyAll (rtbl : Std.HashMap PathNodeId PNodeM) (byStep : Std.HashMap Int (List PathNodeId))
+    (rel : PathNodeId → PathNodeId → Bool) (order : List Int) (chosen : List PathNodeId) (bud : Nat) :
+    Nat × Nat × Nat :=
+  match order with
+  | [] => (1, 0, bud)
+  | l :: rest => Id.run do
+    if bud == 0 then return (0, 0, 0)
+    let cands := (byStep.getD l []).filter (fun y => chosen.all (fun c => rel y c && rel c y))
+    if cands.isEmpty then return (0, 1, bud - 1)
+    let mut ok := 0
+    let mut stuck := 0
+    let mut b := bud - 1
+    for y in cands do
+      let (o, s, b') := greedyAll rtbl byStep rel rest (y :: chosen) b
+      ok := ok + o
+      stuck := stuck + s
+      b := b'
+      if b == 0 then break
+    return (ok, stuck, b)
+
+def greedyFirst (byStep : Std.HashMap Int (List PathNodeId)) (rel : PathNodeId → PathNodeId → Bool)
+    (order : List Int) (chosen : List PathNodeId) : Bool := Id.run do
+  let mut ch := chosen
+  for l in order do
+    match (byStep.getD l []).find? (fun y => ch.all (fun c => rel y c && rel c y)) with
+    | some y => ch := y :: ch
+    | none => return false
+  return true
+
+def runGreedy (φ : Cnf) (budget : Nat) (st0 : GreedyStat) : GreedyStat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      let cs := G.current_step
+      let maps := (G.gowners.map (·.id)).eraseDups
+      for m in maps do
+        if m.step == cs - 1 then continue
+        let R := filterAllAgg G [m]
+        if !isValid R then continue
+        st := { st with pins := st.pins + 1 }
+        let rtbl : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc n => acc.insert n.id n) {}
+        let gow := Std.HashSet.ofList R.gowners
+        let byStep : Std.HashMap Int (List PathNodeId) := R.nodes.foldl (fun acc n =>
+          if gow.contains n.id then acc.insert n.id.id.step (n.id :: acc.getD n.id.id.step []) else acc) {}
+        let rel (a b : PathNodeId) : Bool := match rtbl.get? a with
+          | some n => n.owners.contains b && rtbl.contains b
+          | none => false
+        for n in R.nodes do
+          let x := n.id
+          for q in n.owners do
+            if !(q.id.step < x.id.step) then continue
+            if !rtbl.contains q then continue
+            st := { st with entries := st.entries + 1 }
+            let down := ((List.range x.id.step.toNat).reverse.map (fun (i : Nat) => (i : Int))).filter (· != q.id.step)
+            let up := ((List.range (cs - 1 - x.id.step).toNat).map (fun (i : Nat) => x.id.step + 1 + (i : Int)))
+            let order := down ++ up
+            if greedyFirst byStep rel order [x, q] then st := { st with firstOk := st.firstOk + 1 }
+            else
+              st := { st with FIRST_STUCK := st.FIRST_STUCK + 1 }
+              if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"first-choice stuck: x={x.id.step}.{x.id.index} q={q.id.step}.{q.id.index} pin={m.step}.{m.index}"] }
+            let (o, s, b) := greedyAll rtbl byStep rel order [x, q] budget
+            st := { st with branches := st.branches + o, stuckBranches := st.stuckBranches + s }
+            if s > 0 then st := { st with entriesWithStuckBranch := st.entriesWithStuckBranch + 1 }
+            if b == 0 then st := { st with capped := st.capped + 1 }
+  return st
+
+def reportGreedy (name : String) (st : GreedyStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} entries={st.entries} firstChoiceOk={st.firstOk} FIRST_STUCK={st.FIRST_STUCK} | exhaustive: completeBranches={st.branches} stuckBranches={st.stuckBranches} entriesWithAStuckBranch={st.entriesWithStuckBranch} capped={st.capped} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3666,6 +3756,15 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSplice φ 200000 15 {})
         let t1 ← IO.monoMsNow
         reportSplice s!"splice {path}" st (t1 - t0)
+  | "greedy" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runGreedy φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportGreedy s!"greedy {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
