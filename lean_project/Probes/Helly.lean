@@ -2877,6 +2877,133 @@ def reportPe (name : String) (st : PeStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: states={st.states} pins={st.pins} pinValid={st.pinValid} exact={st.exact} EXTRA={st.EXTRA} VALID_NO_SOL={st.VALID_NO_SOL} MISSING={st.MISSING} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- Why (v139): on a Helly-3 failure (x, v, map m), pin m and see how the review drops (x, v)
+-- ============================================================
+
+/-- Is `y` connected to a node with map id `m` at step `s` by parent links (downward) or son links
+(upward), inside `g`? -/
+partial def linkedTo (tbl : Std.HashMap PathNodeId PNodeM) (m : NodeId) (up : Bool) (y : PathNodeId) : Bool :=
+  if y.id.step == m.step then y.id == m
+  else match tbl.get? y with
+    | none => false
+    | some n =>
+      if up then n.sons.any (fun c => c.id.step ≤ m.step && linkedTo tbl m up c)
+      else n.parents.any (fun c => c.id.step ≥ m.step && linkedTo tbl m up c)
+
+def runWhy (φ : Cnf) (budget : Nat) (maxEx : Nat) : IO Unit := do
+  let mut shown := 0
+  let mut tally : Std.HashMap String Nat := {}
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut sols : Array (List PathNodeId) := #[]
+      let mut bud := budget
+      for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+        if !gow.contains n.id then continue
+        let (a', b') := solWalk tbl gow [n.id] sols bud
+        sols := a'
+        bud := b'
+      let solArr := sols.map (fun c => c.toArray)
+      for m in G.nodes do
+        let x := m.id
+        for v in m.owners do
+          if v == x || !tbl.contains v then continue
+          for sIdx in [0:cs.toNat] do
+            let sI : Int := sIdx
+            if sI == x.id.step || sI == v.id.step then continue
+            let zs := (m.owners.filter (fun z => z.id.step == sI)).filter (fun z =>
+              match tbl.get? v with | some vm => vm.owners.contains z | none => false)
+            for mid in (zs.map (·.id)).eraseDups do
+              let ok := solArr.any (fun c => c.contains x && c.contains v && c.any (fun p => p.id == mid))
+              if ok then continue
+              if tally.fold (fun acc _ n => acc + n) 0 ≥ 300 then continue
+              -- a Helly-3 failure: pin mid and look
+              let R := filterAllAgg G [mid]
+              let tR : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc n => acc.insert n.id n) {}
+              let xIn := tR.contains x
+              let vIn := tR.contains v
+              let pairIn := match tR.get? x with | some n => n.owners.contains v | none => false
+              -- where x and v stand relative to the pinned step
+              let rel (y : PathNodeId) : String :=
+                if y.id.step < sI then "below" else "above"
+              let key := s!"x {rel x} v {rel v} | x survives {xIn} v survives {vIn} pair {pairIn}"
+              tally := tally.insert key (tally.getD key 0 + 1)
+              if shown < maxEx then
+                shown := shown + 1
+                let xl := linkedTo tbl mid (x.id.step < sI) x
+                let vl := linkedTo tbl mid (v.id.step < sI) v
+                IO.println s!"  x={showPid x} v={showPid v} pin={mid.step}.{mid.index} | {key} | x linked to pin {xl}, v linked to pin {vl}"
+  for (k, n) in tally.toList do IO.println s!"  TALLY {n}  {k}"
+
+-- ============================================================
+-- Slice closed under links (v139): in an exact state, is every linked chain whose nodes all own a common
+-- v (and passes v) pairwise owned?
+-- ============================================================
+
+structure ScStat where
+  states : Nat := 0
+  chains : Nat := 0
+  owned : Nat := 0
+  NOT_OWNED : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+partial def sliceWalk (tbl : Std.HashMap PathNodeId PNodeM) (gow : Std.HashSet PathNodeId) (v : PathNodeId)
+    (chain : List PathNodeId) (st0 : ScStat) (budget : Nat) : ScStat × Nat := Id.run do
+  let mut st := st0
+  let x := chain.head!
+  if x.id.step == 0 then
+    if !chain.contains v then return (st, budget)
+    st := { st with chains := st.chains + 1 }
+    let ok := chain.all (fun p => chain.all (fun q => p == q ||
+      (match tbl.get? p with | some m => m.owners.contains q | none => false)))
+    if ok then st := { st with owned := st.owned + 1 }
+    else
+      st := { st with NOT_OWNED := st.NOT_OWNED + 1 }
+      if st.ex.length < 4 then st := { st with ex := st.ex ++ [s!"v={showPid v} chain {chain.map showPid}"] }
+    return (st, budget)
+  let parents := match tbl.get? x with
+    | some m => m.parents.filter (fun p => gow.contains p &&
+        (match tbl.get? p with | some pm => pm.owners.contains v | none => false))
+    | none => []
+  let mut bud := budget
+  for p in parents do
+    if bud == 0 then return ({ st with truncated := st.truncated + 1 }, 0)
+    bud := bud - 1
+    let (st', b') := sliceWalk tbl gow v (p :: chain) st bud
+    st := st'
+    bud := b'
+  return (st, bud)
+
+def runSliceClosed (φ : Cnf) (budget : Nat) (st0 : ScStat) : ScStat := Id.run do
+  let mut st := st0
+  for line in aggLines φ do
+    for kv in line do
+      let G := filterAllAgg kv.2 []
+      if !isValid G then continue
+      st := { st with states := st.states + 1 }
+      let tbl : Std.HashMap PathNodeId PNodeM := G.nodes.foldl (fun acc m => acc.insert m.id m) {}
+      let gow := Std.HashSet.ofList G.gowners
+      let cs := G.current_step
+      let mut bud := budget
+      for vn in G.nodes do
+        let v := vn.id
+        for n in G.nodes.filter (fun n => n.id.id.step == cs - 1) do
+          if !gow.contains n.id || !n.owners.contains v then continue
+          let (st', b') := sliceWalk tbl gow v [n.id] st bud
+          st := st'
+          bud := b'
+  return st
+
+def reportSc (name : String) (st : ScStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} linkedChainsInSlices={st.chains} owned={st.owned} NOT_OWNED={st.NOT_OWNED} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -3040,6 +3167,22 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runRestrict φ {})
         let t1 ← IO.monoMsNow
         reportRs s!"restrict {path}" st (t1 - t0)
+  | "sliceclosed" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSliceClosed φ 2000000 {})
+        let t1 ← IO.monoMsNow
+        reportSc s!"sliceclosed {path}" st (t1 - t0)
+  | "why" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        IO.println s!"why {path}"
+        runWhy φ 200000 8
   | "pinexact" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
