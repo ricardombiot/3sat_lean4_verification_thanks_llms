@@ -1447,7 +1447,8 @@ def transCensus (g : GPathM) (budget : Nat) (st0 : TrStat) : TrStat := Id.run do
     for c in nb.owners.filter (fun c => c.id.step > b.id.step) do
       let co := tbl.getD c {}
       if !co.contains b then continue
-      for a in nb.owners.filter (fun a => a.id.step < b.id.step) do
+      -- only the ADJACENT case: `a` a parent of `b`, which is what the descent needs
+      for a in nb.parents do
         if seen > budget then
           st := { st with truncated := st.truncated + 1 }
           return st
@@ -1457,7 +1458,7 @@ def transCensus (g : GPathM) (budget : Nat) (st0 : TrStat) : TrStat := Id.run do
           st := { st with failures := st.failures + 1 }
           if st.ex.length < 8 then
             st := { st with ex := st.ex ++
-              [s!"NOT TRANSITIVE a={showPid a} b={showPid b} c={showPid c}"] }
+              [s!"PARENT NOT TRANSITIVE a={showPid a} b={showPid b} c={showPid c}"] }
   return st
 
 def runTrans (φ : Cnf) (allLines : Bool) (budget : Nat) (st0 : TrStat) : TrStat := Id.run do
@@ -1474,7 +1475,7 @@ def runTrans (φ : Cnf) (allLines : Bool) (budget : Nat) (st0 : TrStat) : TrStat
   return st
 
 def reportTr (name : String) (st : TrStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: states={st.states} nodes={st.nodes} triples={st.triples} NOT_TRANSITIVE={st.failures} truncated={st.truncated} | {ms}ms"
+  IO.println s!"{name}: states={st.states} nodes={st.nodes} parentTriples={st.triples} PARENT_NOT_TRANSITIVE={st.failures} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 -- ============================================================
@@ -1487,6 +1488,8 @@ structure DStat where
   extensions : Nat := 0
   full : Nat := 0
   deadEnds : Nat := 0
+  nearChecks : Nat := 0
+  nearNotEnough : Nat := 0
   truncated : Nat := 0
   ex : List String := []
 
@@ -1500,13 +1503,25 @@ partial def deadWalk (g : GPathM) (tbl : Std.HashMap PathNodeId (Std.HashSet Pat
     return ({ st with full := st.full + 1 }, bud)
   let x := chain.head!
   let parents := match g.node? x with | some n => n.parents | none => []
-  let cands := parents.filter (fun c =>
+  let base := parents.filter (fun c =>
     c.id.step == lo - 1
     && (match g.node? c with | some _ => true | none => false)
-    && chain.all (fun y => (tbl.getD y {}).contains c)
     && g.gowners.contains c
     && (tbl.getD c {}).contains c
     && (if lo - 1 == 0 then c.parent_id.isNone else !c.parent_id.isNone))
+  let cands := base.filter (fun c => chain.all (fun y => (tbl.getD y {}).contains c))
+  -- does the pick immediately above already decide the parent?
+  match chain with
+  | _ :: y :: _ =>
+    let near := base.filter (fun c => (tbl.getD y {}).contains c)
+    st := { st with nearChecks := st.nearChecks + near.length }
+    let bad := near.filter (fun c => !cands.contains c)
+    if !bad.isEmpty then
+      st := { st with nearNotEnough := st.nearNotEnough + bad.length }
+      if st.ex.length < 6 then
+        st := { st with ex := st.ex ++
+          [s!"NEAR NOT ENOUGH at step {lo - 1}: {bad.map showPid} accepted by {showPid y} but not by the chain {chain.map showPid}"] }
+  | _ => pure ()
   if cands.isEmpty then
     st := { st with deadEnds := st.deadEnds + 1 }
     if st.ex.length < 6 then
@@ -1549,7 +1564,7 @@ def runDead (φ : Cnf) (budget : Nat) (st0 : DStat) : DStat := Id.run do
   return st
 
 def reportD (name : String) (st : DStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: states={st.states} anchors={st.anchors} extensions={st.extensions} fullChains={st.full} DEAD_ENDS={st.deadEnds} truncated={st.truncated} | {ms}ms"
+  IO.println s!"{name}: states={st.states} anchors={st.anchors} extensions={st.extensions} fullChains={st.full} DEAD_ENDS={st.deadEnds} nearChecks={st.nearChecks} NEAR_NOT_ENOUGH={st.nearNotEnough} truncated={st.truncated} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 /-- The Improves driver, with every join inspected. -/
