@@ -474,9 +474,6 @@ theorem litBit (g : GPathM) (sel : Int → PathNodeId) (hrs : MapChain.ReqSatisf
 theorem bits_row (r : Int) (h1 : 1 ≤ r) (h7 : r ≤ 7) : 4 * b1 r + 2 * b2 r + b3 r = r := by
   unfold b1 b2 b3; omega
 
-theorem b_01 (r : Int) (h0 : 0 ≤ r) : (r / 4 % 2 = 0 ∨ r / 4 % 2 = 1) ∧ (r / 2 % 2 = 0 ∨ r / 2 % 2 = 1)
-    ∧ (r % 2 = 0 ∨ r % 2 = 1) := ⟨by omega, by omega, by omega⟩
-
 /-- **A requirement-satisfying path on the map is the branch of the assignment it spells**, at every
 step it covers. -/
 theorem ids_of_reqSat (hwf : WF φ) (g : GPathM) (sel : Int → PathNodeId) (hchain : IsChain g sel)
