@@ -4866,6 +4866,23 @@ def runRule1 (φ : Cnf) (st0 : R1Stat) : R1Stat := Id.run do
         if isValid X then st := rule1Check X st s!"{cnfS φ} line {m} key {kv.1.step}.{kv.1.index} pin {r.step}.{r.index}"
   return st
 
+-- Common nodes of x and v at one step of a union, with their owners at the pinned step.
+def commonAt (φ : Cnf) (lineIdx : Nat) (key : NodeId) (x v : PathNodeId) (rstep l : Int) : List String := Id.run do
+  let lines := (aggLines φ).toArray
+  let some kv := lines[lineIdx]!.find? (fun e => e.1 == key) | return ["no key"]
+  let J := kv.2
+  let t := ownerTable J
+  let owns (a b : PathNodeId) : Bool := match t.get? a with | some o => o.contains b | none => false
+  let mut out : List String := []
+  for n in J.nodes do
+    if n.id.id.step == l then
+      let z := n.id
+      let cx := owns x z && owns z x
+      let cv := owns v z && owns z v
+      let atR := (ownersAt n.owners rstep).map pidS
+      out := out ++ [s!"  {pidS z}: x~z {cx} v~z {cv} | owners at step {rstep}: {atR}"]
+  return out
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5431,6 +5448,14 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       IO.println s!"rule1 seed {seed}: states={st.states} triples={st.triples} FAILS={st.fails} statesWithFail={st.statesWithFail} | {t1 - t0}ms"
       for e in st.ex do IO.println s!"  EX {e}"
+  | "commonat" :: path :: line :: ks :: ki :: xs :: xi :: xps :: xpi :: vs :: vi :: vps :: vpi :: rs :: l :: _ =>
+    match ← loadCnf path with
+    | none => IO.println "bad cnf"
+    | some φ =>
+      let pid (s i ps pi : String) : AbsSat.Utils.Alias.PathNodeId :=
+        { id := ⟨s.toInt!, i.toInt!⟩, parent_id := if ps == "-" then none else some ⟨ps.toInt!, pi.toInt!⟩ }
+      for o in commonAt φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) rs.toInt! l.toInt! do
+        IO.println o
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with

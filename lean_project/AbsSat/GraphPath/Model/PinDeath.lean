@@ -350,4 +350,68 @@ theorem union_rel_iff (hwf : WF φ) (P : List NodeId) (m : Nat)
     have h := union_complete φ hwf P m p J hJ b hb x.id.step v.id.step hx0 hx1 hv0 hv1
     rwa [hx, hv] at h
 
+-- ============================================================
+-- The witness, without the machine
+-- ============================================================
+
+/-- Two nodes are **compatible** when one genuine path of the union passes both. -/
+def Compat (P : List NodeId) (m : Nat) (p : NodeId) (a b : PathNodeId) : Prop :=
+  ∃ β, InUnion φ P m p β ∧ canon φ β a.id.step = a ∧ canon φ β b.id.step = b
+
+/-- **The semantic witness, at line `m`.** A statement about the genuine paths of the union alone — no
+owners, no review. If `x` and `v` are compatible and every step has a node compatible with `x`, `v` and a
+node of the literal value `r`, then one genuine path passes `x`, `v` and `r`. (Probe traces of the choice
+formulas, 2026-09-19: whenever the triple was impossible, some step had no such
+node.) -/
+def SemWitnessAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ (p : NodeId) (x v : PathNodeId), Compat φ P m p x v →
+      (∀ l, 0 ≤ l → l < (m : Int) + 2 →
+        ∃ z ρ, z.id.step = l ∧ Compat φ P m p x z ∧ Compat φ P m p v z ∧ Compat φ P m p z ρ ∧ ρ.id = r) →
+      ∃ β, InUnion φ P m p β ∧ canon φ β x.id.step = x ∧ canon φ β v.id.step = v ∧
+        selOfAssign φ β r.step = r
+
+/-- An entry of an exact union is a compatible pair. -/
+theorem compat_of_rel (hwf : WF φ) (P : List NodeId) (m : Nat)
+    (hE : LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (a b : PathNodeId) (h : Rel J a b) :
+    Compat φ P m p a b := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  have bnd : ∀ c, Mem J c → 0 ≤ c.id.step ∧ c.id.step < (m : Int) + 2 := by
+    intro c ⟨nc, hnc⟩
+    have hmem := List.mem_of_find?_eq_some hnc
+    rw [← node?_id_eq J c nc hnc, ← hcsJ]
+    exact ⟨hmJ.rctx.snn nc hmem, hmJ.rctx.below nc hmem⟩
+  obtain ⟨n, hn, _, hbm⟩ := id h
+  have ba := bnd a ⟨n, hn⟩
+  have bb := bnd b hbm
+  exact (union_rel_iff φ hwf P m hE p J hJ a b ba.1 ba.2 bb.1 bb.2).mp h
+
+/-- **The witness row from the semantic witness.** Every `Rel` of the union is rewritten as
+compatibility (`union_rel_iff`). -/
+theorem rowWitness_of_sem (hwf : WF φ) (m : Nat)
+    (hE : ∀ P, LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (hS : SemWitnessAt φ m) :
+    RowWitnessAt φ m := by
+  intro P r h0r hrm hrl p J hJ x v hxv hcom
+  have C := compat_of_rel φ hwf P m (hE P) p J hJ
+  obtain ⟨β, hβ, hx, hv, hr⟩ := hS P r h0r hrm hrl p x v (C x v hxv) (fun l h0 h1 => by
+    obtain ⟨z, ρ, hz, hxz, hvz, hzρ, hρ⟩ := hcom l h0 h1
+    exact ⟨z, ρ, hz, C x z hxz, C v z hvz, C z ρ hzρ, hρ⟩)
+  exact ⟨β, hβ.1, hβ.2.1, hβ.2.2, hx, hv, hr⟩
+
+/-- **The verdict from the semantic witness**: everything about the machine is proved; what is left is a
+property of the genuine paths of each union. -/
+theorem sat_of_semWitness (hwf : WF φ) (hS : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → SemWitnessAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_rowWitness φ hwf (fun m h hE => rowWitness_of_sem φ hwf m hE (hS m h)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.PinDeath.sat_of_semWitness' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_semWitness
+
 end AbsSat.GraphPath.Model.PinDeath
