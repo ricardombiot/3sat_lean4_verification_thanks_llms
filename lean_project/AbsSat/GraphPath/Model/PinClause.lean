@@ -279,8 +279,8 @@ theorem flipAt_of_sat (hwf : WF φ) (m : Nat)
   obtain ⟨ρv, hvρ, hρv, hρvs⟩ := pinN v hvm
   obtain ⟨s2, hs2, hs2x, hs2r⟩ := real x ρx hxρ
   obtain ⟨s3, hs3, hs3v, hs3r⟩ := real v ρv hvρ
-  obtain ⟨b₂, hb2, hb2p, hb2P⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s2 hs2
-  obtain ⟨b₃, hb3, _, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s3 hs3
+  obtain ⟨b₂, hb2, hb2p, hb2P, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s2 hs2
+  obtain ⟨b₃, hb3, _, _, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s3 hs3
   have hr2 : selOfAssign φ b₂ r.step = r := by
     rw [← (hb2 r.step h0r (by omega)).1, ← hρxs, hs2r, hρx]
   have hr3 : selOfAssign φ b₃ r.step = r := by
@@ -341,7 +341,8 @@ theorem top_case (hwf : WF φ) (P : List NodeId) (m : Nat) (kv : NodeId × GPath
 
 /-- **The joint induction.** Under the flip in the clause stage, at every line, every branch is exact
 towards every step, and one pin commutes with the history. -/
-theorem joint (hwf : WF φ) (hF : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → FlipSatAt φ m) :
+theorem joint (hwf : WF φ) (hF : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → PC1At φ m →
+      (∀ P, LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) → FlipSatAt φ m) :
     ∀ m : Nat, (∀ P, LineSoundL Full (branchLine φ P m)) ∧ PC1At φ m := by
   intro m
   induction m with
@@ -362,7 +363,7 @@ theorem joint (hwf : WF φ) (hF : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 →
           by_cases hst : (m : Int) + 1 < litBlock φ
           · exact PinVar.pinJoinVar φ hwf m hst
           · exact pinJoinAt_of_paths φ hwf m
-              (pathAt_of_flip φ m (flipAt_of_sat φ hwf m hadvE (hF m (by omega))))
+              (pathAt_of_flip φ m (flipAt_of_sat φ hwf m hadvE (hF m (by omega) hC hadvE)))
         have hkv' := hkv
         rw [branchLine_succ] at hkv'
         obtain ⟨hA', hpass⟩ := mem_restrict hkv'
@@ -382,7 +383,7 @@ theorem joint (hwf : WF φ) (hF : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 →
 theorem sat_of_flipSat (hwf : WF φ) (hF : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → FlipSatAt φ m)
     (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
     Satisfiable φ := by
-  have hE := (joint φ hwf hF (stepCount φ - 1).toNat).1 []
+  have hE := (joint φ hwf (fun m h _ _ => hF m h) (stepCount φ - 1).toNat).1 []
   rw [PinHistory.branchLine_nil] at hE
   refine RunInhabited.sat_of_lineSound φ hwf (fun kv' hkv' => ?_) kv hkv hv
   intro x n hx hx0 hx1 q hq0 hq1 _ hqn
@@ -391,5 +392,85 @@ theorem sat_of_flipSat (hwf : WF φ) (hF : ∀ m : Nat, litBlock φ ≤ (m : Int
 /-- info: 'AbsSat.GraphPath.Model.PinClause.sat_of_flipSat' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms sat_of_flipSat
+
+-- ============================================================
+-- The flip, from the sides: nothing borrowed
+-- ============================================================
+
+/-- **Nothing borrowed at a pinned union, at line `m`.** Every entry of a pinned, reviewed union by key is
+kept by the pinned, reviewed send of one of its sides. -/
+def SideKeepAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ x v, Rel (filterAllAgg J [r]) x v →
+        ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+          isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧ Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
+
+/-- **The flip from the sides.** An entry kept by one side's pinned send goes through the send into the
+branch that carries the pin (`pin_send`, with the commutation at this line); that branch is exact and its
+paths take the pinned value, so the entry's path needs no flip at all. -/
+theorem flipSat_of_sideKeep (hwf : WF φ) (m : Nat) (hC : PC1At φ m)
+    (hE : ∀ P, LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (hK : SideKeepAt φ m) :
+    FlipSatAt φ m := by
+  intro P r h0r hrm hrl p J hJ hvX x v hxv
+  obtain ⟨kv, hkv, hson, hvS, hvY, hrel⟩ := hK P r h0r hrm hrl p J hJ hvX x v hxv
+  have hl := branchLine_inv φ hwf P m
+  have hl' := branchLine_inv φ hwf (P ++ [r]) m
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hmk : MInv φ kv.2 := hl.2 kv hkv
+  -- bounds of the entry's ends, from the union
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hRX : ReadableAgg (filterAllAgg J [r]) := ⟨J, [r], hmJ.rctx, rfl⟩
+  have adX := AdjacentOwners.adj_of_readable _ hRX hvX (AggInvariants.PMS_filterAllAgg J [r] hmJ.pms)
+    (AggInvariants.SN_filterAllAgg J [r] hmJ.sn)
+  have hcsX : (filterAllAgg J [r]).current_step = (m : Int) + 2 := by
+    rw [(pruned_filterAllAgg J [r]).step_eq, hsJ.step]; omega
+  have supX := sup_self _ adX (aggOk_reviewAgg _ hvX)
+    (AnchoredSurvive.SMP_filterAllAgg J hmJ.smp hmJ.rctx.shape.notroot [r])
+  have bx := mem_bounds _ adX (supX.dom x v hxv).1
+  have bv := mem_bounds _ adX (supX.dom x v hxv).2
+  rw [hcsX] at bx bv
+  -- the side's pinned send sits in the send of the pinned branch
+  have hvG := pinned_source_valid φ hwf m kv.1 kv.2 hsok hmk r p hson hvS hvY
+  obtain ⟨kv', hkv', hk, e0⟩ := hC P kv hkv r h0r hrm hrl hvG
+  have hsB : StateOkF φ m (kv.1, kv'.2) := by rw [← hk]; exact hl'.1.2 kv' hkv'
+  obtain ⟨hvB, e⟩ := pin_send φ hwf m kv.1 kv.2 kv'.2 hsok hmk hsB (hl'.2 kv' hkv') r e0 p hson hvS hvY
+  obtain ⟨J', hJ', hg⟩ := BranchLines.full_reach φ hwf m _ hl' kv' hkv' p (by rw [hk]; exact hson) hvB
+  have eJ := BranchRun.embedded_of_grown e hg
+  -- the entry in the pinned branch's union, on one of its paths
+  obtain ⟨n, hn, hvn, hvm⟩ := hrel
+  obtain ⟨n', hn', hown, _⟩ := eJ.node x n hn
+  have hadv' := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl'
+  have hsJ' : StateOkF φ ((m : Int) + 1) (p, J') := hadv'.1.2 _ hJ'
+  have hmJ' : MInv φ J' := hadv'.2 _ hJ'
+  have hcsJ' : J'.current_step = (m : Int) + 2 := by rw [hsJ'.step]; omega
+  have hle : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ'.onMap; omega
+  obtain ⟨s, hs, hsx, hsv⟩ := hE (P ++ [r]) _ hJ' x n' hn' bx.1 (by rw [hcsJ']; exact bx.2) v bv.1
+    (by rw [hcsJ']; exact bv.2) trivial (hown v hvn hvm)
+  have hpins := PinHistory.pinIds_advance φ (P ++ [r]) m _ hl' (pinIds_branch φ hwf (P ++ [r]) m) _ hJ'
+  obtain ⟨b, hb, hbp, hbP, hsat⟩ := path_facts φ hwf (P ++ [r]) m p J' hsJ' hmJ' hpins hle s hs
+  have hbr : selOfAssign φ b r.step = r := hbP r (List.mem_append_right _ List.mem_cons_self) h0r (by omega)
+  refine ⟨b, ?_, ?_, hbp, fun r' hr' h0 h1 => hbP r' (List.mem_append_left _ hr') h0 h1, fun b' hb' => ?_⟩
+  · rw [canon_of_path φ b s _ hb x.id.step bx.1 bx.2, hsx]
+  · rw [canon_of_path φ b s _ hb v.id.step bv.1 bv.2, hsv]
+  · rw [PinVar.glue_same b b' _ (PinVar.sel_det φ b b' r.step h0r hrl (hbr.trans hb'.symm))]; exact hsat
+
+/-- **The verdict from nothing borrowed at pinned unions in the clause stage.** -/
+theorem sat_of_sideKeep (hwf : WF φ) (hK : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → SideKeepAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ := by
+  have hE := (joint φ hwf (fun m h hC hadv => flipSat_of_sideKeep φ hwf m hC hadv (hK m h))
+    (stepCount φ - 1).toNat).1 []
+  rw [PinHistory.branchLine_nil] at hE
+  refine RunInhabited.sat_of_lineSound φ hwf (fun kv' hkv' => ?_) kv hkv hv
+  intro x n hx hx0 hx1 q hq0 hq1 _ hqn
+  exact hE kv' hkv' x n hx hx0 hx1 q hq0 hq1 trivial hqn
+
+/-- info: 'AbsSat.GraphPath.Model.PinClause.sat_of_sideKeep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_sideKeep
 
 end AbsSat.GraphPath.Model.PinClause

@@ -291,15 +291,16 @@ theorem path_facts (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : G
     ∃ b : Assign, (∀ k, 0 ≤ k → k < (m : Int) + 2 → (s k).id = selOfAssign φ b k ∧
         (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1)))) ∧
       selOfAssign φ b ((m : Int) + 1) = p ∧
-      (∀ r ∈ P, 0 ≤ r.step → r.step < (m : Int) + 1 → selOfAssign φ b r.step = r) := by
+      (∀ r ∈ P, 0 ≤ r.step → r.step < (m : Int) + 1 → selOfAssign φ b r.step = r) ∧
+      SatBelow φ b ((m : Int) + 2) := by
   have hcs : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
-  obtain ⟨b, _, hsel⟩ := RunNoBorrow.genuine_of_chain φ hwf m J hmJ hcs (by rw [hcs]; exact hle) s hsc
+  obtain ⟨b, hsatb, hsel⟩ := RunNoBorrow.genuine_of_chain φ hwf m J hmJ hcs (by rw [hcs]; exact hle) s hsc
   have node : ∀ k, 0 ≤ k → k < (m : Int) + 2 → ∃ n ∈ J.nodes, n.id = s k ∧ (s k).id.step = k := by
     intro k h0 h1
     obtain ⟨hsome, hstep⟩ := hsc.chain.1.1 k h0 (by rw [hcs]; exact h1)
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
     exact ⟨n, List.mem_of_find?_eq_some hn, node?_id_eq _ _ n hn, hstep⟩
-  refine ⟨b, hsel, ?_, fun r hr h0 h1 => ?_⟩
+  refine ⟨b, hsel, ?_, fun r hr h0 h1 => ?_, hsatb⟩
   · obtain ⟨n, hn, hid, hst⟩ := node ((m : Int) + 1) (by omega) (by omega)
     have := hmJ.tl n hn (by rw [hid, hst, hcs]; omega)
     rw [hsJ.par, hid] at this
@@ -383,9 +384,9 @@ theorem var_glue (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m : Int) + 1 <
   obtain ⟨s1, hs1, hs1x, hs1v⟩ := real x v hxv
   obtain ⟨s2, hs2, hs2x, hs2r⟩ := real x ρx hxρ
   obtain ⟨s3, hs3, hs3v, hs3r⟩ := real v ρv hvρ
-  obtain ⟨b1, hb1, hb1p, hb1P⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s1 hs1
-  obtain ⟨b2, hb2, hb2p, hb2P⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s2 hs2
-  obtain ⟨b3, hb3, hb3p, hb3P⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s3 hs3
+  obtain ⟨b1, hb1, hb1p, hb1P, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s1 hs1
+  obtain ⟨b2, hb2, hb2p, hb2P, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s2 hs2
+  obtain ⟨b3, hb3, hb3p, hb3P, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s3 hs3
   -- the glued assignment: the entry's path, with the pinned value on its variable
   have hlit : ∀ k : Int, k < (m : Int) + 2 → k < litBlock φ := fun k hk => by omega
   have selr : ∀ (s : Int → PathNodeId) (b : Assign) (ρ : PathNodeId), s ρ.id.step = ρ → ρ.id = r →
