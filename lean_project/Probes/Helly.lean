@@ -4883,6 +4883,103 @@ def commonAt (φ : Cnf) (lineIdx : Nat) (key : NodeId) (x v : PathNodeId) (rstep
       out := out ++ [s!"  {pidS z}: x~z {cx} v~z {cv} | owners at step {rstep}: {atR}"]
   return out
 
+-- OwnSupport (route C): in a valid pinned union, is what the union keeps of some side (nodes owning its
+-- live top, pairs the side itself carries) a support of that side's send?
+structure OSStat where
+  pins : Nat := 0
+  validX : Nat := 0
+  someSide : Nat := 0
+  noSide : Nat := 0
+  validSideExists : Nat := 0
+  sidesTried : Nat := 0
+  fails : List (String × Nat) := []
+  ex : List String := []
+
+def bumpS (l : List (String × Nat)) (k : String) : List (String × Nat) :=
+  if l.any (·.1 == k) then l.map (fun e => if e.1 == k then (e.1, e.2 + 1) else e) else l ++ [(k, 1)]
+
+def supCheck (X h : GPathM) (t : PathNodeId) : List String := Id.run do
+  let tX := ownerTable X
+  let memX : Std.HashSet PathNodeId := Std.HashSet.ofList (X.nodes.map (·.id))
+  let relX (a b : PathNodeId) : Bool := memX.contains b && (match tX.get? a with | some o => o.contains b | none => false)
+  let tH := ownerTable h
+  let memH : Std.HashSet PathNodeId := Std.HashSet.ofList (h.nodes.map (·.id))
+  let relH (a b : PathNodeId) : Bool := memH.contains b && (match tH.get? a with | some o => o.contains b | none => false)
+  let S := (X.nodes.map (·.id)).filter (fun a => relX a t)
+  let inS : Std.HashSet PathNodeId := Std.HashSet.ofList S
+  let R (a b : PathNodeId) : Bool := inS.contains a && inS.contains b && relX a b && relH a b
+  let cs := h.current_step
+  let gow : Std.HashSet PathNodeId := Std.HashSet.ofList h.gowners
+  -- neighbours by step
+  let nb : Std.HashMap PathNodeId (List PathNodeId) :=
+    S.foldl (fun acc a => acc.insert a (S.filter (fun b => R a b))) {}
+  let nbs (a : PathNodeId) : List PathNodeId := nb.getD a []
+  let mut fails : List String := []
+  for a in S do
+    if !gow.contains a then fails := fails ++ ["gow"]
+    if !memH.contains a then fails := fails ++ ["node"]
+    for i in [0:cs.toNat] do
+      let l := Int.ofNat i
+      if !(nbs a).any (fun v => v.id.step == l) then fails := fails ++ ["cov"]
+    for b in nbs a do
+      if !R b a then fails := fails ++ ["sym"]
+      let nbb := nbs b
+      for i in [0:cs.toNat] do
+        let l := Int.ofNat i
+        if !(nbs a).any (fun z => z.id.step == l && nbb.contains z) then fails := fails ++ ["agg"]
+      -- parent rule
+      match h.node? a with
+      | none => pure ()
+      | some d =>
+        if a.parent_id.isSome then
+          if !d.parents.any (fun c => R a c && R c a && R c b) then fails := fails ++ ["par"]
+        if a.id.step != cs - 1 then
+          if !h.nodes.any (fun mm => mm.parents.contains a && R a mm.id && R mm.id a && R mm.id b) then
+            fails := fails ++ ["son"]
+        if b.id.step + 1 == a.id.step && R b a then
+          if !d.parents.contains b then fails := fails ++ ["link"]
+  return fails.eraseDups
+
+def runOwnSupport (φ : Cnf) (st0 : OSStat) : OSStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let J := kv.2
+      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      for r in rs do
+        st := { st with pins := st.pins + 1 }
+        let X := filterAllAgg J [r]
+        if !isValid X then continue
+        st := { st with validX := st.validX + 1 }
+        if sides.any (fun (_, h) => isValid (filterAllAgg h [r])) then
+          st := { st with validSideExists := st.validSideExists + 1 }
+        let tX := ownerTable X
+        let mut ok := false
+        for (k, h) in sides do
+          let t : PathNodeId := { id := p, parent_id := some k }
+          let alive := match tX.get? t with | some o => o.contains t | none => false
+          if !alive then continue
+          st := { st with sidesTried := st.sidesTried + 1 }
+          let f := supCheck X h t
+          if f.isEmpty then ok := true
+          else
+            for x in f do st := { st with fails := bumpS st.fails x }
+            if st.ex.length < 4 then
+              st := { st with ex := st.ex ++ [s!"{cnfS φ} line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index} side {k.step}.{k.index}: fails {f}"] }
+        if ok then st := { st with someSide := st.someSide + 1 }
+        else st := { st with noSide := st.noSide + 1 }
+  return st
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5456,6 +5553,15 @@ def main (args : List String) : IO Unit := do
         { id := ⟨s.toInt!, i.toInt!⟩, parent_id := if ps == "-" then none else some ⟨ps.toInt!, pi.toInt!⟩ }
       for o in commonAt φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) rs.toInt! l.toInt! do
         IO.println o
+  | "ownsupport" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : OSStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runOwnSupport φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"ownsupport seed {seed}: pins={st.pins} validPinnedUnion={st.validX} validSideExists={st.validSideExists} | OWN_SUPPORT some side={st.someSide} NONE={st.noSide} (sides tried {st.sidesTried}, field failures {st.fails}) | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with

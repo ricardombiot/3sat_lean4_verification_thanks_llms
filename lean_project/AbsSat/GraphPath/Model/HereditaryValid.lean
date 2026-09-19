@@ -455,4 +455,64 @@ theorem sat_of_validSideOnly (hwf : WF φ) (hVS : ∀ m, ValidSideAt φ m)
 #guard_msgs in
 #print axioms sat_of_validSideOnly
 
+-- ============================================================
+-- ValidSide from the side's own support
+-- ============================================================
+
+section OwnSupport
+
+open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel)
+open AbsSat.GraphPath.Model.AnchoredSurvive (Sup AOk AOk_filterAllAgg)
+open AbsSat.GraphPath.Model.PinDeath (topOf)
+
+/-- **The side's own support, at line `m`.** In a pinned union that stays valid, some side has its top
+alive, and what the pinned union keeps of that side — the nodes that own its top, and the pairs between
+them that the side itself carries (foreign pairs dropped) — is a support of the side's send. -/
+def OwnSupportAt (m : Nat) : Prop :=
+  ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ [] m) → ∀ Q, LitPins φ Q ((m : Int) + 2) →
+    isValid (filterAllAgg J Q) = true →
+    ∃ kv ∈ branchLine φ [] m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+      Rel (filterAllAgg J Q) (topOf p kv.1) (topOf p kv.1) ∧
+      Sup (sent φ kv.2 p)
+        (fun a => Rel (filterAllAgg J Q) a (topOf p kv.1))
+        (fun a b => Rel (filterAllAgg J Q) a b ∧ Rel (filterAllAgg J Q) a (topOf p kv.1) ∧
+          Rel (filterAllAgg J Q) b (topOf p kv.1) ∧ Rel (sent φ kv.2 p) a b)
+
+/-- **Validity is not borrowed, from the side's own support.** The support agrees with the pins (its nodes
+are nodes of the pinned union), so it survives pinning the side's send (`AOk_filterAllAgg`), and the top
+is a member of it. -/
+theorem validSide_of_ownSupport (hwf : WF φ) (m : Nat) (hO : OwnSupportAt φ m) : ValidSideAt φ m := by
+  intro p J hJ Q hQ hvX
+  obtain ⟨kv, hkv, hson, hvS, htop, hsup⟩ := hO p J hJ Q hQ hvX
+  refine ⟨kv, hkv, hson, hvS, ?_⟩
+  have hl := branchLine_inv φ hwf [] m
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok (hl.2 kv hkv) p hson hvS
+  have hpin : ∀ r ∈ Q, ∀ a, Rel (filterAllAgg J Q) a (topOf p kv.1) → a.id.step = r.step → a.id = r := by
+    intro r hr a ha hs
+    obtain ⟨n, hn, _, _⟩ := ha
+    have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+    have hmJ : MInv φ J := hadv.2 _ hJ
+    have hRX : ReadableAgg (filterAllAgg J Q) := ⟨J, Q, hmJ.rctx, rfl⟩
+    have adX := AdjacentOwners.adj_of_readable _ hRX hvX (AggInvariants.PMS_filterAllAgg J Q hmJ.pms)
+      (AggInvariants.SN_filterAllAgg J Q hmJ.sn)
+    have supX := LinkedChain.sup_self _ adX (AggFixpoint.aggOk_reviewAgg _ hvX)
+      (AnchoredSurvive.SMP_filterAllAgg J hmJ.smp hmJ.rctx.shape.notroot Q)
+    have hgow : a ∈ (filterAllAgg J Q).gowners := supX.gow a ⟨n, hn⟩
+    exact ReaderAggRun.filterAllAgg_cleans J Q r hr a hgow hs
+  have hA := AOk_filterAllAgg (sent φ kv.2 p) ⟨hsup, hmS.smp, hmS.rctx.shape.notroot⟩ Q hpin
+  exact SupportSplit.valid_of_sup _ _ _ hA.sup (topOf p kv.1) htop
+
+/-- **The verdict of route C from the side's own support.** -/
+theorem sat_of_ownSupport (hwf : WF φ) (hO : ∀ m, OwnSupportAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_validSideOnly φ hwf (fun m => validSide_of_ownSupport φ hwf m (hO m)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.HereditaryValid.sat_of_ownSupport' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_ownSupport
+
+end OwnSupport
+
 end AbsSat.GraphPath.Model.HereditaryValid
