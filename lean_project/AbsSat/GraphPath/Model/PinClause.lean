@@ -502,4 +502,125 @@ theorem union_review_keeps (hwf : WF φ) (P : List NodeId) (m : Nat)
     (by rw [hcs]; exact bx.2)
   rwa [hsx, hsv] at this
 
+-- ============================================================
+-- Only the wide incoherences are left
+-- ============================================================
+
+/-- A node **fixes** a variable when every assignment whose branch passes it gives that variable the same
+value (its own step's variable, its parent's, or the variables of its clause row). -/
+def Fixes (y : PathNodeId) (u : Nat) : Prop :=
+  ∀ b b' : Assign, canon φ b y.id.step = y → canon φ b' y.id.step = y → b u = b' u
+
+/-- **Nothing borrowed, for the wide entries only**: the entries of a pinned union neither of whose ends
+fixes the pinned variable. (Stated constructively: the hypothesis may use the other entries, which are
+proved.) -/
+def SideKeepFarAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ x v, Rel (filterAllAgg J [r]) x v →
+        let Goal := ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧
+          isValid (sent φ kv.2 p) = true ∧ isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧
+          Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
+        -- the entries with an end that fixes the pinned variable are given
+        ((Fixes φ x (r.step / 2).toNat ∨ Fixes φ v (r.step / 2).toNat) → Goal) → Goal
+
+/-- **An entry with an end that fixes the pinned variable borrows nothing.** The review gives that end a
+common owner with the pinned value, the union is exact, so a path of the union passes the end and the
+pin; the end fixes the variable, so the entry's own path takes the pinned value too, and it is a path of
+one side's pinned send. -/
+theorem sideKeep_of_far (hwf : WF φ) (m : Nat) (hE : ∀ P, LineSoundL Full (pureAdvanceW φ (branchLine φ P m)))
+    (hK : SideKeepFarAt φ m) : SideKeepAt φ m := by
+  intro P r h0r hrm hrl p J hJ hvX x v hxv
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  have hle : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have hsound : SoundAt Full J := hE P _ hJ
+  have hpinsJ : PinIdsBelow P ((m : Int) + 1) J :=
+    PinHistory.pinIds_advance φ P m _ hl (pinIds_branch φ hwf P m) _ hJ
+  -- the pinned union, kept opaque
+  have hRX : ReadableAgg (filterAllAgg J [r]) := ⟨J, [r], hmJ.rctx, rfl⟩
+  have okX : AggFixpoint.AggOk (filterAllAgg J [r]) := aggOk_reviewAgg _ hvX
+  have smpX := AnchoredSurvive.SMP_filterAllAgg J hmJ.smp hmJ.rctx.shape.notroot [r]
+  have pmsX := AggInvariants.PMS_filterAllAgg J [r] hmJ.pms
+  have snX := AggInvariants.SN_filterAllAgg J [r] hmJ.sn
+  have prX : Pruned J (filterAllAgg J [r]) := pruned_filterAllAgg _ _
+  have cleanX : ∀ q, q ∈ (filterAllAgg J [r]).gowners → q.id.step = r.step → q.id = r :=
+    fun q hq hs => ReaderAggRun.filterAllAgg_cleans J [r] r List.mem_cons_self q hq hs
+  have hK' := hK P r h0r hrm hrl p J hJ hvX x v
+  generalize filterAllAgg J [r] = X at hRX hvX okX smpX pmsX snX prX cleanX hxv hK'
+  have adX := AdjacentOwners.adj_of_readable X hRX hvX pmsX snX
+  have supX := sup_self X adX okX smpX
+  have hcsX : X.current_step = (m : Int) + 2 := by rw [prX.step_eq, hcsJ]
+  have bnd : ∀ a, Mem X a → 0 ≤ a.id.step ∧ a.id.step < (m : Int) + 2 := by
+    intro a ha; have := mem_bounds X adX ha; rw [hcsX] at this; exact this
+  have real : ∀ a b, Rel X a b → Realizes J a b := by
+    intro a b hab
+    obtain ⟨n, hn, hb, hbm⟩ := hab
+    obtain ⟨n0, hn0, hid, hown, _⟩ := prX.nodes_derived n (List.mem_of_find?_eq_some hn)
+    have hJa : J.node? a = some n0 := by
+      rw [← node?_id_eq X a n hn, hid]; exact node?_of_mem hmJ.rctx.nodup n0 hn0
+    have ha := (supX.dom a b ⟨n, hn, hb, hbm⟩).1
+    have hb' := (supX.dom a b ⟨n, hn, hb, hbm⟩).2
+    exact hsound a n0 hJa (bnd a ha).1 (by rw [hcsJ]; exact (bnd a ha).2) b (bnd b hb').1
+      (by rw [hcsJ]; exact (bnd b hb').2) trivial (hown b hb)
+  have pinN : ∀ a, Mem X a → ∃ ρ, Rel X a ρ ∧ ρ.id = r ∧ ρ.id.step = r.step := by
+    intro a ha
+    obtain ⟨ρ, har, hρs⟩ := supX.cov a ha r.step h0r (by rw [hcsX]; omega)
+    exact ⟨ρ, har, cleanX ρ (supX.gow ρ (supX.dom a ρ har).2) hρs, hρs⟩
+  have bx := bnd x (supX.dom x v hxv).1
+  have bv := bnd v (supX.dom x v hxv).2
+  -- the entry's own path
+  obtain ⟨s1, hs1, hs1x, hs1v⟩ := real x v hxv
+  obtain ⟨b₁, hb1, hb1p, hb1P, hsat1⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s1 hs1
+  have cx : canon φ b₁ x.id.step = x := by rw [canon_of_path φ b₁ s1 _ hb1 x.id.step bx.1 bx.2, hs1x]
+  have cv : canon φ b₁ v.id.step = v := by rw [canon_of_path φ b₁ s1 _ hb1 v.id.step bv.1 bv.2, hs1v]
+  -- an end that fixes the pinned variable puts the entry's path on the pin
+  have fixed : ∀ y, Mem X y → canon φ b₁ y.id.step = y → Fixes φ y (r.step / 2).toNat →
+      selOfAssign φ b₁ r.step = r := by
+    intro y hy cy hfy
+    obtain ⟨ρ, hyρ, hρ, hρs⟩ := pinN y hy
+    obtain ⟨s2, hs2, hs2y, hs2r⟩ := real y ρ hyρ
+    obtain ⟨b₂, hb2, _, _, _⟩ := path_facts φ hwf P m p J hsJ hmJ hpinsJ hle s2 hs2
+    have by' := bnd y hy
+    have c2 : canon φ b₂ y.id.step = y := by rw [canon_of_path φ b₂ s2 _ hb2 y.id.step by'.1 by'.2, hs2y]
+    have hr2 : selOfAssign φ b₂ r.step = r := by
+      rw [← (hb2 r.step h0r (by omega)).1, ← hρs, hs2r, hρ]
+    rw [PinVar.sel_local φ b₁ b₂ r.step h0r hrl (hfy b₁ b₂ cy c2)]; exact hr2
+  have conclude : selOfAssign φ b₁ r.step = r →
+      ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+        isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧ Rel (filterAllAgg (sent φ kv.2 p) [r]) x v := by
+    intro hr1
+    obtain ⟨kv, hkv, hson, hvS, hsc⟩ := PinVar.side_of_path φ hwf P m hle r p b₁ hsat1 hr1 hb1p hb1P
+    have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+    have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+      (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
+    have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+    have hcsY : (filterAllAgg (sent φ kv.2 p) [r]).current_step = (m : Int) + 2 := by
+      rw [(pruned_filterAllAgg _ _).step_eq, hsS']; omega
+    have hrel := JoinSide.rel_of_chain _ _ hsc v.id.step x.id.step bv.1 (by rw [hcsY]; exact bv.2) bx.1
+      (by rw [hcsY]; exact bx.2)
+    rw [cx, cv] at hrel
+    exact ⟨kv, hkv, hson, hvS, PickInduction.isValid_of_ChainG _ _ hsc.chain, hrel⟩
+  exact hK' hxv (fun h => conclude (h.elim (fun hfx => fixed x (supX.dom x v hxv).1 cx hfx)
+    (fun hfv => fixed v (supX.dom x v hxv).2 cv hfv)))
+
+/-- **The verdict from the wide entries alone.** -/
+theorem sat_of_sideKeepFar (hwf : WF φ) (hK : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → SideKeepFarAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ := by
+  have hE := (joint φ hwf (fun m h hC hadv =>
+    flipSat_of_sideKeep φ hwf m hC hadv (sideKeep_of_far φ hwf m hadv (hK m h))) (stepCount φ - 1).toNat).1 []
+  rw [PinHistory.branchLine_nil] at hE
+  refine RunInhabited.sat_of_lineSound φ hwf (fun kv' hkv' => ?_) kv hkv hv
+  intro x n hx hx0 hx1 q hq0 hq1 _ hqn
+  exact hE kv' hkv' x n hx hx0 hx1 q hq0 hq1 trivial hqn
+
+/-- info: 'AbsSat.GraphPath.Model.PinClause.sat_of_sideKeepFar' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_sideKeepFar
+
 end AbsSat.GraphPath.Model.PinClause
