@@ -276,6 +276,104 @@ theorem unit_forced (hwf : WF φ) (S : GPathM) (ad : AdjacentOwners.Adj S)
 #guard_msgs in
 #print axioms unit_forced
 
+-- ============================================================
+-- B2 = B3: every clause is a row node, and every live row is a local solution
+-- ============================================================
+
+/-- **A live row carries the decided prefix.** For any row node of a clause in a valid reviewed state,
+the bit of each literal over a decided variable (`< v`) is that literal's value under `β`. No live value
+is needed: the row covers the literal's step, and the decided prefix fixes what it can own there. -/
+theorem row_bit_prefix (S : GPathM) (ad : AdjacentOwners.Adj S) (hok : AggFixpoint.AggOk S)
+    (hsmp : Sons.SMP S) (hrf : ReqFiltered (reqOfCnf φ) S) (hcs : S.current_step = stepCount φ)
+    (v : Nat) (β : Assign)
+    (hβ : ∀ p, Mem S p → p.id.step < 2 * (v : Int) → p.id.step % 2 = 0 →
+      p.id.index = bit (β (p.id.step / 2).toNat))
+    (r : PathNodeId) (hr : Mem S r) (lt : Lit) (b : Int) (hle : lt.v < v) (hlt : lt.v < φ.nVars)
+    (hmem : litReq lt b ∈ reqOfCnf φ r.id) : bit (litVal β lt) = b := by
+  have sup := sup_self S ad hok hsmp
+  obtain ⟨mr, hmr⟩ := hr
+  have hrid := node?_id_eq S r mr hmr
+  have hs0 : 0 ≤ lt.step := by unfold Lit.step; split <;> omega
+  have hs1 : lt.step < S.current_step := by
+    rw [hcs]; unfold Lit.step stepCount; split <;> omega
+  obtain ⟨z, hrz, hzs⟩ := sup.cov r ⟨mr, hmr⟩ lt.step hs0 hs1
+  have hzreq : z.id = litReq lt b := by
+    obtain ⟨m', hm', hzin, _⟩ := hrz
+    rw [hmr] at hm'; cases hm'
+    exact hrf mr (List.mem_of_find?_eq_some hmr) (litReq lt b) (by rw [hrid]; exact hmem) z hzin
+      (by rw [hzs]; rfl)
+  have hzm : Mem S z := by obtain ⟨_, _, _, h⟩ := hrz; exact h
+  cases hp : lt.pos with
+  | true =>
+    have hstep : lt.step = 2 * (lt.v : Int) := by unfold Lit.step; rw [hp]; simp
+    have hlv : litVal β lt = β lt.v := by simp [litVal, hp]
+    rw [hlv]
+    have hzstep : z.id.step = 2 * (lt.v : Int) := by rw [hzs, hstep]
+    have := hβ z hzm (by rw [hzstep]; omega) (by rw [hzstep]; omega)
+    rw [hzstep, show (2 * (lt.v : Int) / 2).toNat = lt.v by omega, hzreq] at this
+    exact this.symm
+  | false =>
+    have hstep : lt.step = 2 * (lt.v : Int) + 1 := by unfold Lit.step; rw [hp]; simp
+    have hlv : litVal β lt = !(β lt.v) := by simp [litVal, hp]
+    rw [hlv]
+    have hzneg : reqOfCnf φ z.id = [{ step := varStep lt.v, index := 1 - z.id.index }] :=
+      reqOfCnf_neg φ z.id lt.v hlt (by rw [hzs, hstep]; rfl)
+    have hzb : z.id.index = b := by rw [hzreq]; rfl
+    obtain ⟨mz, hmz⟩ := hzm
+    have hzid := node?_id_eq S z mz hmz
+    obtain ⟨w, hzw, hws⟩ := sup.cov z ⟨mz, hmz⟩ (2 * (lt.v : Int)) (by omega) (by omega)
+    obtain ⟨mz', hmz', hwin, hwm⟩ := hzw
+    rw [hmz] at hmz'; cases hmz'
+    have h1 : w.id.index = 1 - b := by
+      have := hrf mz (List.mem_of_find?_eq_some hmz) _ (by rw [hzid, hzneg]; exact List.mem_cons_self) w hwin
+        (by rw [hws]; rfl)
+      rw [this, hzb]
+    have h2 := hβ w hwm (by rw [hws]; omega) (by rw [hws]; omega)
+    rw [hws, show (2 * (lt.v : Int) / 2).toNat = lt.v by omega] at h2
+    rw [AbsSat.GraphMap.CnfSel.bit_not, ← h2, h1]
+    omega
+
+/-- **Every pair of literal nodes is witnessed by a live row** (the same for two or three open literals).
+Two nodes of a valid reviewed state that own each other share, at a clause's step, a row that owns both:
+that row names a true literal of the clause, carries the decided prefix, and fixes the values of both
+nodes. -/
+theorem entry_witness (S : GPathM) (ad : AdjacentOwners.Adj S)
+    (hok : AggFixpoint.AggOk S) (hsmp : Sons.SMP S) (hrf : ReqFiltered (reqOfCnf φ) S)
+    (hmap : NodesOnMap φ S) (hcs : S.current_step = stepCount φ)
+    (v : Nat) (β : Assign)
+    (hβ : ∀ p, Mem S p → p.id.step < 2 * (v : Int) → p.id.step % 2 = 0 →
+      p.id.index = bit (β (p.id.step / 2).toNat))
+    (j : Nat) (hj : j < φ.clauses.length) (w₁ w₂ : PathNodeId) (h12 : Rel S w₁ w₂) :
+    ∃ r, Mem S r ∧ r.id.step = clauseStep φ j ∧ Rel S r w₁ ∧ Rel S r w₂ ∧
+      1 ≤ r.id.index ∧ r.id.index ≤ 7 ∧
+      reqOfCnf φ r.id = [litReq φ.clauses[j].l1 (b1 r.id.index), litReq φ.clauses[j].l2 (b2 r.id.index),
+        litReq φ.clauses[j].l3 (b3 r.id.index)] ∧
+      (∀ (lt : Lit) (b : Int), lt.v < v → lt.v < φ.nVars → litReq lt b ∈ reqOfCnf φ r.id →
+        bit (litVal β lt) = b) ∧
+      (∀ w, Rel S r w → ∀ req ∈ reqOfCnf φ r.id, w.id.step = req.step → w.id = req) := by
+  have sup := sup_self S ad hok hsmp
+  have hc : φ.clauses[j]? = some φ.clauses[j] := List.getElem?_eq_getElem hj
+  have hcj0 : 0 ≤ clauseStep φ j := by unfold clauseStep; omega
+  have hcj1 : clauseStep φ j < S.current_step := by rw [hcs]; unfold clauseStep stepCount; omega
+  obtain ⟨r, h1r, h2r, hrs⟩ := sup.agg w₁ w₂ h12 (clauseStep φ j) hcj0 hcj1
+  have hrm : Mem S r := by obtain ⟨_, _, _, h⟩ := h1r; exact h
+  obtain ⟨mr, hmr⟩ := hrm
+  have hrid := node?_id_eq S r mr hmr
+  have hon := onMap_of_mem φ S hmap ⟨mr, hmr⟩
+  rw [hrs] at hon
+  obtain ⟨hr1, hr7⟩ := index_range_of_clauseNode φ j hj _ hon
+  have hreqs := reqOfCnf_clause φ r.id j φ.clauses[j] hj hc hrs
+  refine ⟨r, ⟨mr, hmr⟩, hrs, sup.sym w₁ r h1r, sup.sym w₂ r h2r, hr1, hr7, hreqs,
+    fun lt b hle hlt hm => row_bit_prefix φ S ad hok hsmp hrf hcs v β hβ r ⟨mr, hmr⟩ lt b hle hlt hm, ?_⟩
+  intro w hrw req hreq hws
+  obtain ⟨m', hm', hwin, _⟩ := hrw
+  rw [hmr] at hm'; cases hm'
+  exact hrf mr (List.mem_of_find?_eq_some hmr) req (by rw [hrid]; exact hreq) w hwin hws
+
+/-- info: 'AbsSat.GraphPath.Model.LiveSolution.entry_witness' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms entry_witness
+
 end
 
 end AbsSat.GraphPath.Model.LiveSolution
