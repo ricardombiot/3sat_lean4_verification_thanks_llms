@@ -378,11 +378,12 @@ theorem pinned_source_valid (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM) 
 -- What is left: the union by key
 -- ============================================================
 
-/-- **Pinning goes through the union by key.** At an entry of the next line, if the pinned, reviewed union
-is valid, some side's pinned send is valid, and the pinned union sits inside any state of the next line
-with that key that contains every valid pinned side. -/
-def PinJoin : Prop :=
-  ∀ (m : Nat) (L : PureLine), LineInv φ m L → ∀ r : NodeId, 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+/-- **Pinning goes through the union by key, at line `m`.** At an entry of a branch's next line, if the
+pinned, reviewed union is valid, some side's pinned send is valid, and the pinned union sits inside any
+state of the next line with that key that contains every valid pinned side. -/
+def PinJoinAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId), let L := PinHistory.branchLine φ P m
+  ∀ r : NodeId, 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
     ∀ p J, (p, J) ∈ pureAdvanceW φ L → isValid (filterAllAgg J [r]) = true →
       (∃ kv ∈ L, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
         isValid (filterAllAgg (sent φ kv.2 p) [r]) = true) ∧
@@ -391,11 +392,31 @@ def PinJoin : Prop :=
           isValid (filterAllAgg (sent φ kv.2 p) [r]) = true → Embedded (filterAllAgg (sent φ kv.2 p) [r]) Z) →
         Embedded (filterAllAgg J [r]) Z
 
+/-- **Pinning goes through the union by key**, at every line. -/
+def PinJoin : Prop := ∀ m : Nat, PinJoinAt φ m
+
+/-- The variable stage: the union lies at or below the last literal step. -/
+def PinJoinVar : Prop := ∀ m : Nat, (m : Int) + 1 < litBlock φ → PinJoinAt φ m
+
+/-- The clause stage. -/
+def PinJoinClause : Prop := ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → PinJoinAt φ m
+
+/-- **The two stages make the whole.** -/
+theorem pinJoin_of_stages (hV : PinJoinVar φ) (hC : PinJoinClause φ) : PinJoin φ := by
+  intro m
+  by_cases h : (m : Int) + 1 < litBlock φ
+  · exact hV m h
+  · exact hC m (by omega)
+
 /-- **`PinAdvance` from the union alone.** Each valid pinned side goes through its send into the other
 line (`pin_send`), and grows into the other line's entry with that key; the union follows by `PinJoin`. -/
 theorem pinAdvance_of_join (hwf : WF φ) (hJ : PinJoin φ) : PinHistory.PinAdvance φ := by
-  intro m L L' hl hl' r h0 h1 hlb H kv hkv hv
-  obtain ⟨⟨kv0, hkv0, hd0, hs0, hy0⟩, hZ⟩ := hJ m L hl r h0 h1 hlb kv.1 kv.2 hkv hv
+  intro P m r h0 h1 hlb H kv hkv hv
+  have hl := PinHistory.branchLine_inv φ hwf P m
+  have hl' := PinHistory.branchLine_inv φ hwf (P ++ [r]) m
+  obtain ⟨⟨kv0, hkv0, hd0, hs0, hy0⟩, hZ⟩ := hJ m P r h0 h1 hlb kv.1 kv.2 hkv hv
+  generalize PinHistory.branchLine φ P m = L at hl H hkv hkv0 hZ
+  generalize PinHistory.branchLine φ (P ++ [r]) m = L' at hl' H ⊢
   -- every valid pinned side reaches the other line's entry
   have side : ∀ kvi ∈ L, kv.1 ∈ mapSons φ kvi.1.step kvi.1.index → isValid (sent φ kvi.2 kv.1) = true →
       isValid (filterAllAgg (sent φ kvi.2 kv.1) [r]) = true →

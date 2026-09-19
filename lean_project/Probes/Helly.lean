@@ -4551,6 +4551,57 @@ def reportPS (name : String) (st : PSStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: pins={st.pins} entries={st.entries} NO_CARRYING_ANCHOR={st.noCarryingAnchor} anchorNotCarrying={st.anchorNotCarrying} | anchored triangle checks={st.anchoredChecks} FAILS={st.anchoredTriangleFails} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+
+-- Is the union by key already a fixpoint of the review (no pin)? Count nodes and entries the review removes.
+structure UFStat where
+  joins : Nat := 0
+  changed : Nat := 0
+  removedNodes : Nat := 0
+  removedEntries : Nat := 0
+  foreignEntries : Nat := 0
+  ex : List String := []
+
+def runUnionFix (φ : Cnf) (st0 : UFStat) : UFStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some h else none
+        else none)
+      if sides.length < 2 then continue
+      st := { st with joins := st.joins + 1 }
+      let J := kv.2
+      let R := filterAllAgg J []
+      let tR := ownerTable R
+      let tabs := sides.map ownerTable
+      let mut rn := 0
+      let mut re := 0
+      let mut fe := 0
+      for n in J.nodes do
+        -- foreign entries: in the union, between nodes of one side, missing from that side's table
+        for q in n.owners do
+          if tabs.any (fun t => match t.get? n.id with
+              | some o => t.contains q && !o.contains q
+              | none => false) then fe := fe + 1
+        match tR.get? n.id with
+        | none => rn := rn + 1
+        | some o => for q in n.owners do if tR.contains q && !o.contains q then re := re + 1
+      st := { st with removedNodes := st.removedNodes + rn, removedEntries := st.removedEntries + re,
+                      foreignEntries := st.foreignEntries + fe }
+      if rn + re > 0 then
+        st := { st with changed := st.changed + 1 }
+        if st.ex.length < 6 then st := { st with ex := st.ex ++ [s!"line {m+1} key {p.step}.{p.index}: removed nodes {rn} entries {re}"] }
+  return st
+
+def reportUF (name : String) (st : UFStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} REVIEW_CHANGES_UNION={st.changed} removedNodes={st.removedNodes} removedEntries={st.removedEntries} | foreign entries in union (x,v in a side, entry not in it)={st.foreignEntries} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5057,6 +5108,15 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runJoins φ {})
         let t1 ← IO.monoMsNow
         reportJ s!"joins {path}" st (t1 - t0)
+  | "unionfix" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runUnionFix φ {})
+        let t1 ← IO.monoMsNow
+        reportUF s!"unionfix {path}" st (t1 - t0)
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with

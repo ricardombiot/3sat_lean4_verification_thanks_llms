@@ -435,16 +435,15 @@ theorem sat_of_pinCommutes1 (hwf : WF φ) (h1 : PinCommutes1 φ) (kv : NodeId ×
 -- One pin, line by line: the history property is one step of the machine
 -- ============================================================
 
-/-- **Pinning goes through one advance.** If each pinned state of a line sits inside the state with the same
-key of another line, each pinned state of the next line sits inside the state with the same key of the
-other next line. -/
+/-- **Pinning goes through one advance.** If each pinned state of a branch's line sits inside the state with
+the same key of the branch that also carries the pin, the same holds on the next line. -/
 def PinAdvance : Prop :=
-  ∀ (m : Nat) (L L' : PureLine), LineInv φ m L → LineInv φ m L' →
-    ∀ r : NodeId, 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
-    (∀ kv ∈ L, isValid (filterAllAgg kv.2 [r]) = true →
-      ∃ kv' ∈ L', kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2) →
-    ∀ kv ∈ pureAdvanceW φ L, isValid (filterAllAgg kv.2 [r]) = true →
-      ∃ kv' ∈ pureAdvanceW φ L', kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2
+  ∀ (P : List NodeId) (m : Nat) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    (∀ kv ∈ branchLine φ P m, isValid (filterAllAgg kv.2 [r]) = true →
+      ∃ kv' ∈ branchLine φ (P ++ [r]) m, kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2) →
+    ∀ kv ∈ pureAdvanceW φ (branchLine φ P m), isValid (filterAllAgg kv.2 [r]) = true →
+      ∃ kv' ∈ pureAdvanceW φ (branchLine φ (P ++ [r]) m), kv'.1 = kv.1 ∧
+        Embedded (filterAllAgg kv.2 [r]) kv'.2
 
 /-- **A pin at the top step is the key.** Every node at the top carries the key; a valid pinned state keeps
 a global owner there, which is the pin. -/
@@ -502,8 +501,7 @@ theorem pinCommutes_all (hwf : WF φ) (hA : PinAdvance φ) (P : List NodeId) :
     · have hkv' := hkv
       rw [branchLine_succ] at hkv'
       obtain ⟨hA', hpass⟩ := mem_restrict hkv'
-      obtain ⟨kv', hkv'', hk, e⟩ := hA m (branchLine φ P m) (branchLine φ (P ++ [r]) m)
-        (branchLine_inv φ hwf P m) (branchLine_inv φ hwf _ m) r h0 (by omega) hlb
+      obtain ⟨kv', hkv'', hk, e⟩ := hA P m r h0 (by omega) hlb
         (fun kv0 hkv0 hv0 => ih kv0 hkv0 r h0 (by omega) hlb hv0) kv hA' hv
       refine ⟨kv', ?_, hk, e⟩
       rw [branchLine_succ]
