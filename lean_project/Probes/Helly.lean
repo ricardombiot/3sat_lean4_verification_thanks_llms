@@ -5365,6 +5365,17 @@ def main (args : List String) : IO Unit := do
         st := runTopKeep φ st
       let t1 ← IO.monoMsNow
       reportTK s!"topkeep seed {seed}" st (t1 - t0)
+  | "splittracef" :: path :: line :: ks :: ki :: xs :: xi :: xps :: xpi :: vs :: vi :: vps :: vpi :: rs :: ri :: _ =>
+    match ← loadCnf path with
+    | none => IO.println "bad cnf"
+    | some φ =>
+      let pid (s i ps pi : String) : AbsSat.Utils.Alias.PathNodeId :=
+        { id := ⟨s.toInt!, i.toInt!⟩, parent_id := if ps == "-" then none else some ⟨ps.toInt!, pi.toInt!⟩ }
+      for l in splitTrace φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) ⟨rs.toInt!, ri.toInt!⟩ do
+        IO.println l
+      IO.println "--- survtrace"
+      for l in survTrace φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) ⟨rs.toInt!, ri.toInt!⟩ do
+        IO.println l
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with
