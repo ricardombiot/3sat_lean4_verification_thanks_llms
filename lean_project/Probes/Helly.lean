@@ -4462,6 +4462,14 @@ def runPinJoin (φ : Cnf) (st0 : PJStat) : PJStat := Id.run do
           let Z := rest.foldl doJoin y
           let tZ := ownerTable Z
           let tX := ownerTable X
+          -- work the review does: entries of the union between surviving nodes that Z lacks
+          for n in kv.2.nodes do
+            if tX.contains n.id then
+              match tZ.get? n.id with
+              | none => pure ()
+              | some o =>
+                for q in n.owners do
+                  if tX.contains q && !o.contains q then st := { st with foreignPre := st.foreignPre + 1 }
           for n in X.nodes do
             match tZ.get? n.id with
             | none => st := { st with badNodes := st.badNodes + 1 }
@@ -4473,7 +4481,7 @@ def runPinJoin (φ : Cnf) (st0 : PJStat) : PJStat := Id.run do
   return st
 
 def reportPJ (name : String) (st : PJStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} pins={st.pins} valid={st.valid} NO_VALID_SIDE={st.noSide} BAD_NODES={st.badNodes} BAD_ENTRIES={st.badEntries} | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} pins={st.pins} valid={st.valid} NO_VALID_SIDE={st.noSide} REVIEW_WORK(entries between survivors outside Z)={st.foreignPre} BAD_NODES={st.badNodes} BAD_ENTRIES={st.badEntries} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 end Probes.Helly

@@ -74,3 +74,11 @@ literal. La diferencia con los intentos anteriores es que ahora, dentro de la in
 v153, **los lados de la unión son exactos hacia los literales** (`SoundAt`), y
 `JoinSide.sideCover_of_sound` ya da la mitad de cobertura a partir de lados exactos. El paso siguiente
 es llevar la inducción conjunta hasta `PinJoin`, usando esa exactitud de los lados.
+
+## 7. Adenda: el review hace trabajo global en `PinJoin`
+
+Medí cuántas entradas de la unión, **entre nodos que sobreviven**, no están en la unión de los lados
+fijados y revisados: paridad k3 desc **320**, Tseitin K4 **10.464**. El review de la unión las elimina
+todas (0 fuera al final). A diferencia del caso base con literales (0 entradas ajenas), aquí no hay atajo
+estructural: que el review de la unión no conserve nada que los lados no conserven es, otra vez, la
+afirmación de pegado (`RunPaths` / `SurvivorsRealized` en su forma de una fijación).
