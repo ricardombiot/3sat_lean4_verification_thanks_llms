@@ -175,9 +175,37 @@ def LitStep (s : Int) : Prop := s < litBlock φ ∨ s = 0
 step on a path. -/
 def FilterSoundAt : Prop :=
   ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → SoundAt (LitStep φ) kv.2 →
-    ∀ (ws : List (Int × List NodeId)) (rq : List NodeId),
+    ∀ (ws : List (Int × List NodeId)) (rq : List NodeId), (∀ r ∈ rq, LitStep φ r.step) →
       isValid (filterAllAgg (filterWeakAll kv.2 ws) rq) = true →
       SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 ws) rq)
+
+/-- The requirements of a map node sit at literal steps. -/
+theorem reqOfCnf_lit (hwf : WF φ) (d : NodeId) : ∀ r ∈ reqOfCnf φ d, r.step < litBlock φ := by
+  intro r hr
+  unfold reqOfCnf at hr
+  split at hr
+  · exact absurd hr List.not_mem_nil
+  · split at hr
+    · split at hr
+      · exact absurd hr List.not_mem_nil
+      · rw [List.mem_singleton.mp hr]; show d.step - 1 < litBlock φ; omega
+    · split at hr
+      · exact absurd hr List.not_mem_nil
+      · split at hr
+        · exact absurd hr List.not_mem_nil
+        · split at hr
+          · exact absurd hr List.not_mem_nil
+          · next c hc =>
+            have hcm : c ∈ φ.clauses := by
+              unfold clauseAt at hc; exact List.mem_of_getElem? hc
+            obtain ⟨⟨h1, h2, h3⟩, _⟩ := hwf c hcm
+            have lt : ∀ l : Lit, l.v < φ.nVars → l.step < litBlock φ := by
+              intro l hl; unfold Lit.step litBlock; split <;> omega
+            simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+            rcases hr with rfl | rfl | rfl
+            · exact lt _ h1
+            · exact lt _ h2
+            · exact lt _ h3
 
 /-- Every node of a valid reviewed reader's state owns something at step 0. -/
 theorem cov0 (F : GPathM) (hR : ReadableAgg F) (hv : isValid F = true) (hpos : 0 < F.current_step) :
@@ -191,7 +219,7 @@ theorem cov0 (F : GPathM) (hR : ReadableAgg F) (hv : isValid F = true) (hpos : 0
   exact ⟨z, hz, eq_of_beq hzs⟩
 
 /-- **A send keeps it**: the filter by hypothesis, the `up` by `soundAt_addNode`. -/
-theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
+theorem soundAt_sent (hwf : WF φ) (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (ht : SoundAt (LitStep φ) kv.2)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true) :
     SoundAt (LitStep φ) (sent φ kv.2 d) := by
@@ -218,7 +246,8 @@ theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
   have hstepF : F.current_step = k + 1 := by rw [hkF.1.step_eq, hkv.step]
   have heq : sent φ kv.2 d = addNode F d "" := by rw [hsentF]; unfold GPathM.up; rw [hvF]; rfl
   have hFs : SoundAt (LitStep φ) F := by
-    rw [hFdef]; rw [hFdef] at hvF; exact hF k kv hkv hm ht _ _ hvF
+    rw [hFdef]; rw [hFdef] at hvF
+    exact hF k kv hkv hm ht _ _ (fun r hr => Or.inl (reqOfCnf_lit φ hwf d r hr)) hvF
   rw [heq]
   refine soundAt_addNode (LitStep φ) (Or.inr rfl) F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
     rcF.below ?_ rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn
@@ -259,7 +288,7 @@ theorem lineSoundAt_advance (hwf : WF φ) (hF : FilterSoundAt φ) (k : Int) (L :
   split
   · next hv =>
     exact lineSoundAt_insertPure φ acc d _ hsl
-      (soundAt_sent φ hF k kv (hl.1.2 kv hkv) (hl.2 kv hkv) (hs kv hkv) d hd hv)
+      (soundAt_sent φ hwf hF k kv (hl.1.2 kv hkv) (hl.2 kv hkv) (hs kv hkv) d hd hv)
   · exact hsl
 
 theorem lineSoundAt_init : LineSoundAt φ (pureInit φ) := by
@@ -300,7 +329,7 @@ theorem sat_of_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) (kv : NodeId × GPa
     have := ConservationCore.stepCount_pos φ; omega
   rw [hcast] at hl
   have hsk := hl.1.2 kv hkv
-  have hts := hF _ kv hsk hm (run_soundAt φ hwf hF kv hkv) [] [] hv
+  have hts := hF _ kv hsk hm (run_soundAt φ hwf hF kv hkv) [] [] (fun _ h => absurd h List.not_mem_nil) hv
   have hfw : filterWeakAll kv.2 [] = kv.2 := rfl
   rw [hfw] at hts
   have hRG : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
