@@ -580,4 +580,102 @@ theorem sat_of_topValid (hwf : WF φ) (hT : ∀ m, TopValidAt φ m)
 
 end TopValid
 
+-- ============================================================
+-- TopValid from the closure of the family the chain names
+-- ============================================================
+
+section ChainClosure
+
+open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel mem_bounds)
+open AbsSat.GraphPath.Model.AnchoredSurvive (Sup AOk AOk_filterAllAgg)
+open AbsSat.GraphPath.Model.PinDeath (topOf ChainFam top_owner_gowner)
+
+/-- **The closure rules of the family a top names.** Everything else a support needs is proved
+(`top_owner_gowner` and the shape of the family). Probe `chainfam`: 0 failures. -/
+def ChainClosureAt (m : Nat) : Prop :=
+  ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ [] m) → ∀ Q, LitPins φ Q ((m : Int) + 2) →
+    isValid (filterAllAgg J Q) = true →
+    ∀ kv ∈ branchLine φ [] m, p ∈ mapSons φ kv.1.step kv.1.index → isValid (sent φ kv.2 p) = true →
+      Mem (filterAllAgg J Q) (topOf p kv.1) →
+      (let X := filterAllAgg J Q; let S := sent φ kv.2 p; let t := topOf p kv.1
+       (∀ x, Rel X x t → ∀ l, 0 ≤ l → l < S.current_step → ∃ v, ChainFam X S t x v ∧ v.id.step = l) ∧
+       (∀ x d, Rel X x t → S.node? x = some d → x.parent_id ≠ none → ∀ v, ChainFam X S t x v →
+         ∃ c ∈ d.parents, ChainFam X S t x c ∧ ChainFam X S t c x ∧ ChainFam X S t c v) ∧
+       (∀ x, Rel X x t → x.id.step ≠ S.current_step - 1 → ∀ v, ChainFam X S t x v →
+         ∃ c n, S.node? c = some n ∧ x ∈ n.parents ∧ ChainFam X S t x c ∧ ChainFam X S t c x ∧
+           ChainFam X S t c v) ∧
+       (∀ x v, ChainFam X S t x v → ∀ l, 0 ≤ l → l < S.current_step →
+         ∃ z, ChainFam X S t x z ∧ ChainFam X S t v z ∧ z.id.step = l) ∧
+       (∀ x c d, ChainFam X S t x c → ChainFam X S t c x → c.id.step + 1 = x.id.step →
+         S.node? x = some d → c ∈ d.parents))
+
+/-- **Validity is not borrowed, from the closure of that family.** The family is a support of the side's
+send: its nodes are the side's (`top_owner_gowner`), its pairs are the side's own by definition, and the
+closure rules are the hypothesis. A support survives the pins (`AOk_filterAllAgg`), so the side's pinned
+send is valid. -/
+theorem topValid_of_chainClosure (hwf : WF φ) (m : Nat) (hC : ChainClosureAt φ m) : TopValidAt φ m := by
+  intro p J hJ Q hQ hvX kv hkv hson hvS hmem
+  have hl := branchLine_inv φ hwf [] m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok (hl.2 kv hkv) p hson hvS
+  have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+    (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
+  have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+  have hcsS : (sent φ kv.2 p).current_step = (m : Int) + 2 := by rw [hsS']; omega
+  have hRX : ReadableAgg (filterAllAgg J Q) := ⟨J, Q, hmJ.rctx, rfl⟩
+  have adX := AdjacentOwners.adj_of_readable _ hRX hvX (AggInvariants.PMS_filterAllAgg J Q hmJ.pms)
+    (AggInvariants.SN_filterAllAgg J Q hmJ.sn)
+  have supX := LinkedChain.sup_self _ adX (AggFixpoint.aggOk_reviewAgg _ hvX)
+    (AnchoredSurvive.SMP_filterAllAgg J hmJ.smp hmJ.rctx.shape.notroot Q)
+  have hcsX : (filterAllAgg J Q).current_step = (m : Int) + 2 := by
+    rw [(pruned_filterAllAgg J Q).step_eq, hsJ.step]; omega
+  obtain ⟨hcov, hpar, hson', hagg, hlink⟩ := hC p J hJ Q hQ hvX kv hkv hson hvS hmem
+  -- the family is a support of the side's send
+  have hbnd : ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1) → 0 ≤ x.id.step ∧
+      x.id.step < (sent φ kv.2 p).current_step := by
+    intro x hx
+    have := mem_bounds _ adX (supX.dom x _ hx).1
+    rw [hcsX] at this; rw [hcsS]; exact this
+  have hgn : ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1) →
+      x ∈ (sent φ kv.2 p).gowners ∧ Mem (sent φ kv.2 p) x := by
+    intro x hx
+    exact top_owner_gowner φ hwf [] m p J hJ Q kv hkv hson hvS x (supX.sym _ _ hx)
+      (hbnd x hx).1 (hbnd x hx).2
+  have hsup : Sup (sent φ kv.2 p) (fun x => Rel (filterAllAgg J Q) x (topOf p kv.1))
+      (ChainFam (filterAllAgg J Q) (sent φ kv.2 p) (topOf p kv.1)) := by
+    refine ⟨fun x hx => (hgn x hx).1, fun x hx => ?_, fun x hx => hbnd x hx, ?_, ?_, hcov, hpar,
+      hson', hagg, ?_, hlink⟩
+    · obtain ⟨n, hn⟩ := (hgn x hx).2; rw [hn]; rfl
+    · exact fun x v h => ⟨h.2.1, h.2.2.1⟩
+    · intro x v n h hn
+      obtain ⟨n', hn', hv', _⟩ := h.2.2.2.1
+      rw [hn] at hn'; cases hn'; exact hv'
+    · intro x v h
+      exact ⟨supX.sym _ _ h.1, h.2.2.1, h.2.1, h.2.2.2.2.1, h.2.2.2.1, h.2.2.2.2.2.symm⟩
+  -- it survives the pins
+  have hpin : ∀ r ∈ Q, ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1) → x.id.step = r.step →
+      x.id = r := by
+    intro r hr x hx hs
+    exact ReaderAggRun.filterAllAgg_cleans J Q r hr x (supX.gow x (supX.dom x _ hx).1) hs
+  have hA := AOk_filterAllAgg (sent φ kv.2 p) ⟨hsup, hmS.smp, hmS.rctx.shape.notroot⟩ Q hpin
+  obtain ⟨nt, hnt⟩ := hmem
+  exact SupportSplit.valid_of_sup _ _ _ hA.sup (topOf p kv.1)
+    ⟨nt, hnt, (AdjacentOwners.adj_of_readable _ hRX hvX (AggInvariants.PMS_filterAllAgg J Q hmJ.pms)
+      (AggInvariants.SN_filterAllAgg J Q hmJ.sn)).ctx.self _ nt hnt, nt, hnt⟩
+
+/-- **The verdict from the closure of the family the chain names.** -/
+theorem sat_of_chainClosure (hwf : WF φ) (hC : ∀ m, ChainClosureAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_topValid φ hwf (fun m => topValid_of_chainClosure φ hwf m (hC m)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.HereditaryValid.sat_of_chainClosure' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_chainClosure
+
+end ChainClosure
+
 end AbsSat.GraphPath.Model.HereditaryValid

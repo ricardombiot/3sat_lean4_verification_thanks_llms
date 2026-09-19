@@ -586,6 +586,21 @@ inductive ChainUp (X : GPathM) (z : PathNodeId) : PathNodeId → PathNodeId → 
   | link (c s t : PathNodeId) (ns : PNodeM) (hns : X.node? s = some ns) (hpar : c ∈ ns.parents)
       (h1 : Rel X c s) (h2 : Rel X s c) (h3 : Rel X s z) (hrest : ChainUp X z s t) : ChainUp X z c t
 
+/-- **A chain of common owners of a pair.** Like `ChainUp`, but every node of the chain owns both ends
+of the pair. Probe `chainfam` (2026-09-19): the family of pairs whose chain ends at a given top, kept
+only where the side itself carries them, satisfies every closure rule of a support — 0 failures. -/
+inductive ChainUp2 (X : GPathM) (a z : PathNodeId) : PathNodeId → PathNodeId → Prop where
+  | top (t : PathNodeId) (h : t.id.step = X.current_step - 1) : ChainUp2 X a z t t
+  | link (c s t : PathNodeId) (ns : PNodeM) (hns : X.node? s = some ns) (hpar : c ∈ ns.parents)
+      (h1 : Rel X c s) (h2 : Rel X s c) (h3 : Rel X s a) (h4 : Rel X s z)
+      (hrest : ChainUp2 X a z s t) : ChainUp2 X a z c t
+
+/-- **The family a top names**: pairs the pinned union keeps, that hang on the top `t`, that the side's
+send carries both ways, and whose chain of common owners reaches `t`. -/
+def ChainFam (X S : GPathM) (t a b : PathNodeId) : Prop :=
+  Rel X a b ∧ Rel X a t ∧ Rel X b t ∧ Rel S a b ∧ Rel S b a ∧
+    (ChainUp2 X a b a t ∨ ChainUp2 X b a b t)
+
 /-- **The side of a live pair, read from its chain, at line `m`.** Every entry of a pinned union has a
 chain of common owners up to the top of a side, and that side's pinned send keeps the entry.
 
