@@ -43,7 +43,7 @@ parciales (A), y el valor fijado quedó fijado cuando su variable era clave (la 
 |---|---|
 | `unionfix` | **sin fijar nada, la unión por clave ya es un punto fijo del review** (98 uniones, 0 cambios), aunque trae entradas de otros lados (24 / 440 / 114). Todo el trabajo del review lo provoca la fijación |
 | `pincommute` aleatorias (profundidad 2) | 3 semillas × 20 fórmulas: 27,3 M de entradas, **0 violaciones** |
-| `pinjoin` aleatorias | 35.370 fijaciones, **0** |
+| `pinjoin` aleatorias | 35.370 fijaciones (4–6 variables), **0**; búsqueda adicional con 5–7 variables (5 semillas × 20 fórmulas, 6.036 uniones, 106.290 fijaciones): **0 fallos**, con 119.964 entradas que el review de la unión sí tuvo que eliminar |
 
 ## 5. Lo que queda: `PinJoinClause`
 
