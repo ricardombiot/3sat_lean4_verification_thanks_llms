@@ -3941,6 +3941,67 @@ def reportSurv (name : String) (st : SrStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} entries={st.entries} realized={st.realized} NOT_REALIZED={st.NOT_REALIZED} truncatedSides={st.truncated} | R entries={st.rEntries} onASidePath={st.eitherOk} NEITHER={st.NEITHER} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- v148: NoBorrow — every path of the reviewed union of the pinned sides is a path of one side.
+-- ============================================================
+
+structure NbStat where
+  joins : Nat := 0
+  paths : Nat := 0
+  onA : Nat := 0
+  onB : Nat := 0
+  BORROWED : Nat := 0
+  truncated : Nat := 0
+  ex : List String := []
+
+def nbCheck (a b : GPathM) (budget : Nat) (st0 : NbStat) : NbStat := Id.run do
+  let mut st := st0
+  let R := reviewAgg (join a b)
+  if !isValid R then return st
+  st := { st with joins := st.joins + 1 }
+  match sidePaths R budget, sidePaths a budget, sidePaths b budget with
+  | some pr, some pa, some pb =>
+    let sa : Std.HashSet (List PathNodeId) := Std.HashSet.ofList pa.toList
+    let sb : Std.HashSet (List PathNodeId) := Std.HashSet.ofList pb.toList
+    for c in pr do
+      st := { st with paths := st.paths + 1 }
+      let ia := sa.contains c
+      let ib := sb.contains c
+      if ia then st := { st with onA := st.onA + 1 }
+      if ib then st := { st with onB := st.onB + 1 }
+      if !ia && !ib then
+        st := { st with BORROWED := st.BORROWED + 1 }
+        if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"borrowed path of length {c.length}"] }
+  | _, _, _ => st := { st with truncated := st.truncated + 1 }
+  return st
+
+def runNoBorrow (φ : Cnf) (budget : Nat) (st0 : NbStat) : NbStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  let pinned (g : GPathM) (d : NodeId) : GPathM :=
+    (reqOfCnf φ d).foldl filterRequire (filterWeakAll g (weakReqOfCnf φ d))
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              for d' in mapSons φ d.step d.index do
+                st := nbCheck (pinned e d') (pinned hst d') budget st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportNb (name : String) (st : NbStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} pathsOfReviewedUnion={st.paths} onSideA={st.onA} onSideB={st.onB} BORROWED={st.BORROWED} truncated={st.truncated} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -4223,6 +4284,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSurv φ 100000 {})
         let t1 ← IO.monoMsNow
         reportSurv s!"surv {path}" st (t1 - t0)
+  | "noborrow" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : NbStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runNoBorrow φ 100000 st
+      let t1 ← IO.monoMsNow
+      reportNb s!"noborrow seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "noborrow" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runNoBorrow φ 100000 {})
+        let t1 ← IO.monoMsNow
+        reportNb s!"noborrow {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
