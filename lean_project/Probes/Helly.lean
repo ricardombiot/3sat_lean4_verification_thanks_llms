@@ -4270,6 +4270,156 @@ def reportP1 (name : String) (st : P1Stat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: pins={st.pins} valid={st.valid} MISSING_KEY={st.missingKey} BAD_NODES={st.badNodes} BAD_ENTRIES={st.badEntries} badStates(var stage)={st.badStatesVar} badStates(clause stage)={st.badStatesClause} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+
+-- Base case of the one-pin commutation: a line state J (key p) is the join of the sends from the keys of
+-- the previous line; pin one of those keys r (step just below the top). Compare the reviewed pinned join
+-- with the send from r alone.
+structure BJStat where
+  joins : Nat := 0
+  pins : Nat := 0
+  valid : Nat := 0
+  foreignPre : Nat := 0
+  foreignNodeDies : Nat := 0
+  foreignEntryDies : Nat := 0
+  foreignSurvives : Nat := 0
+  badNodes : Nat := 0
+  badEntries : Nat := 0
+  ex : List String := []
+
+def ownerTable (g : GPathM) : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+  g.nodes.foldl (fun acc n => acc.insert n.id (Std.HashSet.ofList n.owners)) {}
+
+def runBaseJoin (φ : Cnf) (st0 : BJStat) : BJStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      st := { st with joins := st.joins + 1 }
+      let tJ := ownerTable kv.2
+      for (r, Sr) in sides do
+        if r.step ≥ 2 * (φ.nVars : Int) then continue
+        st := { st with pins := st.pins + 1 }
+        let X := filterAllAgg kv.2 [r]
+        let tR := ownerTable Sr
+        let tX := ownerTable X
+        -- foreign entries before the review: both ends are nodes of Sr, the entry is in J but not in Sr
+        let mut foreign : List (PathNodeId × PathNodeId) := []
+        for n in kv.2.nodes do
+          match tR.get? n.id with
+          | none => pure ()
+          | some o =>
+            for q in n.owners do
+              if tR.contains q && !o.contains q then foreign := (n.id, q) :: foreign
+        st := { st with foreignPre := st.foreignPre + foreign.length }
+        if !isValid X then continue
+        st := { st with valid := st.valid + 1 }
+        for (x, q) in foreign do
+          match tX.get? x with
+          | none => st := { st with foreignNodeDies := st.foreignNodeDies + 1 }
+          | some o =>
+            if !tX.contains q then st := { st with foreignNodeDies := st.foreignNodeDies + 1 }
+            else if o.contains q then
+              st := { st with foreignSurvives := st.foreignSurvives + 1 }
+              if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index}: {x.id.step}.{x.id.index} -> {q.id.step}.{q.id.index}"] }
+            else st := { st with foreignEntryDies := st.foreignEntryDies + 1 }
+        -- the full comparison: X inside Sr
+        for n in X.nodes do
+          match tR.get? n.id with
+          | none => st := { st with badNodes := st.badNodes + 1 }
+          | some o =>
+            for q in n.owners do
+              if tX.contains q && !o.contains q then st := { st with badEntries := st.badEntries + 1 }
+      let _ := tJ
+  return st
+
+def reportBJ (name : String) (st : BJStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} pins={st.pins} valid={st.valid} | foreign entries before review={st.foreignPre}: an end dies={st.foreignNodeDies}, entry dies={st.foreignEntryDies}, SURVIVE={st.foreignSurvives} | X outside Sr: nodes={st.badNodes} entries={st.badEntries} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+
+-- Why a foreign entry dies: test the review's conditions for it against the final tables of X.
+structure BWStat where
+  foreign : Nat := 0
+  aggFails : Nat := 0
+  aggBelowPin : Nat := 0
+  aggAtPin : Nat := 0
+  aggAbovePin : Nat := 0
+  parFails : Nat := 0
+  sonFails : Nat := 0
+  noneFails : Nat := 0
+  ex : List String := []
+
+def runBaseWhy (φ : Cnf) (st0 : BWStat) : BWStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      for (r, Sr) in sides do
+        let X := filterAllAgg kv.2 [r]
+        if !isValid X then continue
+        let tR := ownerTable Sr
+        let tX := ownerTable X
+        let nodesX : Std.HashMap PathNodeId PNodeM := X.nodes.foldl (fun acc n => acc.insert n.id n) {}
+        let owns (a b : PathNodeId) : Bool := match tX.get? a with | some o => o.contains b | none => false
+        let cs := X.current_step
+        for n in kv.2.nodes do
+          match tR.get? n.id, tX.get? n.id with
+          | some o, some _ =>
+            for q in n.owners do
+              if !(tR.contains q && !o.contains q && tX.contains q) then continue
+              let x := n.id
+              st := { st with foreign := st.foreign + 1 }
+              -- agg: a common owner at every step
+              let mut failSteps : List Int := []
+              for i in [0:cs.toNat] do
+                let l := Int.ofNat i
+                let ok := X.nodes.any (fun z => z.id.id.step == l && owns x z.id && owns q z.id)
+                if !ok then failSteps := l :: failSteps
+              -- par: a parent of x linked both ways that owns q (and the same for q)
+              let parOk (a b : PathNodeId) : Bool :=
+                a.parent_id.isNone || (match nodesX.get? a with
+                  | some na => na.parents.any (fun c => owns a c && owns c a && owns c b)
+                  | none => false)
+              let sonOk (a b : PathNodeId) : Bool :=
+                a.id.step == cs - 1 || (match nodesX.get? a with
+                  | some na => na.sons.any (fun c => owns a c && owns c a && owns c b)
+                  | none => false)
+              let parF := !(parOk x q && parOk q x)
+              let sonF := !(sonOk x q && sonOk q x)
+              if !failSteps.isEmpty then
+                st := { st with aggFails := st.aggFails + 1 }
+                if failSteps.any (· < r.step) then st := { st with aggBelowPin := st.aggBelowPin + 1 }
+                if failSteps.any (· == r.step) then st := { st with aggAtPin := st.aggAtPin + 1 }
+                if failSteps.any (· > r.step) then st := { st with aggAbovePin := st.aggAbovePin + 1 }
+              if parF then st := { st with parFails := st.parFails + 1 }
+              if sonF then st := { st with sonFails := st.sonFails + 1 }
+              if failSteps.isEmpty && !parF && !sonF then
+                st := { st with noneFails := st.noneFails + 1 }
+              if st.ex.length < 6 then
+                st := { st with ex := st.ex ++ [s!"pin {r.step}.{r.index} cs {cs}: {x.id.step}.{x.id.index}(par {x.parent_id.map (fun c => s!"{c.step}.{c.index}")}) -> {q.id.step}.{q.id.index}: agg fails at {failSteps.reverse}, par {parF}, son {sonF}"] }
+          | _, _ => pure ()
+  return st
+
+def reportBW (name : String) (st : BWStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: foreign={st.foreign} | agg fails={st.aggFails} (below pin {st.aggBelowPin}, at pin {st.aggAtPin}, above pin {st.aggAbovePin}) | par fails={st.parFails} | son fails={st.sonFails} | NONE FAILS={st.noneFails} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -4776,6 +4926,24 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runJoins φ {})
         let t1 ← IO.monoMsNow
         reportJ s!"joins {path}" st (t1 - t0)
+  | "basewhy" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runBaseWhy φ {})
+        let t1 ← IO.monoMsNow
+        reportBW s!"basewhy {path}" st (t1 - t0)
+  | "basejoin" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runBaseJoin φ {})
+        let t1 ← IO.monoMsNow
+        reportBJ s!"basejoin {path}" st (t1 - t0)
   | "pin1" :: paths =>
     for path in paths do
       match ← loadCnf path with
