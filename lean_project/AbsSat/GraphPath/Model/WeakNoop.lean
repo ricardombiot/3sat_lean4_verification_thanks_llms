@@ -201,11 +201,18 @@ open AbsSat.GraphPath.Model.RunInhabited (SoundAt LitStep FilterSoundAt soundAt_
 open AbsSat.GraphPath.Model.RunSteps (PinStepSoundAt PinPairSoundAt soundAt_pinOneByOne soundAt_of_embedded
   pinStep_of_pairs)
 
-/-- **The weak requirements change nothing, and the send keeps the invariant from its pins alone.** At a
+/-- The send without the weak filter keeps the invariant. -/
+def SendPinSoundAt : Prop :=
+  ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → SoundAt (LitStep φ) kv.2 →
+    ∀ d ∈ AbsSat.GraphMap.CnfSel.mapSons φ kv.1.step kv.1.index,
+      isValid (filterAllAgg kv.2 (reqOfCnf φ d)) = true →
+        SoundAt (LitStep φ) (filterAllAgg kv.2 (reqOfCnf φ d))
+
+/-- **The weak requirements change nothing.** At a
 send of the run, the pinned, reviewed state with and without the weak filter sit inside each other: each
 one's tables are a support carrying the pins, and the one without the weak filter also passes the weak
-requirements (`weak_member`). So the invariant needs only one pin at a time. -/
-theorem filterSoundAt_of_pins (hwf : WF φ) (hP : PinStepSoundAt φ) : FilterSoundAt φ := by
+requirements (`weak_member`). -/
+theorem filterSoundAt_of_sends (hwf : WF φ) (hS : SendPinSoundAt φ) : FilterSoundAt φ := by
   intro k kv hkv hm ht d hd hvW
   have hnr := hm.rctx.shape.notroot
   -- the destination is one step up, and its pins are below it
@@ -276,18 +283,24 @@ theorem filterSoundAt_of_pins (hwf : WF φ) (hP : PinStepSoundAt φ) : FilterSou
   have eAAw := embedded_of_cover _ adA _ _ _
     (AOk_filterAllAgg _ (WeakPairs.AOk_filterWeakAll (weakReqOfCnf φ d) kv.2 ⟨supA, hm.smp, hnr⟩ weakA)
       (reqOfCnf φ d) pinA).sup hstep.symm (fun _ _ h => h)
-  -- the invariant for the state without the weak filter, from one pin at a time
-  have hsA : SoundAt (LitStep φ) (filterAllAgg kv.2 (reqOfCnf φ d)) := by
-    obtain ⟨hvT, eAT, eTA, adA', hsA'⟩ :=
-      WeakPairs.full_seq kv.2 hm.rctx hm.smp hm.pms hm.sn [] (reqOfCnf φ d) hvA
-    have hR0 : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
-    have hv0 : isValid (filterAllAgg kv.2 []) = true :=
-      isValid_of_embedded (Hereditary.embedded_of_pruned_self (SeqPin.pruned_pinOneByOne _ _)
-        (RCtx_of_readableAgg _ hR0).nodup) hvT
-    have ht0 := soundAt_review _ kv.2 hm.rctx.nodup ht
-    have htT := soundAt_pinOneByOne φ hP (reqOfCnf φ d) _ hlit hR0 hv0 ht0 hvT
-    exact soundAt_of_embedded _ eAT eTA adA' hsA' htT
-  exact soundAt_of_embedded _ eAwA eAAw adAw smpAw hsA
+  exact soundAt_of_embedded _ eAwA eAAw adAw smpAw (hS k kv hkv hm ht d hd hvA)
+
+/-- One pin at a time is enough for a send. -/
+theorem sendPinSoundAt_of_pins (hwf : WF φ) (hP : PinStepSoundAt φ) : SendPinSoundAt φ := by
+  intro k kv _ hm ht d _ hvA
+  have hlit : ∀ r ∈ reqOfCnf φ d, LitStep φ r.step := fun r hr => Or.inl (reqOfCnf_lit φ hwf d r hr)
+  obtain ⟨hvT, eAT, eTA, adA', hsA'⟩ :=
+    WeakPairs.full_seq kv.2 hm.rctx hm.smp hm.pms hm.sn [] (reqOfCnf φ d) hvA
+  have hR0 : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
+  have hv0 : isValid (filterAllAgg kv.2 []) = true :=
+    isValid_of_embedded (Hereditary.embedded_of_pruned_self (SeqPin.pruned_pinOneByOne _ _)
+      (RCtx_of_readableAgg _ hR0).nodup) hvT
+  have ht0 := soundAt_review _ kv.2 hm.rctx.nodup ht
+  have htT := soundAt_pinOneByOne φ hP (reqOfCnf φ d) _ hlit hR0 hv0 ht0 hvT
+  exact soundAt_of_embedded _ eAT eTA adA' hsA' htT
+
+theorem filterSoundAt_of_pins (hwf : WF φ) (hP : PinStepSoundAt φ) : FilterSoundAt φ :=
+  filterSoundAt_of_sends φ hwf (sendPinSoundAt_of_pins φ hwf hP)
 
 /-- **The verdict by construction, from one pin at a time, towards the other literal steps.** -/
 theorem sat_of_pinPairs (hwf : WF φ) (hP : PinPairSoundAt φ) (kv : NodeId × GPathM)
