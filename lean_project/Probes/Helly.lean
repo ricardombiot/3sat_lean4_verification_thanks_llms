@@ -5203,6 +5203,101 @@ def runHistory (φ : Cnf) (st0 : HYStat) : HYStat := Id.run do
             if bad then st := { st with pairFails := st.pairFails + 1 }
   return st
 
+-- The family indexed by chains: pairs whose chain of common owners ends at the top t, kept only when
+-- the side itself carries them. Are the closure rules of a support satisfied?
+structure CFStat where
+  tops : Nat := 0
+  pairs : Nat := 0
+  covFails : Nat := 0
+  aggFails : Nat := 0
+  parFails : Nat := 0
+  sonFails : Nat := 0
+  linkFails : Nat := 0
+  ex : List String := []
+
+def runChainFam (φ : Cnf) (st0 : CFStat) : CFStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let J := kv.2
+      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg J [r]
+        if !isValid X then continue
+        let tX := ownerTable X
+        let memX : Std.HashSet PathNodeId := Std.HashSet.ofList (X.nodes.map (·.id))
+        let rel (a b : PathNodeId) : Bool := memX.contains b && (match tX.get? a with | some o => o.contains b | none => false)
+        let topStep := X.current_step - 1
+        let sonsOf : Std.HashMap PathNodeId (List PathNodeId) :=
+          X.nodes.foldl (fun acc n => n.parents.foldl (fun acc c => acc.insert c ((acc.getD c []) ++ [n.id])) acc) {}
+        let ids := X.nodes.map (·.id)
+        let steps := (List.range X.current_step.toNat).reverse.map Int.ofNat
+        -- tops reachable by a chain of common owners of a and b
+        let chainTops (a b : PathNodeId) : List PathNodeId := Id.run do
+          let mut reach : Std.HashMap PathNodeId (List PathNodeId) := {}
+          for l in steps do
+            if l < a.id.step then break
+            for c in ids.filter (fun c => c.id.step == l) do
+              if !(rel c b && (c == a || rel c a)) then continue
+              if l == topStep then reach := reach.insert c [c]
+              else
+                let mut acc : List PathNodeId := []
+                for s' in sonsOf.getD c [] do
+                  if rel c s' && rel s' c && rel s' b && rel s' a then
+                    for t in reach.getD s' [] do
+                      if !acc.contains t then acc := acc ++ [t]
+                reach := reach.insert c acc
+          return reach.getD a []
+        for (k, h) in sides do
+          let t : PathNodeId := { id := p, parent_id := some k }
+          if !rel t t then continue
+          st := { st with tops := st.tops + 1 }
+          let tH := ownerTable h
+          let memH : Std.HashSet PathNodeId := Std.HashSet.ofList (h.nodes.map (·.id))
+          let relH (a b : PathNodeId) : Bool := memH.contains b && (match tH.get? a with | some o => o.contains b | none => false)
+          let S := ids.filter (fun a => rel a t)
+          let R (a b : PathNodeId) : Bool :=
+            rel a b && relH a b && relH b a && (chainTops a b).contains t
+          let cs := h.current_step
+          for a in S do
+            let nbs := S.filter (fun b => R a b)
+            st := { st with pairs := st.pairs + nbs.length }
+            for i in [0:cs.toNat] do
+              let l := Int.ofNat i
+              if !nbs.any (fun b => b.id.step == l) then
+                st := { st with covFails := st.covFails + 1 }
+                if st.ex.length < 3 then
+                  st := { st with ex := st.ex ++ [s!"cov: {cnfS φ} line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index} top {pidS t} node {pidS a} step {l}"] }
+                break
+            for b in nbs do
+              let nbb := S.filter (fun z => R b z)
+              for i in [0:cs.toNat] do
+                let l := Int.ofNat i
+                if !nbs.any (fun z => z.id.step == l && nbb.contains z) then
+                  st := { st with aggFails := st.aggFails + 1 }
+                  break
+              match h.node? a with
+              | none => pure ()
+              | some d =>
+                if a.parent_id.isSome && !d.parents.any (fun c => R a c && R c a && R c b) then
+                  st := { st with parFails := st.parFails + 1 }
+                if a.id.step != cs - 1 &&
+                    !h.nodes.any (fun mm => mm.parents.contains a && R a mm.id && R mm.id a && R mm.id b) then
+                  st := { st with sonFails := st.sonFails + 1 }
+                if b.id.step + 1 == a.id.step && R b a && !d.parents.contains b then
+                  st := { st with linkFails := st.linkFails + 1 }
+  return st
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5810,6 +5905,15 @@ def main (args : List String) : IO Unit := do
         st := runHistory φ st
       let t1 ← IO.monoMsNow
       IO.println s!"history seed {seed}: pairs={st.pairs} noChain={st.noChain} | levels checked={st.levels} LEVEL_FAILS={st.levelFails} PAIRS_WITH_A_FAIL={st.pairFails} (states not found {st.noState}) | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
+  | "chainfam" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : CFStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runChainFam φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"chainfam seed {seed}: tops={st.tops} pairs={st.pairs} | COV={st.covFails} AGG={st.aggFails} PAR={st.parFails} SON={st.sonFails} LINK={st.linkFails} | {t1 - t0}ms"
       for e in st.ex do IO.println s!"  EX {e}"
   | "pinsplit" :: paths =>
     for path in paths do
