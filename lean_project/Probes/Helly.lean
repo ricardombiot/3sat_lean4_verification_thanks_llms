@@ -3844,6 +3844,103 @@ def reportSide (name : String) (st : SideStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} topsShared={st.topsShared} entries={st.entries} inA={st.inA} inB={st.inB} inBoth={st.inBoth} sideOk={st.sideOk} CROSS_ONLY={st.crossOnly} NO_ANCHOR={st.NO_ANCHOR} crossAnchor={st.crossAnchor} oneSideEntryNodesInBoth={st.onlyA_bothNodes} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- ============================================================
+-- v147: SurvivorsRealized — each entry of the reviewed join carried by a side lies on a path of that
+-- (pinned) side.
+-- ============================================================
+
+structure SrStat where
+  joins : Nat := 0
+  entries : Nat := 0
+  realized : Nat := 0
+  NOT_REALIZED : Nat := 0
+  truncated : Nat := 0
+  rEntries : Nat := 0
+  eitherOk : Nat := 0
+  NEITHER : Nat := 0
+  ex : List String := []
+
+def sidePaths (a : GPathM) (budget : Nat) : Option (Array (List PathNodeId)) := Id.run do
+  let tbl : Std.HashMap PathNodeId PNodeM := a.nodes.foldl (fun acc m => acc.insert m.id m) {}
+  let gow := Std.HashSet.ofList a.gowners
+  let cs := a.current_step
+  let mut sols : Array (List PathNodeId) := #[]
+  let mut bud := budget
+  for n in a.nodes.filter (fun n => n.id.id.step == cs - 1) do
+    if !gow.contains n.id then continue
+    let (s', b') := solWalk tbl gow [n.id] sols bud
+    sols := s'
+    bud := b'
+  if bud == 0 then return none
+  return some sols
+
+def survCheck (a b : GPathM) (budget : Nat) (st0 : SrStat) : SrStat := Id.run do
+  let mut st := st0
+  let R := reviewAgg (join a b)
+  if !isValid R then return st
+  st := { st with joins := st.joins + 1 }
+  let tR : Std.HashMap PathNodeId PNodeM := R.nodes.foldl (fun acc n => acc.insert n.id n) {}
+  -- every entry of R on a path of one of the sides
+  match sidePaths a budget, sidePaths b budget with
+  | some sa, some sb =>
+    for n in R.nodes do
+      for v in n.owners do
+        if !tR.contains v then continue
+        st := { st with rEntries := st.rEntries + 1 }
+        let x := n.id
+        if sa.any (fun c => c.contains x && c.contains v) || sb.any (fun c => c.contains x && c.contains v) then
+          st := { st with eitherOk := st.eitherOk + 1 }
+        else
+          st := { st with NEITHER := st.NEITHER + 1 }
+          if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"neither: x={x.id.step}.{x.id.index} v={v.id.step}.{v.id.index}"] }
+  | _, _ => st := { st with truncated := st.truncated + 1 }
+  for S in [a, b] do
+    match sidePaths S budget with
+    | none => st := { st with truncated := st.truncated + 1 }
+    | some sols =>
+      let tS : Std.HashMap PathNodeId PNodeM := S.nodes.foldl (fun acc n => acc.insert n.id n) {}
+      for n in R.nodes do
+        let x := n.id
+        match tS.get? x with
+        | none => pure ()
+        | some sx =>
+          for v in n.owners do
+            if !tR.contains v || !sx.owners.contains v || !tS.contains v then continue
+            st := { st with entries := st.entries + 1 }
+            let ok := sols.any (fun c => c.contains x && c.contains v)
+            if ok then st := { st with realized := st.realized + 1 }
+            else
+              st := { st with NOT_REALIZED := st.NOT_REALIZED + 1 }
+              pure ()
+  return st
+
+def runSurv (φ : Cnf) (budget : Nat) (st0 : SrStat) : SrStat := Id.run do
+  let mut st := st0
+  let mut line := pureInit φ
+  let pinned (g : GPathM) (d : NodeId) : GPathM :=
+    (reqOfCnf φ d).foldl filterRequire (filterWeakAll g (weakReqOfCnf φ d))
+  let send (g : GPathM) (d : NodeId) : GPathM :=
+    up (filterAllAgg (filterWeakAll g (weakReqOfCnf φ d)) (reqOfCnf φ d)) d ""
+  for _ in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let hst := send kv.2 d
+        if isValid hst then
+          match next.find? (fun x => x.1 == d) with
+          | some (_, e) =>
+            if okJoin e hst then
+              for d' in mapSons φ d.step d.index do
+                st := survCheck (pinned e d') (pinned hst d') budget st
+          | none => pure ()
+          next := insertPure next d hst
+    line := next
+  return st
+
+def reportSurv (name : String) (st : SrStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} entries={st.entries} realized={st.realized} NOT_REALIZED={st.NOT_REALIZED} truncatedSides={st.truncated} | R entries={st.rEntries} onASidePath={st.eitherOk} NEITHER={st.NEITHER} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
   let mut st := st0
   let mut line := pureInit φ
@@ -4109,6 +4206,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runSideCls φ {})
         let t1 ← IO.monoMsNow
         reportSide s!"sidecls {path}" st (t1 - t0)
+  | "surv" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : SrStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runSurv φ 100000 st
+      let t1 ← IO.monoMsNow
+      reportSurv s!"surv seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "surv" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runSurv φ 100000 {})
+        let t1 ← IO.monoMsNow
+        reportSurv s!"surv {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with
