@@ -4602,6 +4602,122 @@ def reportUF (name : String) (st : UFStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} REVIEW_CHANGES_UNION={st.changed} removedNodes={st.removedNodes} removedEntries={st.removedEntries} | foreign entries in union (x,v in a side, entry not in it)={st.foreignEntries} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- Split triangles (v161, with the author's permission): in a union by key, three nodes x, v, r that are
+-- pairwise owners, but no single side of the union holds all three pairs. What does the pin of r do to x→v?
+structure STStat where
+  joins : Nat := 0
+  tri : Nat := 0
+  split : Nat := 0
+  splitSurvive : Nat := 0
+  splitSurviveNoSide : Nat := 0
+  killedDirect : Nat := 0
+  killedDirectClause : Nat := 0
+  killedCascade : Nat := 0
+  ex : List String := []
+
+def litS (l : Lit) : String := (if l.pos then "" else "¬") ++ s!"x{l.v}"
+def cnfS (φ : Cnf) : String :=
+  s!"nVars={φ.nVars} " ++ String.intercalate " ∧ " (φ.clauses.map (fun c => s!"({litS c.l1} ∨ {litS c.l2} ∨ {litS c.l3})"))
+def pidS (p : PathNodeId) : String :=
+  s!"{p.id.step}.{p.id.index}" ++ (match p.parent_id with | some q => s!"<{q.step}.{q.index}" | none => "")
+
+def runSplitTri (φ : Cnf) (st0 : STStat) : STStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      st := { st with joins := st.joins + 1 }
+      let J := kv.2
+      let tJ := ownerTable J
+      let owns (t : Std.HashMap PathNodeId (Std.HashSet PathNodeId)) (a b : PathNodeId) : Bool :=
+        match t.get? a with | some o => o.contains b | none => false
+      let tabs := sides.map (fun (k, h) => (k, h, ownerTable h))
+      let rs := (J.gowners.filter (fun q => q.id.step < lb)).eraseDups
+      for r in rs do
+        let xs := J.nodes.filter (fun n => n.id != r && owns tJ n.id r)
+        let mut X? : Option (Std.HashMap PathNodeId (Std.HashSet PathNodeId)) := none
+        for nx in xs do
+          for nv in xs do
+            let x := nx.id
+            let v := nv.id
+            if x == v || !owns tJ x v then continue
+            st := { st with tri := st.tri + 1 }
+            let inOne := tabs.any (fun (_, _, t) => owns t x v && owns t x r && owns t v r)
+            if inOne then continue
+            st := { st with split := st.split + 1 }
+            let tX ← match X? with
+              | some t => pure t
+              | none => do
+                let X := filterAllAgg J [r.id]
+                let t := if isValid X then ownerTable X else {}
+                X? := some t
+                pure t
+            let surv := owns tX x v
+            let pairs := tabs.map (fun (k, _, t) =>
+              s!"side {k.step}.{k.index}: x→v {owns t x v} x→r {owns t x r} v→r {owns t v r}")
+            if surv then
+              st := { st with splitSurvive := st.splitSurvive + 1 }
+              let kept := tabs.any (fun (_, h, _) =>
+                let Y := filterAllAgg h [r.id]
+                isValid Y && owns (ownerTable Y) x v)
+              if !kept then st := { st with splitSurviveNoSide := st.splitSurviveNoSide + 1 }
+            else
+              -- killed: is there a step where every common owner of x and v already excludes the pin?
+              let ox := (J.node? x).map (·.owners) |>.getD []
+              let ov := (J.node? v).map (·.owners) |>.getD []
+              let direct := (List.range J.current_step.toNat).filter (fun i =>
+                let k := Int.ofNat i
+                let com := (ownersAt ox k).filter (fun q => ov.contains q)
+                !com.isEmpty && com.all (fun z => match J.node? z with
+                  | some nz => !(ownersAt nz.owners r.id.step).any (fun q => q.id == r.id)
+                  | none => true))
+              if direct.isEmpty then st := { st with killedCascade := st.killedCascade + 1 }
+              else
+                st := { st with killedDirect := st.killedDirect + 1 }
+                if direct.any (fun i => (Int.ofNat i) > lb) then
+                  st := { st with killedDirectClause := st.killedDirectClause + 1 }
+            if false then
+              st := { st with ex := st.ex ++ [s!"{cnfS φ}\n    line {m+1} key {p.step}.{p.index} x={pidS x} v={pidS v} r={pidS r} | after pin r: x→v {surv}\n    " ++ String.intercalate "\n    " pairs] }
+  return st
+
+def reportST (name : String) (st : STStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} triangles={st.tri} SPLIT={st.split} splitSurvivePin={st.splitSurvive} survivesNoSide={st.splitSurviveNoSide} | killed: direct={st.killedDirect} (at a clause row {st.killedDirectClause}) cascade={st.killedCascade} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- Detailed trace of one split triangle: owners of x and v, step by step, in the union, after the pin
+-- alone, after the base review and after the aggressive review.
+def splitTrace (φ : Cnf) (lineIdx : Nat) (key : NodeId) (x v : PathNodeId) (r : NodeId) : List String := Id.run do
+  let lines := (aggLines φ).toArray
+  let some kv := lines[lineIdx]!.find? (fun e => e.1 == key) | return ["no key"]
+  let J := kv.2
+  let P := filterRequire J r
+  let B := review P
+  let X := filterAllAgg J [r]
+  let mut out : List String := [cnfS φ, s!"key {key.step}.{key.index}: x={pidS x} v={pidS v} pin {r.step}.{r.index}"]
+  let ownersOf' (g : GPathM) (a : PathNodeId) : List PathNodeId := match g.node? a with | some n => n.owners | none => []
+  for (nm, g) in [("union", J), ("pin only", P), ("pin+review", B), ("pin+aggressive", X)] do
+    let ox := ownersOf' g x
+    let ov := ownersOf' g v
+    out := out ++ [s!"  [{nm}] x alive {(g.node? x).isSome} v alive {(g.node? v).isSome} x→v {ox.contains v} gowners at pin step {((g.gowners.filter (fun q => q.id.step == r.step)).map pidS)}"]
+    for i in [0:(J.current_step).toNat] do
+      let k := Int.ofNat i
+      let a := (ownersAt ox k)
+      let b := (ownersAt ov k)
+      let common := a.filter (fun q => b.contains q)
+      if common.isEmpty || nm == "union" || nm == "pin only" then
+        if a.length + b.length > 0 && (common.isEmpty || nm == "union") then
+          out := out ++ [s!"      step {k}: x→{a.map pidS}  v→{b.map pidS}  common {common.map pidS}"]
+  return out
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5117,6 +5233,21 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runUnionFix φ {})
         let t1 ← IO.monoMsNow
         reportUF s!"unionfix {path}" st (t1 - t0)
+  | "splittri" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : STStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runSplitTri φ st
+      let t1 ← IO.monoMsNow
+      reportST s!"splittri seed {seed}" st (t1 - t0)
+  | "splittrace" :: seed :: idx :: line :: ks :: ki :: xs :: xi :: xps :: xpi :: vs :: vi :: vps :: vpi :: rs :: ri :: _ =>
+    let φs := randomCnfs 10 3 seed.toNat!
+    let some φ := φs[idx.toNat!]? | IO.println "no formula"
+    let pid (s i ps pi : String) : AbsSat.Utils.Alias.PathNodeId :=
+      { id := ⟨s.toInt!, i.toInt!⟩, parent_id := if ps == "-" then none else some ⟨ps.toInt!, pi.toInt!⟩ }
+    for l in splitTrace φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) ⟨rs.toInt!, ri.toInt!⟩ do
+      IO.println l
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with
