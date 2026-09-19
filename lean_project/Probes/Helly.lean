@@ -5119,6 +5119,90 @@ def runChainSide2 (φ : Cnf) (st0 : CS2Stat) : CS2Stat := Id.run do
             if carrying.length < tops.length then st := { st with someTopNoCarry := st.someTopNoCarry + 1 }
   return st
 
+-- History invariant: follow a live pair's chain of common owners; at each line, is the pair in the table
+-- of the state whose key the chain names?
+structure HYStat where
+  pairs : Nat := 0
+  noChain : Nat := 0
+  noState : Nat := 0
+  levels : Nat := 0
+  levelFails : Nat := 0
+  pairFails : Nat := 0
+  ex : List String := []
+
+def runHistory (φ : Cnf) (st0 : HYStat) : HYStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let J := kv.2
+      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg J [r]
+        if !isValid X then continue
+        let tX := ownerTable X
+        let memX : Std.HashSet PathNodeId := Std.HashSet.ofList (X.nodes.map (·.id))
+        let rel (a b : PathNodeId) : Bool := memX.contains b && (match tX.get? a with | some o => o.contains b | none => false)
+        let top := X.current_step - 1
+        let sonsOf : Std.HashMap PathNodeId (List PathNodeId) :=
+          X.nodes.foldl (fun acc n => n.parents.foldl (fun acc c => acc.insert c ((acc.getD c []) ++ [n.id])) acc) {}
+        let ids := X.nodes.map (·.id)
+        let steps := (List.range X.current_step.toNat).reverse.map Int.ofNat
+        for a in ids do
+          for z in ids do
+            if a == z || !rel a z then continue
+            st := { st with pairs := st.pairs + 1 }
+            -- reachability of the top through common owners of a and z
+            let mut reach : Std.HashMap PathNodeId Bool := {}
+            for l in steps do
+              if l < a.id.step then break
+              for c in ids.filter (fun c => c.id.step == l) do
+                if !(rel c z && (c == a || rel c a)) then continue
+                if l == top then reach := reach.insert c true
+                else
+                  let ok := (sonsOf.getD c []).any (fun s' =>
+                    reach.getD s' false && rel c s' && rel s' c && rel s' z && rel s' a)
+                  reach := reach.insert c ok
+            if !(reach.getD a false) then
+              st := { st with noChain := st.noChain + 1 }
+              continue
+            -- one such chain, greedily
+            let mut chain : List PathNodeId := [a]
+            let mut cur := a
+            while cur.id.step < top do
+              match (sonsOf.getD cur []).find? (fun s' =>
+                  reach.getD s' false && rel cur s' && rel s' cur && rel s' z && rel s' a) with
+              | none => cur := { cur with id := { cur.id with step := top } }  -- unreachable
+              | some s' => chain := chain ++ [s']; cur := s'
+            -- the invariant, line by line
+            let lo := max a.id.step z.id.step
+            let mut bad := false
+            for c in chain do
+              let l := c.id.step
+              if l < lo then continue
+              match lines[l.toNat]!.find? (fun e => e.1 == c.id) with
+              | none => st := { st with noState := st.noState + 1 }
+              | some st' =>
+                st := { st with levels := st.levels + 1 }
+                let t := ownerTable st'.2
+                let has := match t.get? a with | some o => o.contains z | none => false
+                if !has then
+                  bad := true
+                  st := { st with levelFails := st.levelFails + 1 }
+                  if st.ex.length < 4 then
+                    st := { st with ex := st.ex ++ [s!"{cnfS φ} line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index}: pair {pidS a} -> {pidS z} not in the table of line {l} key {c.id.step}.{c.id.index}"] }
+            if bad then st := { st with pairFails := st.pairFails + 1 }
+  return st
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5718,6 +5802,15 @@ def main (args : List String) : IO Unit := do
         st := runChainSide2 φ st
       let t1 ← IO.monoMsNow
       IO.println s!"chainside2 seed {seed}: live pairs={st.pairs} | NO_CHAIN={st.noChain} NO_SIDE_CARRIES={st.noCarry} | SOME_TOP_NOT_CARRYING={st.someTopNoCarry} | {t1 - t0}ms"
+  | "history" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : HYStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runHistory φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"history seed {seed}: pairs={st.pairs} noChain={st.noChain} | levels checked={st.levels} LEVEL_FAILS={st.levelFails} PAIRS_WITH_A_FAIL={st.pairFails} (states not found {st.noState}) | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with

@@ -221,4 +221,50 @@ theorem readerVerdictW_complete (φ : Cnf) (kv : NodeId × GPathM) (hkv : kv ∈
 #guard_msgs in
 #print axioms readerVerdictW_complete
 
+-- ============================================================
+-- The reader never gets stuck where a chain survives
+-- ============================================================
+
+/-- **A chain gives the reader its pick.** At a step with a choice, pinning the chain's own node keeps
+the chain, so it keeps the graph valid. -/
+theorem pickSome_of_chain (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel) :
+    PickSomeAgg g := by
+  intro hch
+  obtain ⟨k, hk, hck⟩ := List.any_eq_true.mp hch
+  have h0 : 0 ≤ k := mem_intRange_lower hk
+  have h1 : k < g.current_step := by have := mem_intRange_upper hk; omega
+  obtain ⟨hsome, hstep⟩ := hsc.chain.1.1 k h0 h1
+  refine ⟨k, h0, h1, hck, sel k, ?_, ?_⟩
+  · exact List.mem_filter.mpr ⟨hsc.chain.2.2 k h0 h1, beq_iff_eq.mpr hstep⟩
+  · refine PickInduction.isValid_of_ChainG _ sel (ChainSound_filterAllAgg g [(sel k).id] sel hsc ?_).chain
+    intro req hreq _ _
+    rw [List.mem_singleton.mp hreq, hstep]
+
+/-- **The reader never gets stuck, from the chains.** If every valid state the reader can reach carries a
+chain — what hereditary validity gives (`HereditaryValid.ValidWitAt`, through the branch's completeness)
+— then the reader finishes. -/
+theorem progressAgg_of_chains (g₀ : GPathM)
+    (hC : ∀ g, ReadFrom g₀ g → isValid g = true → ∃ sel, ChainSound g sel) : ProgressAgg g₀ := by
+  intro g hF hv k hk
+  obtain ⟨sel, hsc⟩ := hC g hF hv
+  have hmem := List.mem_of_find?_eq_some hk
+  have h0 : 0 ≤ k := mem_intRange_lower hmem
+  have h1 : k < g.current_step := by have := mem_intRange_upper hmem; omega
+  obtain ⟨hsome, hstep⟩ := hsc.chain.1.1 k h0 h1
+  refine ⟨sel k, List.mem_filter.mpr ⟨hsc.chain.2.2 k h0 h1, beq_iff_eq.mpr hstep⟩, ?_⟩
+  refine PickInduction.isValid_of_ChainG _ sel (ChainSound_filterAllAgg g [(sel k).id] sel hsc ?_).chain
+  intro req hreq _ _
+  rw [List.mem_singleton.mp hreq, hstep]
+
+/-- **The reader's verdict is positive when chains survive.** -/
+theorem readerVerdictW_of_chains (φ : Cnf) (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ)
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (hC : ∀ g, ReadFrom (filterAllAgg kv.2 []) g → isValid g = true → ∃ sel, ChainSound g sel) :
+    readerVerdictW φ = true :=
+  readerVerdictW_complete φ kv hkv hv (progressAgg_of_chains _ hC)
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderExec.pickSome_of_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pickSome_of_chain
+
 end AbsSat.GraphPath.Model.ReaderExec
