@@ -208,6 +208,7 @@ import AbsSat.GraphPath.Model.PinClause
 import AbsSat.GraphPath.Model.PinDeath
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid
+import AbsSat.GraphPath.Model.ImprovesCima
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
