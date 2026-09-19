@@ -473,4 +473,33 @@ theorem sat_of_sideKeep (hwf : WF φ) (hK : ∀ m : Nat, litBlock φ ≤ (m : In
 #guard_msgs in
 #print axioms sat_of_sideKeep
 
+-- ============================================================
+-- An unreviewed union has no incoherence
+-- ============================================================
+
+/-- **A union by key needs no review of its own.** When the union is exact (every entry on a path of one
+of its sides, as the joint induction gives), the review keeps every entry: reviewing right after the
+union would change nothing. The incoherences the next review cleans are only those the next pins create. -/
+theorem union_review_keeps (hwf : WF φ) (P : List NodeId) (m : Nat)
+    (hE : LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (x v : PathNodeId) (hxv : Rel J x v) :
+    Rel (filterAllAgg J []) x v := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  obtain ⟨n, hn, hvn, hvm⟩ := hxv
+  have bnd : ∀ a, Mem J a → 0 ≤ a.id.step ∧ a.id.step < J.current_step := by
+    intro a ⟨na, hna⟩
+    have hmem := List.mem_of_find?_eq_some hna
+    rw [← node?_id_eq J a na hna]
+    exact ⟨hmJ.rctx.snn na hmem, hmJ.rctx.below na hmem⟩
+  have bx := bnd x ⟨n, hn⟩
+  have bv := bnd v hvm
+  obtain ⟨s, hs, hsx, hsv⟩ := hE _ hJ x n hn bx.1 bx.2 v bv.1 bv.2 trivial hvn
+  have hs' := ChainSound_filterAllAgg J [] s hs (fun _ h => absurd h List.not_mem_nil)
+  have hcs := (pruned_filterAllAgg J []).step_eq
+  have := JoinSide.rel_of_chain _ s hs' v.id.step x.id.step bv.1 (by rw [hcs]; exact bv.2) bx.1
+    (by rw [hcs]; exact bx.2)
+  rwa [hsx, hsv] at this
+
 end AbsSat.GraphPath.Model.PinClause
