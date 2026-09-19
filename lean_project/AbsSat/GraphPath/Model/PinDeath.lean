@@ -414,4 +414,61 @@ theorem sat_of_semWitness (hwf : WF φ) (hS : ∀ m : Nat, litBlock φ ≤ (m : 
 #guard_msgs in
 #print axioms sat_of_semWitness
 
+-- ============================================================
+-- The semantic witness: the ends that fix the variable are free
+-- ============================================================
+
+/-- At the pinned step, a node compatible with a node of `r` *is* that node. -/
+theorem compat_pin_eq (P : List NodeId) (m : Nat) (p : NodeId) (z ρ : PathNodeId)
+    (hz : z.id.step = ρ.id.step) (h : Compat φ P m p z ρ) : z = ρ := by
+  obtain ⟨β, _, hβz, hβρ⟩ := h
+  rw [← hβz, ← hβρ, hz]
+
+/-- **The semantic witness for the wide ends only.** Stated constructively, like `SideKeepFarAt`: the
+case where `x` or `v` fixes the pinned variable is given. -/
+def SemWitnessFarAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ (p : NodeId) (x v : PathNodeId), Compat φ P m p x v →
+      (∀ l, 0 ≤ l → l < (m : Int) + 2 →
+        ∃ z ρ, z.id.step = l ∧ Compat φ P m p x z ∧ Compat φ P m p v z ∧ Compat φ P m p z ρ ∧ ρ.id = r) →
+      let Goal := ∃ β, InUnion φ P m p β ∧ canon φ β x.id.step = x ∧ canon φ β v.id.step = v ∧
+        selOfAssign φ β r.step = r
+      ((PinClause.Fixes φ x (r.step / 2).toNat ∨ PinClause.Fixes φ v (r.step / 2).toNat) → Goal) → Goal
+
+/-- **An end that fixes the pinned variable closes the witness.** At `r`'s own step the common node is a
+node of `r` (`compat_pin_eq`), so there is a path through that end and `r`; the end fixes the variable, so
+the path of `x → v` takes `r` too. -/
+theorem semWitness_of_far (m : Nat) (hS : SemWitnessFarAt φ m) : SemWitnessAt φ m := by
+  intro P r h0r hrm hrl p x v hxv hcom
+  refine hS P r h0r hrm hrl p x v hxv hcom (fun hfix => ?_)
+  obtain ⟨β₁, hβ₁, cx, cv⟩ := hxv
+  obtain ⟨z, ρ, hzs, hxz, hvz, hzρ, hρ⟩ := hcom r.step h0r (by omega)
+  have hzρs : z.id.step = ρ.id.step := by rw [hzs, hρ]
+  have e := compat_pin_eq φ P m p z ρ hzρs hzρ
+  subst e
+  -- a path through the fixing end `y` and the node of `r`
+  have close : ∀ y, canon φ β₁ y.id.step = y → Compat φ P m p y z →
+      PinClause.Fixes φ y (r.step / 2).toNat → selOfAssign φ β₁ r.step = r := by
+    intro y cy hyz hfy
+    obtain ⟨β₂, _, c2y, c2z⟩ := hyz
+    have hr2 : selOfAssign φ β₂ r.step = r := by
+      have e1 : selOfAssign φ β₂ r.step = (canon φ β₂ r.step).id := rfl
+      rw [e1, ← hzs, c2z, hρ]
+    rw [PinVar.sel_local φ β₁ β₂ r.step h0r hrl (hfy β₁ β₂ cy c2y)]; exact hr2
+  refine ⟨β₁, hβ₁, cx, cv, ?_⟩
+  rcases hfix with hfx | hfv
+  · exact close x cx hxz hfx
+  · exact close v cv hvz hfv
+
+/-- **The verdict from the wide semantic witness.** -/
+theorem sat_of_semWitnessFar (hwf : WF φ)
+    (hS : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → SemWitnessFarAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_semWitness φ hwf (fun m h => semWitness_of_far φ m (hS m h)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.PinDeath.sat_of_semWitnessFar' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_semWitnessFar
+
 end AbsSat.GraphPath.Model.PinDeath
