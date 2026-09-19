@@ -596,6 +596,71 @@ def ChainSideAt (m : Nat) : Prop :=
           isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧
           Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
 
+/-- **Every top node of a union comes from a side** — with no exactness, straight from how the line is
+built: a send adds exactly one node at the new step, `⟨p, key⟩`, and a union only merges nodes. -/
+theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (n : PNodeM) (hn : n ∈ J.nodes)
+    (hts : n.id.id.step = (m : Int) + 1) :
+    ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+      n.id = topOf p kv.1 := by
+  have hl := branchLine_inv φ hwf P m
+  have step : ∀ kv ∈ branchLine φ P m, ∀ d ∈ mapSons φ kv.1.step kv.1.index, ∀ acc,
+      (∀ d' B', (d', B') ∈ acc → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
+        ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
+          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1) →
+      (∀ d' B', (d', B') ∈ sendToW φ kv.2 acc d → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
+        ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
+          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1) := by
+    intro kv hkv d hd acc hacc
+    rw [BranchLines.sendToW_eq]
+    by_cases hv : isValid (sent φ kv.2 d) = true
+    · rw [if_pos hv]
+      -- the only node of the send at the new step is its top
+      have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+      have hmkv : MInv φ kv.2 := hl.2 kv hkv
+      have hvF := ClauseReview.valid_pinned φ kv.2 d hv
+      have heq : sent φ kv.2 d = addNode (ClauseReview.pinnedAt φ kv.2 d) d "" := by
+        rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
+      have hprF : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 d) :=
+        Pruned.trans (ConservationCore.pruned_filterWeakAll _ _) (pruned_filterAllAgg _ _)
+      have hcsF : (ClauseReview.pinnedAt φ kv.2 d).current_step = (m : Int) + 1 := by
+        rw [hprF.step_eq, hsok.step]
+      have hmpF : (ClauseReview.pinnedAt φ kv.2 d).map_parent = some kv.1 := by
+        rw [hprF.map_parent_eq, hsok.par]
+      have hRF : ReadableAgg (ClauseReview.pinnedAt φ kv.2 d) :=
+        ⟨_, _, RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx, rfl⟩
+      have hbelow : ∀ x ∈ (ClauseReview.pinnedAt φ kv.2 d).nodes,
+          x.id.id.step < (ClauseReview.pinnedAt φ kv.2 d).current_step :=
+        (RCtx_of_readableAgg _ hRF).below
+      have htopSent : ∀ n' ∈ (sent φ kv.2 d).nodes, n'.id.id.step = (m : Int) + 1 →
+          n'.id = topOf d kv.1 := by
+        intro n' hn' hs
+        rw [heq] at hn'
+        have := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d "" hbelow n' hn'
+          (by rw [hcsF]; exact hs)
+        rw [this, hmpF]; rfl
+      intro d' B' hB' n' hn' hs'
+      rcases BranchLines.insert_src acc d (sent φ kv.2 d) d' B' hB' with ⟨hdd, hcase⟩ | ⟨hmem, _⟩
+      · subst hdd
+        rcases hcase with rfl | ⟨e, he, rfl⟩
+        · exact ⟨kv, hkv, hd, hv, htopSent n' hn' hs'⟩
+        · unfold doJoin at hn'
+          by_cases hok : okJoin e (sent φ kv.2 d') = true
+          · rw [if_pos hok] at hn'
+            rcases BranchRun.mem_join_nodes_src hn' with ⟨a, ha, hid, _⟩ | hsent
+            · obtain ⟨kv', hkv', hson', hv', hid'⟩ := hacc _ _ he a ha (by rw [← hid]; exact hs')
+              exact ⟨kv', hkv', hson', hv', by rw [hid]; exact hid'⟩
+            · exact ⟨kv, hkv, hd, hv, htopSent n' hsent hs'⟩
+          · rw [if_neg hok] at hn'
+            exact hacc _ _ he n' hn' hs'
+      · exact hacc d' B' hmem n' hn' hs'
+    · rw [if_neg hv]; exact hacc
+  exact BranchLines.advance_inv φ
+    (fun acc => ∀ d' B', (d', B') ∈ acc → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
+      ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
+        isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1)
+    (branchLine φ P m) step (by intro d B hB; cases hB) p J hJ n hn hts
+
 /-- **Nothing borrowed, when the chain names the side.** -/
 theorem sideKeep_of_chainSide (m : Nat) (hC : ChainSideAt φ m) : SideKeepAt φ m := by
   intro P r h0r hrm hrl p J hJ hvX x v hxv

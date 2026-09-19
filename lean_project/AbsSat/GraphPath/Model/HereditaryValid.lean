@@ -515,4 +515,69 @@ theorem sat_of_ownSupport (hwf : WF φ) (hO : ∀ m, OwnSupportAt φ m)
 
 end OwnSupport
 
+-- ============================================================
+-- ValidSide, reduced to the sides whose top is alive
+-- ============================================================
+
+section TopValid
+
+open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel)
+open AbsSat.GraphPath.Model.PinDeath (topOf advance_top_node)
+
+/-- **A valid pinned union has a side whose top is alive.** No exactness: the last step of the union
+carries a global owner, that owner is a node, and every node of that step is the top of a side
+(`advance_top_node`). -/
+theorem side_top_alive (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (hv : isValid (filterAllAgg J Q) = true) :
+    ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+      Mem (filterAllAgg J Q) (topOf p kv.1) := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hcs : (filterAllAgg J Q).current_step = (m : Int) + 2 := by
+    rw [(pruned_filterAllAgg J Q).step_eq, hsJ.step]; omega
+  have hRX : ReadableAgg (filterAllAgg J Q) := ⟨J, Q, hmJ.rctx, rfl⟩
+  have ctxX := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRX) hv
+  have hk0 : (0 : Int) ≤ (m : Int) + 1 := by omega
+  have hv' := hv
+  simp only [isValid, List.all_eq_true] at hv'
+  obtain ⟨z, hz, hzs⟩ := List.any_eq_true.mp (hv' ((m : Int) + 1)
+    (mem_intRange hk0 (by rw [hcs]; omega)))
+  obtain ⟨n, hn, hnid⟩ := ctxX.gn z hz
+  have hzs' : z.id.step = (m : Int) + 1 := eq_of_beq hzs
+  -- the node of the pinned union is a node of the union
+  obtain ⟨n0, hn0, hid, _, _⟩ := (pruned_filterAllAgg J Q).nodes_derived n hn
+  obtain ⟨kv, hkv, hson, hvS, htop⟩ := advance_top_node φ hwf P m p J hJ n0 hn0
+    (by rw [← hid, hnid]; exact hzs')
+  refine ⟨kv, hkv, hson, hvS, n, ?_⟩
+  rw [show topOf p kv.1 = n.id from by rw [← htop, hid]]
+  exact node?_of_mem (RCtx_of_readableAgg _ hRX).nodup n hn
+
+/-- **Validity is not borrowed, when every side with a live top keeps its pins.** This is what the probe
+`ownsupport` measured: 52,506 sides with a live top, 0 failures. -/
+def TopValidAt (m : Nat) : Prop :=
+  ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ [] m) → ∀ Q, LitPins φ Q ((m : Int) + 2) →
+    isValid (filterAllAgg J Q) = true →
+    ∀ kv ∈ branchLine φ [] m, p ∈ mapSons φ kv.1.step kv.1.index → isValid (sent φ kv.2 p) = true →
+      Mem (filterAllAgg J Q) (topOf p kv.1) → isValid (filterAllAgg (sent φ kv.2 p) Q) = true
+
+theorem validSide_of_topValid (hwf : WF φ) (m : Nat) (hT : TopValidAt φ m) : ValidSideAt φ m := by
+  intro p J hJ Q hQ hvX
+  obtain ⟨kv, hkv, hson, hvS, hmem⟩ := side_top_alive φ hwf [] m p J hJ Q hvX
+  exact ⟨kv, hkv, hson, hvS, hT p J hJ Q hQ hvX kv hkv hson hvS hmem⟩
+
+/-- **The verdict from the sides with a live top.** -/
+theorem sat_of_topValid (hwf : WF φ) (hT : ∀ m, TopValidAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_validSideOnly φ hwf (fun m => validSide_of_topValid φ hwf m (hT m)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.HereditaryValid.sat_of_topValid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_topValid
+
+end TopValid
+
 end AbsSat.GraphPath.Model.HereditaryValid
