@@ -4980,6 +4980,145 @@ def runOwnSupport (φ : Cnf) (st0 : OSStat) : OSStat := Id.run do
         else st := { st with noSide := st.noSide + 1 }
   return st
 
+-- Chain side (v165 chat): in a valid pinned union, is every live pair (a, z) held by a chain of sons,
+-- each related to z, up to the top of a side whose own table carries (a, z)?
+structure CSStat where
+  unions : Nat := 0
+  pairs : Nat := 0
+  noChain : Nat := 0
+  chainNoCarry : Nat := 0
+  carryPinned : Nat := 0
+  someTopNoCarry : Nat := 0
+  ex : List String := []
+
+def runChainSide (φ : Cnf) (st0 : CSStat) : CSStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let J := kv.2
+      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg J [r]
+        if !isValid X then continue
+        st := { st with unions := st.unions + 1 }
+        let tX := ownerTable X
+        let memX : Std.HashSet PathNodeId := Std.HashSet.ofList (X.nodes.map (·.id))
+        let rel (a b : PathNodeId) : Bool := memX.contains b && (match tX.get? a with | some o => o.contains b | none => false)
+        let top := X.current_step - 1
+        -- sons in X
+        let sonsOf : Std.HashMap PathNodeId (List PathNodeId) :=
+          X.nodes.foldl (fun acc n => n.parents.foldl (fun acc c => acc.insert c ((acc.getD c []) ++ [n.id])) acc) {}
+        let sideTabs := sides.map (fun (k, h) => (({ id := p, parent_id := some k } : PathNodeId), ownerTable h,
+          let Y := filterAllAgg h [r]; if isValid Y then some (ownerTable Y) else none))
+        let ids := X.nodes.map (·.id)
+        -- nodes by step, descending
+        let steps := (List.range X.current_step.toNat).reverse.map Int.ofNat
+        for z in ids do
+          -- reach: tops reachable from each node by chains of sons related to z (and both ways to the previous)
+          let mut reach : Std.HashMap PathNodeId (List PathNodeId) := {}
+          for l in steps do
+            for c in ids.filter (fun c => c.id.step == l) do
+              if !rel c z then continue
+              if l == top then reach := reach.insert c [c]
+              else
+                let mut acc : List PathNodeId := []
+                for s' in sonsOf.getD c [] do
+                  if rel c s' && rel s' c && rel s' z then
+                    for t in reach.getD s' [] do
+                      if !acc.contains t then acc := acc ++ [t]
+                reach := reach.insert c acc
+          for a in ids do
+            if a == z || !rel a z then continue
+            st := { st with pairs := st.pairs + 1 }
+            let tops := reach.getD a []
+            if tops.isEmpty then
+              st := { st with noChain := st.noChain + 1 }
+              continue
+            let carrying := sideTabs.filter (fun (t, tS, _) => tops.contains t &&
+              (match tS.get? a with | some o => o.contains z | none => false))
+            if carrying.length < tops.length then
+              st := { st with someTopNoCarry := st.someTopNoCarry + 1 }
+            if carrying.isEmpty then
+              st := { st with chainNoCarry := st.chainNoCarry + 1 }
+              if st.ex.length < 4 then
+                st := { st with ex := st.ex ++ [s!"{cnfS φ} line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index}: {pidS a} -> {pidS z} chain tops {tops.map pidS}"] }
+            else if carrying.any (fun (_, _, tY?) => match tY? with
+                | some tY => (match tY.get? a with | some o => o.contains z | none => false)
+                | none => false) then
+              st := { st with carryPinned := st.carryPinned + 1 }
+  return st
+
+-- Refinement: chains whose nodes are all common owners of a and z. Does every such chain reach a
+-- carrying side?
+structure CS2Stat where
+  pairs : Nat := 0
+  noChain : Nat := 0
+  noCarry : Nat := 0
+  someTopNoCarry : Nat := 0
+
+def runChainSide2 (φ : Cnf) (st0 : CS2Stat) : CS2Stat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let J := kv.2
+      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg J [r]
+        if !isValid X then continue
+        let tX := ownerTable X
+        let memX : Std.HashSet PathNodeId := Std.HashSet.ofList (X.nodes.map (·.id))
+        let rel (a b : PathNodeId) : Bool := memX.contains b && (match tX.get? a with | some o => o.contains b | none => false)
+        let top := X.current_step - 1
+        let sonsOf : Std.HashMap PathNodeId (List PathNodeId) :=
+          X.nodes.foldl (fun acc n => n.parents.foldl (fun acc c => acc.insert c ((acc.getD c []) ++ [n.id])) acc) {}
+        let sideTabs := sides.map (fun (k, h) => (({ id := p, parent_id := some k } : PathNodeId), ownerTable h))
+        let ids := X.nodes.map (·.id)
+        let steps := (List.range X.current_step.toNat).reverse.map Int.ofNat
+        for a in ids do
+          for z in ids do
+            if a == z || !rel a z then continue
+            st := { st with pairs := st.pairs + 1 }
+            let mut reach : Std.HashMap PathNodeId (List PathNodeId) := {}
+            for l in steps do
+              if l < a.id.step then break
+              for c in ids.filter (fun c => c.id.step == l) do
+                if !(rel c z && (c == a || rel c a)) then continue
+                if l == top then reach := reach.insert c [c]
+                else
+                  let mut acc : List PathNodeId := []
+                  for s' in sonsOf.getD c [] do
+                    if rel c s' && rel s' c && rel s' z && rel s' a then
+                      for t in reach.getD s' [] do
+                        if !acc.contains t then acc := acc ++ [t]
+                  reach := reach.insert c acc
+            let tops := reach.getD a []
+            if tops.isEmpty then st := { st with noChain := st.noChain + 1 }; continue
+            let carrying := sideTabs.filter (fun (t, tS) => tops.contains t &&
+              (match tS.get? a with | some o => o.contains z | none => false))
+            if carrying.isEmpty then st := { st with noCarry := st.noCarry + 1 }
+            if carrying.length < tops.length then st := { st with someTopNoCarry := st.someTopNoCarry + 1 }
+  return st
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5562,6 +5701,23 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       IO.println s!"ownsupport seed {seed}: pins={st.pins} validPinnedUnion={st.validX} validSideExists={st.validSideExists} | OWN_SUPPORT some side={st.someSide} NONE={st.noSide} (sides tried {st.sidesTried}, field failures {st.fails}) | {t1 - t0}ms"
       for e in st.ex do IO.println s!"  EX {e}"
+  | "chainside" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : CSStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runChainSide φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"chainside seed {seed}: pinned unions={st.unions} live pairs={st.pairs} | NO_CHAIN={st.noChain} CHAIN_BUT_NO_SIDE_CARRIES={st.chainNoCarry} | carried also in the side's pinned send={st.carryPinned} | pairs where SOME reached top does not carry={st.someTopNoCarry} | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
+  | "chainside2" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : CS2Stat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runChainSide2 φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"chainside2 seed {seed}: live pairs={st.pairs} | NO_CHAIN={st.noChain} NO_SIDE_CARRIES={st.noCarry} | SOME_TOP_NOT_CARRYING={st.someTopNoCarry} | {t1 - t0}ms"
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with
