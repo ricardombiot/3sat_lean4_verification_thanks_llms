@@ -212,8 +212,11 @@ def SendPinSoundAt : Prop :=
 send of the run, the pinned, reviewed state with and without the weak filter sit inside each other: each
 one's tables are a support carrying the pins, and the one without the weak filter also passes the weak
 requirements (`weak_member`). -/
-theorem filterSoundAt_of_sends (hwf : WF φ) (hS : SendPinSoundAt φ) : FilterSoundAt φ := by
-  intro k kv hkv hm ht d hd hvW
+theorem soundAt_weak_send (hwf : WF φ) (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv)
+    (hm : MInv φ kv.2) (d : NodeId) (hd : d ∈ AbsSat.GraphMap.CnfSel.mapSons φ kv.1.step kv.1.index)
+    (hvW : isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true)
+    (hA : isValid (filterAllAgg kv.2 (reqOfCnf φ d)) = true → SoundAt (LitStep φ) (filterAllAgg kv.2 (reqOfCnf φ d))) :
+    SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) := by
   have hnr := hm.rctx.shape.notroot
   -- the destination is one step up, and its pins are below it
   have hkey : kv.1.step = k := AbsSat.GraphMap.CnfSel.mapNodes_step φ k kv.1 hkv.onMap
@@ -283,7 +286,10 @@ theorem filterSoundAt_of_sends (hwf : WF φ) (hS : SendPinSoundAt φ) : FilterSo
   have eAAw := embedded_of_cover _ adA _ _ _
     (AOk_filterAllAgg _ (WeakPairs.AOk_filterWeakAll (weakReqOfCnf φ d) kv.2 ⟨supA, hm.smp, hnr⟩ weakA)
       (reqOfCnf φ d) pinA).sup hstep.symm (fun _ _ h => h)
-  exact soundAt_of_embedded _ eAwA eAAw adAw smpAw (hS k kv hkv hm ht d hd hvA)
+  exact soundAt_of_embedded _ eAwA eAAw adAw smpAw (hA hvA)
+
+theorem filterSoundAt_of_sends (hwf : WF φ) (hS : SendPinSoundAt φ) : FilterSoundAt φ :=
+  fun k kv hkv hm ht d hd hvW => soundAt_weak_send φ hwf k kv hkv hm d hd hvW (hS k kv hkv hm ht d hd)
 
 /-- One pin at a time is enough for a send. -/
 theorem sendPinSoundAt_of_pins (hwf : WF φ) (hP : PinStepSoundAt φ) : SendPinSoundAt φ := by

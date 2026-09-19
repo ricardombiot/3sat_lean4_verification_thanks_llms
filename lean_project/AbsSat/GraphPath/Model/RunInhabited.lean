@@ -230,10 +230,11 @@ theorem cov0 (F : GPathM) (hR : ReadableAgg F) (hv : isValid F = true) (hpos : 0
   obtain ⟨z, hz, hzs⟩ := List.any_eq_true.mp hent
   exact ⟨z, hz, eq_of_beq hzs⟩
 
-/-- **A send keeps it**: the filter by hypothesis, the `up` by `soundAt_addNode`. -/
-theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
-    (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (ht : SoundAt (LitStep φ) kv.2)
-    (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true) :
+/-- **A send keeps it** when its filter does: the `up` by `soundAt_addNode`. -/
+theorem soundAt_sent_of (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
+    (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true)
+    (hFs0 : isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true →
+      SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))) :
     SoundAt (LitStep φ) (sent φ kv.2 d) := by
   have hsok := StateOkF_sent φ (Fsac φ 0) reviewAgg (prunes_Fsac φ 0) k kv hkv d hd hval
   have hdstep : d.step = k + 1 := mapNodes_step φ (k + 1) d hsok.onMap
@@ -259,7 +260,7 @@ theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
   have heq : sent φ kv.2 d = addNode F d "" := by rw [hsentF]; unfold GPathM.up; rw [hvF]; rfl
   have hFs : SoundAt (LitStep φ) F := by
     rw [hFdef]; rw [hFdef] at hvF
-    exact hF k kv hkv hm ht d hd hvF
+    exact hFs0 hvF
   rw [heq]
   refine soundAt_addNode (LitStep φ) (Or.inr rfl) F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
     rcF.below ?_ rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn
@@ -274,6 +275,13 @@ theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
     obtain ⟨m', hm', hm'id⟩ := hm.own n₀ hn₀ w (hown₀ w hw)
     rw [hkF.1.step_eq, ← hm'id]
     exact hm.rctx.below m' hm'
+
+/-- **A send keeps it**: the filter by hypothesis, the `up` by `soundAt_addNode`. -/
+theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
+    (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (ht : SoundAt (LitStep φ) kv.2)
+    (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true) :
+    SoundAt (LitStep φ) (sent φ kv.2 d) :=
+  soundAt_sent_of φ k kv hkv hm d hd hval (hF k kv hkv hm ht d hd)
 
 def LineSoundAt (L : PureLine) : Prop := ∀ kv ∈ L, SoundAt (LitStep φ) kv.2
 
@@ -331,9 +339,9 @@ theorem lineSoundAt_steps (hwf : WF φ) (hF : FilterSoundAt φ) :
 theorem run_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) : LineSoundAt φ (pureRunW φ) :=
   lineSoundAt_steps φ hwf hF _ 0 (pureInit φ) (LineInv_init φ hwf) (lineSoundAt_init φ)
 
-/-- **The verdict by construction.** If pinning and reviewing keeps the entries towards the literal
-steps on paths, a valid reader's state holds a path, and the path is a model. -/
-theorem sat_of_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) (kv : NodeId × GPathM)
+/-- **A final state that keeps the invariant decides.** A valid reader's state then holds a path, and the
+path is a model. -/
+theorem sat_of_lineSound (hwf : WF φ) (hL : LineSoundAt φ (pureRunW φ)) (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ := by
   obtain ⟨hm, hstep, _⟩ := ReaderAggRun.pureRunW_state φ hwf kv hkv
   have hl := (LineInv_steps φ hwf (stepCount φ - 1).toNat 0 (pureInit φ) (LineInv_init φ hwf))
@@ -341,7 +349,7 @@ theorem sat_of_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) (kv : NodeId × GPa
     have := ConservationCore.stepCount_pos φ; omega
   rw [hcast] at hl
   have hsk := hl.1.2 kv hkv
-  have hts := soundAt_review (LitStep φ) kv.2 hm.rctx.nodup (run_soundAt φ hwf hF kv hkv)
+  have hts := soundAt_review (LitStep φ) kv.2 hm.rctx.nodup (hL kv hkv)
   have hRG : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
   have rcG := RCtx_of_readableAgg _ hRG
   have ctxG := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRG) hv
@@ -354,6 +362,12 @@ theorem sat_of_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) (kv : NodeId × GPa
   obtain ⟨sel, hcs, _, _⟩ := hts q m hqm (by omega) (by rw [hcsG]; omega) q (by omega)
     (by rw [hcsG]; omega) (Or.inr hq0) (ctxG.self q m hqm)
   exact NoDeadEndVerdict.sat_of_denotS φ hwf kv hkv ⟨_, sel, hcs, rfl⟩
+
+/-- **The verdict by construction.** If pinning and reviewing keeps the entries towards the literal
+steps on paths, every state of the run does, and a valid final state holds a model. -/
+theorem sat_of_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
+  sat_of_lineSound φ hwf (run_soundAt φ hwf hF) kv hkv hv
 
 /-- info: 'AbsSat.GraphPath.Model.RunInhabited.sat_of_soundAt' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
