@@ -3,7 +3,6 @@ function filter!(gpath :: GPath, requires :: SetNodesId)
     for map_node_id in requires
         filter_require!(gpath, map_node_id)
     end
-    filter_triangle_nodes!(gpath,requires)
 
     make_review_owners!(gpath)
 end
@@ -18,6 +17,7 @@ function make_review_owners!(gpath :: GPath)
         review_owners_coherence_with_its_parents_sons!(gpath)
         
         agressive_consistence_filter!(gpath)
+        chain_consistence_filter!(gpath)
 
         if gpath.review_owners
             make_review_owners!(gpath)

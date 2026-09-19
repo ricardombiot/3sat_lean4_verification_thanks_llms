@@ -563,4 +563,55 @@ theorem sat_of_closedWitness (hwf : WF φ)
 #guard_msgs in
 #print axioms sat_of_closedWitness
 
+-- ============================================================
+-- The side, read from the chain of common owners
+-- ============================================================
+
+section ChainSide
+
+open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel)
+open AbsSat.GraphPath.Model.PinClause (SideKeepAt)
+
+/-- **A chain of common owners, upwards.** From `a` to a node of the last step, every link is a parent
+link of the state, both ends own each other, and every node owns `z`. The identifiers of the chain
+(`map node`, `parent map node`) name a history: at the last step the chain's end is the top of one side
+of the union. -/
+inductive ChainUp (X : GPathM) (z : PathNodeId) : PathNodeId → PathNodeId → Prop where
+  | top (t : PathNodeId) (h : t.id.step = X.current_step - 1) : ChainUp X z t t
+  | link (c s t : PathNodeId) (ns : PNodeM) (hns : X.node? s = some ns) (hpar : c ∈ ns.parents)
+      (h1 : Rel X c s) (h2 : Rel X s c) (h3 : Rel X s z) (hrest : ChainUp X z s t) : ChainUp X z c t
+
+/-- **The side of a live pair, read from its chain, at line `m`.** Every entry of a pinned union has a
+chain of common owners up to the top of a side, and that side's pinned send keeps the entry.
+
+Measured (probes `chainside`, `chainside2`, `history`, 2026-09-19): 13.4 M live entries, 0 entries
+without such a chain, 0 entries whose chain's side fails to carry them, and — following the chain back
+line by line — 16.2 M checks of "the entry is in the table of the state the chain names", 0 failures. -/
+def ChainSideAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ x v, Rel (filterAllAgg J [r]) x v →
+        ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+          ChainUp (filterAllAgg J [r]) v x (topOf p kv.1) ∧
+          isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧
+          Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
+
+/-- **Nothing borrowed, when the chain names the side.** -/
+theorem sideKeep_of_chainSide (m : Nat) (hC : ChainSideAt φ m) : SideKeepAt φ m := by
+  intro P r h0r hrm hrl p J hJ hvX x v hxv
+  obtain ⟨kv, hkv, hson, hvS, _, hvY, hrel⟩ := hC P r h0r hrm hrl p J hJ hvX x v hxv
+  exact ⟨kv, hkv, hson, hvS, hvY, hrel⟩
+
+/-- **The verdict when the chain names the side.** -/
+theorem sat_of_chainSide (hwf : WF φ) (hC : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → ChainSideAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  PinClause.sat_of_sideKeep φ hwf (fun m h => sideKeep_of_chainSide φ m (hC m h)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.PinDeath.sat_of_chainSide' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_chainSide
+
+end ChainSide
+
 end AbsSat.GraphPath.Model.PinDeath

@@ -30,6 +30,7 @@ module GraphPath
     include("./graph_path_filter.jl")
     include("./graph_path_filter_agresive.jl")
     include("./graph_path_filter_triangle.jl")
+    include("./graph_path_filter_chain.jl")
 
     include("./reader/path_reader.jl")
     include("./reader/path_exp_reader.jl")
