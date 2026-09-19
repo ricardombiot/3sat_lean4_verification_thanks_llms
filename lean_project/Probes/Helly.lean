@@ -3952,10 +3952,24 @@ structure NbStat where
   onB : Nat := 0
   BORROWED : Nat := 0
   truncated : Nat := 0
+  plainJoins : Nat := 0
+  plainPaths : Nat := 0
+  PLAIN_BORROWED : Nat := 0
   ex : List String := []
 
 def nbCheck (a b : GPathM) (budget : Nat) (st0 : NbStat) : NbStat := Id.run do
   let mut st := st0
+  -- the plain (unreviewed) union
+  let J := join a b
+  match sidePaths J budget, sidePaths a budget, sidePaths b budget with
+  | some pj, some pa, some pb =>
+    st := { st with plainJoins := st.plainJoins + 1 }
+    let sa : Std.HashSet (List PathNodeId) := Std.HashSet.ofList pa.toList
+    let sb : Std.HashSet (List PathNodeId) := Std.HashSet.ofList pb.toList
+    for c in pj do
+      st := { st with plainPaths := st.plainPaths + 1 }
+      if !sa.contains c && !sb.contains c then st := { st with PLAIN_BORROWED := st.PLAIN_BORROWED + 1 }
+  | _, _, _ => pure ()
   let R := reviewAgg (join a b)
   if !isValid R then return st
   st := { st with joins := st.joins + 1 }
@@ -3999,7 +4013,57 @@ def runNoBorrow (φ : Cnf) (budget : Nat) (st0 : NbStat) : NbStat := Id.run do
   return st
 
 def reportNb (name : String) (st : NbStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} pathsOfReviewedUnion={st.paths} onSideA={st.onA} onSideB={st.onB} BORROWED={st.BORROWED} truncated={st.truncated} | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} pathsOfReviewedUnion={st.paths} onSideA={st.onA} onSideB={st.onB} BORROWED={st.BORROWED} truncated={st.truncated} | plain union: joins={st.plainJoins} paths={st.plainPaths} BORROWED={st.PLAIN_BORROWED} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+-- ============================================================
+-- v148: EntryPin — pinning the map nodes of both ends of an entry and of their parents keeps a
+-- reader's state valid. Bottom-up walks from the final states; entries sampled.
+-- ============================================================
+
+structure EpStat where
+  states : Nat := 0
+  entries : Nat := 0
+  valid : Nat := 0
+  INVALID : Nat := 0
+  ex : List String := []
+
+def runEntryPin (φ : Cnf) (walksPer sample seed : Nat) (st0 : EpStat) : EpStat := Id.run do
+  let mut st := st0
+  let mut rnd := seed
+  let mut tick := 0
+  let finals := (aggLines φ).getLast?.getD []
+  for kv in finals do
+    let g0 := filterAllAgg kv.2 []
+    if !isValid g0 then continue
+    let cs := g0.current_step
+    for _ in [0:walksPer] do
+      let mut S := g0
+      for i in [0:cs.toNat] do
+        st := { st with states := st.states + 1 }
+        let tS : Std.HashMap PathNodeId PNodeM := S.nodes.foldl (fun acc n => acc.insert n.id n) {}
+        for n in S.nodes do
+          for q in n.owners do
+            if !tS.contains q then continue
+            tick := tick + 1
+            if tick % sample != 0 then continue
+            let x := n.id
+            let pins := [x.id, q.id] ++ x.parent_id.toList ++ q.parent_id.toList
+            st := { st with entries := st.entries + 1 }
+            if isValid (pins.foldl (fun g r => filterAllAgg g [r]) S) then st := { st with valid := st.valid + 1 }
+            else
+              st := { st with INVALID := st.INVALID + 1 }
+              if st.ex.length < 5 then st := { st with ex := st.ex ++ [s!"x={x.id.step}.{x.id.index} q={q.id.step}.{q.id.index} after {i} steps pinned"] }
+        let l : Int := i
+        let ids := ((S.gowners.filter (·.id.step == l)).map (·.id)).eraseDups
+        let good := ids.filter (fun m => isValid (filterAllAgg S [m]))
+        if good.isEmpty then break
+        rnd := pxNext rnd
+        S := filterAllAgg S [good[rnd % good.length]!]
+  return st
+
+def reportEp (name : String) (st : EpStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: states={st.states} entries={st.entries} valid={st.valid} INVALID={st.INVALID} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
@@ -4301,6 +4365,15 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runNoBorrow φ 100000 {})
         let t1 ← IO.monoMsNow
         reportNb s!"noborrow {path}" st (t1 - t0)
+  | "entrypin" :: walks :: sample :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runEntryPin φ walks.toNat! sample.toNat! 17 {})
+        let t1 ← IO.monoMsNow
+        reportEp s!"entrypin {path}" st (t1 - t0)
   | "seqpin" :: paths =>
     for path in paths do
       match ← loadCnf path with

@@ -191,6 +191,7 @@ import AbsSat.GraphPath.Model.TripleA
 import AbsSat.GraphPath.Model.JoinSide
 import AbsSat.GraphPath.Model.PartSplitReal
 import AbsSat.GraphPath.Model.UnionPaths
+import AbsSat.GraphPath.Model.PairPins
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
