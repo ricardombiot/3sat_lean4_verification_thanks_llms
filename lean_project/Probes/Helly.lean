@@ -4484,6 +4484,73 @@ def reportPJ (name : String) (st : PJStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: joins={st.joins} pins={st.pins} valid={st.valid} NO_VALID_SIDE={st.noSide} REVIEW_WORK(entries between survivors outside Z)={st.foreignPre} BAD_NODES={st.badNodes} BAD_ENTRIES={st.badEntries} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+
+-- The author's hint (v155): every side of a union by key has its own top node (p, p_i). At a pinned union,
+-- measure the top-anchored split: cover, whether every common top owner carries the entry, and the anchored
+-- triangles the support of each part needs.
+structure PSStat where
+  pins : Nat := 0
+  entries : Nat := 0
+  noCarryingAnchor : Nat := 0
+  anchorNotCarrying : Nat := 0
+  anchoredChecks : Nat := 0
+  anchoredTriangleFails : Nat := 0
+  ex : List String := []
+
+def runPinSplit (φ : Cnf) (st0 : PSStat) : PSStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let tops : List (PathNodeId × Std.HashMap PathNodeId (Std.HashSet PathNodeId)) :=
+        sides.map (fun (k, h) => ({ id := p, parent_id := some k }, ownerTable h))
+      let rs := ((kv.2.gowners.filter (fun q => q.id.step < lb && q.id.step ≤ Int.ofNat m)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg kv.2 [r]
+        if !isValid X then continue
+        st := { st with pins := st.pins + 1 }
+        let tX := ownerTable X
+        let owns (a b : PathNodeId) : Bool := match tX.get? a with | some o => o.contains b | none => false
+        let cs := X.current_step
+        for n in X.nodes do
+          for v in n.owners do
+            if !tX.contains v then continue
+            let x := n.id
+            if x.id.step == cs - 1 || v.id.step == cs - 1 then continue
+            st := { st with entries := st.entries + 1 }
+            let anchors := tops.filter (fun (t, _) => tX.contains t && owns x t && owns v t)
+            let carrying := anchors.filter (fun (_, tS) => match tS.get? x with | some o => o.contains v | none => false)
+            if carrying.isEmpty then
+              st := { st with noCarryingAnchor := st.noCarryingAnchor + 1 }
+              if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"NO CARRYING ANCHOR line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index}: {x.id.step}.{x.id.index} -> {v.id.step}.{v.id.index} (anchors {anchors.length})"] }
+            if carrying.length < anchors.length then
+              st := { st with anchorNotCarrying := st.anchorNotCarrying + 1 }
+            for (t, _) in carrying do
+              for i in [0:(cs - 1).toNat] do
+                let l := Int.ofNat i
+                st := { st with anchoredChecks := st.anchoredChecks + 1 }
+                let tS := (carrying.find? (fun (t', _) => t' == t)).map (·.2) |>.getD {}
+                let carried (a b : PathNodeId) : Bool := match tS.get? a with | some o => o.contains b | none => false
+                let ok := X.nodes.any (fun z => z.id.id.step == l && owns x z.id && owns v z.id && owns z.id t &&
+                  carried x z.id && carried v z.id && owns z.id x && owns z.id v)
+                if !ok then
+                  st := { st with anchoredTriangleFails := st.anchoredTriangleFails + 1 }
+                  if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"ANCHORED TRIANGLE FAILS line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index}: {x.id.step}.{x.id.index} -> {v.id.step}.{v.id.index} at step {l}"] }
+  return st
+
+def reportPS (name : String) (st : PSStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} entries={st.entries} NO_CARRYING_ANCHOR={st.noCarryingAnchor} anchorNotCarrying={st.anchorNotCarrying} | anchored triangle checks={st.anchoredChecks} FAILS={st.anchoredTriangleFails} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -4990,6 +5057,15 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runJoins φ {})
         let t1 ← IO.monoMsNow
         reportJ s!"joins {path}" st (t1 - t0)
+  | "pinsplit" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPinSplit φ {})
+        let t1 ← IO.monoMsNow
+        reportPS s!"pinsplit {path}" st (t1 - t0)
   | "pinjoin" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
