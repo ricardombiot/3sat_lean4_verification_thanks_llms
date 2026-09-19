@@ -4130,6 +4130,146 @@ def randomCnfs (cases nvMin seed : Nat) : List Cnf := Id.run do
     | .ok φ => if AbsSat.Cnf.Dimacs.wfB φ then out := out ++ [φ]
   return out
 
+-- ============================================================
+-- PinCommutes (report v153): at every clause-row send of a branch, every entry towards a literal of the
+-- pinned, reviewed state is an entry of the branch that also carries the row's pins, same key.
+-- ============================================================
+
+def restrictP (P : List NodeId) (k : Int) (line : PureLine) : PureLine :=
+  line.filter (fun kv => P.all (fun r => r.step != k || kv.1 == r))
+
+/-- The lines of the branch of `P` (`PinHistory.branchLine`), steps `0 …`. -/
+def branchLinesP (φ : Cnf) (P : List NodeId) : Array PureLine := Id.run do
+  let mut line := restrictP P 0 (pureInit φ)
+  let mut out := #[line]
+  for i in [0:(stepCount φ - 1).toNat] do
+    line := restrictP P (Int.ofNat i + 1) (advanceLine φ line)
+    out := out.push line
+  return out
+
+structure PCStat where
+  branches : Nat := 0
+  sends : Nat := 0
+  entries : Nat := 0
+  missingKey : Nat := 0
+  violations : Nat := 0
+  ex : List String := []
+
+def runPinCommute (φ : Cnf) (depth : Nat) (st0 : PCStat) : PCStat := Id.run do
+  let mut st := st0
+  let mut cache : Std.HashMap (List NodeId) (Array PureLine) := {}
+  let mut todo : List (List NodeId × Nat) := [([], 1)]
+  let mut seen : Std.HashSet (List NodeId) := {}
+  let lb : Int := 2 * (φ.nVars : Int)
+  while !todo.isEmpty do
+    let (P, lvl) := todo.head!
+    todo := todo.tail!
+    if seen.contains P then continue
+    seen := seen.insert P
+    st := { st with branches := st.branches + 1 }
+    let lines ← match cache.get? P with
+      | some l => pure l
+      | none => pure (branchLinesP φ P)
+    cache := cache.insert P lines
+    for m in [0:lines.size - 1] do
+      for kv in lines[m]! do
+        for d in mapSons φ kv.1.step kv.1.index do
+          let R := reqOfCnf φ d
+          if d.step ≤ lb || R.isEmpty then continue
+          let A := filterAllAgg kv.2 R
+          if !isValid A then continue
+          st := { st with sends := st.sends + 1 }
+          let Q := P ++ R
+          let linesQ ← match cache.get? Q with
+            | some l => pure l
+            | none => pure (branchLinesP φ Q)
+          cache := cache.insert Q linesQ
+          if lvl < depth then todo := todo ++ [(Q, lvl + 1)]
+          let kv' := (linesQ[m]!).find? (fun e => e.1 == kv.1)
+          let memA : Std.HashSet PathNodeId := Std.HashSet.ofList (A.nodes.map (·.id))
+          let tQ : Std.HashMap PathNodeId (Std.HashSet PathNodeId) := match kv' with
+            | some e => e.2.nodes.foldl (fun acc n => acc.insert n.id (Std.HashSet.ofList n.owners)) {}
+            | none => {}
+          if kv'.isNone then st := { st with missingKey := st.missingKey + 1 }
+          for n in A.nodes do
+            for q in n.owners do
+              if !memA.contains q then continue
+              if !(q.id.step < lb || q.id.step == 0) then continue
+              st := { st with entries := st.entries + 1 }
+              let ok := match tQ.get? n.id, tQ.get? q with
+                | some o, some _ => o.contains q
+                | _, _ => false
+              if !ok then
+                st := { st with violations := st.violations + 1 }
+                if st.ex.length < 8 then
+                  st := { st with ex := st.ex ++ [s!"step {m} key {kv.1.step}.{kv.1.index} row {d.step}.{d.index} |P|={P.length}: {n.id.id.step}.{n.id.id.index} -> {q.id.step}.{q.id.index}"] }
+  return st
+
+def reportPC (name : String) (st : PCStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: branches={st.branches} clauseSends={st.sends} entries={st.entries} MISSING_KEY={st.missingKey} VIOLATIONS={st.violations} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
+
+-- One pin at a time, at every line: `filterAllAgg G [r]` inside the branch `[r]` state with the same key.
+structure P1Stat where
+  pins : Nat := 0
+  valid : Nat := 0
+  missingKey : Nat := 0
+  badNodes : Nat := 0
+  badEntries : Nat := 0
+  badStatesVar : Nat := 0
+  badStatesClause : Nat := 0
+  ex : List String := []
+
+def runPin1 (φ : Cnf) (st0 : P1Stat) : P1Stat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  let mut cache : Std.HashMap NodeId (Array PureLine) := {}
+  for m in [0:lines.size] do
+    for kv in lines[m]! do
+      let G := kv.2
+      let ids := ((G.gowners.filter (fun q => q.id.step < lb || q.id.step == 0)).map (·.id)).eraseDups
+      for r in ids do
+        if r.step ≥ Int.ofNat m then continue
+        st := { st with pins := st.pins + 1 }
+        let A := filterAllAgg G [r]
+        if !isValid A then continue
+        st := { st with valid := st.valid + 1 }
+        let bl ← match cache.get? r with
+          | some l => pure l
+          | none => pure (branchLinesP φ [r])
+        cache := cache.insert r bl
+        match (bl[m]!).find? (fun e => e.1 == kv.1) with
+        | none =>
+          st := { st with missingKey := st.missingKey + 1 }
+          if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"MISSING KEY line {m} key {kv.1.step}.{kv.1.index} pin {r.step}.{r.index}"] }
+        | some e =>
+          let memB : Std.HashSet PathNodeId := Std.HashSet.ofList (e.2.nodes.map (·.id))
+          let memA : Std.HashSet PathNodeId := Std.HashSet.ofList (A.nodes.map (·.id))
+          let tB : Std.HashMap PathNodeId (Std.HashSet PathNodeId) :=
+            e.2.nodes.foldl (fun acc n => acc.insert n.id (Std.HashSet.ofList n.owners)) {}
+          let mut bn := 0
+          let mut be := 0
+          for n in A.nodes do
+            match tB.get? n.id with
+            | none => bn := bn + 1
+            | some o =>
+              for q in n.owners do
+                if memA.contains q && !o.contains q then be := be + 1
+          if bn + be > 0 then
+            st := { st with badNodes := st.badNodes + bn, badEntries := st.badEntries + be }
+            if Int.ofNat m ≤ lb then st := { st with badStatesVar := st.badStatesVar + 1 }
+            else st := { st with badStatesClause := st.badStatesClause + 1 }
+            if st.ex.length < 8 then
+              st := { st with ex := st.ex ++ [s!"line {m} key {kv.1.step}.{kv.1.index} pin {r.step}.{r.index}: nodes {bn} entries {be}"] }
+          let _ := memB
+  return st
+
+def reportP1 (name : String) (st : P1Stat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} valid={st.valid} MISSING_KEY={st.missingKey} BAD_NODES={st.badNodes} BAD_ENTRIES={st.badEntries} badStates(var stage)={st.badStatesVar} badStates(clause stage)={st.badStatesClause} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -4636,6 +4776,32 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runJoins φ {})
         let t1 ← IO.monoMsNow
         reportJ s!"joins {path}" st (t1 - t0)
+  | "pin1" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPin1 φ {})
+        let t1 ← IO.monoMsNow
+        reportP1 s!"pin1 {path}" st (t1 - t0)
+  | "pincommute" :: "random" :: depth :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : PCStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runPinCommute φ depth.toNat! st
+      let t1 ← IO.monoMsNow
+      reportPC s!"pincommute seed {seed} ({cases} formulas, {nvMin}+ vars, depth {depth})" st (t1 - t0)
+  | "pincommute" :: depth :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPinCommute φ depth.toNat! {})
+        let t1 ← IO.monoMsNow
+        reportPC s!"pincommute {path}" st (t1 - t0)
   | "commute" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
