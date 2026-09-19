@@ -824,6 +824,40 @@ theorem top_owner_gowner (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
   have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
   exact ⟨hg, JoinSide.mem_of_hasNode hmS.rctx.nodup (hmS.rctx.gn a hg)⟩
 
+/-- **The only top a top hangs on is itself.** A side's top owns only its own side's nodes, and that
+side has exactly one node at the last step. -/
+theorem tops_unique (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (t' : PathNodeId) (ht' : Rel (filterAllAgg J Q) (topOf p kv.1) t')
+    (hts : t'.id.step = (m : Int) + 1) : t' = topOf p kv.1 := by
+  have hl := branchLine_inv φ hwf P m
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hmkv : MInv φ kv.2 := hl.2 kv hkv
+  obtain ⟨ns, hns, hmem⟩ := top_owner_in_side φ hwf P m p J hJ Q kv hkv t' ht'
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
+  obtain ⟨nq, hnq, hnqid⟩ := hmS.own ns (List.mem_of_find?_eq_some hns) t' hmem
+  have hvF := ClauseReview.valid_pinned φ kv.2 p hvS
+  have heq : sent φ kv.2 p = addNode (ClauseReview.pinnedAt φ kv.2 p) p "" := by
+    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
+  have hrcW : Reader.RCtx (filterWeakAll kv.2 (weakReqOfCnf φ p)) :=
+    RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx
+  have hrcF := RCtx_of_readableAgg _
+    (show ReadableAgg (ClauseReview.pinnedAt φ kv.2 p) from ⟨_, _, hrcW, rfl⟩)
+  have hcsF : (ClauseReview.pinnedAt φ kv.2 p).current_step = (m : Int) + 1 := by
+    rw [(Pruned.trans (ConservationCore.pruned_filterWeakAll _ _)
+      (pruned_filterAllAgg _ _) : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 p)).step_eq, hsok.step]
+  have hmpF : (ClauseReview.pinnedAt φ kv.2 p).map_parent = some kv.1 := by
+    rw [(Pruned.trans (ConservationCore.pruned_filterWeakAll _ _)
+      (pruned_filterAllAgg _ _) : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 p)).map_parent_eq, hsok.par]
+  have hnq2 : nq ∈ (addNode (ClauseReview.pinnedAt φ kv.2 p) p "").nodes := by
+    rw [← heq]; exact hnq
+  have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 p) p "" hrcF.below nq hnq2
+    (by rw [hnqid, hcsF]; exact hts)
+  rw [hnqid, hmpF] at htop
+  exact htop
+
 /-- **Nothing borrowed, when the chain names the side.** -/
 theorem sideKeep_of_chainSide (m : Nat) (hC : ChainSideAt φ m) : SideKeepAt φ m := by
   intro P r h0r hrm hrl p J hJ hvX x v hxv
