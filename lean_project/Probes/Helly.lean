@@ -4420,6 +4420,62 @@ def reportBW (name : String) (st : BWStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: foreign={st.foreign} | agg fails={st.aggFails} (below pin {st.aggBelowPin}, at pin {st.aggAtPin}, above pin {st.aggAbovePin}) | par fails={st.parFails} | son fails={st.sonFails} | NONE FAILS={st.noneFails} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+
+-- PinJoin (report v154): at a union by key, pinning one literal value and reviewing the union sits inside the
+-- union of the pinned, reviewed sides; and if it is valid, some side is.
+structure PJStat where
+  joins : Nat := 0
+  pins : Nat := 0
+  valid : Nat := 0
+  noSide : Nat := 0
+  badNodes : Nat := 0
+  badEntries : Nat := 0
+  foreignPre : Nat := 0
+  ex : List String := []
+
+def runPinJoin (φ : Cnf) (st0 : PJStat) : PJStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some h else none
+        else none)
+      if sides.length < 2 then continue
+      st := { st with joins := st.joins + 1 }
+      let rs := ((kv.2.gowners.filter (fun q => q.id.step < lb && q.id.step ≤ Int.ofNat m)).map (·.id)).eraseDups
+      for r in rs do
+        st := { st with pins := st.pins + 1 }
+        let X := filterAllAgg kv.2 [r]
+        if !isValid X then continue
+        st := { st with valid := st.valid + 1 }
+        let ys := (sides.map (fun h => filterAllAgg h [r])).filter isValid
+        match ys with
+        | [] =>
+          st := { st with noSide := st.noSide + 1 }
+        | y :: rest =>
+          let Z := rest.foldl doJoin y
+          let tZ := ownerTable Z
+          let tX := ownerTable X
+          for n in X.nodes do
+            match tZ.get? n.id with
+            | none => st := { st with badNodes := st.badNodes + 1 }
+            | some o =>
+              for q in n.owners do
+                if tX.contains q && !o.contains q then
+                  st := { st with badEntries := st.badEntries + 1 }
+                  if st.ex.length < 8 then st := { st with ex := st.ex ++ [s!"line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index}: {n.id.id.step}.{n.id.id.index} -> {q.id.step}.{q.id.index}"] }
+  return st
+
+def reportPJ (name : String) (st : PJStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: joins={st.joins} pins={st.pins} valid={st.valid} NO_VALID_SIDE={st.noSide} BAD_NODES={st.badNodes} BAD_ENTRIES={st.badEntries} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -4926,6 +4982,23 @@ def main (args : List String) : IO Unit := do
         let st ← IO.lazyPure (fun _ => runJoins φ {})
         let t1 ← IO.monoMsNow
         reportJ s!"joins {path}" st (t1 - t0)
+  | "pinjoin" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : PJStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runPinJoin φ st
+      let t1 ← IO.monoMsNow
+      reportPJ s!"pinjoin seed {seed} ({cases} formulas, {nvMin}+ vars)" st (t1 - t0)
+  | "pinjoin" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let st ← IO.lazyPure (fun _ => runPinJoin φ {})
+        let t1 ← IO.monoMsNow
+        reportPJ s!"pinjoin {path}" st (t1 - t0)
   | "basewhy" :: paths =>
     for path in paths do
       match ← loadCnf path with
