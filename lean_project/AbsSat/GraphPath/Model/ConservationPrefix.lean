@@ -412,4 +412,141 @@ theorem pureStepsW_chain_below (φ : Cnf) (a : Assign) (hwf : WF φ) (K : Int) (
 #guard_msgs in
 #print axioms pureStepsW_chain_below
 
+-- ============================================================
+-- A requirement-satisfying path is the branch of the assignment it spells
+-- ============================================================
+
+section
+open AbsSat.GraphPath.Model.CnfChain (decode)
+open AbsSat.GraphPath.Model.MapReachable (ChainOnMap)
+
+variable (φ : Cnf)
+
+theorem nodeId_eta (d : NodeId) : d = ⟨d.step, d.index⟩ := by cases d; rfl
+
+theorem bit_beq_one (i : Int) (h : i = 0 ∨ i = 1) : bit (i == 1) = i := by
+  rcases h with rfl | rfl <;> rfl
+
+theorem bit_not_beq_one (i : Int) (h : i = 0 ∨ i = 1) : bit (!((1 - i) == 1)) = i := by
+  rcases h with rfl | rfl <;> rfl
+
+theorem index01 (k : Int) (h0 : 0 ≤ k) (hk : k < litBlock φ) (d : NodeId) (hd : d ∈ mapNodes φ k) :
+    d = ⟨k, d.index⟩ ∧ (d.index = 0 ∨ d.index = 1) := by
+  rw [mapNodes_var φ k h0 hk] at hd
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+  rcases hd with rfl | rfl
+  · exact ⟨rfl, Or.inl rfl⟩
+  · exact ⟨rfl, Or.inr rfl⟩
+
+/-- **A literal's requirement fixes its truth value in the decoded assignment.** -/
+theorem litBit (g : GPathM) (sel : Int → PathNodeId) (hrs : MapChain.ReqSatisfying (reqOfCnf φ) g sel)
+    (hcm : ChainOnMap φ g sel) (l : Lit) (hl : l.v < φ.nVars) (hlt : l.step < g.current_step) (b : Int)
+    (hb : (sel l.step).id = litReq l b) : bit (litVal (decode sel) l) = b := by
+  have hlo : (0 : Int) ≤ l.step := by unfold Lit.step; split <;> omega
+  have hblk : l.step < litBlock φ := by unfold Lit.step litBlock; split <;> omega
+  have hon := hcm l.step hlo hlt
+  obtain ⟨_, hb01⟩ := index01 φ l.step hlo hblk _ hon
+  rw [hb] at hb01
+  simp only [litReq] at hb01
+  cases hp : l.pos with
+  | true =>
+    have hstep : l.step = 2 * (l.v : Int) := by unfold Lit.step; rw [hp]; simp
+    have hidx : (sel (2 * (l.v : Int))).id.index = b := by rw [← hstep, hb]; rfl
+    simp only [litVal, hp, decode, if_true, hidx]
+    exact bit_beq_one b hb01
+  | false =>
+    have hstep : l.step = 2 * (l.v : Int) + 1 := by unfold Lit.step; rw [hp]; simp
+    have hnegstep : (sel (2 * (l.v : Int) + 1)).id.step = negStep l.v := by
+      rw [← hstep, hb]; simp only [litReq, negStep]; omega
+    have hreqs := reqOfCnf_neg φ (sel (2 * (l.v : Int) + 1)).id l.v hl hnegstep
+    have hnegidx : (sel (2 * (l.v : Int) + 1)).id.index = b := by rw [← hstep, hb]; rfl
+    rw [hnegidx] at hreqs
+    have hmem : ({ step := varStep l.v, index := 1 - b } : NodeId)
+        ∈ reqOfCnf φ (sel (2 * (l.v : Int) + 1)).id := by rw [hreqs]; exact List.mem_cons_self
+    have hsecond := hrs (2 * (l.v : Int) + 1) (by omega) (by rw [← hstep]; exact hlt) _ hmem
+      (by simp only [varStep]; omega) (by simp only [varStep]; omega)
+    have hidx : (sel (2 * (l.v : Int))).id.index = 1 - b := by
+      have : (sel (varStep l.v)).id.index = 1 - b := by rw [hsecond]
+      simpa only [varStep] using this
+    simp only [litVal, hp, decode, hidx]
+    exact bit_not_beq_one b hb01
+
+theorem bits_row (r : Int) (h1 : 1 ≤ r) (h7 : r ≤ 7) : 4 * b1 r + 2 * b2 r + b3 r = r := by
+  unfold b1 b2 b3; omega
+
+theorem b_01 (r : Int) (h0 : 0 ≤ r) : (r / 4 % 2 = 0 ∨ r / 4 % 2 = 1) ∧ (r / 2 % 2 = 0 ∨ r / 2 % 2 = 1)
+    ∧ (r % 2 = 0 ∨ r % 2 = 1) := ⟨by omega, by omega, by omega⟩
+
+/-- **A requirement-satisfying path on the map is the branch of the assignment it spells**, at every
+step it covers. -/
+theorem ids_of_reqSat (hwf : WF φ) (g : GPathM) (sel : Int → PathNodeId) (hchain : IsChain g sel)
+    (hrs : MapChain.ReqSatisfying (reqOfCnf φ) g sel) (hcm : ChainOnMap φ g sel)
+    (hgs : g.current_step ≤ stepCount φ)
+    (k : Int) (h0 : 0 ≤ k) (hk : k < g.current_step) : (sel k).id = selOfAssign φ (decode sel) k := by
+  have hon := hcm k h0 hk
+  have hst := (hchain.1 k h0 hk).2
+  rcases step_cases φ k with h | ⟨v, hv, rfl⟩ | ⟨v, hv, rfl⟩ | h | ⟨j, hjlt, rfl⟩ | h
+  · omega
+  · rw [selOfAssign_var φ _ v hv]
+    obtain ⟨hid, h01⟩ := index01 φ _ h0 (by simp only [varStep, litBlock]; omega) _ hon
+    rw [hid]
+    show (⟨varStep v, (sel (varStep v)).id.index⟩ : NodeId) = ⟨varStep v, bit (decode sel v)⟩
+    simp only [decode, varStep] at h01 ⊢
+    rw [bit_beq_one _ h01]
+  · rw [selOfAssign_neg φ _ v hv]
+    obtain ⟨hid, h01⟩ := index01 φ _ h0 (by simp only [negStep, litBlock]; omega) _ hon
+    have hreqs := reqOfCnf_neg φ (sel (negStep v)).id v hv hst
+    have hmem : ({ step := varStep v, index := 1 - (sel (negStep v)).id.index } : NodeId)
+        ∈ reqOfCnf φ (sel (negStep v)).id := by rw [hreqs]; exact List.mem_cons_self
+    have hsecond := hrs (negStep v) h0 hk _ hmem (by simp only [varStep]; omega)
+      (by simp only [varStep, negStep] at hk ⊢; omega)
+    have hidx : (sel (2 * (v : Int))).id.index = 1 - (sel (negStep v)).id.index := by
+      have : (sel (varStep v)).id.index = 1 - (sel (negStep v)).id.index := by rw [hsecond]
+      simpa only [varStep] using this
+    rw [hid]
+    show (⟨negStep v, (sel (negStep v)).id.index⟩ : NodeId) = ⟨negStep v, bit (!(decode sel v))⟩
+    simp only [decode, hidx]
+    rw [bit_not_beq_one _ h01]
+  · rw [mapNodes_fusion1 φ _ h] at hon
+    rw [List.mem_singleton.mp hon]
+    have h0' : ¬ (k < 0) := by rw [h]; simp only [litBlock]; omega
+    have h1' : ¬ (k < litBlock φ) := by rw [h]; omega
+    have h2' : k ≤ litBlock φ := by rw [h]; omega
+    simp only [selOfAssign, if_neg h0', if_neg h1', if_pos h2']
+  · have hc : φ.clauses[j]? = some φ.clauses[j] := List.getElem?_eq_getElem hjlt
+    obtain ⟨⟨hv1, hv2, hv3⟩, _⟩ := hwf φ.clauses[j] (List.mem_of_getElem? hc)
+    rw [selOfAssign_clause φ _ j _ hjlt hc]
+    obtain ⟨hr1, hr7⟩ := index_range_of_clauseNode φ j hjlt _ hon
+    have hreqs := reqOfCnf_clause φ (sel (clauseStep φ j)).id j _ hjlt hc hst
+    have hlitlt : ∀ lt : Lit, lt.v < φ.nVars → lt.step < g.current_step := by
+      intro lt hlt
+      have : lt.step < litBlock φ := by unfold Lit.step litBlock; split <;> omega
+      simp only [clauseStep, litBlock] at hk this ⊢; omega
+    have hlitlo : ∀ lt : Lit, 0 ≤ lt.step := by intro lt; unfold Lit.step; split <;> omega
+    have sat1 := hrs (clauseStep φ j) h0 hk _ (by rw [hreqs]; exact List.mem_cons_self)
+      (hlitlo _) (hlitlt _ hv1)
+    have sat2 := hrs (clauseStep φ j) h0 hk _ (by rw [hreqs]; exact List.mem_cons_of_mem _ List.mem_cons_self)
+      (hlitlo _) (hlitlt _ hv2)
+    have sat3 := hrs (clauseStep φ j) h0 hk _
+      (by rw [hreqs]; exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self))
+      (hlitlo _) (hlitlt _ hv3)
+    have e1 := litBit φ g sel hrs hcm _ hv1 (hlitlt _ hv1) _ sat1
+    have e2 := litBit φ g sel hrs hcm _ hv2 (hlitlt _ hv2) _ sat2
+    have e3 := litBit φ g sel hrs hcm _ hv3 (hlitlt _ hv3) _ sat3
+    have hid : (sel (clauseStep φ j)).id = ⟨clauseStep φ j, (sel (clauseStep φ j)).id.index⟩ := by
+      have := nodeId_eta (sel (clauseStep φ j)).id
+      rw [hst] at this; exact this
+    rw [hid]
+    show (⟨clauseStep φ j, (sel (clauseStep φ j)).id.index⟩ : NodeId) = ⟨clauseStep φ j, rowOf _ _⟩
+    simp only [rowOf, e1, e2, e3]
+    rw [bits_row _ hr1 hr7]
+  · rw [mapNodes_fusionTop φ _ h (by omega)] at hon
+    rw [List.mem_singleton.mp hon]
+    have h0' : ¬ (k < 0) := by simp only [fusionTop] at h; omega
+    have h1' : ¬ (k < litBlock φ) := by simp only [fusionTop, litBlock] at h ⊢; omega
+    have h2' : ¬ (k ≤ litBlock φ) := by simp only [fusionTop, litBlock] at h ⊢; omega
+    simp only [selOfAssign, if_neg h0', if_neg h1', if_neg h2', if_pos h]
+
+end
+
 end AbsSat.GraphPath.Model.ConservationPrefix
