@@ -4820,6 +4820,52 @@ def reportTK (name : String) (st : TKStat) (ms : Nat) : IO Unit := do
   IO.println s!"{name}: pins={st.pins} entries={st.entries} topChecks={st.topChecks} TOP_FAILS={st.topFails} (entry not in that side before the pin {st.foreignRel}) NO_SIDE={st.noSide} NO_TOP_SIDE_WITH_ENTRY={st.noTopSide} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
+-- Rule 1 (v163+ chat): at a review fixpoint, do three mutual owners always share a node at every step?
+structure R1Stat where
+  states : Nat := 0
+  triples : Nat := 0
+  fails : Nat := 0
+  statesWithFail : Nat := 0
+  ex : List String := []
+
+def rule1Check (X : GPathM) (st0 : R1Stat) (tag : String) : R1Stat := Id.run do
+  let mut st := { st0 with states := st0.states + 1 }
+  let t := ownerTable X
+  let owns (a b : PathNodeId) : Bool := match t.get? a with | some o => o.contains b | none => false
+  let ids := X.nodes.map (·.id)
+  let mut bad := false
+  for x in ids do
+    for v in ids do
+      if !(x.id.step < v.id.step && owns x v && owns v x) then continue
+      for w in ids do
+        if !(v.id.step < w.id.step && owns x w && owns w x && owns v w && owns w v) then continue
+        st := { st with triples := st.triples + 1 }
+        for i in [0:X.current_step.toNat] do
+          let l := Int.ofNat i
+          let ok := ids.any (fun z => z.id.step == l && owns x z && owns v z && owns w z)
+          if !ok then
+            st := { st with fails := st.fails + 1 }
+            bad := true
+            if st.ex.length < 4 then
+              st := { st with ex := st.ex ++ [s!"{tag}: x={pidS x} v={pidS v} w={pidS w} no common node at step {l}"] }
+            break
+  if bad then st := { st with statesWithFail := st.statesWithFail + 1 }
+  return st
+
+def runRule1 (φ : Cnf) (st0 : R1Stat) : R1Stat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size] do
+    for kv in lines[m]! do
+      let R := filterAllAgg kv.2 []
+      if isValid R then st := rule1Check R st s!"{cnfS φ} line {m} key {kv.1.step}.{kv.1.index}"
+      let rs := ((kv.2.gowners.filter (fun q => q.id.step < lb && q.id.step < Int.ofNat m)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg kv.2 [r]
+        if isValid X then st := rule1Check X st s!"{cnfS φ} line {m} key {kv.1.step}.{kv.1.index} pin {r.step}.{r.index}"
+  return st
+
 end Probes.Helly
 
 open Probes.Helly in
@@ -5376,6 +5422,15 @@ def main (args : List String) : IO Unit := do
       IO.println "--- survtrace"
       for l in survTrace φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) ⟨rs.toInt!, ri.toInt!⟩ do
         IO.println l
+  | "rule1" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : R1Stat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runRule1 φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"rule1 seed {seed}: states={st.states} triples={st.triples} FAILS={st.fails} statesWithFail={st.statesWithFail} | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with

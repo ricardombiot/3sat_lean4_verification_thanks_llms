@@ -25,9 +25,11 @@ module GraphPath
 
     include("./graph_path_constructor.jl")
     include("./graph_path_up.jl")
-    include("./graph_path_up_filter.jl")
+    
     include("./graph_path_join.jl")
     include("./graph_path_filter.jl")
+    include("./graph_path_filter_agresive.jl")
+    include("./graph_path_filter_triangle.jl")
 
     include("./reader/path_reader.jl")
     include("./reader/path_exp_reader.jl")
