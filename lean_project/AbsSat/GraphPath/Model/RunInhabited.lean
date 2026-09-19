@@ -171,13 +171,25 @@ variable (φ : Cnf)
 /-- The literal steps, and step `0`: where the pins fall. -/
 def LitStep (s : Int) : Prop := s < litBlock φ ∨ s = 0
 
-/-- **The one step left**: pinning and reviewing a state of the run keeps every entry towards a literal
-step on a path. -/
+/-- **The one step left**: at a send of the run, pinning and reviewing keeps every entry towards a
+literal step on a path. -/
 def FilterSoundAt : Prop :=
   ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → SoundAt (LitStep φ) kv.2 →
-    ∀ (ws : List (Int × List NodeId)) (rq : List NodeId), (∀ r ∈ rq, LitStep φ r.step) →
-      isValid (filterAllAgg (filterWeakAll kv.2 ws) rq) = true →
-      SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 ws) rq)
+    ∀ d ∈ mapSons φ kv.1.step kv.1.index,
+      isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true →
+      SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))
+
+/-- **The review with no pin keeps the invariant**: no path is lost. -/
+theorem soundAt_review (L : Int → Prop) (g : GPathM) (hnd : NodupIds g) (ht : SoundAt L g) :
+    SoundAt L (filterAllAgg g []) := by
+  intro x n hx hx0 hx1 q hq0 hq1 hL hqn
+  have hpr := pruned_filterAllAgg g []
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxid := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem hnd n₀ hn₀
+  obtain ⟨sel, hsc, h1, h2⟩ := ht x n₀ hx₀ hx0 (by rw [← hpr.step_eq]; exact hx1) q hq0
+    (by rw [← hpr.step_eq]; exact hq1) hL (hown q hqn)
+  exact ⟨sel, ChainSound_filterAllAgg g [] sel hsc (fun r hr => absurd hr List.not_mem_nil), h1, h2⟩
 
 /-- The requirements of a map node sit at literal steps. -/
 theorem reqOfCnf_lit (hwf : WF φ) (d : NodeId) : ∀ r ∈ reqOfCnf φ d, r.step < litBlock φ := by
@@ -219,7 +231,7 @@ theorem cov0 (F : GPathM) (hR : ReadableAgg F) (hv : isValid F = true) (hpos : 0
   exact ⟨z, hz, eq_of_beq hzs⟩
 
 /-- **A send keeps it**: the filter by hypothesis, the `up` by `soundAt_addNode`. -/
-theorem soundAt_sent (hwf : WF φ) (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
+theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (ht : SoundAt (LitStep φ) kv.2)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true) :
     SoundAt (LitStep φ) (sent φ kv.2 d) := by
@@ -247,7 +259,7 @@ theorem soundAt_sent (hwf : WF φ) (hF : FilterSoundAt φ) (k : Int) (kv : NodeI
   have heq : sent φ kv.2 d = addNode F d "" := by rw [hsentF]; unfold GPathM.up; rw [hvF]; rfl
   have hFs : SoundAt (LitStep φ) F := by
     rw [hFdef]; rw [hFdef] at hvF
-    exact hF k kv hkv hm ht _ _ (fun r hr => Or.inl (reqOfCnf_lit φ hwf d r hr)) hvF
+    exact hF k kv hkv hm ht d hd hvF
   rw [heq]
   refine soundAt_addNode (LitStep φ) (Or.inr rfl) F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
     rcF.below ?_ rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn
@@ -288,7 +300,7 @@ theorem lineSoundAt_advance (hwf : WF φ) (hF : FilterSoundAt φ) (k : Int) (L :
   split
   · next hv =>
     exact lineSoundAt_insertPure φ acc d _ hsl
-      (soundAt_sent φ hwf hF k kv (hl.1.2 kv hkv) (hl.2 kv hkv) (hs kv hkv) d hd hv)
+      (soundAt_sent φ hF k kv (hl.1.2 kv hkv) (hl.2 kv hkv) (hs kv hkv) d hd hv)
   · exact hsl
 
 theorem lineSoundAt_init : LineSoundAt φ (pureInit φ) := by
@@ -329,9 +341,7 @@ theorem sat_of_soundAt (hwf : WF φ) (hF : FilterSoundAt φ) (kv : NodeId × GPa
     have := ConservationCore.stepCount_pos φ; omega
   rw [hcast] at hl
   have hsk := hl.1.2 kv hkv
-  have hts := hF _ kv hsk hm (run_soundAt φ hwf hF kv hkv) [] [] (fun _ h => absurd h List.not_mem_nil) hv
-  have hfw : filterWeakAll kv.2 [] = kv.2 := rfl
-  rw [hfw] at hts
+  have hts := soundAt_review (LitStep φ) kv.2 hm.rctx.nodup (run_soundAt φ hwf hF kv hkv)
   have hRG : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
   have rcG := RCtx_of_readableAgg _ hRG
   have ctxG := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRG) hv

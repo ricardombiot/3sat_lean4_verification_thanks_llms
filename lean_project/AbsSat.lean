@@ -197,6 +197,7 @@ import AbsSat.GraphPath.Model.RunNoBorrow
 import AbsSat.GraphPath.Model.LiveSolution
 import AbsSat.GraphPath.Model.RunInhabited
 import AbsSat.GraphPath.Model.RunSteps
+import AbsSat.GraphPath.Model.WeakNoop
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves

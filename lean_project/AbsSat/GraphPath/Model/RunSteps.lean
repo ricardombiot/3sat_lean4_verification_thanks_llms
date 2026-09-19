@@ -20,6 +20,7 @@ namespace AbsSat.GraphPath.Model.RunSteps
 open AbsSat.Utils.Alias
 open AbsSat.Cnf
 open AbsSat.GraphMap.CnfMap
+open AbsSat.GraphMap.CnfMapImproves (weakReqOfCnf)
 open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview
@@ -30,7 +31,7 @@ open AbsSat.GraphPath.Model.ReaderAggRun (MInv)
 open AbsSat.GraphPath.Model.BranchCompat (pinOneByOne)
 open AbsSat.GraphPath.Model.BranchRun (isValid_of_embedded)
 open AbsSat.GraphPath.Model.Exactness (Realizes)
-open AbsSat.GraphPath.Model.RunInhabited (SoundAt LitStep FilterSoundAt)
+open AbsSat.GraphPath.Model.RunInhabited (SoundAt LitStep FilterSoundAt soundAt_review reqOfCnf_lit)
 open AbsSat.GraphPath.Model.WeakPairs (weakOneByOne full_seq readable_weakOneByOne readableAgg_weakStep
   pruned_weakOneByOne)
 open AbsSat.GraphPath.Model.SeqPin (chainSound_of_embedded pruned_pinOneByOne)
@@ -50,18 +51,6 @@ theorem soundAt_of_embedded (L : Int → Prop) {A S : GPathM} (eAS : Embedded A 
   obtain ⟨sel, hsc, h1, h2⟩ := ht x n' hn' hx0 (by rw [← eAS.step]; exact hx1) q hq0
     (by rw [← eAS.step]; exact hq1) hL (ho q hqn hqm)
   exact ⟨sel, chainSound_of_embedded eSA hsA sel hsc, h1, h2⟩
-
-/-- **The review with no pin keeps the invariant**: no path is lost. -/
-theorem soundAt_review (L : Int → Prop) (g : GPathM) (hnd : NodupIds g) (ht : SoundAt L g) :
-    SoundAt L (filterAllAgg g []) := by
-  intro x n hx hx0 hx1 q hq0 hq1 hL hqn
-  have hpr := pruned_filterAllAgg g []
-  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
-  have hxid := node?_id_eq _ x n hx
-  have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem hnd n₀ hn₀
-  obtain ⟨sel, hsc, h1, h2⟩ := ht x n₀ hx₀ hx0 (by rw [← hpr.step_eq]; exact hx1) q hq0
-    (by rw [← hpr.step_eq]; exact hq1) hL (hown q hqn)
-  exact ⟨sel, ChainSound_filterAllAgg g [] sel hsc (fun r hr => absurd hr List.not_mem_nil), h1, h2⟩
 
 -- ============================================================
 -- The send, one step at a time
@@ -111,8 +100,12 @@ theorem soundAt_weakOneByOne (hW : WeakStepSoundAt φ) : ∀ (ws : List (Int × 
     exact ih _ hR' hv' (hW h hR hv ht e hv') hvS
 
 /-- **The send step from its single steps.** -/
-theorem filterSoundAt_of_steps (hW : WeakStepSoundAt φ) (hP : PinStepSoundAt φ) : FilterSoundAt φ := by
-  intro k kv _ hm ht ws rq hlit hv
+theorem filterSoundAt_of_steps (hwf : WF φ) (hW : WeakStepSoundAt φ) (hP : PinStepSoundAt φ) :
+    FilterSoundAt φ := by
+  intro k kv _ hm ht d _ hv
+  have hlit : ∀ r ∈ reqOfCnf φ d, LitStep φ r.step := fun r hr => Or.inl (reqOfCnf_lit φ hwf d r hr)
+  generalize weakReqOfCnf φ d = ws at hv ⊢
+  generalize reqOfCnf φ d = rq at hv hlit ⊢
   obtain ⟨hvT, eAT, eTA, adA, hsA⟩ := full_seq kv.2 hm.rctx hm.smp hm.pms hm.sn ws rq hv
   have hR0 : ReadableAgg (filterAllAgg kv.2 []) := ⟨kv.2, [], hm.rctx, rfl⟩
   have hR1 := readable_weakOneByOne ws _ hR0
@@ -165,7 +158,7 @@ theorem pinStep_of_pairs (h : PinPairSoundAt φ) : PinStepSoundAt φ := by
 theorem sat_of_steps (hwf : WF φ) (hW : WeakStepSoundAt φ) (hP : PinPairSoundAt φ)
     (kv : NodeId × GPathM) (hkv : kv ∈ PureDriverImproves.pureRunW φ)
     (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
-  RunInhabited.sat_of_soundAt φ hwf (filterSoundAt_of_steps φ hW (pinStep_of_pairs φ hP)) kv hkv hv
+  RunInhabited.sat_of_soundAt φ hwf (filterSoundAt_of_steps φ hwf hW (pinStep_of_pairs φ hP)) kv hkv hv
 
 /-- info: 'AbsSat.GraphPath.Model.RunSteps.sat_of_steps' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
