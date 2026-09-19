@@ -602,15 +602,18 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (n : PNodeM) (hn : n ∈ J.nodes)
     (hts : n.id.id.step = (m : Int) + 1) :
     ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      n.id = topOf p kv.1 := by
+      n.id = topOf p kv.1 ∧
+      ∃ ns, (sent φ kv.2 p).node? n.id = some ns ∧ ∀ q ∈ n.owners, q ∈ ns.owners := by
   have hl := branchLine_inv φ hwf P m
   have step : ∀ kv ∈ branchLine φ P m, ∀ d ∈ mapSons φ kv.1.step kv.1.index, ∀ acc,
       (∀ d' B', (d', B') ∈ acc → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
         ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
-          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1) →
+          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1 ∧
+          ∃ ns, (sent φ kv'.2 d').node? n'.id = some ns ∧ ∀ q ∈ n'.owners, q ∈ ns.owners) →
       (∀ d' B', (d', B') ∈ sendToW φ kv.2 acc d → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
         ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
-          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1) := by
+          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1 ∧
+          ∃ ns, (sent φ kv'.2 d').node? n'.id = some ns ∧ ∀ q ∈ n'.owners, q ∈ ns.owners) := by
     intro kv hkv d hd acc hacc
     rw [BranchLines.sendToW_eq]
     by_cases hv : isValid (sent φ kv.2 d) = true
@@ -639,18 +642,39 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
         have := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d "" hbelow n' hn'
           (by rw [hcsF]; exact hs)
         rw [this, hmpF]; rfl
+      have hndS : NodupIds (sent φ kv.2 d) :=
+        (ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv d hd hv).rctx.nodup
       intro d' B' hB' n' hn' hs'
       rcases BranchLines.insert_src acc d (sent φ kv.2 d) d' B' hB' with ⟨hdd, hcase⟩ | ⟨hmem, _⟩
       · subst hdd
         rcases hcase with rfl | ⟨e, he, rfl⟩
-        · exact ⟨kv, hkv, hd, hv, htopSent n' hn' hs'⟩
+        · exact ⟨kv, hkv, hd, hv, htopSent n' hn' hs', n',
+            node?_of_mem hndS n' hn', fun q hq => hq⟩
         · unfold doJoin at hn'
           by_cases hok : okJoin e (sent φ kv.2 d') = true
           · rw [if_pos hok] at hn'
-            rcases BranchRun.mem_join_nodes_src hn' with ⟨a, ha, hid, _⟩ | hsent
-            · obtain ⟨kv', hkv', hson', hv', hid'⟩ := hacc _ _ he a ha (by rw [← hid]; exact hs')
-              exact ⟨kv', hkv', hson', hv', by rw [hid]; exact hid'⟩
-            · exact ⟨kv, hkv, hd, hv, htopSent n' hsent hs'⟩
+            rcases BranchRun.mem_join_nodes_src hn' with ⟨a, ha, hid, hown, _⟩ | hsent
+            · obtain ⟨kv', hkv', hson', hv', hid', ns, hns, hsub⟩ :=
+                hacc _ _ he a ha (by rw [← hid]; exact hs')
+              refine ⟨kv', hkv', hson', hv', by rw [hid]; exact hid', ns, by rw [hid]; exact hns,
+                fun q hq => ?_⟩
+              rcases hown q hq with hqa | ⟨b, hb, hbid, hqb⟩
+              · exact hsub q hqa
+              · -- the other side's node with the same id is this side's top, so the sides agree
+                have hbs : b.id.id.step = (m : Int) + 1 := by rw [hbid, ← hid]; exact hs'
+                have hbtop : b.id = topOf d' kv.1 := htopSent b hb hbs
+                have hkeys : kv'.1 = kv.1 := by
+                  have heq : topOf d' kv'.1 = topOf d' kv.1 := by rw [← hid', ← hbid, hbtop]
+                  simpa [topOf] using heq
+                have hsame : kv' = kv := PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys
+                subst hsame
+                have hb2 : (sent φ kv'.2 d').node? a.id = some b := by
+                  rw [← hbid]; exact node?_of_mem hndS b hb
+                rw [hns] at hb2
+                have : ns = b := Option.some.inj hb2
+                rw [this]; exact hqb
+            · exact ⟨kv, hkv, hd, hv, htopSent n' hsent hs', n',
+                node?_of_mem hndS n' hsent, fun q hq => hq⟩
           · rw [if_neg hok] at hn'
             exact hacc _ _ he n' hn' hs'
       · exact hacc d' B' hmem n' hn' hs'
@@ -658,8 +682,38 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
   exact BranchLines.advance_inv φ
     (fun acc => ∀ d' B', (d', B') ∈ acc → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
       ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
-        isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1)
+        isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1 ∧
+        ∃ ns, (sent φ kv'.2 d').node? n'.id = some ns ∧ ∀ q ∈ n'.owners, q ∈ ns.owners)
     (branchLine φ P m) step (by intro d B hB; cases hB) p J hJ n hn hts
+
+/-- **The owners of a live top belong to its own side.** The top of a side exists only in that side, so
+everything the pinned union hangs on it is a node of that side's send — no union mixes in. -/
+theorem top_owner_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (hv : isValid (filterAllAgg J Q) = true) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1) a) :
+    ∃ ns, (sent φ kv.2 p).node? (topOf p kv.1) = some ns ∧ a ∈ ns.owners := by
+  have hl := branchLine_inv φ hwf P m
+  obtain ⟨n, hn, hao, _⟩ := ha
+  obtain ⟨n0, hn0, hid, hown, _⟩ := (pruned_filterAllAgg J Q).nodes_derived n
+    (List.mem_of_find?_eq_some hn)
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hps : p.step = (m : Int) + 1 := mapNodes_step φ _ p hsJ.onMap
+  have hts : n0.id.id.step = (m : Int) + 1 := by
+    have hnid : n.id = topOf p kv.1 := node?_id_eq _ _ n hn
+    rw [← hid, hnid]
+    show p.step = (m : Int) + 1
+    exact hps
+  obtain ⟨kv', hkv', hson', hv', hid', ns, hns, hsub⟩ := advance_top_node φ hwf P m p J hJ n0 hn0 hts
+  have hne : n0.id = topOf p kv.1 := by rw [← hid]; exact node?_id_eq _ _ n hn
+  have hkeys : kv'.1 = kv.1 := by
+    have heq : topOf p kv'.1 = topOf p kv.1 := by rw [← hid', hne]
+    simpa [topOf] using heq
+  have hsame : kv' = kv := PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys
+  subst hsame
+  exact ⟨ns, by rw [← hne]; exact hns, hsub a (hown a hao)⟩
 
 /-- **Nothing borrowed, when the chain names the side.** -/
 theorem sideKeep_of_chainSide (m : Nat) (hC : ChainSideAt φ m) : SideKeepAt φ m := by
