@@ -33,6 +33,8 @@ open AbsSat.GraphPath.Model.BranchLines (sent)
 open AbsSat.GraphPath.Model.PinHistory (branchLine branchLine_inv PinIdsBelow)
 open AbsSat.GraphPath.Model.PinVar (canon Agrees)
 open AbsSat.GraphPath.Model.PinClause (SideKeepAt LineSoundL Full)
+open AbsSat.GraphPath.Model.Exactness (Realizes)
+open AbsSat.GraphPath.Model.RunInhabited (SoundAt)
 
 variable (φ : Cnf)
 
@@ -167,5 +169,108 @@ theorem sat_of_rowWitness (hwf : WF φ)
 /-- info: 'AbsSat.GraphPath.Model.PinDeath.sat_of_rowWitness' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms sat_of_rowWitness
+
+-- ============================================================
+-- The side is chosen by its top
+-- ============================================================
+
+/-- The top node a side leaves in the union: the key, over the side's own key. -/
+def topOf (p k : NodeId) : PathNodeId := { id := p, parent_id := some k }
+
+/-- **The top keeps its side, at line `m`.** In a pinned union, if both ends of an entry own the top node
+of one side, and the entry was already in that side, that side's pinned send keeps the entry. (Probe
+`topkeep`, report v163: 0 failures. Without the last premise it fails: the pair may come from another
+side while both ends belong to this one.) -/
+def TopKeepAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index → isValid (sent φ kv.2 p) = true →
+        ∀ x v, Rel (filterAllAgg J [r]) x v →
+          Rel (filterAllAgg J [r]) x (topOf p kv.1) → Rel (filterAllAgg J [r]) v (topOf p kv.1) →
+          Rel (sent φ kv.2 p) x v →
+          isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧ Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
+
+/-- **A carrying top, at line `m`.** A survivor of the pin has a side whose top both ends own and which
+already carried the entry. (Probe `topkeep`: 0 failures.) `top_is_side` gives a common top of a side for
+free; what this adds is that some such side carries the entry itself. -/
+def TopSideAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ x v, Rel (filterAllAgg J [r]) x v →
+        ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+          Rel (filterAllAgg J [r]) x (topOf p kv.1) ∧ Rel (filterAllAgg J [r]) v (topOf p kv.1) ∧
+          Rel (sent φ kv.2 p) x v
+
+/-- **Every top node of an exact union is the top of a side.** -/
+theorem top_is_side (hwf : WF φ) (P : List NodeId) (m : Nat)
+    (hE : LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (x z : PathNodeId) (hxz : Rel J x z)
+    (hz : z.id.step = (m : Int) + 1) :
+    ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+      z = topOf p kv.1 := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  have hle : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have bnd : ∀ a, Mem J a → 0 ≤ a.id.step ∧ a.id.step < (m : Int) + 2 := by
+    intro a ⟨na, hna⟩
+    have hmem := List.mem_of_find?_eq_some hna
+    rw [← node?_id_eq J a na hna, ← hcsJ]
+    exact ⟨hmJ.rctx.snn na hmem, hmJ.rctx.below na hmem⟩
+  obtain ⟨n, hn, hzn, hzm⟩ := id hxz
+  have bx := bnd x ⟨n, hn⟩
+  have bz := bnd z hzm
+  obtain ⟨s, hs, _, hsz⟩ := (hE _ hJ) x n hn bx.1 (by rw [hcsJ]; exact bx.2) z bz.1
+    (by rw [hcsJ]; exact bz.2) trivial hzn
+  have hpins := PinHistory.pinIds_advance φ P m _ hl (PinHistory.pinIds_branch φ hwf P m) _ hJ
+  obtain ⟨b, hb, hbp, hbP, hsat⟩ := PinVar.path_facts φ hwf P m p J hsJ hmJ hpins hle s hs
+  have hm0 : (0 : Int) ≤ (m : Int) := by omega
+  have hlt1 : (m : Int) + 1 < stepCount φ := by omega
+  obtain ⟨g, hmem, _, _⟩ := PinVar.branch_carries φ hwf P b ((m : Int) + 1) (by omega)
+    (ConservationPrefix.satBelow_mono hsat (by omega)) hbP m (Int.le_refl _)
+  have hson : p ∈ mapSons φ (selOfAssign φ b (m : Int)).step (selOfAssign φ b (m : Int)).index := by
+    rw [selOfAssign_step, ← hbp]
+    exact ConservationPrefix.selOfAssign_son_below φ b m hsat hm0 hlt1
+  have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl⟩⟩
+  obtain ⟨hvS, _⟩ := PinVar.branch_send_chain φ hwf P m hle (selOfAssign φ b (m : Int), g) hmem p hson
+    (canon φ b) hgen rfl hbp hbP
+  refine ⟨(selOfAssign φ b (m : Int), g), hmem, hson, hvS, ?_⟩
+  obtain ⟨h1, h2⟩ := hb ((m : Int) + 1) (by omega) (by omega)
+  have hne : ¬ ((m : Int) + 1 = 0) := by omega
+  rw [hz] at hsz
+  rw [hsz] at h1 h2
+  rw [if_neg hne, show (m : Int) + 1 - 1 = (m : Int) by omega] at h2
+  cases z with
+  | mk zi zp =>
+    simp only at h1 h2
+    simp only [topOf, h1, h2, hbp]
+
+/-- **Nothing borrowed, from the top.** -/
+theorem sideKeep_of_top (m : Nat) (hS : TopSideAt φ m) (hT : TopKeepAt φ m) : SideKeepAt φ m := by
+  intro P r h0r hrm hrl p J hJ hvX x v hxv
+  obtain ⟨kv, hkv, hson, hvS, hxt, hvt, hS'⟩ := hS P r h0r hrm hrl p J hJ hvX x v hxv
+  obtain ⟨hvY, hrel⟩ := hT P r h0r hrm hrl p J hJ hvX kv hkv hson hvS x v hxv hxt hvt hS'
+  exact ⟨kv, hkv, hson, hvS, hvY, hrel⟩
+
+/-- **The verdict from the top.** -/
+theorem sat_of_topKeep (hwf : WF φ)
+    (hT : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 →
+      (∀ P, LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) → TopSideAt φ m ∧ TopKeepAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ := by
+  have hE := (PinClause.joint φ hwf (fun m h hC hadv =>
+    PinClause.flipSat_of_sideKeep φ hwf m hC hadv (sideKeep_of_top φ m (hT m h hadv).1 (hT m h hadv).2))
+    (stepCount φ - 1).toNat).1 []
+  rw [PinHistory.branchLine_nil] at hE
+  refine RunInhabited.sat_of_lineSound φ hwf (fun kv' hkv' => ?_) kv hkv hv
+  intro x n hx hx0 hx1 q hq0 hq1 _ hqn
+  exact hE kv' hkv' x n hx hx0 hx1 q hq0 hq1 trivial hqn
+
+/-- info: 'AbsSat.GraphPath.Model.PinDeath.sat_of_topKeep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_topKeep
 
 end AbsSat.GraphPath.Model.PinDeath

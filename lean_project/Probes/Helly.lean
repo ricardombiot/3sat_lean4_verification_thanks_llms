@@ -4685,7 +4685,7 @@ def runSplitTri (φ : Cnf) (st0 : STStat) : STStat := Id.run do
                 st := { st with killedDirect := st.killedDirect + 1 }
                 if direct.any (fun i => (Int.ofNat i) > lb) then
                   st := { st with killedDirectClause := st.killedDirectClause + 1 }
-            if false then
+            if surv && st.ex.length < 2 then
               st := { st with ex := st.ex ++ [s!"{cnfS φ}\n    line {m+1} key {p.step}.{p.index} x={pidS x} v={pidS v} r={pidS r} | after pin r: x→v {surv}\n    " ++ String.intercalate "\n    " pairs] }
   return st
 
@@ -4717,6 +4717,108 @@ def splitTrace (φ : Cnf) (lineIdx : Nat) (key : NodeId) (x v : PathNodeId) (r :
         if a.length + b.length > 0 && (common.isEmpty || nm == "union") then
           out := out ++ [s!"      step {k}: x→{a.map pidS}  v→{b.map pidS}  common {common.map pidS}"]
   return out
+
+-- Directed trace of a surviving split entry: per step, the common nodes of x and v that own a node of the
+-- pinned map node, and which side gives each pair; then the sides after the pin.
+def survTrace (φ : Cnf) (lineIdx : Nat) (key : NodeId) (x v : PathNodeId) (r : NodeId) : List String := Id.run do
+  let lines := (aggLines φ).toArray
+  let L := lines[lineIdx - 1]!
+  let some kv := lines[lineIdx]!.find? (fun e => e.1 == key) | return ["no key"]
+  let J := kv.2
+  let p := key
+  let sides := L.filterMap (fun e =>
+    if (mapSons φ e.1.step e.1.index).contains p then
+      let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+      if isValid h then some (e.1, h) else none
+    else none)
+  let tJ := ownerTable J
+  let owns (t : Std.HashMap PathNodeId (Std.HashSet PathNodeId)) (a b : PathNodeId) : Bool :=
+    match t.get? a with | some o => o.contains b | none => false
+  let tabs := sides.map (fun (k, h) => (k, ownerTable h))
+  let sidesOf (a b : PathNodeId) : String :=
+    String.intercalate "," ((tabs.filter (fun (_, t) => owns t a b)).map (fun (k, _) => s!"{k.step}.{k.index}"))
+  let rnodes := J.nodes.filter (fun n => n.id.id == r) |>.map (·.id)
+  let mut out : List String := [cnfS φ, s!"key {key.step}.{key.index}  x={pidS x} v={pidS v} pin {r.step}.{r.index}  r-nodes in union: {rnodes.map pidS}",
+    s!"  x→v from sides [{sidesOf x v}]"]
+  for ρ in rnodes do
+    out := out ++ [s!"  {pidS ρ}: x→ρ [{sidesOf x ρ}]  v→ρ [{sidesOf v ρ}]"]
+  for i in [0:J.current_step.toNat] do
+    let l := Int.ofNat i
+    let zs := J.nodes.filter (fun n => n.id.id.step == l && owns tJ x n.id && owns tJ v n.id &&
+      rnodes.any (fun ρ => owns tJ n.id ρ)) |>.map (·.id)
+    let desc := zs.map (fun z => s!"{pidS z}(x:[{sidesOf x z}] v:[{sidesOf v z}] ρ:" ++
+      String.intercalate "|" ((rnodes.filter (fun ρ => owns tJ z ρ)).map (fun ρ => s!"{pidS ρ}[{sidesOf z ρ}]")) ++ ")")
+    out := out ++ [s!"  step {l}: " ++ String.intercalate "  " desc]
+  let tX := ownerTable (filterAllAgg J [r])
+  for (k, h) in sides do
+    let Y := filterAllAgg h [r]
+    let keep := isValid Y && owns (ownerTable Y) x v
+    let t : PathNodeId := { id := p, parent_id := some k }
+    out := out ++ [s!"  side {k.step}.{k.index}: pinned send valid {isValid Y}, keeps x→v {keep} | in the pinned union its top {pidS t}: alive {tX.contains t}, x→top {owns tX x t}, v→top {owns tX v t}"]
+  return out
+
+-- TopKeep (v163): in a pinned union, every side whose top both ends own keeps the entry in its pinned send.
+structure TKStat where
+  pins : Nat := 0
+  entries : Nat := 0
+  topChecks : Nat := 0
+  topFails : Nat := 0
+  foreignRel : Nat := 0
+  noSide : Nat := 0
+  noTopSide : Nat := 0
+  ex : List String := []
+
+def runTopKeep (φ : Cnf) (st0 : TKStat) : TKStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := L.filterMap (fun e =>
+        if (mapSons φ e.1.step e.1.index).contains p then
+          let h := up (filterAllAgg (filterWeakAll e.2 (weakReqOfCnf φ p)) (reqOfCnf φ p)) p ""
+          if isValid h then some (e.1, h) else none
+        else none)
+      if sides.length < 2 then continue
+      let owns (t : Std.HashMap PathNodeId (Std.HashSet PathNodeId)) (a b : PathNodeId) : Bool :=
+        match t.get? a with | some o => o.contains b | none => false
+      let rs := ((kv.2.gowners.filter (fun q => q.id.step < lb && q.id.step ≤ Int.ofNat m)).map (·.id)).eraseDups
+      for r in rs do
+        let X := filterAllAgg kv.2 [r]
+        if !isValid X then continue
+        st := { st with pins := st.pins + 1 }
+        let tX := ownerTable X
+        let ys := sides.map (fun (k, h) =>
+          let Y := filterAllAgg h [r]
+          (k, ownerTable h, if isValid Y then some (ownerTable Y) else none))
+        for n in X.nodes do
+          for v in n.owners do
+            if !tX.contains v then continue
+            let x := n.id
+            st := { st with entries := st.entries + 1 }
+            let mut any := false
+            let mut anyTop := false
+            for (k, tS, tY?) in ys do
+              let t : PathNodeId := { id := p, parent_id := some k }
+              let keeps := match tY? with | some tY => owns tY x v | none => false
+              if keeps then any := true
+              if owns tX x t && owns tX v t && owns tS x v then anyTop := true
+              if owns tX x t && owns tX v t then
+                st := { st with topChecks := st.topChecks + 1 }
+                if !keeps then
+                  st := { st with topFails := st.topFails + 1 }
+                  if !owns tS x v then st := { st with foreignRel := st.foreignRel + 1 }
+                  if st.ex.length < 4 && owns tS x v then
+                    st := { st with ex := st.ex ++ [s!"{cnfS φ}\n    line {m+1} key {p.step}.{p.index} pin {r.step}.{r.index} side {k.step}.{k.index}: x={pidS x} v={pidS v} | entry in the side before pin {owns tS x v}"] }
+            if !any then st := { st with noSide := st.noSide + 1 }
+            if !anyTop then st := { st with noTopSide := st.noTopSide + 1 }
+  return st
+
+def reportTK (name : String) (st : TKStat) (ms : Nat) : IO Unit := do
+  IO.println s!"{name}: pins={st.pins} entries={st.entries} topChecks={st.topChecks} TOP_FAILS={st.topFails} (entry not in that side before the pin {st.foreignRel}) NO_SIDE={st.noSide} NO_TOP_SIDE_WITH_ENTRY={st.noTopSide} | {ms}ms"
+  for e in st.ex do IO.println s!"  EX {e}"
 
 end Probes.Helly
 
@@ -5248,6 +5350,21 @@ def main (args : List String) : IO Unit := do
       { id := ⟨s.toInt!, i.toInt!⟩, parent_id := if ps == "-" then none else some ⟨ps.toInt!, pi.toInt!⟩ }
     for l in splitTrace φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) ⟨rs.toInt!, ri.toInt!⟩ do
       IO.println l
+  | "survtrace" :: seed :: nvMin :: idx :: line :: ks :: ki :: xs :: xi :: xps :: xpi :: vs :: vi :: vps :: vpi :: rs :: ri :: _ =>
+    let φs := randomCnfs 10 nvMin.toNat! seed.toNat!
+    let some φ := φs[idx.toNat!]? | IO.println "no formula"
+    let pid (s i ps pi : String) : AbsSat.Utils.Alias.PathNodeId :=
+      { id := ⟨s.toInt!, i.toInt!⟩, parent_id := if ps == "-" then none else some ⟨ps.toInt!, pi.toInt!⟩ }
+    for l in survTrace φ line.toNat! ⟨ks.toInt!, ki.toInt!⟩ (pid xs xi xps xpi) (pid vs vi vps vpi) ⟨rs.toInt!, ri.toInt!⟩ do
+      IO.println l
+  | "topkeep" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : TKStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runTopKeep φ st
+      let t1 ← IO.monoMsNow
+      reportTK s!"topkeep seed {seed}" st (t1 - t0)
   | "pinsplit" :: paths =>
     for path in paths do
       match ← loadCnf path with
