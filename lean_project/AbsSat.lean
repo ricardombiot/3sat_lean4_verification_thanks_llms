@@ -200,6 +200,7 @@ import AbsSat.GraphPath.Model.RunSteps
 import AbsSat.GraphPath.Model.WeakNoop
 import AbsSat.GraphPath.Model.ClausePins
 import AbsSat.GraphPath.Model.RunHistory
+import AbsSat.GraphPath.Model.ClauseReview
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves
