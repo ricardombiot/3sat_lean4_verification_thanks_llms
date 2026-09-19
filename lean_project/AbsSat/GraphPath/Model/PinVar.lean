@@ -532,4 +532,272 @@ theorem sat_of_pinJoinClause (hwf : WF φ) (hC : PinSend.PinJoinClause φ) (kv :
 #guard_msgs in
 #print axioms sat_of_pinJoinClause
 
+-- ============================================================
+-- E. From paths to the union, at any stage
+-- ============================================================
+
+/-- The node an assignment's branch passes at step `k`. -/
+def canon (a : Assign) (k : Int) : PathNodeId :=
+  ⟨selOfAssign φ a k, if k = 0 then none else some (selOfAssign φ a (k - 1))⟩
+
+theorem lt_of_mapNodes (k : Int) (d : NodeId) (h : d ∈ mapNodes φ k) : k < stepCount φ := by
+  unfold mapNodes at h
+  by_cases h1 : k < 0
+  · rw [if_pos h1] at h; exact absurd h List.not_mem_nil
+  · rw [if_neg h1] at h
+    by_cases h2 : stepCount φ ≤ k
+    · rw [if_pos h2] at h; exact absurd h List.not_mem_nil
+    · omega
+
+/-- **The union by key, from paths.** At line `m`, every entry of each pinned, reviewed union lies on the
+branch of an assignment that satisfies the clauses below the union's top, takes the pinned value, the key
+on top and the branch's pins. -/
+def PathAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ x v, Rel (filterAllAgg J [r]) x v →
+        ∃ a : Assign, SatBelow φ a ((m : Int) + 2) ∧ canon φ a x.id.step = x ∧ canon φ a v.id.step = v ∧
+          selOfAssign φ a r.step = r ∧ selOfAssign φ a ((m : Int) + 1) = p ∧ Agrees φ P a ((m : Int) + 1)
+
+/-- **A genuine path through the key and the pin lies on one side's pinned send.** -/
+theorem side_of_path (hwf : WF φ) (P : List NodeId) (m : Nat) (hm2 : (m : Int) + 2 ≤ stepCount φ)
+    (r : NodeId) (p : NodeId) (a : Assign) (hsat : SatBelow φ a ((m : Int) + 2))
+    (hr : selOfAssign φ a r.step = r) (hp : selOfAssign φ a ((m : Int) + 1) = p)
+    (hag : Agrees φ P a ((m : Int) + 1)) :
+    ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+      ChainSound (filterAllAgg (sent φ kv.2 p) [r]) (canon φ a) := by
+  have hle1 : (m : Int) + 1 ≤ stepCount φ := by omega
+  have hlt1 : (m : Int) + 1 < stepCount φ := by omega
+  have hm0 : (0 : Int) ≤ (m : Int) := by omega
+  have hm1m2 : (m : Int) + 1 ≤ (m : Int) + 2 := by omega
+  have hgen : Genuine φ ((m : Int) + 2) (canon φ a) := ⟨a, hsat, fun k _ _ => ⟨rfl, rfl⟩⟩
+  obtain ⟨g, hmem, _, _⟩ := branch_carries φ hwf P a ((m : Int) + 1) hle1 (satBelow_mono hsat hm1m2) hag m
+    (Int.le_refl _)
+  have hson : p ∈ mapSons φ (selOfAssign φ a (m : Int)).step (selOfAssign φ a (m : Int)).index := by
+    rw [selOfAssign_step, ← hp]
+    exact ConservationPrefix.selOfAssign_son_below φ a m hsat hm0 hlt1
+  obtain ⟨hvS, hscS⟩ := branch_send_chain φ hwf P m hm2 (selOfAssign φ a (m : Int), g) hmem p hson
+    (canon φ a) hgen rfl hp (fun r' hr' h0 h1 => hag r' hr' h0 h1)
+  exact ⟨(selOfAssign φ a (m : Int), g), hmem, hson, hvS,
+    ChainSound_filterAllAgg _ [r] (canon φ a) hscS (fun q hq _ _ => by rw [List.mem_singleton.mp hq]; exact hr)⟩
+
+/-- **`PinJoinAt` from paths**, at any line. -/
+theorem pinJoinAt_of_paths (hwf : WF φ) (m : Nat) (hP : PathAt φ m) : PinSend.PinJoinAt φ m := by
+  intro P L r h0 h1 hlb p J hJ0 hvX
+  have hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m) := hJ0
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hm2 : (m : Int) + 2 ≤ stepCount φ := by
+    have := lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have hRX : ReadableAgg (filterAllAgg J [r]) := ⟨J, [r], hmJ.rctx, rfl⟩
+  have ctxX := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRX) hvX
+  have adX := AdjacentOwners.adj_of_readable _ hRX hvX (AggInvariants.PMS_filterAllAgg J [r] hmJ.pms)
+    (AggInvariants.SN_filterAllAgg J [r] hmJ.sn)
+  have hcsX : (filterAllAgg J [r]).current_step = (m : Int) + 2 := by
+    rw [(pruned_filterAllAgg J [r]).step_eq, hsJ.step]; omega
+  have glue : ∀ x v, Rel (filterAllAgg J [r]) x v →
+      ∃ sel, ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+        ChainSound (filterAllAgg (sent φ kv.2 p) [r]) sel ∧ sel x.id.step = x ∧ sel v.id.step = v := by
+    intro x v hxv
+    obtain ⟨a, hsat, hx, hv, hr, hp, hag⟩ := hP P r h0 h1 hlb p J hJ hvX x v hxv
+    obtain ⟨kv, hkv, hson, hvS, hsc⟩ := side_of_path φ hwf P m hm2 r p a hsat hr hp hag
+    exact ⟨canon φ a, kv, hkv, hson, hvS, hsc, hx, hv⟩
+  have relSelf : ∀ x n, (filterAllAgg J [r]).node? x = some n → Rel (filterAllAgg J [r]) x x :=
+    fun x n hx => ⟨n, hx, ctxX.self x n hx, ⟨n, hx⟩⟩
+  refine ⟨?_, fun Z hsZ hmZ hY => ?_⟩
+  · have hv' := hvX
+    simp only [isValid, List.all_eq_true] at hv'
+    obtain ⟨z, hz, _⟩ := List.any_eq_true.mp (hv' 0 (mem_intRange (Int.le_refl 0) (by rw [hcsX]; omega)))
+    obtain ⟨n, hn, hnid⟩ := ctxX.gn z hz
+    have hzn : (filterAllAgg J [r]).node? z = some n := by
+      rw [← hnid]; exact node?_of_mem adX.rc.nodup n hn
+    obtain ⟨sel, kv, hkv, hson, hvS, hsc, _⟩ := glue z z (relSelf z n hzn)
+    exact ⟨kv, hkv, hson, hvS, PickInduction.isValid_of_ChainG _ sel hsc.chain⟩
+  · have hcsZ : Z.current_step = (m : Int) + 2 := by rw [hsZ.step]; omega
+    have inZ : ∀ x v, Rel (filterAllAgg J [r]) x v → ∃ sel, ChainSound Z sel ∧ sel x.id.step = x ∧
+        sel v.id.step = v := by
+      intro x v hxv
+      obtain ⟨sel, kv, hkv, hson, hvS, hsc, hsx, hsv⟩ := glue x v hxv
+      have e := hY kv hkv hson hvS (PickInduction.isValid_of_ChainG _ sel hsc.chain)
+      exact ⟨sel, SeqPin.chainSound_of_embedded e hmZ.smp sel hsc, hsx, hsv⟩
+    have bnd : ∀ a, Mem (filterAllAgg J [r]) a → 0 ≤ a.id.step ∧ a.id.step < (m : Int) + 2 := by
+      intro a ha; have := mem_bounds _ adX ha; rw [hcsX] at this; exact this
+    refine ⟨by rw [hcsX, hcsZ], fun q hq => ?_, fun x mx hx => ?_⟩
+    · obtain ⟨n, hn, hnid⟩ := ctxX.gn q hq
+      have hqn : (filterAllAgg J [r]).node? q = some n := by
+        rw [← hnid]; exact node?_of_mem adX.rc.nodup n hn
+      obtain ⟨sel, hsc, hsq, _⟩ := inZ q q (relSelf q n hqn)
+      have hb := bnd q ⟨n, hqn⟩
+      have := hsc.chain.2.2 q.id.step hb.1 (by rw [hcsZ]; exact hb.2)
+      rwa [hsq] at this
+    · have hb := bnd x ⟨mx, hx⟩
+      obtain ⟨sel, hsc, hsx, _⟩ := inZ x x (relSelf x mx hx)
+      obtain ⟨hsome, _⟩ := hsc.chain.1.1 x.id.step hb.1 (by rw [hcsZ]; exact hb.2)
+      rw [hsx] at hsome
+      obtain ⟨nz, hnz⟩ := Option.isSome_iff_exists.mp hsome
+      refine ⟨nz, hnz, fun q hq hqm => ?_, fun q hq hqm => ?_⟩
+      · obtain ⟨sel', hsc', hsx', hsq'⟩ := inZ x q ⟨mx, hx, hq, hqm⟩
+        have hbq := bnd q hqm
+        obtain ⟨m', hm', hqo, _⟩ := JoinSide.rel_of_chain Z sel' hsc' q.id.step x.id.step hbq.1
+          (by rw [hcsZ]; exact hbq.2) hb.1 (by rw [hcsZ]; exact hb.2)
+        rw [hsx', hnz] at hm'; cases hm'
+        rwa [hsq'] at hqo
+      · have hqo : q ∈ mx.owners := (adX.links x mx hx).1 q hq
+        obtain ⟨sel', hsc', hsx', hsq'⟩ := inZ x q ⟨mx, hx, hqo, hqm⟩
+        have hstep : q.id.step + 1 = x.id.step := by
+          have := adX.rc.shape.pbelow mx (List.mem_of_find?_eq_some hx) q hq
+          rw [node?_id_eq _ x mx hx] at this; omega
+        have hlink := hsc'.chain.1.2 q.id.step (bnd q hqm).1 (by rw [hcsZ]; omega)
+        rw [hstep, hsx', hnz, hsq'] at hlink
+        exact hlink
+
+/-- **The clause stage, as paths**: at every line of the clause stage, every entry of each pinned,
+reviewed union lies on the branch of one assignment that takes the pinned value. -/
+def ClausePath : Prop := ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → PathAt φ m
+
+theorem pinJoinClause_of_paths (hwf : WF φ) (h : ClausePath φ) : PinSend.PinJoinClause φ :=
+  fun m hm => pinJoinAt_of_paths φ hwf m (h m hm)
+
+/-- **The verdict from paths in the clause stage.** -/
+theorem sat_of_clausePath (hwf : WF φ) (h : ClausePath φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
+  sat_of_pinJoinClause φ hwf (pinJoinClause_of_paths φ hwf h) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.PinVar.sat_of_clausePath' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_clausePath
+
+-- ============================================================
+-- F. Gluing in the clause stage: only the clauses of the pinned variable are at stake
+-- ============================================================
+
+theorem glue_litVal (b₁ b₂ : Assign) (u : Nat) (l : Lit) (h : litVal b₁ l = litVal b₂ l) :
+    litVal (glue b₁ b₂ u) l = litVal b₁ l := by
+  unfold litVal at h ⊢
+  simp only [glue]
+  by_cases hu : l.v = u
+  · rw [if_pos hu]
+    cases hp : l.pos <;> simp only [hp] at h ⊢
+    · simp at h ⊢; exact h.symm
+    · simp at h ⊢; exact h.symm
+  · rw [if_neg hu]
+
+/-- Two assignments that pick the same row agree on its three variables; the glue picks it too. -/
+theorem glue_row (b₁ b₂ : Assign) (u : Nat) (c : Clause) (h : rowOf b₁ c = rowOf b₂ c) :
+    rowOf (glue b₁ b₂ u) c = rowOf b₁ c := by
+  have e1 : litVal b₁ c.l1 = litVal b₂ c.l1 := bit_inj (by rw [← b1_rowOf, ← b1_rowOf, h])
+  have e2 : litVal b₁ c.l2 = litVal b₂ c.l2 := bit_inj (by rw [← b2_rowOf, ← b2_rowOf, h])
+  have e3 : litVal b₁ c.l3 = litVal b₂ c.l3 := bit_inj (by rw [← b3_rowOf, ← b3_rowOf, h])
+  unfold rowOf
+  rw [glue_litVal b₁ b₂ u _ e1, glue_litVal b₁ b₂ u _ e2, glue_litVal b₁ b₂ u _ e3]
+
+/-- **At every step, where two assignments pick the same node, the glued one picks it too** — literal
+steps, clause rows and fusion steps alike. -/
+theorem glue_agree_all (b₁ b₂ : Assign) (u : Nat) (k : Int) (t : NodeId)
+    (h₁ : selOfAssign φ b₁ k = t) (h₂ : selOfAssign φ b₂ k = t) : selOfAssign φ (glue b₁ b₂ u) k = t := by
+  by_cases hneg : k < 0
+  · rw [← h₁]; simp only [selOfAssign, if_pos hneg]
+  by_cases hlit : k < litBlock φ
+  · exact glue_agree φ b₁ b₂ u k (by omega) hlit t h₁ h₂
+  have h := h₁.trans h₂.symm
+  rw [← h₁]
+  simp only [selOfAssign, if_neg hneg, if_neg hlit] at h ⊢
+  by_cases hf : k ≤ litBlock φ
+  · simp only [if_pos hf]
+  simp only [if_neg hf] at h ⊢
+  by_cases ht : fusionTop φ ≤ k
+  · simp only [if_pos ht]
+  simp only [if_neg ht] at h ⊢
+  cases hc : clauseAt φ k with
+  | none => rfl
+  | some c =>
+    simp only [hc] at h ⊢
+    have hr : rowOf b₁ c = rowOf b₂ c := congrArg NodeId.index h
+    rw [glue_row b₁ b₂ u c hr]
+
+/-- A node two assignments pass is passed by their glue. -/
+theorem glue_canon (b₁ b₂ : Assign) (u : Nat) (y : PathNodeId) (h₁ : canon φ b₁ y.id.step = y)
+    (h₂ : canon φ b₂ y.id.step = y) : canon φ (glue b₁ b₂ u) y.id.step = y := by
+  have i1 : selOfAssign φ b₁ y.id.step = y.id := congrArg PathNodeId.id h₁
+  have i2 : selOfAssign φ b₂ y.id.step = y.id := congrArg PathNodeId.id h₂
+  have p1 := congrArg PathNodeId.parent_id h₁
+  have p2 := congrArg PathNodeId.parent_id h₂
+  simp only [canon] at p1 p2
+  apply RunNoBorrow.pid_ext
+  · exact glue_agree_all φ b₁ b₂ u _ _ i1 i2
+  · show (if y.id.step = 0 then none else some (selOfAssign φ (glue b₁ b₂ u) (y.id.step - 1))) = y.parent_id
+    by_cases hz : y.id.step = 0
+    · rw [if_pos hz]; rw [if_pos hz] at p1; exact p1
+    · rw [if_neg hz]; rw [if_neg hz] at p1 p2
+      rw [← p1, glue_agree_all φ b₁ b₂ u _ _ rfl (Option.some.inj (p2.trans p1.symm))]
+
+/-- **The clause stage, reduced to one flip.** For each entry `x → v` of a pinned, reviewed union: a path
+of the union through `x` and `v` (assignment `b₁`), a path through `x` and the pinned value (`b₂`), a path
+through `v` and the pinned value, and — the only condition that is not about pairs — **`b₁` with the
+pinned variable set to the pinned value still satisfies every clause below the union's top**. -/
+def FlipAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
+      ∀ x v, Rel (filterAllAgg J [r]) x v →
+        ∃ b₁ b₂ b₃ : Assign,
+          (canon φ b₁ x.id.step = x ∧ canon φ b₁ v.id.step = v ∧ selOfAssign φ b₁ ((m : Int) + 1) = p ∧
+            Agrees φ P b₁ ((m : Int) + 1)) ∧
+          (canon φ b₂ x.id.step = x ∧ selOfAssign φ b₂ r.step = r ∧ selOfAssign φ b₂ ((m : Int) + 1) = p ∧
+            Agrees φ P b₂ ((m : Int) + 1)) ∧
+          (canon φ b₃ v.id.step = v ∧ selOfAssign φ b₃ r.step = r) ∧
+          SatBelow φ (glue b₁ b₂ (r.step / 2).toNat) ((m : Int) + 2)
+
+/-- **The glue gives the path.** -/
+theorem pathAt_of_flip (m : Nat) (h : FlipAt φ m) : PathAt φ m := by
+  intro P r h0 h1 hlb p J hJ hvX x v hxv
+  obtain ⟨b₁, b₂, b₃, ⟨hx1, hv1, hp1, hP1⟩, ⟨hx2, hr2, hp2, hP2⟩, ⟨hv3, hr3⟩, hsat⟩ :=
+    h P r h0 h1 hlb p J hJ hvX x v hxv
+  have h23 := sel_det φ b₂ b₃ r.step h0 hlb (hr2.trans hr3.symm)
+  have hg : glue b₁ b₂ (r.step / 2).toNat = glue b₁ b₃ (r.step / 2).toNat := by
+    funext w; simp only [glue]; split
+    · next hw => rw [hw]; exact h23
+    · rfl
+  refine ⟨_, hsat, glue_canon φ b₁ b₂ _ x hx1 hx2, by rw [hg]; exact glue_canon φ b₁ b₃ _ v hv1 hv3,
+    by rw [glue_self φ b₁ b₂ r.step h0 hlb]; exact hr2, glue_agree_all φ b₁ b₂ _ _ p hp1 hp2,
+    fun r' hr' h0' h1' => glue_agree_all φ b₁ b₂ _ _ r' (hP1 r' hr' h0' h1') (hP2 r' hr' h0' h1')⟩
+
+/-- **The verdict from the flip in the clause stage.** -/
+theorem sat_of_clauseFlip (hwf : WF φ) (h : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → FlipAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_clausePath φ hwf (fun m hm => pathAt_of_flip φ m (h m hm)) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.PinVar.sat_of_clauseFlip' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_clauseFlip
+
+/-- A variable appears in a clause. -/
+def Mentions (c : Clause) (u : Nat) : Prop := c.l1.v = u ∨ c.l2.v = u ∨ c.l3.v = u
+
+theorem litVal_glue_off (b₁ b₂ : Assign) (u : Nat) (l : Lit) (h : l.v ≠ u) :
+    litVal (glue b₁ b₂ u) l = litVal b₁ l := by
+  unfold litVal; simp only [glue, if_neg h]
+
+/-- **Only the clauses of the pinned variable are at stake.** -/
+theorem satBelow_glue (b₁ b₂ : Assign) (u : Nat) (K : Int) (h₁ : SatBelow φ b₁ K)
+    (hu : ∀ j (hj : j < φ.clauses.length), clauseStep φ j < K → Mentions φ.clauses[j] u →
+      SatClause (glue b₁ b₂ u) φ.clauses[j]) : SatBelow φ (glue b₁ b₂ u) K := by
+  intro j hj hs
+  by_cases hm : Mentions φ.clauses[j] u
+  · exact hu j hj hs hm
+  · simp only [Mentions, not_or] at hm
+    obtain ⟨n1, n2, n3⟩ := hm
+    have hc := h₁ j hj hs
+    unfold SatClause at hc ⊢
+    rw [litVal_glue_off b₁ b₂ u _ n1, litVal_glue_off b₁ b₂ u _ n2, litVal_glue_off b₁ b₂ u _ n3]
+    exact hc
+
+/-- **If the path already takes the pinned value, nothing changes.** -/
+theorem glue_same (b₁ b₂ : Assign) (u : Nat) (h : b₁ u = b₂ u) : glue b₁ b₂ u = b₁ := by
+  funext w; simp only [glue]; split
+  · next hw => rw [hw]; exact h.symm
+  · rfl
+
 end AbsSat.GraphPath.Model.PinVar
