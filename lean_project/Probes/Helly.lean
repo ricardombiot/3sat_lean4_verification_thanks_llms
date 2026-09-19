@@ -3775,6 +3775,8 @@ structure SideStat where
   sideOk : Nat := 0          -- in the tables of a side where it has a common top anchor
   crossOnly : Nat := 0       -- only anchors on the side whose tables lack the entry
   NO_ANCHOR : Nat := 0
+  crossAnchor : Nat := 0     -- has some anchor on a side whose tables lack the entry
+  onlyA_bothNodes : Nat := 0 -- entry only in a, x and v nodes of both sides
   ex : List String := []
 
 def sideCheck (a b : GPathM) (st0 : SideStat) : SideStat := Id.run do
@@ -3804,6 +3806,9 @@ def sideCheck (a b : GPathM) (st0 : SideStat) : SideStat := Id.run do
       let anchors := tops.filter (fun z => ownsIn tR x z && ownsIn tR v z)
       let ancA := anchors.any (fun z => tA.contains z)
       let ancB := anchors.any (fun z => tB.contains z)
+      if (ancA && !ia) || (ancB && !ib) then st := { st with crossAnchor := st.crossAnchor + 1 }
+      if (ia != ib) && tA.contains x && tB.contains x && tA.contains v && tB.contains v then
+        st := { st with onlyA_bothNodes := st.onlyA_bothNodes + 1 }
       if anchors.isEmpty then st := { st with NO_ANCHOR := st.NO_ANCHOR + 1 }
       else if (ia && ancA) || (ib && ancB) then st := { st with sideOk := st.sideOk + 1 }
       else
@@ -3836,7 +3841,7 @@ def runSideCls (φ : Cnf) (st0 : SideStat) : SideStat := Id.run do
   return st
 
 def reportSide (name : String) (st : SideStat) (ms : Nat) : IO Unit := do
-  IO.println s!"{name}: joins={st.joins} topsShared={st.topsShared} entries={st.entries} inA={st.inA} inB={st.inB} inBoth={st.inBoth} sideOk={st.sideOk} CROSS_ONLY={st.crossOnly} NO_ANCHOR={st.NO_ANCHOR} | {ms}ms"
+  IO.println s!"{name}: joins={st.joins} topsShared={st.topsShared} entries={st.entries} inA={st.inA} inB={st.inB} inBoth={st.inBoth} sideOk={st.sideOk} CROSS_ONLY={st.crossOnly} NO_ANCHOR={st.NO_ANCHOR} crossAnchor={st.crossAnchor} oneSideEntryNodesInBoth={st.onlyA_bothNodes} | {ms}ms"
   for e in st.ex do IO.println s!"  EX {e}"
 
 def runJoins (φ : Cnf) (st0 : JStat) : JStat := Id.run do
