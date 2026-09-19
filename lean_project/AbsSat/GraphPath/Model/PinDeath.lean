@@ -471,4 +471,96 @@ theorem sat_of_semWitnessFar (hwf : WF φ)
 #guard_msgs in
 #print axioms sat_of_semWitnessFar
 
+-- ============================================================
+-- The witness with closure
+-- ============================================================
+
+/-- **A closed family at `r`.** A relation between nodes that only relates compatible nodes, is symmetric,
+has at every step a node common to the two ends of each of its pairs *inside the family*, and at `r`'s
+step only reaches nodes of `r`. It is what the aggressive review leaves after pinning `r`, read without the
+machine (`sideKeep_of_closed`). The link rules (parents and sons) are left out. -/
+structure ClosedAt (P : List NodeId) (m : Nat) (p r : NodeId) (R : PathNodeId → PathNodeId → Prop) : Prop where
+  compat : ∀ a b, R a b → Compat φ P m p a b
+  sym : ∀ a b, R a b → R b a
+  agg : ∀ a b, R a b → ∀ l, 0 ≤ l → l < (m : Int) + 2 → ∃ z, z.id.step = l ∧ R a z ∧ R b z
+  pin : ∀ a z, R a z → z.id.step = r.step → z.id = r
+
+/-- **The witness with closure, at line `m`.** Every pair of a closed family at `r` lies on one genuine
+path through `r`. (Probe trace of the constructed case, 2026-09-19: the one-level witness `SemWitnessAt`
+fails there, the aggressive review's fixpoint does not keep the entry.) -/
+def ClosedWitnessAt (m : Nat) : Prop :=
+  ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    ∀ (p : NodeId) (R : PathNodeId → PathNodeId → Prop), ClosedAt φ P m p r R →
+      ∀ x v, R x v → ∃ β, InUnion φ P m p β ∧ canon φ β x.id.step = x ∧ canon φ β v.id.step = v ∧
+        selOfAssign φ β r.step = r
+
+/-- **Nothing borrowed, from the closed witness.** The pinned union's own relation is a closed family at
+`r`: compatible by exactness, symmetric and closed by the aggressive review's fixpoint, and pinned by the
+pin. -/
+theorem sideKeep_of_closed (hwf : WF φ) (m : Nat)
+    (hE : ∀ P, LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (hC : ClosedWitnessAt φ m) :
+    SideKeepAt φ m := by
+  intro P r h0r hrm hrl p J hJ hvX x v hxv
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  have hle : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have C := compat_of_rel φ hwf P m (hE P) p J hJ
+  have hRX : ReadableAgg (filterAllAgg J [r]) := ⟨J, [r], hmJ.rctx, rfl⟩
+  have okX : AggFixpoint.AggOk (filterAllAgg J [r]) := AggFixpoint.aggOk_reviewAgg _ hvX
+  have smpX := AnchoredSurvive.SMP_filterAllAgg J hmJ.smp hmJ.rctx.shape.notroot [r]
+  have pmsX := AggInvariants.PMS_filterAllAgg J [r] hmJ.pms
+  have snX := AggInvariants.SN_filterAllAgg J [r] hmJ.sn
+  have prX : Pruned J (filterAllAgg J [r]) := pruned_filterAllAgg _ _
+  have cleanX : ∀ q, q ∈ (filterAllAgg J [r]).gowners → q.id.step = r.step → q.id = r :=
+    fun q hq hs => ReaderAggRun.filterAllAgg_cleans J [r] r List.mem_cons_self q hq hs
+  generalize filterAllAgg J [r] = X at hRX hvX okX smpX pmsX snX prX cleanX hxv
+  have adX := AdjacentOwners.adj_of_readable X hRX hvX pmsX snX
+  have supX := LinkedChain.sup_self X adX okX smpX
+  have hcs : X.current_step = (m : Int) + 2 := by rw [prX.step_eq, hcsJ]
+  have RJ := rel_of_pruned J X hmJ.rctx.nodup prX
+  have hcl : ClosedAt φ P m p r (Rel X) :=
+    { compat := fun a b h => C a b (RJ a b h)
+      sym := supX.sym
+      agg := fun a b h l h0 h1 => by
+        obtain ⟨z, haz, hbz, hz⟩ := supX.agg a b h l h0 (by rw [hcs]; exact h1)
+        exact ⟨z, hz, haz, hbz⟩
+      pin := fun a z h hz => cleanX z (supX.gow z (supX.dom a z h).2) hz }
+  obtain ⟨β, hβ, hx, hv, hr⟩ := hC P r h0r hrm hrl p (Rel X) hcl x v hxv
+  have bnd : ∀ a, Mem X a → 0 ≤ a.id.step ∧ a.id.step < (m : Int) + 2 := by
+    intro a ha; have := EmbeddedSupport.mem_bounds X adX ha; rw [hcs] at this; exact this
+  have bx := bnd x (supX.dom x v hxv).1
+  have bv := bnd v (supX.dom x v hxv).2
+  obtain ⟨kv, hkv, hson, hvS, hsc⟩ := PinVar.side_of_path φ hwf P m hle r p β hβ.1 hr hβ.2.1 hβ.2.2
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+    (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
+  have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+  have hcsY : (filterAllAgg (sent φ kv.2 p) [r]).current_step = (m : Int) + 2 := by
+    rw [(pruned_filterAllAgg _ _).step_eq, hsS']; omega
+  have hrel := JoinSide.rel_of_chain _ _ hsc v.id.step x.id.step bv.1 (by rw [hcsY]; exact bv.2) bx.1
+    (by rw [hcsY]; exact bx.2)
+  rw [hx, hv] at hrel
+  exact ⟨kv, hkv, hson, hvS, PickInduction.isValid_of_ChainG _ _ hsc.chain, hrel⟩
+
+/-- **The verdict from the witness with closure.** -/
+theorem sat_of_closedWitness (hwf : WF φ)
+    (hC : ∀ m : Nat, litBlock φ ≤ (m : Int) + 1 → ClosedWitnessAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ := by
+  have hE := (PinClause.joint φ hwf (fun m h hCm hadv =>
+    PinClause.flipSat_of_sideKeep φ hwf m hCm hadv (sideKeep_of_closed φ hwf m hadv (hC m h)))
+    (stepCount φ - 1).toNat).1 []
+  rw [PinHistory.branchLine_nil] at hE
+  refine RunInhabited.sat_of_lineSound φ hwf (fun kv' hkv' => ?_) kv hkv hv
+  intro x n hx hx0 hx1 q hq0 hq1 _ hqn
+  exact hE kv' hkv' x n hx hx0 hx1 q hq0 hq1 trivial hqn
+
+/-- info: 'AbsSat.GraphPath.Model.PinDeath.sat_of_closedWitness' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_closedWitness
+
 end AbsSat.GraphPath.Model.PinDeath
