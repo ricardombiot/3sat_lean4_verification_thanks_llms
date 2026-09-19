@@ -273,4 +273,81 @@ theorem sat_of_topKeep (hwf : WF φ)
 #guard_msgs in
 #print axioms sat_of_topKeep
 
+-- ============================================================
+-- The union's table is the pair table of its genuine paths
+-- ============================================================
+
+/-- The genuine paths of the union by key `p` of line `m + 1`, on branch `P`. -/
+def InUnion (P : List NodeId) (m : Nat) (p : NodeId) (b : Assign) : Prop :=
+  SatBelow φ b ((m : Int) + 2) ∧ selOfAssign φ b ((m : Int) + 1) = p ∧ Agrees φ P b ((m : Int) + 1)
+
+/-- **Completeness of the union.** Any two nodes of a genuine path through the key are an entry of the
+union. -/
+theorem union_complete (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (b : Assign) (hb : InUnion φ P m p b)
+    (i j : Int) (hi0 : 0 ≤ i) (hi1 : i < (m : Int) + 2) (hj0 : 0 ≤ j) (hj1 : j < (m : Int) + 2) :
+    Rel J (canon φ b i) (canon φ b j) := by
+  obtain ⟨hsat, hbp, hag⟩ := hb
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hle : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have hm0 : (0 : Int) ≤ (m : Int) := by omega
+  have hlt1 : (m : Int) + 1 < stepCount φ := by omega
+  obtain ⟨g, hmem, _, _⟩ := PinVar.branch_carries φ hwf P b ((m : Int) + 1) (by omega)
+    (ConservationPrefix.satBelow_mono hsat (by omega)) hag m (Int.le_refl _)
+  have hson : p ∈ mapSons φ (selOfAssign φ b (m : Int)).step (selOfAssign φ b (m : Int)).index := by
+    rw [selOfAssign_step, ← hbp]
+    exact ConservationPrefix.selOfAssign_son_below φ b m hsat hm0 hlt1
+  have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl⟩⟩
+  obtain ⟨hvS, hsc⟩ := PinVar.branch_send_chain φ hwf P m hle (selOfAssign φ b (m : Int), g) hmem p hson
+    (canon φ b) hgen rfl hbp hag
+  obtain ⟨J', hJ', hg⟩ := BranchLines.full_reach φ hwf m _ hl _ hmem p hson hvS
+  have hJJ : J' = J := BranchLines.key_unique _ hadv.1.1 p J' J hJ' hJ
+  rw [hJJ] at hg
+  have e := BranchRun.embedded_of_grown (BranchLines.embedded_refl _) hg
+  have hcsS : (sent φ g p).current_step = (m : Int) + 2 := by rw [e.step, hsJ.step]; omega
+  obtain ⟨nS, hnS, hq, hqm⟩ := JoinSide.rel_of_chain _ _ hsc j i hj0 (by rw [hcsS]; exact hj1) hi0
+    (by rw [hcsS]; exact hi1)
+  obtain ⟨n, hn, hown, _⟩ := e.node _ nS hnS
+  obtain ⟨mq, hmq⟩ := hqm
+  obtain ⟨nq, hnq, _, _⟩ := e.node _ mq hmq
+  exact ⟨n, hn, hown _ hq ⟨mq, hmq⟩, nq, hnq⟩
+
+/-- **The union's table is exactly the pair table of its genuine paths**, once the union is exact. -/
+theorem union_rel_iff (hwf : WF φ) (P : List NodeId) (m : Nat)
+    (hE : LineSoundL Full (pureAdvanceW φ (branchLine φ P m))) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (x v : PathNodeId)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < (m : Int) + 2) (hv0 : 0 ≤ v.id.step)
+    (hv1 : v.id.step < (m : Int) + 2) :
+    Rel J x v ↔ ∃ b, InUnion φ P m p b ∧ canon φ b x.id.step = x ∧ canon φ b v.id.step = v := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  have hle : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have bnd : ∀ a, Mem J a → 0 ≤ a.id.step ∧ a.id.step < (m : Int) + 2 := by
+    intro a ⟨na, hna⟩
+    have hmem := List.mem_of_find?_eq_some hna
+    rw [← node?_id_eq J a na hna, ← hcsJ]
+    exact ⟨hmJ.rctx.snn na hmem, hmJ.rctx.below na hmem⟩
+  constructor
+  · intro hxv
+    obtain ⟨n, hn, hvn, hvm⟩ := id hxv
+    have bx := bnd x ⟨n, hn⟩
+    have bv := bnd v hvm
+    obtain ⟨s, hs, hsx, hsv⟩ := (hE _ hJ) x n hn bx.1 (by rw [hcsJ]; exact bx.2) v bv.1
+      (by rw [hcsJ]; exact bv.2) trivial hvn
+    have hpins := PinHistory.pinIds_advance φ P m _ hl (PinHistory.pinIds_branch φ hwf P m) _ hJ
+    obtain ⟨b, hb, hbp, hbP, hsat⟩ := PinVar.path_facts φ hwf P m p J hsJ hmJ hpins hle s hs
+    refine ⟨b, ⟨hsat, hbp, hbP⟩, ?_, ?_⟩
+    · rw [PinClause.canon_of_path φ b s _ hb x.id.step bx.1 bx.2, hsx]
+    · rw [PinClause.canon_of_path φ b s _ hb v.id.step bv.1 bv.2, hsv]
+  · rintro ⟨b, hb, hx, hv⟩
+    have h := union_complete φ hwf P m p J hJ b hb x.id.step v.id.step hx0 hx1 hv0 hv1
+    rwa [hx, hv] at h
+
 end AbsSat.GraphPath.Model.PinDeath
