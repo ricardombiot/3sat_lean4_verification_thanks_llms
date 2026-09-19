@@ -431,4 +431,102 @@ theorem sat_of_pinCommutes1 (hwf : WF φ) (h1 : PinCommutes1 φ) (kv : NodeId ×
 #guard_msgs in
 #print axioms sat_of_pinCommutes1
 
+-- ============================================================
+-- One pin, line by line: the history property is one step of the machine
+-- ============================================================
+
+/-- **Pinning goes through one advance.** If each pinned state of a line sits inside the state with the same
+key of another line, each pinned state of the next line sits inside the state with the same key of the
+other next line. -/
+def PinAdvance : Prop :=
+  ∀ (m : Nat) (L L' : PureLine), LineInv φ m L → LineInv φ m L' →
+    ∀ r : NodeId, 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+    (∀ kv ∈ L, isValid (filterAllAgg kv.2 [r]) = true →
+      ∃ kv' ∈ L', kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2) →
+    ∀ kv ∈ pureAdvanceW φ L, isValid (filterAllAgg kv.2 [r]) = true →
+      ∃ kv' ∈ pureAdvanceW φ L', kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2
+
+/-- **A pin at the top step is the key.** Every node at the top carries the key; a valid pinned state keeps
+a global owner there, which is the pin. -/
+theorem topPin_key (k : Int) (kv : NodeId × GPathM) (hsok : StateOkF φ k kv) (hm : MInv φ kv.2)
+    (r : NodeId) (hr : r.step = k) (hv : isValid (filterAllAgg kv.2 [r]) = true) : r = kv.1 := by
+  have hRr : ReadableAgg (filterAllAgg kv.2 [r]) := ⟨kv.2, [r], hm.rctx, rfl⟩
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hv
+  have hpr := pruned_filterAllAgg kv.2 [r]
+  have hcs : (filterAllAgg kv.2 [r]).current_step = k + 1 := by rw [hpr.step_eq, hsok.step]
+  have htl := ParentId.TL_of_pruned hpr hm.tl
+  have hk0 : 0 ≤ k := SliceInvariant.nonneg_of_mapNodes φ k kv.1 hsok.onMap
+  have hv' := hv
+  simp only [isValid, List.all_eq_true] at hv'
+  have hent := hv' k (mem_intRange hk0 (by rw [hcs]; omega))
+  obtain ⟨z, hz, hzs⟩ := List.any_eq_true.mp hent
+  have hzs' : z.id.step = k := eq_of_beq hzs
+  have hzid : z.id = r := ReaderComplete.pin_id kv.2 r z hz (by rw [hzs', hr])
+  obtain ⟨n, hn, hnid⟩ := ctxR.gn z hz
+  have := htl n hn (by rw [hnid, hzs', hcs]; omega)
+  rw [hnid, hzid, hpr.map_parent_eq, hsok.par] at this
+  exact Option.some.inj this
+
+/-- The branch of `P ++ [r]` at the step of `r` is the branch of `P` restricted to the key `r`. -/
+theorem mem_branch_top (P : List NodeId) (m : Nat) (r : NodeId) (hr : r.step = m) (kv : NodeId × GPathM)
+    (hkv : kv ∈ branchLine φ P m) (hk : kv.1 = r) : kv ∈ branchLine φ (P ++ [r]) m := by
+  have h := SendDistrib.bline_append φ P r m hr m (Nat.le_refl _)
+  show kv ∈ SendDistrib.bline φ (P ++ [r]) m
+  rw [h]
+  refine List.mem_filter.mpr ⟨hkv, ?_⟩
+  simp [hk]
+
+/-- **The pin commutes with the history at every line**, from `PinAdvance`: by induction on the line. A
+pin at the top step is the key, and the branch keeps that state; below it, `PinAdvance` carries the
+previous line's embedding one step up. -/
+theorem pinCommutes_all (hwf : WF φ) (hA : PinAdvance φ) (P : List NodeId) :
+    ∀ (m : Nat), ∀ kv ∈ branchLine φ P m, ∀ r : NodeId, 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
+      isValid (filterAllAgg kv.2 [r]) = true →
+      ∃ kv' ∈ branchLine φ (P ++ [r]) m, kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2 := by
+  have top : ∀ (m : Nat), ∀ kv ∈ branchLine φ P m, ∀ r : NodeId, r.step = m →
+      isValid (filterAllAgg kv.2 [r]) = true →
+      ∃ kv' ∈ branchLine φ (P ++ [r]) m, kv'.1 = kv.1 ∧ Embedded (filterAllAgg kv.2 [r]) kv'.2 := by
+    intro m kv hkv r hr hv
+    have hl := branchLine_inv φ hwf P m
+    have hmk : MInv φ kv.2 := hl.2 kv hkv
+    have hk := topPin_key φ m kv (hl.1.2 kv hkv) hmk r hr hv
+    exact ⟨kv, mem_branch_top φ P m r hr kv hkv hk.symm, rfl,
+      embedded_of_pruned (pruned_filterAllAgg _ _) hmk.rctx.nodup (embedded_refl _)⟩
+  intro m
+  induction m with
+  | zero => intro kv hkv r h0 h1 _ hv; exact top 0 kv hkv r (by omega) hv
+  | succ m ih =>
+    intro kv hkv r h0 h1 hlb hv
+    by_cases hrt : r.step = ((m + 1 : Nat) : Int)
+    · exact top (m + 1) kv hkv r hrt hv
+    · have hkv' := hkv
+      rw [branchLine_succ] at hkv'
+      obtain ⟨hA', hpass⟩ := mem_restrict hkv'
+      obtain ⟨kv', hkv'', hk, e⟩ := hA m (branchLine φ P m) (branchLine φ (P ++ [r]) m)
+        (branchLine_inv φ hwf P m) (branchLine_inv φ hwf _ m) r h0 (by omega) hlb
+        (fun kv0 hkv0 hv0 => ih kv0 hkv0 r h0 (by omega) hlb hv0) kv hA' hv
+      refine ⟨kv', ?_, hk, e⟩
+      rw [branchLine_succ]
+      refine List.mem_filter.mpr ⟨hkv'', List.all_eq_true.mpr fun r' hr' => ?_⟩
+      simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, beq_iff_eq]
+      rcases List.mem_append.mp hr' with h | h
+      · rcases hpass r' h with h' | h'
+        · exact Or.inl h'
+        · exact Or.inr (by rw [hk]; exact h')
+      · rw [List.mem_singleton.mp h]; exact Or.inl (by push_cast at hrt ⊢; omega)
+
+/-- **`PinCommutes1` from one step of the machine.** -/
+theorem pinCommutes1_of_advance (hwf : WF φ) (hA : PinAdvance φ) : PinCommutes1 φ := by
+  intro P m kv hkv hlb r h0 h1 hv
+  exact pinCommutes_all φ hwf hA P m kv hkv r h0 (by omega) h1 hv
+
+/-- **The verdict from `PinAdvance`.** -/
+theorem sat_of_pinAdvance (hwf : WF φ) (hA : PinAdvance φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
+  sat_of_pinCommutes1 φ hwf (pinCommutes1_of_advance φ hwf hA) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.PinHistory.sat_of_pinAdvance' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_pinAdvance
+
 end AbsSat.GraphPath.Model.PinHistory
