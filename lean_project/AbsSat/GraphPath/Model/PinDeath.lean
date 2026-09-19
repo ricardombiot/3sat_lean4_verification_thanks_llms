@@ -571,6 +571,11 @@ section ChainSide
 
 open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel)
 open AbsSat.GraphPath.Model.PinClause (SideKeepAt)
+open AbsSat.GraphMap.CnfMapImproves (weakReqOfCnf)
+
+/-- The global owners an UP leaves: the old ones and the new top. -/
+theorem addNode_gowners (g : GPathM) (d : NodeId) (t : String) :
+    (addNode g d t).gowners = g.gowners ++ [newPid g d] := rfl
 
 /-- **A chain of common owners, upwards.** From `a` to a node of the last step, every link is a parent
 link of the state, both ends own each other, and every node owns `z`. The identifiers of the chain
@@ -713,6 +718,96 @@ theorem top_owner_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
   have hsame : kv' = kv := PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys
   subst hsame
   exact ⟨ns, by rw [← hne]; exact hns, hsub a (hown a hao)⟩
+
+/-- **A send keeps its owners among its global owners.** The state under the new top is a review
+fixpoint, where this holds, and the new top is a global owner of the send. -/
+theorem sent_ownGow (hwf : WF φ) (m : Nat) (kv : NodeId × GPathM) (hsok : StateOkF φ m kv)
+    (hmkv : MInv φ kv.2) (p : NodeId) (hson : p ∈ mapSons φ kv.1.step kv.1.index)
+    (hvS : isValid (sent φ kv.2 p) = true) :
+    ∀ pid n, (sent φ kv.2 p).node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < (sent φ kv.2 p).current_step → q ∈ (sent φ kv.2 p).gowners := by
+  have hvF := ClauseReview.valid_pinned φ kv.2 p hvS
+  have heq : sent φ kv.2 p = addNode (ClauseReview.pinnedAt φ kv.2 p) p "" := by
+    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
+  have hrcW : Reader.RCtx (filterWeakAll kv.2 (weakReqOfCnf φ p)) :=
+    RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx
+  obtain ⟨h0, _, hform⟩ := ReaderAgg.filterAllAgg_form (filterWeakAll kv.2 (weakReqOfCnf φ p)) hrcW
+    (reqOfCnf φ p)
+  have hFgow : ∀ pid n, (ClauseReview.pinnedAt φ kv.2 p).node? pid = some n → ∀ q ∈ n.owners,
+      0 ≤ q.id.step → q.id.step < (ClauseReview.pinnedAt φ kv.2 p).current_step →
+      q ∈ (ClauseReview.pinnedAt φ kv.2 p).gowners := by
+    intro pid n hn q hq hq0 hq1
+    show q ∈ (ClauseReview.pinnedAt φ kv.2 p).gowners
+    rw [show ClauseReview.pinnedAt φ kv.2 p = review h0 from hform] at hn hq1 ⊢
+    exact Candidates.owner_mem_gowners h0 (by rw [← hform]; exact hvF) pid n hn q hq hq0 hq1
+  have hbelowF := (RCtx_of_readableAgg _
+    (show ReadableAgg (ClauseReview.pinnedAt φ kv.2 p) from ⟨_, _, hrcW, rfl⟩)).below
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
+  have hrcF := RCtx_of_readableAgg _
+    (show ReadableAgg (ClauseReview.pinnedAt φ kv.2 p) from ⟨_, _, hrcW, rfl⟩)
+  have hgow : (sent φ kv.2 p).gowners
+      = (ClauseReview.pinnedAt φ kv.2 p).gowners ++ [newPid (ClauseReview.pinnedAt φ kv.2 p) p] := by
+    rw [heq, addNode_gowners]
+  have hcs : (sent φ kv.2 p).current_step = (ClauseReview.pinnedAt φ kv.2 p).current_step + 1 := by
+    rw [heq, addNode_current]
+  intro pid n hn q hq hq0 hq1
+  have hnmem : n ∈ (sent φ kv.2 p).nodes := List.mem_of_find?_eq_some hn
+  rw [hgow]
+  -- the new top is always a global owner
+  have newOk : q = newPid (ClauseReview.pinnedAt φ kv.2 p) p → q ∈
+      (ClauseReview.pinnedAt φ kv.2 p).gowners ++ [newPid (ClauseReview.pinnedAt φ kv.2 p) p] := by
+    intro h; exact List.mem_append_right _ (by rw [h]; exact List.mem_singleton_self _)
+  -- an owner below the new step is a global owner of the state under it
+  have oldOk : ∀ n0 ∈ (ClauseReview.pinnedAt φ kv.2 p).nodes, q ∈ n0.owners →
+      q ∈ (ClauseReview.pinnedAt φ kv.2 p).gowners ++ [newPid (ClauseReview.pinnedAt φ kv.2 p) p] := by
+    intro n0 hn0 hq0'
+    by_cases hstep : q.id.step < (ClauseReview.pinnedAt φ kv.2 p).current_step
+    · exact List.mem_append_left _
+        (hFgow n0.id n0 (node?_of_mem hrcF.nodup n0 hn0) q hq0' hq0 hstep)
+    · -- at the new step, the only node is the new top
+      obtain ⟨nq, hnq, hnqid⟩ := hmS.own n hnmem q hq
+      refine newOk ?_
+      have hqs : nq.id.id.step = (ClauseReview.pinnedAt φ kv.2 p).current_step := by
+        rw [hnqid]; rw [hcs] at hq1; omega
+      have hnq2 : nq ∈ (addNode (ClauseReview.pinnedAt φ kv.2 p) p "").nodes := by
+        rw [← heq]; exact hnq
+      have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 p) p "" hrcF.below nq hnq2 hqs
+      rw [hnqid] at htop
+      exact htop
+  have hnmem2 : n ∈ ((ClauseReview.pinnedAt φ kv.2 p).nodes.map
+      (upMap (ClauseReview.pinnedAt φ kv.2 p) p) ++
+      [addOwner (newPid (ClauseReview.pinnedAt φ kv.2 p) p)
+        (upNode (ClauseReview.pinnedAt φ kv.2 p) p "")]) := by
+    rw [← addNode_nodes, ← heq]; exact hnmem
+  rcases List.mem_append.mp hnmem2 with hold | hnew
+  · obtain ⟨n0, hn0, rfl⟩ := List.mem_map.mp hold
+    rw [upMap_owners] at hq
+    rcases List.mem_append.mp hq with hq' | hq'
+    · exact oldOk n0 hn0 hq'
+    · exact newOk (List.mem_singleton.mp hq')
+  · rw [List.mem_singleton.mp hnew] at hq
+    show q ∈ _ ++ _
+    simp only [addOwner, upNode] at hq
+    rcases List.mem_append.mp hq with hq' | hq'
+    · exact List.mem_append_left _ hq'
+    · exact newOk (List.mem_singleton.mp hq')
+
+/-- **What hangs on a live top is a global owner and a node of that side.** This is the `gow` and `node`
+part of a support of the side: no closure rule involved. -/
+theorem top_owner_gowner (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1) a)
+    (h0 : 0 ≤ a.id.step) (h1 : a.id.step < (sent φ kv.2 p).current_step) :
+    a ∈ (sent φ kv.2 p).gowners ∧ Mem (sent φ kv.2 p) a := by
+  have hl := branchLine_inv φ hwf P m
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hmkv : MInv φ kv.2 := hl.2 kv hkv
+  obtain ⟨ns, hns, hmem⟩ := top_owner_in_side φ hwf P m p J hJ Q kv hkv a ha
+  have hg := sent_ownGow φ hwf m kv hsok hmkv p hson hvS (topOf p kv.1) ns hns a hmem h0 h1
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
+  exact ⟨hg, JoinSide.mem_of_hasNode hmS.rctx.nodup (hmS.rctx.gn a hg)⟩
 
 /-- **Nothing borrowed, when the chain names the side.** -/
 theorem sideKeep_of_chainSide (m : Nat) (hC : ChainSideAt φ m) : SideKeepAt φ m := by
