@@ -357,4 +357,102 @@ theorem sat_of_validSide (hwf : WF φ) (hVS : ∀ m, ValidSideAt φ m) (hSP : �
 #guard_msgs in
 #print axioms sat_of_validSide
 
+-- ============================================================
+-- SendPinAt, proved
+-- ============================================================
+
+section SendPin
+
+open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel Embedded sup_of_embedded)
+open AbsSat.GraphPath.Model.AnchoredSurvive (Sup AOk AOk_filterAllAgg)
+open AbsSat.GraphPath.Model.ClauseReview (pinnedAt)
+open AbsSat.GraphPath.Model.BranchRun (embedded_of_pruned)
+open AbsSat.GraphPath.Model.BranchLines (embedded_refl)
+open AbsSat.GraphPath.Model.LinkedChain (sup_self)
+open AbsSat.GraphPath.Model.AggFixpoint (aggOk_reviewAgg)
+
+/-- **A valid pinned send has a valid pinned source, for any list of pins** (`pinned_source_valid`, with
+the son's requirements added). The part of the pinned send below its top is a support of the source that
+agrees with the son's requirements and with the pins; it survives them. -/
+theorem pinned_source_validL (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM)
+    (hsG : StateOkF φ k (key, G)) (hmG : MInv φ G) (d : NodeId) (hd : d ∈ mapSons φ key.step key.index)
+    (hval : isValid (sent φ G d) = true) (Q : List NodeId)
+    (hvY : isValid (filterAllAgg (sent φ G d) Q) = true) :
+    isValid (filterAllAgg G ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+  have hdstep : d.step = k + 1 := PinHistory.dstep_of φ k (key, G) hsG d hd
+  have hvF := ClauseReview.valid_pinned φ G d hval
+  have heqG : sent φ G d = addNode (pinnedAt φ G d) d "" := by
+    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
+  have hprF : Pruned G (pinnedAt φ G d) :=
+    Pruned.trans (ConservationCore.pruned_filterWeakAll _ _) (pruned_filterAllAgg _ _)
+  have hcsF : (pinnedAt φ G d).current_step = k + 1 := by rw [hprF.step_eq, hsG.step]
+  have hRF : ReadableAgg (pinnedAt φ G d) :=
+    ⟨_, _, RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmG.rctx, rfl⟩
+  have rcF := RCtx_of_readableAgg _ hRF
+  have hmS := ReaderAggRun.MInv_sent φ hwf k (key, G) hsG hmG d hd hval
+  have cleanF : ∀ r ∈ reqOfCnf φ d, ∀ p, p ∈ (pinnedAt φ G d).gowners → p.id.step = r.step → p.id = r :=
+    fun r hr p hp hs => ReaderAggRun.filterAllAgg_cleans _ (reqOfCnf φ d) r hr p hp hs
+  have hRY : ReadableAgg (filterAllAgg (sent φ G d) Q) := ⟨_, _, hmS.rctx, rfl⟩
+  have okY : AggFixpoint.AggOk (filterAllAgg (sent φ G d) Q) := aggOk_reviewAgg _ hvY
+  have smpY := AnchoredSurvive.SMP_filterAllAgg _ hmS.smp hmS.rctx.shape.notroot Q
+  have pmsY := AggInvariants.PMS_filterAllAgg _ Q hmS.pms
+  have snY := AggInvariants.SN_filterAllAgg _ Q hmS.sn
+  have prY : Pruned (sent φ G d) (filterAllAgg (sent φ G d) Q) := pruned_filterAllAgg _ _
+  have cleanY : ∀ r ∈ Q, ∀ p, p ∈ (filterAllAgg (sent φ G d) Q).gowners → p.id.step = r.step → p.id = r :=
+    fun r hr p hp hs => ReaderAggRun.filterAllAgg_cleans (sent φ G d) Q r hr p hp hs
+  generalize hYdef : filterAllAgg (sent φ G d) Q = Y at hRY hvY okY smpY pmsY snY prY cleanY
+  have adY := AdjacentOwners.adj_of_readable _ hRY hvY pmsY snY
+  have hndS : NodupIds (sent φ G d) := hmS.rctx.nodup
+  have eYS0 : Embedded Y (sent φ G d) := embedded_of_pruned prY hndS (embedded_refl (sent φ G d))
+  have eYS : Embedded Y (addNode (pinnedAt φ G d) d "") := by rw [← heqG]; exact eYS0
+  have supS : Sup (addNode (pinnedAt φ G d) d "") (Mem Y) (Rel Y) :=
+    sup_of_embedded Y (addNode (pinnedAt φ G d) d "") adY okY smpY eYS
+  have supF := PinSend.sup_below_addNode (pinnedAt φ G d) d "" (by rw [hdstep, hcsF]) rcF.below
+    rcF.shape.pbelow supS
+  rw [hcsF] at supF
+  have gowS : ∀ p, Mem Y p → p ∈ Y.gowners := fun p hp => (sup_self _ adY okY smpY).gow p hp
+  have supG := PinSend.sup_transfer supF (embedded_of_pruned hprF hmG.rctx.nodup (embedded_refl G))
+  have hpin : ∀ r ∈ (reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)),
+      ∀ p, (Mem Y p ∧ p.id.step < k + 1) → p.id.step = r.step → p.id = r := by
+    intro r hr p hp hs
+    rcases List.mem_append.mp (List.mem_filter.mp hr).1 with hreq | hq
+    · have hpS : p ∈ (sent φ G d).gowners := prY.gowners_sub p (gowS p hp.1)
+      rw [heqG] at hpS
+      rcases List.mem_append.mp hpS with hpF | hpT
+      · exact cleanF r hreq p hpF hs
+      · have e := List.mem_singleton.mp hpT
+        have : p.id.step = k + 1 := by rw [e]; exact hdstep
+        omega
+    · exact cleanY r hq p (gowS p hp.1) hs
+  have supGr := (AOk_filterAllAgg G ⟨supG, hmG.smp, hmG.rctx.shape.notroot⟩ _ hpin).sup
+  have ctxY := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRY) hvY
+  have hk0 : 0 ≤ k := SliceInvariant.nonneg_of_mapNodes φ k key hsG.onMap
+  have hcsY : Y.current_step = k + 2 := by
+    rw [prY.step_eq, heqG]; show (pinnedAt φ G d).current_step + 1 = _; rw [hcsF]; omega
+  have hv' := hvY
+  simp only [isValid, List.all_eq_true] at hv'
+  obtain ⟨z, hz, hzs⟩ := List.any_eq_true.mp (hv' 0 (mem_intRange (Int.le_refl 0) (by rw [hcsY]; omega)))
+  obtain ⟨n, hn, hnid⟩ := ctxY.gn z hz
+  exact SupportSplit.valid_of_sup _ _ _ supGr z
+    ⟨⟨n, by rw [← hnid]; exact node?_of_mem adY.rc.nodup n hn⟩, by rw [eq_of_beq hzs]; omega⟩
+
+/-- **`SendPinAt` holds at every line.** -/
+theorem sendPin (hwf : WF φ) (m : Nat) : SendPinAt φ m := by
+  intro kv hkv p hp hvS Q _ hvY
+  have hl := branchLine_inv φ hwf [] m
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  exact pinned_source_validL φ hwf m kv.1 kv.2 hsok (hl.2 kv hkv) p hp hvS Q hvY
+
+end SendPin
+
+/-- **The verdict of route C, from one hypothesis**: validity is never borrowed at a union. -/
+theorem sat_of_validSideOnly (hwf : WF φ) (hVS : ∀ m, ValidSideAt φ m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) :
+    Satisfiable φ :=
+  sat_of_validSide φ hwf hVS (sendPin φ hwf) kv hkv hv
+
+/-- info: 'AbsSat.GraphPath.Model.HereditaryValid.sat_of_validSideOnly' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_validSideOnly
+
 end AbsSat.GraphPath.Model.HereditaryValid
