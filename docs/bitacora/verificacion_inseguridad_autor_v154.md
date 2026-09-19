@@ -63,7 +63,7 @@ historia.
 
 | sonda | qué mide | resultado |
 |---|---|---|
-| `pinjoin` | la forma canónica de `PinJoin` en cada unión de la ejecución y cada literal por debajo | paridad k3 desc: 386 fijaciones; Tseitin K4: 492; paridad k3 asc: 990. **0 nodos y 0 entradas fuera; siempre queda un lado válido** |
+| `pinjoin` | la forma canónica de `PinJoin` en cada unión de la ejecución y cada literal por debajo | paridad k3 desc: 386 fijaciones; Tseitin K4: 492; paridad k3 asc: 990. **0 nodos y 0 entradas fuera; siempre queda un lado válido**. Aleatorias (3 semillas × 20 fórmulas, 4–6 variables): 2.540 uniones, 35.370 fijaciones, **0** |
 | `pin1` (v153, completada) | una fijación contra la rama, en todas las líneas | además de v153: paridad k3 asc 1.956, paridad k5 3.642, Tseitin prisma 4.446, Tseitin K3,3 4.446: **0** |
 
 ## 6. Cómo atacar `PinJoin`
