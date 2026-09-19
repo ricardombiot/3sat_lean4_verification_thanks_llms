@@ -690,8 +690,7 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
 everything the pinned union hangs on it is a node of that side's send — no union mixes in. -/
 theorem top_owner_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
-    (hv : isValid (filterAllAgg J Q) = true) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
     (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1) a) :
     ∃ ns, (sent φ kv.2 p).node? (topOf p kv.1) = some ns ∧ a ∈ ns.owners := by
   have hl := branchLine_inv φ hwf P m

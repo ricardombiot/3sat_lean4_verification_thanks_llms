@@ -549,7 +549,7 @@ theorem side_top_alive (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J
   have hzs' : z.id.step = (m : Int) + 1 := eq_of_beq hzs
   -- the node of the pinned union is a node of the union
   obtain ⟨n0, hn0, hid, _, _⟩ := (pruned_filterAllAgg J Q).nodes_derived n hn
-  obtain ⟨kv, hkv, hson, hvS, htop⟩ := advance_top_node φ hwf P m p J hJ n0 hn0
+  obtain ⟨kv, hkv, hson, hvS, htop, _⟩ := advance_top_node φ hwf P m p J hJ n0 hn0
     (by rw [← hid, hnid]; exact hzs')
   refine ⟨kv, hkv, hson, hvS, n, ?_⟩
   rw [show topOf p kv.1 = n.id from by rw [← htop, hid]]
