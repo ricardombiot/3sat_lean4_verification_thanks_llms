@@ -44,9 +44,9 @@ variable (φ : Cnf)
 
 /-- **A pin at the top step keeps the invariant.** Every node at the top carries the key, so a surviving
 node's owner there shows the pin is the key, and every path already passes it. -/
-theorem soundAt_pin_top (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
-    (ht : SoundAt (LitStep φ) kv.2) (r : NodeId) (hr : r.step = k)
-    (hv : isValid (filterAllAgg kv.2 [r]) = true) : SoundAt (LitStep φ) (filterAllAgg kv.2 [r]) := by
+theorem soundAt_pin_topL (L : Int → Prop) (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
+    (ht : SoundAt L kv.2) (r : NodeId) (hr : r.step = k)
+    (hv : isValid (filterAllAgg kv.2 [r]) = true) : SoundAt L (filterAllAgg kv.2 [r]) := by
   intro x n hx hx0 hx1 q hq0 hq1 hL hqn
   have hRr : ReadableAgg (filterAllAgg kv.2 [r]) := ⟨kv.2, [r], hm.rctx, rfl⟩
   have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hv
@@ -82,6 +82,11 @@ theorem soundAt_pin_top (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k k
   have := hm.tl m (List.mem_of_find?_eq_some hsm) (by rw [hmid, hstep, hr, hkv.step]; omega)
   rw [hmid, hkv.par] at this
   rw [Option.some.inj this, hrk']
+
+theorem soundAt_pin_top (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
+    (ht : SoundAt (LitStep φ) kv.2) (r : NodeId) (hr : r.step = k)
+    (hv : isValid (filterAllAgg kv.2 [r]) = true) : SoundAt (LitStep φ) (filterAllAgg kv.2 [r]) :=
+  soundAt_pin_topL φ (LitStep φ)  k kv hkv hm ht r hr hv
 
 -- ============================================================
 -- The clause stage

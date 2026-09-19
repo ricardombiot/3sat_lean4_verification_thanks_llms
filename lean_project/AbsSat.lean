@@ -204,6 +204,7 @@ import AbsSat.GraphPath.Model.ClauseReview
 import AbsSat.GraphPath.Model.PinHistory
 import AbsSat.GraphPath.Model.PinSend
 import AbsSat.GraphPath.Model.PinVar
+import AbsSat.GraphPath.Model.PinClause
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.ReviewWorkImproves

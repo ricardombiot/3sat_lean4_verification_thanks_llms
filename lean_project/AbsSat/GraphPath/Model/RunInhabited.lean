@@ -231,11 +231,11 @@ theorem cov0 (F : GPathM) (hR : ReadableAgg F) (hv : isValid F = true) (hpos : 0
   exact ⟨z, hz, eq_of_beq hzs⟩
 
 /-- **A send keeps it** when its filter does: the `up` by `soundAt_addNode`. -/
-theorem soundAt_sent_of (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
+theorem soundAt_sent_ofL (L : Int → Prop) (hL0 : L 0) (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true)
     (hFs0 : isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true →
-      SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))) :
-    SoundAt (LitStep φ) (sent φ kv.2 d) := by
+      SoundAt L (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))) :
+    SoundAt L (sent φ kv.2 d) := by
   have hsok := StateOkF_sent φ (Fsac φ 0) reviewAgg (prunes_Fsac φ 0) k kv hkv d hd hval
   have hdstep : d.step = k + 1 := mapNodes_step φ (k + 1) d hsok.onMap
   have hk0 : 0 ≤ k := SliceInvariant.nonneg_of_mapNodes φ k kv.1 hkv.onMap
@@ -258,11 +258,11 @@ theorem soundAt_sent_of (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k k
   have ctxF := Reader.Ctx_of_readable F (readable_of_readableAgg F hRF) hvF
   have hstepF : F.current_step = k + 1 := by rw [hkF.1.step_eq, hkv.step]
   have heq : sent φ kv.2 d = addNode F d "" := by rw [hsentF]; unfold GPathM.up; rw [hvF]; rfl
-  have hFs : SoundAt (LitStep φ) F := by
+  have hFs : SoundAt L F := by
     rw [hFdef]; rw [hFdef] at hvF
     exact hFs0 hvF
   rw [heq]
-  refine soundAt_addNode (LitStep φ) (Or.inr rfl) F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
+  refine soundAt_addNode L hL0 F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
     rcF.below ?_ rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn
     (cov0 F hRF hvF (by rw [hstepF]; omega)) hFs
   · have hmo := hm.mok
@@ -275,6 +275,13 @@ theorem soundAt_sent_of (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k k
     obtain ⟨m', hm', hm'id⟩ := hm.own n₀ hn₀ w (hown₀ w hw)
     rw [hkF.1.step_eq, ← hm'id]
     exact hm.rctx.below m' hm'
+
+theorem soundAt_sent_of (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
+    (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true)
+    (hFs0 : isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true →
+      SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))) :
+    SoundAt (LitStep φ) (sent φ kv.2 d) :=
+  soundAt_sent_ofL φ (LitStep φ) (Or.inr rfl) k kv hkv hm d hd hval hFs0
 
 /-- **A send keeps it**: the filter by hypothesis, the `up` by `soundAt_addNode`. -/
 theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)
