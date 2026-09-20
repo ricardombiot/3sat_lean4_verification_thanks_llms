@@ -7,14 +7,14 @@ module PathCollectionNodes
         step :: Step
         table :: Dict{PathNodeId, PathDocNode}
         node_ids :: SetPathNodesId
-        count :: Int8
+        count :: Int
         is_valid :: Bool
     end
 
     function new(step :: Step) :: PathColNodesLine
         table = Dict{PathNodeId, PathDocNode}()
         node_ids = SetPathNodesId()
-        count = Int8(0)
+        count = 0
         is_valid = true
         PathColNodesLine(step, table, node_ids, count, is_valid)
     end

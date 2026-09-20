@@ -1,5 +1,5 @@
 function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String)
-    
+
     filter!(gpath, requires)
     #up_filter_triangle_nodes!(gpath, requires)
 
@@ -8,41 +8,101 @@ end
 
 function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String)
     if gpath.is_valid
-        add_node!(gpath, map_id_node, title)
+        add_row!(gpath, map_id_node, title)
         gpath.current_step += 1
         gpath.map_parent_id = map_id_node
     end
 end
 
-function add_node!(gpath :: GPath, map_id_node :: NodeId, title :: String)
-    node = create_node!(gpath, map_id_node, title)
-    link_with_parents!(gpath, node)
-    PathDocumentNode.put_owners!(node, gpath.owners)
-    PathCollectionLines.push_node!(gpath.table_lines, node)
+#=
+The new row has one node per identifier that the window shift gives to the nodes of the last row:
+(gparent, parent, last) -> (parent, last, id)
+Nodes of the last row that share `parent` shift to the same identifier, so they are merged
+into one node with several parents.
+=#
+function add_row!(gpath :: GPath, map_id_node :: NodeId, title :: String)
+    if gpath.current_step == Step(0)
+        add_root_node!(gpath, map_id_node, title)
+    else
+        parents_by_id = group_parents_by_shifted_id(gpath, map_id_node)
 
-    PathDocumentOwners.insert!(gpath.owners, node.id)
-    all_previous_nodes_are_owners_of_me!(gpath, node)
-end
+        # First create every node, then register them: no new node can be seen by another one.
+        new_nodes = PathDocNode[]
+        #! [for] $ O(7) $
+        for (path_id_node, ids_parents) in parents_by_id
+            push!(new_nodes, create_node_from_parents!(gpath, path_id_node, ids_parents, title))
+        end
 
-function create_node!(gpath :: GPath, map_id_node :: NodeId, title :: String) :: PathDocNode
-    path_id_node = Alias.new_path_id(map_id_node, gpath.map_parent_id)
-    return PathDocumentNode.new(path_id_node,title)
-end
-
-function link_with_parents!(gpath :: GPath, node :: PathDocNode)
-    if gpath.current_step > Step(0)
-        last_step = gpath.current_step-1
-
-        #! [fn-iter] $ O(S) $
-        PathCollectionLines.for_each_on_step(gpath.table_lines, last_step, function (node_parent)
-            PathDocumentNode.link!(node_parent, node)
-        end)
+        #! [for] $ O(7) $
+        for node in new_nodes
+            register_node!(gpath, node)
+        end
     end
 end
 
-function all_previous_nodes_are_owners_of_me!(gpath :: GPath, node :: PathDocNode)
-    #! [fn-iter] $ O(S*7*7) $
-    PathCollectionLines.for_each(gpath.table_lines, function (node_previous)
-        PathDocumentNode.add_owner!(node_previous, node.id)
-    end)
+function add_root_node!(gpath :: GPath, map_id_node :: NodeId, title :: String)
+    node = PathDocumentNode.new(Alias.root_path_id(map_id_node), title)
+    register_node!(gpath, node)
+end
+
+function group_parents_by_shifted_id(gpath :: GPath, map_id_node :: NodeId) :: Dict{PathNodeId, Vector{PathNodeId}}
+    parents_by_id = Dict{PathNodeId, Vector{PathNodeId}}()
+    last_step = gpath.current_step-1
+
+    #! [for] $ O(7*7*7) $
+    for id_last in PathCollectionLines.get_ids_step(gpath.table_lines, last_step)
+        path_id_node = Alias.shift_path_id(id_last, map_id_node)
+        ids_parents = get!(parents_by_id, path_id_node, PathNodeId[])
+        push!(ids_parents, id_last)
+    end
+
+    return parents_by_id
+end
+
+# The owners of the new node are what its parents own (only what is still alive), and itself.
+function create_node_from_parents!(gpath :: GPath, path_id_node :: PathNodeId,
+                                   ids_parents :: Vector{PathNodeId}, title :: String) :: PathDocNode
+    owners = nothing
+    #! [for] $ O(7) $
+    for id_parent in ids_parents
+        node_parent = PathCollectionLines.get_node(gpath.table_lines, id_parent)
+        if owners === nothing
+            owners = deepcopy(node_parent.owners)
+        else
+            PathDocumentOwners.union!(owners, node_parent.owners)
+        end
+    end
+    PathDocumentOwners.intersect!(owners, gpath.owners)
+
+    node = PathDocumentNode.new(path_id_node, title)
+    node.owners = owners
+    PathDocumentNode.add_owner!(node, node.id)
+
+    #! [for] $ O(7) $
+    for id_parent in ids_parents
+        node_parent = PathCollectionLines.get_node(gpath.table_lines, id_parent)
+        PathDocumentNode.link!(node_parent, node)
+    end
+
+    return node
+end
+
+function register_node!(gpath :: GPath, node :: PathDocNode)
+    PathCollectionLines.push_node!(gpath.table_lines, node)
+    PathDocumentOwners.insert!(gpath.owners, node.id)
+    its_owners_are_owned_by_me!(gpath, node)
+end
+
+# Whoever owns the new node is owned by it (the ownership is symmetric from the start).
+function its_owners_are_owned_by_me!(gpath :: GPath, node :: PathDocNode)
+    #! [for] $ O(S*7*7) $
+    for (step, set_owners_line) in node.owners.table
+        for id_owner in set_owners_line
+            id_owner == node.id && continue
+            node_owner = PathCollectionLines.get_node(gpath.table_lines, id_owner)
+            if node_owner != nothing
+                PathDocumentNode.add_owner!(node_owner, node.id)
+            end
+        end
+    end
 end
