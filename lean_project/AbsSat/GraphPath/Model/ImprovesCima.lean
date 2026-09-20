@@ -775,6 +775,48 @@ theorem sons_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeI
   · exact Parents.NotRoot_of_pruned
       (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g).1 h4
 
+/-- **Every result of the review of a union is a result of the aggressive review.** The loop always
+hands back the aggressive review of some narrowing, so everything proved about review fixpoints applies
+to it unchanged — the test of the aggressive review, the adjacency, and its own support. -/
+theorem reviewCimaFuel_form (sides : List GPathM) : ∀ (fuel : Nat) (g : GPathM),
+    ∃ g₀, Keeps g g₀ ∧ reviewCimaFuel sides fuel g = reviewAgg g₀ := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact ⟨g, Keeps.refl g, rfl⟩
+  | succ n ih =>
+    intro g
+    simp only [reviewCimaFuel]
+    split
+    · split
+      · obtain ⟨g₀, hk, he⟩ := ih (cimaSweep sides (reviewAgg g))
+        exact ⟨g₀, Keeps.trans (Keeps.trans (ReaderAggRun.keeps_reviewAggFuel _ g)
+          (keeps_cimaSweep sides _)) hk, he⟩
+      · exact ⟨g, Keeps.refl g, rfl⟩
+    · exact ⟨g, Keeps.refl g, rfl⟩
+
+theorem filterAllCima_form (sides : List GPathM) (g : GPathM) (reqs : List NodeId) :
+    ∃ g₀, Keeps g g₀ ∧ filterAllCima sides g reqs = reviewAgg g₀ := by
+  obtain ⟨g₀, hk, he⟩ := reviewCimaFuel_form sides _ (reqs.foldl filterRequire g)
+  exact ⟨g₀, Keeps.trans (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g) hk, he⟩
+
+/-- **The filtered union of `ImprovesCima` is a state of the machine's own kind**, with its adjacency
+and its own support. -/
+theorem sup_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId)
+    (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hnr : Parents.NotRoot g) (hv : isValid (filterAllCima sides g reqs) = true) :
+    AdjacentOwners.Adj (filterAllCima sides g reqs) ∧
+      AnchoredSurvive.Sup (filterAllCima sides g reqs)
+        (EmbeddedSupport.Mem (filterAllCima sides g reqs)) (Rel (filterAllCima sides g reqs)) := by
+  obtain ⟨g₀, hk, he⟩ := filterAllCima_form sides g reqs
+  obtain ⟨s1, s2, s3⟩ := sons_filterAllCima sides g reqs hsmp hpms hsn hnr
+  have hform : filterAllCima sides g reqs = AggressiveReview.filterAllAgg g₀ [] := he
+  have hR : ReaderAgg.ReadableAgg (filterAllCima sides g reqs) :=
+    ⟨g₀, [], ReaderAgg.RCtx_of_keeps hk hrc, hform⟩
+  have hadj := AdjacentOwners.adj_of_readable _ hR hv s2 s3
+  refine ⟨hadj, LinkedChain.sup_self _ hadj ?_ s1⟩
+  rw [he]
+  exact AggFixpoint.aggOk_reviewAgg g₀ (by rw [← he]; exact hv)
+
 /-- **The review of a union loses no solution**, given the rule's hypothesis along the way. -/
 theorem ChainSound_reviewCimaFuel (sides : List GPathM) (sel : Int → PathNodeId) :
     ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → ChainSound g sel → Carried sides g₀ sel →
@@ -1157,6 +1199,55 @@ theorem side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
   exact linked_in_side φ hwf P m p hps kv hkv a b (by simpa using this)
 
 -- ============================================================
+-- Cable 1: when one end is a side's top, the rule certifies that top
+-- ============================================================
+
+/-- **The rule cannot certify another top.** If the entry the rule keeps has a side's top `⟨p, key⟩` as
+one end, the side that carries it holds that node, so it is the send of that key (`side_of_top`); and a
+send has exactly one node at the new step, its own top (`sent_top`). So the top the rule certifies is
+the one we are reading. -/
+theorem cert_top_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hsok : StateOkF φ m kv) (hmkv : MInv φ kv.2) (hvS : isValid (sent φ kv.2 p) = true)
+    (X : GPathM) (hcsX : X.current_step = (m : Int) + 2)
+    (hrc : Reader.RCtx X) (hsmp : Sons.SMP X) (hpms : Sons.PMS X) (hsn : Sons.SN X)
+    (t₂ v : PathNodeId) (hts : t₂.id.step = X.current_step - 1)
+    (hgood : goodFor (sidesOf φ (branchLine φ P m) p) X t₂ (topOf p kv.1) v = true) :
+    t₂ = topOf p kv.1 := by
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  have hvY : isValid (famFix (sidesOf φ (branchLine φ P m) p) t₂ X) = true := hgood.1.1
+  have hrel : Rel (famFix (sidesOf φ (branchLine φ P m) p) t₂ X) (topOf p kv.1) v :=
+    (rel_of_owners _ _ v hgood.1.2 hgood.2).1
+  have hadj := (adj_famFix (sidesOf φ (branchLine φ P m) p) t₂ X hrc hsmp hpms hsn hvY).1
+  have hcsY : (famFix (sidesOf φ (branchLine φ P m) p) t₂ X).current_step = X.current_step :=
+    (keeps_famFix _ t₂ X).1.step_eq
+  have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
+  have hbv : 0 ≤ v.id.step ∧ v.id.step < X.current_step := by
+    obtain ⟨_, _, _, hv2⟩ := hrel
+    have := EmbeddedSupport.mem_bounds _ hadj hv2
+    rw [hcsY] at this; exact this
+  have ht : restTest (sidesOf φ (branchLine φ P m) p) t₂ X (topOf p kv.1) v = true :=
+    restTest_of_famFix _ t₂ X
+      (ReaderAgg.RCtx_of_keeps (keeps_restAll _ t₂ X) hrc).nodup hvY _ v hrel
+      (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps]; omega)
+      (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps, hcsX]; omega) hbv.1 hbv.2
+  simp only [restTest, Bool.and_eq_true] at ht
+  obtain ⟨S₂, hS₂, hcond⟩ := List.any_eq_true.mp ht.1.1.1
+  simp only [Bool.and_eq_true] at hcond
+  have htnode : (S₂.node? (topOf p kv.1)).isSome = true := by
+    unfold ownersOf at hcond
+    cases hq : S₂.node? (topOf p kv.1) with
+    | none => rw [hq] at hcond; exact nomatch List.contains_iff_mem.mp hcond.1.2
+    | some _ => rfl
+  have hSe := side_of_top φ hwf P m p hps S₂ hS₂ kv hkv htnode
+  obtain ⟨n₂, hn₂⟩ := Option.isSome_iff_exists.mp hcond.1.1
+  rw [hSe] at hn₂
+  have hid : n₂.id = t₂ := node?_id_eq _ _ n₂ hn₂
+  have hstep : n₂.id.id.step = (m : Int) + 1 := by rw [hid, hts, hcsX]; omega
+  have := sent_top φ m kv hsok hmkv p hvS n₂ (List.mem_of_find?_eq_some hn₂) hstep
+  rw [← hid]; exact this
+
+-- ============================================================
 -- The support of the side, assembled
 -- ============================================================
 
@@ -1283,6 +1374,78 @@ theorem valid_pinned_of_goodFor (sides : List GPathM) (X S : GPathM) (Q : List N
     exact hside a b hab ha.1 ha.2 hb.1 hb.2
   · intro r hr x hx hs
     exact hpinX r hr x (hmemX x hx) hs
+
+-- ============================================================
+-- Cables 2 and 3: the verdict of a union, for the new machine
+-- ============================================================
+
+/-- **The side's pinned send stays live, for `ImprovesCima`.** This is `HereditaryValid.TopValidAt` for
+the new machine, with no hypothesis left:
+
+* the filtered union is a state of the machine's own kind (`sup_filterAllCima`), so the live top hangs
+  on something;
+* that entry has a good top, and since one end is the side's own top, it can only be that one
+  (`cert_top_of_top`);
+* its family is then a support of the side's send, and the send survives the pins
+  (`valid_pinned_of_goodFor`). -/
+theorem topValid_cima (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (hvX : isValid (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q) = true)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (hmem : EmbeddedSupport.Mem (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q)
+      (topOf p kv.1)) :
+    isValid (AggressiveReview.filterAllAgg (sent φ kv.2 p) Q) = true := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hps : p.step = (m : Int) + 1 := mapNodes_step φ _ p hsJ.onMap
+  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
+  have hmkv : MInv φ kv.2 := hl.2 kv hkv
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
+  have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+    (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
+  have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+  have hcsS : (sent φ kv.2 p).current_step = (m : Int) + 2 := by omega
+  -- the invariants of the filtered union
+  have hkJX : Keeps J (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q) :=
+    keeps_filterAllCima _ J Q
+  have hrcX := ReaderAgg.RCtx_of_keeps hkJX hmJ.rctx
+  obtain ⟨s1, s2, s3⟩ := sons_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q hmJ.smp hmJ.pms
+    hmJ.sn hmJ.rctx.shape.notroot
+  have hcsX : (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q).current_step = (m : Int) + 2 := by
+    rw [hkJX.1.step_eq, hsJ.step]; omega
+  obtain ⟨hadjX, hsupX⟩ := sup_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q hmJ.rctx hmJ.smp
+    hmJ.pms hmJ.sn hmJ.rctx.shape.notroot hvX
+  have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
+  -- the live top hangs on something, and the rule gives that entry a good top
+  obtain ⟨v, hrelv, _⟩ := hsupX.cov (topOf p kv.1) hmem 0 (Int.le_refl 0) (by rw [hcsX]; omega)
+  obtain ⟨nt, hnt, hmemv, hmv⟩ := id hrelv
+  have hbv := EmbeddedSupport.mem_bounds _ hadjX hmv
+  obtain ⟨nv, hnv⟩ := hmv
+  have hok := cimaOk_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q hvX (topOf p kv.1) nt v hnt
+    (by rw [hnv]; rfl)
+    (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps]; omega)
+    (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps, hcsX]; omega)
+    hbv.1 hbv.2 hmemv
+  obtain ⟨t₂, hts, hgood⟩ := top_of_cimaOk _ _ (topOf p kv.1) v hok
+  rw [cert_top_of_top φ hwf P m p hps kv hkv hsok hmkv hvS _ hcsX hrcX s1 s2 s3 t₂ v hts hgood]
+    at hgood
+  -- and its family is a support of the side's send
+  have hvY : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1)
+      (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q)) = true := by
+    simp only [goodFor, Bool.and_eq_true] at hgood; exact hgood.1.1
+  refine valid_pinned_of_goodFor (sidesOf φ (branchLine φ P m) p) _ (sent φ kv.2 p) Q
+    (topOf p kv.1) v hrcX s1 s2 s3 (by rw [hcsX, hcsS]) ?_
+    (PinDeath.sent_ownGow φ hwf m kv hsok hmkv p hson hvS) ?_ hmS.smp hmS.rctx.shape.notroot hgood
+  · intro a b hab ha0 ha1 hb0 hb1
+    exact side_of_famFix φ hwf P m p hps kv hkv _
+      (ReaderAgg.RCtx_of_keeps (keeps_restAll _ _ _) hrcX).nodup hvY a b hab ha0 ha1 hb0 hb1
+  · intro r hr x hx hs
+    exact ReaderAggRun.filterAllAgg_cleans J Q r hr x
+      ((keeps_agg_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q).1.gowners_sub x
+        (hsupX.gow x hx)) hs
 
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
