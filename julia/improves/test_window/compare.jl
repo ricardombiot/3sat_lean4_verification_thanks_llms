@@ -35,11 +35,21 @@ function run_instance(path :: String)
     ex_sat = !isempty(ex.list_solutions)
 
     total_nodes, max_row, m_nsol, valid = 0, 0, 0, true
+    peak_row, peak_nodes = 0, 0
     elapsed = @elapsed begin
         gmap = GraphMap.load_import!(path)
         machine = SatMachine.new(gmap)
         redirect_stdout(devnull) do
-            SatMachine.run!(machine)
+            SatMachine.init!(machine)
+            # Same loop as SatMachine.execute_step!, measuring each gpath before its UP.
+            while !SatMachine.is_finished(machine) && SatMachine.have_gpaths_step(machine)
+                CollectionTimeline.for_each_gpath(machine.timeline, machine.current_step, function (gpath)
+                    total, widest = row_stats(gpath)
+                    peak_row = max(peak_row, widest)
+                    peak_nodes = max(peak_nodes, total)
+                end)
+                SatMachine.make_step!(machine)
+            end
         end
     end
     m_sat = SatMachine.have_solution(machine)
@@ -53,7 +63,7 @@ function run_instance(path :: String)
         m_nsol = length(reader.list_solutions)
         valid = CheckerCnf.test_all(reader.list_solutions, path)
     end
-    return (ex_sat, m_sat, length(ex.list_solutions), m_nsol, valid, total_nodes, max_row, elapsed)
+    return (ex_sat, m_sat, length(ex.list_solutions), m_nsol, valid, total_nodes, max_row, peak_row, peak_nodes, elapsed)
 end
 
 function main(args)
@@ -68,13 +78,13 @@ function main(args)
 
     generate_instances!()
     open(out, "w") do io
-        println(io, "instance\tex_sat\tm_sat\tex_nsol\tm_nsol\tm_valid\ttotal_nodes\tmax_row\tsecs")
+        println(io, "instance\tex_sat\tm_sat\tex_nsol\tm_nsol\tm_valid\ttotal_nodes\tmax_row\tpeak_row\tpeak_nodes\tsecs")
         for file in sort(readdir(INSTANCES_DIR))
             endswith(file, ".cnf") || continue
             row = try
                 run_instance(joinpath(INSTANCES_DIR, file))
             catch e
-                ("ERR", first(split(sprint(showerror, e), "\n")), 0, 0, false, 0, 0, 0.0)
+                ("ERR", first(split(sprint(showerror, e), "\n")), 0, 0, false, 0, 0, 0, 0, 0.0)
             end
             secs = row[end] isa Float64 ? round(row[end], digits=2) : row[end]
             println(io, join([file; collect(row[1:end-1]); secs], "\t"))
