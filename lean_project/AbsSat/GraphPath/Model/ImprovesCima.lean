@@ -169,7 +169,7 @@ def sonOk (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
       (ownersOf g c).contains a)
 
 /-- On neighbouring steps, the side of `t` links the pair as parent and son. -/
-def linkOk (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
+def linkOk (sides : List GPathM) (_g : GPathM) (t a b : PathNodeId) : Bool :=
   !(b.id.step + 1 == a.id.step) ||
     sides.any (fun S => (S.node? t).isSome &&
       (match S.node? a with | none => false | some na => na.parents.contains b))
