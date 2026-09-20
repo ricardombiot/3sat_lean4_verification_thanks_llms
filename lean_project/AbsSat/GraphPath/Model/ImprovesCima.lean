@@ -915,6 +915,102 @@ theorem fam_witness (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
   exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hcond.1.1.1.1.1, hcond.1.1.1.1.2,
     hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
 
+/-- **From the fixpoint to the parent rule.** An entry with a good top whose left end is not a root has a
+parent the side of `t` carries with both ends — which is what `par` of the support asks for. -/
+theorem fam_par (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
+    (hgood : goodFor sides g t a b = true) (hnr : a.parent_id.isNone = false) :
+    ∃ c, c ∈ ownersOf g a ∧ c.id.step + 1 = a.id.step ∧
+      carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
+      (ownersOf g c).contains a = true := by
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  have hpar : parOk sides g t a b = true := hgood.1.1.2
+  simp only [parOk, hnr, Bool.false_or] at hpar
+  obtain ⟨c, hc, hcond⟩ := List.any_eq_true.mp hpar
+  simp only [Bool.and_eq_true] at hcond
+  exact ⟨c, hc, eq_of_beq hcond.1.1.1.1, hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
+
+/-- **From the fixpoint to the son rule.** An entry with a good top whose left end is not at the last step
+has a son the side of `t` carries with both ends — which is what `son` of the support asks for. -/
+theorem fam_son (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
+    (hgood : goodFor sides g t a b = true) (hnt : (a.id.step == g.current_step - 1) = false) :
+    ∃ c, c ∈ ownersOf g a ∧ a.id.step + 1 = c.id.step ∧
+      carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
+      (ownersOf g c).contains a = true := by
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  have hson : sonOk sides g t a b = true := hgood.1.2
+  simp only [sonOk, hnt, Bool.false_or] at hson
+  obtain ⟨c, hc, hcond⟩ := List.any_eq_true.mp hson
+  simp only [Bool.and_eq_true] at hcond
+  exact ⟨c, hc, eq_of_beq hcond.1.1.1.1, hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
+
+/-- **From the fixpoint to the link rule.** On neighbouring steps, the side of a good top holds the left
+end with the right end among its parents — which is what `link` of the support asks for. -/
+theorem fam_link (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
+    (hgood : goodFor sides g t a b = true) (hnb : b.id.step + 1 = a.id.step) :
+    ∃ S ∈ sides, (S.node? t).isSome = true ∧
+      ∃ na, S.node? a = some na ∧ na.parents.contains b = true := by
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  have hlink : linkOk sides g t a b = true := hgood.2
+  have hb : (b.id.step + 1 == a.id.step) = true := by
+    exact beq_iff_eq.mpr hnb
+  simp only [linkOk, hb, Bool.not_true, Bool.false_or] at hlink
+  obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hlink
+  simp only [Bool.and_eq_true] at hcond
+  refine ⟨S, hS, hcond.1, ?_⟩
+  cases hsa : S.node? a with
+  | none => rw [hsa] at hcond; exact Bool.false_ne_true hcond.2 |>.elim
+  | some na => rw [hsa] at hcond; exact ⟨na, rfl, hcond.2⟩
+
+/-- **The whole closure the verdict asks for, from one good top.** Gathering the four extractions: the
+witness of every step, the parent, the son and the parent link. -/
+theorem fam_closure (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
+    (hgood : goodFor sides g t a b = true) :
+    (∀ l : Int, 0 ≤ l → l < g.current_step →
+        ∃ z, z.id.step = l ∧ (ownersOf g a).contains z = true ∧ (ownersOf g b).contains z = true ∧
+          (ownersOf g z).contains a = true ∧ (ownersOf g z).contains b = true ∧
+          carries sides t a z = true ∧ carries sides t b z = true) ∧
+      (a.parent_id.isNone = false →
+        ∃ c, c ∈ ownersOf g a ∧ c.id.step + 1 = a.id.step ∧
+          carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
+          (ownersOf g c).contains a = true) ∧
+      ((a.id.step == g.current_step - 1) = false →
+        ∃ c, c ∈ ownersOf g a ∧ a.id.step + 1 = c.id.step ∧
+          carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
+          (ownersOf g c).contains a = true) ∧
+      (b.id.step + 1 = a.id.step →
+        ∃ S ∈ sides, (S.node? t).isSome = true ∧
+          ∃ na, S.node? a = some na ∧ na.parents.contains b = true) :=
+  ⟨fun l hl0 hl1 => fam_witness sides g t a b hgood l hl0 hl1,
+   fun hnr => fam_par sides g t a b hgood hnr,
+   fun hnt => fam_son sides g t a b hgood hnt,
+   fun hnb => fam_link sides g t a b hgood hnb⟩
+
+/-- **From a live entry at the fixpoint to a good top.** Reading `cimaOk` backwards: the top is a node of
+the last line, and `fam_closure` then gives the whole closure for it. -/
+theorem top_of_cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId)
+    (hok : cimaOk sides g a b = true) :
+    ∃ t, t.id.step = g.current_step - 1 ∧ goodFor sides g t a b = true := by
+  simp only [cimaOk] at hok
+  obtain ⟨t, ht, hgood⟩ := List.any_eq_true.mp hok
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp ht
+  exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hgood⟩
+
+/-- **The bridge the verdict asks for.** At a valid state the sweep no longer shrinks, every live entry
+has a top of the last line that is good for it, and hence (`fam_closure`) the whole closure: a witness at
+every step, a parent, a son and the parent link, all carried by the side of that top. -/
+theorem top_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = true)
+    (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g)
+    (x nx w : _) (hx : g.node? x = some nx) (hw : (g.node? w).isSome = true)
+    (hx1 : 0 ≤ x.id.step) (hx2 : x.id.step < g.current_step)
+    (hw1 : 0 ≤ w.id.step) (hw2 : w.id.step < g.current_step) (hmem : w ∈ nx.owners) :
+    ∃ t, t.id.step = g.current_step - 1 ∧ carries sides t x w = true ∧
+      goodFor sides g t x w = true := by
+  obtain ⟨t, hts, hgood⟩ := top_of_cimaOk sides g x w
+    (cimaOk_of_noProgress sides g hv hnp x nx w hx hw hx1 hx2 hw1 hw2 hmem)
+  refine ⟨t, hts, ?_, hgood⟩
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  exact hgood.1.1.1.1.2
+
 /-- **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every entry with a
 good top (`cimaOk_of_noProgress`), so the family the top names is closed. Two bridges are missing:
 
