@@ -2232,6 +2232,38 @@ theorem chainSound_side_of_famFix (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : 
     exact (hside (i + 1) i (by omega) h1 h0 hi1).2.2
       (by rw [hst i h0 hi1, hst (i + 1) (by omega) h1])
 
+
+/-- **A chain that lives in a side keeps its state alive, rule and all.** Everything the state needs is
+the chain itself: the chain is the support (`sup_of_chainSound`), its own side answers the rule at every
+narrowing the sweep reaches (`carried_of_side`, `cimaOk_of_chain`), and a support with a member makes a
+state valid (`valid_of_sup`). No send, no descent and no choice: a state carrying one chain of one side
+survives the pins the chain respects and the whole review with the rule. -/
+theorem valid_filterAllCima_of_chain (sides : List GPathM) (G : GPathM) (hmG : ReaderAggRun.MInv φ G)
+    (hcs : 0 < G.current_step) (reqs : List NodeId) (sel : Int → PathNodeId)
+    (Sd : GPathM) (hSd : Sd ∈ sides) (hcsSd : Sd.current_step = G.current_step)
+    (hscG : ChainSound G sel) (hscSd : ChainSound Sd sel)
+    (hpins : ∀ r ∈ reqs, 0 ≤ r.step → r.step < G.current_step → (sel r.step).id = r) :
+    isValid (filterAllCima sides G reqs) = true := by
+  have hst := chain_step G sel hscG
+  have hA : AOk G (fun p => ∃ k, 0 ≤ k ∧ k < G.current_step ∧ p = sel k)
+      (fun x v => ∃ i j, 0 ≤ i ∧ i < G.current_step ∧ 0 ≤ j ∧ j < G.current_step ∧
+        x = sel i ∧ v = sel j) :=
+    ⟨sup_of_chainSound G sel hscG, hmG.smp, hmG.rctx.shape.notroot⟩
+  refine SupportSplit.valid_of_sup _ _ _
+    (AOk_filterAllCimaC sides G (fun s => s = sel) hA (fun s hs => by rw [hs]; exact hscG) reqs
+      ?_ ?_ (fun s hs => by rw [hs]; exact carried_of_side sides G Sd hSd sel hscSd hcsSd hcs)
+      ?_).sup (sel 0) ⟨0, Int.le_refl 0, hcs, rfl⟩
+  · rintro r hr p ⟨i, hi0, hi1, rfl⟩ hstep
+    rw [hst i hi0 hi1] at hstep
+    rw [hstep] at hi0 hi1 ⊢
+    exact hpins r hr hi0 hi1
+  · intro r hr s hs h0 h1
+    rw [hs]; exact hpins r hr h0 h1
+  · rintro g' hk hch _ x v ⟨i, j, hi0, hi1, hj0, hj1, rfl, rfl⟩
+    have hcs' : g'.current_step = G.current_step := hk.1.step_eq
+    exact cimaOk_of_chain sides g' Sd hSd (by rw [hcs']; exact hcsSd) sel (hch sel rfl) hscSd
+      (by rw [hcs']; exact hcs) i j hi0 (by omega) hj0 (by omega)
+
 /-- **The chains the descent may use**: sound in the source state, sound in one of its sides, and
 compatible with the pins. Nothing here mentions a narrowing — the sweep carries them. -/
 def CimaChain (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId)
@@ -3202,6 +3234,10 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.cima_chain_below' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms cima_chain_below
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.valid_filterAllCima_of_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms valid_filterAllCima_of_chain
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
