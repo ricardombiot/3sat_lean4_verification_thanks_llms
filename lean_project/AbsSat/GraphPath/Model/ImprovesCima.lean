@@ -1447,6 +1447,45 @@ theorem MInv_reviewCima (sides : List GPathM) (g : GPathM) (hm : ReaderAggRun.MI
   have ctxF := Reader.Ctx_of_readable _ (ReaderAgg.readable_of_readableAgg _ hRF) hv
   exact rcF.gn q (ctxF.ownGow n.id n (node?_of_mem rcF.nodup n hn) q hq hq0 hq1)
 
+
+/-- **A line of `ImprovesCima` is a line of the machine.** Same keys as the line of `Improves` minus
+the ones the rule kills, each state a narrowing of the corresponding one, and each one alive because
+the dead ones were dropped. -/
+theorem LineInv_advanceCima (hwf : WF φ) (k : Int) (L : PureLine)
+    (hl : ReaderAggRun.LineInv φ k L) : ReaderAggRun.LineInv φ (k + 1) (advanceCima φ L) := by
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf k L hl
+  refine ⟨⟨?_, ?_⟩, ?_⟩
+  · have h1 : ((advanceCima φ L).map (fun kv => kv.1)).Sublist
+        (((pureAdvanceW φ L).map
+          (fun kv => (kv.1, reviewCima (sidesOf φ L kv.1) kv.2))).map (fun kv => kv.1)) :=
+      List.Sublist.map _ List.filter_sublist
+    rw [List.map_map] at h1
+    exact List.Nodup.sublist h1 hadv.1.1
+  · intro kv hkv
+    obtain ⟨g, hmem, he⟩ := mem_advanceCima φ L kv hkv
+    have hsok := hadv.1.2 (kv.1, g) hmem
+    have hk : Keeps g kv.2 := by rw [he]; exact keeps_reviewCima _ _
+    exact ⟨hsok.onMap, ConservationCore.ShapeOk_of_pruned hk.1 hsok.shape,
+      by rw [hk.1.step_eq]; exact hsok.step,
+      by rw [hk.1.map_parent_eq]; exact hsok.par,
+      valid_of_mem_advanceCima φ L kv hkv⟩
+  · intro kv hkv
+    obtain ⟨g, hmem, he⟩ := mem_advanceCima φ L kv hkv
+    rw [he]
+    exact MInv_reviewCima φ _ g (hadv.2 (kv.1, g) hmem)
+      (by rw [← he]; exact valid_of_mem_advanceCima φ L kv hkv)
+
+/-- **Every line of the run satisfies it.** -/
+theorem LineInv_stepsCima (hwf : WF φ) :
+    ∀ m : Nat, ReaderAggRun.LineInv φ (m : Int) (stepsCima φ m (pureInit φ)) := by
+  intro m
+  induction m with
+  | zero => exact ReaderAggRun.LineInv_init φ hwf
+  | succ n ih =>
+    rw [stepsCima_succ]
+    have := LineInv_advanceCima φ hwf (n : Int) _ ih
+    rwa [show (n : Int) + 1 = ((n + 1 : Nat) : Int) by push_cast; omega] at this
+
 /-- Each state of a line of `ImprovesCima` is a narrowing of the same state in `Improves`. -/
 theorem keeps_advanceCima (L : PureLine) (kv : NodeId × GPathM) (hkv : kv ∈ advanceCima φ L) :
     ∃ g, (kv.1, g) ∈ pureAdvanceW φ L ∧ Keeps g kv.2 := by
@@ -3078,6 +3117,10 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.MInv_reviewCima' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms MInv_reviewCima
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.LineInv_stepsCima' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms LineInv_stepsCima
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
