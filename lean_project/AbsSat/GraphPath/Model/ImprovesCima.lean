@@ -1537,6 +1537,64 @@ theorem pinned_source_valid_of_sideSupport (sides : List GPathM) (hwf : WF φ) (
   obtain ⟨t, ht, hSt, hR⟩ := hS
   exact pinned_source_validCima φ sides hwf k key G hsG hmG d hd hval Q hvY t ht hSt hR
 
+-- ============================================================
+-- The verdict, straight from the family
+-- ============================================================
+
+/-- **A live family carries a sound chain.** The narrowest class this project has ever put the old
+obligation on: not any valid state, but the family of a top — a review fixpoint every one of whose
+entries belongs to a single side. -/
+def FamHasChain (sides : List GPathM) : Prop :=
+  ∀ (g : GPathM) (t : PathNodeId), isValid (famFix sides t g) = true →
+    ∃ sel, ChainSound (famFix sides t g) sel
+
+/-- **The verdict of `ImprovesCima`, straight from that.** No induction along the lines and no descent:
+the filtered state of the last line has a live entry, the rule gives it a good top, the family of that
+top carries a chain, the chain is a chain of the state itself, and a chain of a machine state is a
+genuine path (`genuine_of_chain`, no hypotheses) — that is, a model of the formula. -/
+theorem sat_of_famHasChain (sides : List GPathM) (hwf : WF φ) (hF : FamHasChain sides)
+    (m : Nat) (J : GPathM) (hmJ : MInv φ J) (hcs : J.current_step = (m : Int) + 2)
+    (hle : (m : Int) + 2 = stepCount φ)
+    (hvX : isValid (filterAllCima sides J []) = true) : Satisfiable φ := by
+  have hkJX : Keeps J (filterAllCima sides J []) := keeps_filterAllCima _ J []
+  have hrcX := ReaderAgg.RCtx_of_keeps hkJX hmJ.rctx
+  have hcsX : (filterAllCima sides J []).current_step = (m : Int) + 2 := by
+    rw [hkJX.1.step_eq, hcs]
+  obtain ⟨hadjX, hsupX⟩ := sup_filterAllCima sides J [] hmJ.rctx hmJ.smp hmJ.pms hmJ.sn
+    hmJ.rctx.shape.notroot hvX
+  -- a live entry of the filtered state
+  have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
+  have hv0 := hvX
+  simp only [isValid, List.all_eq_true] at hv0
+  obtain ⟨q, hq, _⟩ := List.any_eq_true.mp
+    (hv0 0 (mem_intRange (Int.le_refl 0) (by rw [hcsX]; omega)))
+  obtain ⟨nq, hnq, hnqid⟩ := hrcX.gn q hq
+  have hmq : EmbeddedSupport.Mem (filterAllCima sides J []) q :=
+    ⟨nq, by rw [← hnqid]; exact node?_of_mem hrcX.nodup nq hnq⟩
+  obtain ⟨v, hrel, _⟩ := hsupX.cov q hmq 0 (Int.le_refl 0) (by rw [hcsX]; omega)
+  -- the rule gives it a good top, whose family is live
+  obtain ⟨nq', hnq', hmemv, hmv⟩ := id hrel
+  have hbq := EmbeddedSupport.mem_bounds _ hadjX hmq
+  have hbv := EmbeddedSupport.mem_bounds _ hadjX hmv
+  obtain ⟨nv, hnv⟩ := hmv
+  obtain ⟨t, _, hgood⟩ := top_of_cimaOk sides _ q v
+    (cimaOk_filterAllCima sides J [] hvX q nq' v hnq' (by rw [hnv]; rfl) hbq.1 hbq.2 hbv.1 hbv.2
+      hmemv)
+  have hvF : isValid (famFix sides t (filterAllCima sides J [])) = true := by
+    simp only [goodFor, Bool.and_eq_true] at hgood; exact hgood.1.1
+  -- the family's chain is a chain of the state, and a chain of a state is a genuine path
+  obtain ⟨sel, hsc⟩ := hF _ t hvF
+  have hprJ : Pruned J (famFix sides t (filterAllCima sides J [])) :=
+    (Keeps.trans hkJX (keeps_famFix sides t _)).1
+  have hscJ := SubsetSemantics.ChainSound_of_pruned hprJ hmJ.rctx.nodup hmJ.smp sel hsc
+  obtain ⟨a, hsat, _⟩ := RunNoBorrow.genuine_of_chain φ hwf m J hmJ hcs (by rw [hcs]; omega) sel hscJ
+  refine ⟨a, fun c hc => ?_⟩
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hc
+  exact hsat i hi (by
+    have h1 : clauseStep φ i = 2 * (φ.nVars : Int) + 1 + (i : Int) := rfl
+    have h2 : stepCount φ = 2 * (φ.nVars : Int) + (φ.clauses.length : Int) + 2 := rfl
+    omega)
+
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
 state of the machine's own kind whose entries are entries of that one side. What remains is to read the
