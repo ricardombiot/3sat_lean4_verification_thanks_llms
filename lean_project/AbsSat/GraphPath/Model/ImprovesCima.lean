@@ -2281,24 +2281,23 @@ the plain review it survives the review with the rule.
 
 This is everything that is left of the verdict of `ImprovesCima`, said in one line about the filter's
 behaviour — no families, no tops, no supports. -/
-def RulePreservesValidity (L : PureLine) (m : Nat) : Prop :=
-  ∀ (p : NodeId) (J : GPathM), ConservationFilter.StateOkF φ ((m : Int) + 1) (p, J) →
-    ReaderAggRun.MInv φ J → ∀ Q : List NodeId,
-      isValid (AggressiveReview.filterAllAgg J Q) = true →
-      isValid (filterAllCima (sidesOf φ L p) J Q) = true
+def RulePreservesValidity (L : PureLine) : Prop :=
+  ∀ (p : NodeId) (J : GPathM), (p, J) ∈ pureAdvanceW φ L → ∀ Q : List NodeId,
+    isValid (AggressiveReview.filterAllAgg J Q) = true →
+    isValid (filterAllCima (sidesOf φ L p) J Q) = true
 
 /-- **From it, validity is never borrowed.** The rule keeps the state alive, a live state has a side
 with its top alive (`side_top_alive_of`), and for that side the rule's own theorem gives the pinned send
 (`topValid_cima`). -/
 theorem validSide_of_rulePreserves (hwf : WF φ) (m : Nat)
-    (h : RulePreservesValidity φ (branchLine φ [] m) m) : HereditaryValid.ValidSideAt φ m := by
+    (h : RulePreservesValidity φ (branchLine φ [] m)) : HereditaryValid.ValidSideAt φ m := by
   intro p J hJ Q _ hvX
   have hl := branchLine_inv φ hwf [] m
   have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
   have hsJ := hadv.1.2 _ hJ
   have hmJ := hadv.2 _ hJ
   have hvC : isValid (filterAllCima (sidesOf φ (branchLine φ [] m) p) J Q) = true :=
-    h p J hsJ hmJ Q hvX
+    h p J hJ Q hvX
   obtain ⟨kv, hkv, hson, hvS, hmem⟩ := HereditaryValid.side_top_alive_of φ hwf [] m p J hJ _
     (keeps_filterAllCima _ J Q).1 (readableAgg_filterAllCima _ J Q hmJ.rctx) hvC
   exact ⟨kv, hkv, hson, hvS,
@@ -2372,13 +2371,77 @@ theorem rulePreserves_of_genuine (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤
   exact valid_filterAllCima_of_chain φ _ J hmJ (by rw [hcsJ]; omega) Q sel _ hSmem hcsS hscJ hscS
     (fun r hr h0 h1 => hpass r hr h0 (by rw [hcsJ] at h1; exact h1))
 
+
+/-- **A live pinned union contains a chain.** This is all that is left of the verdict: the two other
+halves of `RulePreservesValidity` are already paid. That the chain lives in one side is free — a chain
+of a machine state is a genuine path (`genuine_of_chain`) and a send holds every genuine path through
+its source (`send_complete`). That it respects the pins is free too — a chain of a pinned state has its
+nodes among the global owners, and pinning leaves only the pin there. -/
+def PinnedUnionInhabited (L : PureLine) : Prop :=
+  ∀ (p : NodeId) (J : GPathM), (p, J) ∈ pureAdvanceW φ L → ∀ Q : List NodeId,
+    isValid (AggressiveReview.filterAllAgg J Q) = true →
+    ∃ sel, ChainSound (AggressiveReview.filterAllAgg J Q) sel
+
+/-- **One chain of the live pinned union is enough for the rule to keep it.** -/
+theorem rulePreserves_of_chain (hwf : WF φ) (m : Nat)
+    (p : NodeId) (J : GPathM) (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ [] m))
+    (Q : List NodeId) (sel : Int → PathNodeId)
+    (hsc : ChainSound (AggressiveReview.filterAllAgg J Q) sel) :
+    isValid (filterAllCima (sidesOf φ (branchLine φ [] m) p) J Q) = true := by
+  have hl := branchLine_inv φ hwf [] m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ := hadv.1.2 _ hJ
+  have hmJ := hadv.2 _ hJ
+  have hm : (m : Int) + 2 ≤ stepCount φ := by
+    have := PinVar.lt_of_mapNodes φ _ p hsJ.onMap; omega
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  have hcsX : (AggressiveReview.filterAllAgg J Q).current_step = (m : Int) + 2 := by
+    rw [(AggressiveReview.pruned_filterAllAgg J Q).step_eq, hcsJ]
+  -- the chain of the pinned union is a chain of the union
+  have hscJ : ChainSound J sel := SubsetSemantics.ChainSound_of_pruned
+    (AggressiveReview.pruned_filterAllAgg J Q) hmJ.rctx.nodup hmJ.smp sel hsc
+  -- and a chain of a machine state is a genuine path
+  have hgen := RunNoBorrow.genuine_of_chain φ hwf m J hmJ hcsJ (by omega) sel hscJ
+  -- its node at the new step is the union's key
+  have htop : (sel ((m : Int) + 1)).id = p := by
+    obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp
+      (hscJ.chain.1.1 ((m : Int) + 1) (by omega) (by rw [hcsJ]; omega)).1
+    obtain ⟨kv, _, _, _, htn, _⟩ := PinDeath.advance_top_node φ hwf [] m p J hJ nt
+      (List.mem_of_find?_eq_some hnt)
+      (by rw [node?_id_eq _ _ nt hnt,
+        (hscJ.chain.1.1 ((m : Int) + 1) (by omega) (by rw [hcsJ]; omega)).2])
+    rw [← node?_id_eq _ _ nt hnt, htn]; rfl
+  -- and it respects the pins, because it lives in the pinned state
+  have hpass : ∀ r ∈ Q, 0 ≤ r.step → r.step < (m : Int) + 2 → (sel r.step).id = r := by
+    intro r hr h0 h1
+    exact ReaderAggRun.filterAllAgg_cleans J Q r hr (sel r.step)
+      (hsc.chain.2.2 r.step h0 (by rw [hcsX]; exact h1))
+      ((hsc.chain.1.1 r.step h0 (by rw [hcsX]; exact h1)).2)
+  exact rulePreserves_of_genuine φ hwf m hm p J hJ Q sel hgen htop hpass
+
+/-- **The reduction.** Everything the rule needs is that a live pinned union be inhabited. -/
+theorem rulePreserves_of_inhabited (hwf : WF φ) (m : Nat)
+    (h : PinnedUnionInhabited φ (branchLine φ [] m)) :
+    RulePreservesValidity φ (branchLine φ [] m) := by
+  intro p J hJ Q hv
+  obtain ⟨sel, hsc⟩ := h p J hJ Q hv
+  exact rulePreserves_of_chain φ hwf m p J hJ Q sel hsc
+
 /-- **The verdict of `ImprovesCima`, from that one sentence.** -/
 theorem sat_of_rulePreserves (hwf : WF φ)
-    (h : ∀ m : Nat, RulePreservesValidity φ (branchLine φ [] m) m)
+    (h : ∀ m : Nat, RulePreservesValidity φ (branchLine φ [] m))
     (kv : NodeId × GPathM) (hkv : kv ∈ PureDriverImproves.pureRunW φ)
     (hv : isValid (AggressiveReview.filterAllAgg kv.2 []) = true) : Satisfiable φ :=
   HereditaryValid.sat_of_validSideOnly φ hwf
     (fun m => validSide_of_rulePreserves φ hwf m (h m)) kv hkv hv
+
+/-- **The verdict of `ImprovesCima`, from that alone.** Every live pinned union of the machine holds a
+chain — and nothing else. -/
+theorem sat_of_pinnedUnionInhabited (hwf : WF φ)
+    (h : ∀ m : Nat, PinnedUnionInhabited φ (branchLine φ [] m))
+    (kv : NodeId × GPathM) (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (AggressiveReview.filterAllAgg kv.2 []) = true) : Satisfiable φ :=
+  sat_of_rulePreserves φ hwf (fun m => rulePreserves_of_inhabited φ hwf m (h m)) kv hkv hv
 
 /-- **The chains the descent may use**: sound in the source state, sound in one of its sides, and
 compatible with the pins. Nothing here mentions a narrowing — the sweep carries them. -/
@@ -3362,6 +3425,10 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.rulePreserves_of_genuine' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms rulePreserves_of_genuine
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.sat_of_pinnedUnionInhabited' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_pinnedUnionInhabited
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
