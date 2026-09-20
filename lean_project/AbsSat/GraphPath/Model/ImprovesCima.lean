@@ -1668,6 +1668,150 @@ theorem isChain_of_pairwise (F : GPathM) (hadj : AdjacentOwners.Adj F)
   rw [hd]; simpa using hlink
 
 -- ============================================================
+-- The triangle filter, inside the family
+-- ============================================================
+
+/-- **The nodes of a step that every chosen node owns, and that own every chosen node.** This is the
+author's `filter_triangle_nodes!` read as a set: the owners common to everything picked so far. His rule
+marks the state invalid when this runs empty; here it is what the pick reads from. -/
+def commonWith (F : GPathM) (L : List PathNodeId) (l : Int) : List PathNodeId :=
+  ((F.line l).map (·.id)).filter (fun z =>
+    L.all (fun y => (ownersOf F z).contains y && (ownersOf F y).contains z))
+
+theorem mem_commonWith (F : GPathM) (hnd : NodupIds F) (L : List PathNodeId) (l : Int)
+    (z : PathNodeId) (h : z ∈ commonWith F L l) :
+    z.id.step = l ∧ (F.node? z).isSome = true ∧
+      ∀ y ∈ L, (ownersOf F z).contains y = true ∧ (ownersOf F y).contains z = true := by
+  obtain ⟨hline, hall⟩ := List.mem_filter.mp h
+  obtain ⟨n, hn, hid⟩ := List.mem_map.mp hline
+  refine ⟨by rw [← hid]; exact eq_of_beq (List.mem_filter.mp hn).2, ?_, fun y hy => ?_⟩
+  · rw [← hid, node?_of_mem hnd n (List.mem_filter.mp hn).1]; rfl
+  · have := List.all_eq_true.mp hall y hy
+    simp only [Bool.and_eq_true] at this
+    exact this
+
+/-- **The picks, from the top down.** At each round, the first node the triangle filter still allows:
+one that every node already picked owns, and that owns them all. -/
+def triPicks (F : GPathM) : Nat → List PathNodeId
+  | 0 => []
+  | n + 1 =>
+    match commonWith F (triPicks F n) (F.current_step - 1 - (n : Int)) with
+    | [] => triPicks F n
+    | z :: _ => z :: triPicks F n
+
+/-- **The author's filter never fires**: at every step there is still a node common to everything
+picked so far. This is `filter_triangle_nodes!` read as a hypothesis instead of as a test. -/
+def TriOk (F : GPathM) : Prop :=
+  ∀ n : Nat, (n : Int) < F.current_step →
+    commonWith F (triPicks F n) (F.current_step - 1 - (n : Int)) ≠ []
+
+def dummyId : PathNodeId := { id := { step := 0, index := 0 }, parent_id := none }
+
+def triSel (F : GPathM) (k : Int) : PathNodeId :=
+  match triPicks F (F.current_step - k).toNat with
+  | [] => dummyId
+  | z :: _ => z
+
+theorem triPicks_mono (F : GPathM) :
+    ∀ (n m : Nat), n ≤ m → ∀ y ∈ triPicks F n, y ∈ triPicks F m := by
+  intro n m
+  induction m with
+  | zero => intro h y hy; rw [Nat.le_zero.mp h] at hy; exact hy
+  | succ k ih =>
+    intro h y hy
+    rcases Nat.lt_or_ge n (k + 1) with hlt | hge
+    · have hk := ih (by omega) y hy
+      show y ∈ triPicks F (k + 1)
+      unfold triPicks
+      split
+      · exact hk
+      · exact List.mem_cons_of_mem _ hk
+    · rw [show n = k + 1 from by omega] at hy; exact hy
+
+/-- **What the picks are**, as long as the triangle filter never fires: one node per step, from the top
+down, each of them a node of the state, and all of them owning each other. -/
+theorem triPicks_inv (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) :
+    ∀ n : Nat, (n : Int) ≤ F.current_step →
+      (0 < n → ∃ z L, triPicks F n = z :: L ∧ z.id.step = F.current_step - (n : Int)) ∧
+      (∀ y ∈ triPicks F n, (F.node? y).isSome = true) ∧
+      (∀ x ∈ triPicks F n, ∀ y ∈ triPicks F n, x ≠ y →
+        (ownersOf F x).contains y = true ∧ (ownersOf F y).contains x = true) := by
+  intro n
+  induction n with
+  | zero =>
+    intro _
+    exact ⟨fun h => absurd h (by omega), fun y hy => absurd hy List.not_mem_nil,
+      fun x hx => absurd hx List.not_mem_nil⟩
+  | succ k ih =>
+    intro hk
+    obtain ⟨_, hnodes, hmut⟩ := ih (by push_cast at hk ⊢; omega)
+    have hne := hT k (by push_cast at hk; omega)
+    cases hc : commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+    | nil => exact absurd hc hne
+    | cons z rest =>
+      have hzmem : z ∈ commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) := by
+        rw [hc]; exact List.mem_cons_self
+      obtain ⟨hzs, hzn, hzall⟩ := mem_commonWith F hnd _ _ z hzmem
+      have hstep : triPicks F (k + 1) = z :: triPicks F k := by
+        show (match commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+          | [] => triPicks F k | z :: _ => z :: triPicks F k) = _
+        rw [hc]
+      rw [hstep]
+      refine ⟨fun _ => ⟨z, triPicks F k, rfl, by rw [hzs]; push_cast; omega⟩, ?_, ?_⟩
+      · intro y hy
+        rcases List.mem_cons.mp hy with rfl | hy'
+        · exact hzn
+        · exact hnodes y hy'
+      · intro x hx y hy hxy
+        rcases List.mem_cons.mp hx with rfl | hx'
+        · rcases List.mem_cons.mp hy with rfl | hy'
+          · exact absurd rfl hxy
+          · exact hzall y hy'
+        · rcases List.mem_cons.mp hy with rfl | hy'
+          · exact ⟨(hzall x hx').2, (hzall x hx').1⟩
+          · exact hmut x hx' y hy' hxy
+
+/-- **The pick at a step**, and what it is. -/
+theorem triSel_spec (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) (k : Int) (h0 : 0 ≤ k)
+    (h1 : k < F.current_step) :
+    (F.node? (triSel F k)).isSome = true ∧ (triSel F k).id.step = k ∧
+      triSel F k ∈ triPicks F (F.current_step - k).toNat := by
+  have hnn : ((F.current_step - k).toNat : Int) = F.current_step - k := Int.toNat_of_nonneg (by omega)
+  obtain ⟨hhead, hnodes, _⟩ := triPicks_inv F hnd hT (F.current_step - k).toNat (by omega)
+  obtain ⟨z, L, heq, hzs⟩ := hhead (by omega)
+  have hsel : triSel F k = z := by
+    show (match triPicks F (F.current_step - k).toNat with
+      | [] => dummyId | z :: _ => z) = z
+    rw [heq]
+  refine ⟨?_, ?_, ?_⟩
+  · rw [hsel]; exact hnodes z (by rw [heq]; exact List.mem_cons_self)
+  · rw [hsel, hzs, hnn]; omega
+  · rw [hsel, heq]; exact List.mem_cons_self
+
+/-- **The picks own each other.** -/
+theorem pairwise_triSel (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) :
+    PairwiseOwned F (triSel F) := by
+  intro i j hi0 hj0 hi hj hne
+  have hni : ((F.current_step - i).toNat : Int) = F.current_step - i :=
+    Int.toNat_of_nonneg (by omega)
+  have hnj : ((F.current_step - j).toNat : Int) = F.current_step - j :=
+    Int.toNat_of_nonneg (by omega)
+  obtain ⟨_, hsi, hmi⟩ := triSel_spec F hnd hT i hi0 hi
+  obtain ⟨_, hsj, hmj⟩ := triSel_spec F hnd hT j hj0 hj
+  have hdiff : triSel F j ≠ triSel F i := by
+    intro he; rw [he, hsi] at hsj; exact hne hsj
+  refine List.mem_filter.mpr ⟨List.contains_iff_mem.mp ?_, beq_iff_eq.mpr hsi⟩
+  rcases Int.lt_or_lt_of_ne hne with hlt | hlt
+  · obtain ⟨_, _, hmut⟩ := triPicks_inv F hnd hT (F.current_step - i).toNat (by omega)
+    have h2 := triPicks_mono F (F.current_step - j).toNat (F.current_step - i).toNat
+      (by omega) _ hmj
+    exact (hmut _ h2 _ hmi hdiff).1
+  · obtain ⟨_, _, hmut⟩ := triPicks_inv F hnd hT (F.current_step - j).toNat (by omega)
+    have h1 := triPicks_mono F (F.current_step - i).toNat (F.current_step - j).toNat
+      (by omega) _ hmi
+    exact (hmut _ hmj _ h1 hdiff).1
+
+-- ============================================================
 -- The verdict, straight from the family
 -- ============================================================
 
@@ -1698,6 +1842,25 @@ theorem famHasChain_of_pairwise (sides : List GPathM) (h : FamPairwise sides) :
   refine ⟨sel, chainSound_of_pairwise _ hadj hok hsm ?_ sel
     (isChain_of_pairwise _ hadj hok hsm sel hnode hpw) hpw⟩
   rw [(keeps_famFix sides t g).1.step_eq]; exact hcs
+
+/-- **The author's triangle filter, as the hypothesis on a family.** While picking one node per step
+from the top down, the nodes common to everything picked so far never run out. This is
+`filter_triangle_nodes!`: it computes exactly that intersection and marks the state invalid when it
+empties. -/
+def FamTriOk (sides : List GPathM) : Prop :=
+  ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
+    0 < g.current_step → isValid (famFix sides t g) = true → TriOk (famFix sides t g)
+
+/-- **From the filter to the pairwise selection.** The picks are the chain: one node per step, and each
+new one is taken from the nodes that own, and are owned by, everything picked before. -/
+theorem famPairwise_of_triOk (sides : List GPathM) (h : FamTriOk sides) : FamPairwise sides := by
+  intro g t hrc hsmp hpms hsn hcs hv
+  have hnd : NodupIds (famFix sides t g) :=
+    (adj_famFix sides t g hrc hsmp hpms hsn hv).1.rc.nodup
+  have hTo := h g t hrc hsmp hpms hsn hcs hv
+  refine ⟨triSel (famFix sides t g), fun k h0 h1 => ?_, pairwise_triSel _ hnd hTo⟩
+  obtain ⟨hn, hs, _⟩ := triSel_spec _ hnd hTo k h0 h1
+  exact ⟨hn, hs⟩
 
 /-- **The verdict of `ImprovesCima`, straight from that.** No induction along the lines and no descent:
 the filtered state of the last line has a live entry, the rule gives it a good top, the family of that
@@ -1747,6 +1910,16 @@ theorem sat_of_famHasChain (sides : List GPathM) (hwf : WF φ) (hF : FamHasChain
     have h1 : clauseStep φ i = 2 * (φ.nVars : Int) + 1 + (i : Int) := rfl
     have h2 : stepCount φ = 2 * (φ.nVars : Int) + (φ.clauses.length : Int) + 2 := rfl
     omega)
+
+/-- **The verdict of `ImprovesCima` under the author's triangle filter alone.** Everything else is
+proved: the rule gives a good top, its family is a live state of the machine's own kind, the picks of
+the filter are a chain, a chain of the state is a genuine path, and that is a model. -/
+theorem sat_of_famTriOk (sides : List GPathM) (hwf : WF φ) (hT : FamTriOk sides)
+    (m : Nat) (J : GPathM) (hmJ : MInv φ J) (hcs : J.current_step = (m : Int) + 2)
+    (hle : (m : Int) + 2 = stepCount φ)
+    (hvX : isValid (filterAllCima sides J []) = true) : Satisfiable φ :=
+  sat_of_famHasChain φ sides hwf (famHasChain_of_pairwise sides (famPairwise_of_triOk sides hT))
+    m J hmJ hcs hle hvX
 
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
