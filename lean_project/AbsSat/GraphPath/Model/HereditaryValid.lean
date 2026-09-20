@@ -542,18 +542,16 @@ open AbsSat.GraphPath.Model.PinDeath (topOf advance_top_node)
 /-- **A valid pinned union has a side whose top is alive.** No exactness: the last step of the union
 carries a global owner, that owner is a node, and every node of that step is the top of a side
 (`advance_top_node`). -/
-theorem side_top_alive (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
-    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
-    (hv : isValid (filterAllAgg J Q) = true) :
+theorem side_top_alive_of (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (X : GPathM) (hprX : Pruned J X)
+    (hRX : ReadableAgg X) (hv : isValid X = true) :
     ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      Mem (filterAllAgg J Q) (topOf p kv.1) := by
+      Mem X (topOf p kv.1) := by
   have hl := branchLine_inv φ hwf P m
   have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
   have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
-  have hmJ : MInv φ J := hadv.2 _ hJ
-  have hcs : (filterAllAgg J Q).current_step = (m : Int) + 2 := by
-    rw [(pruned_filterAllAgg J Q).step_eq, hsJ.step]; omega
-  have hRX : ReadableAgg (filterAllAgg J Q) := ⟨J, Q, hmJ.rctx, rfl⟩
+  have hcs : X.current_step = (m : Int) + 2 := by
+    rw [hprX.step_eq, hsJ.step]; omega
   have ctxX := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRX) hv
   have hk0 : (0 : Int) ≤ (m : Int) + 1 := by omega
   have hv' := hv
@@ -563,12 +561,23 @@ theorem side_top_alive (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J
   obtain ⟨n, hn, hnid⟩ := ctxX.gn z hz
   have hzs' : z.id.step = (m : Int) + 1 := eq_of_beq hzs
   -- the node of the pinned union is a node of the union
-  obtain ⟨n0, hn0, hid, _, _⟩ := (pruned_filterAllAgg J Q).nodes_derived n hn
+  obtain ⟨n0, hn0, hid, _, _⟩ := hprX.nodes_derived n hn
   obtain ⟨kv, hkv, hson, hvS, htop, _⟩ := advance_top_node φ hwf P m p J hJ n0 hn0
     (by rw [← hid, hnid]; exact hzs')
   refine ⟨kv, hkv, hson, hvS, n, ?_⟩
   rw [show topOf p kv.1 = n.id from by rw [← htop, hid]]
   exact node?_of_mem (RCtx_of_readableAgg _ hRX).nodup n hn
+
+/-- **Some side has its top alive in a live pinned union.** -/
+theorem side_top_alive (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (hv : isValid (filterAllAgg J Q) = true) :
+    ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
+      Mem (filterAllAgg J Q) (topOf p kv.1) := by
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  exact side_top_alive_of φ hwf P m p J hJ _ (pruned_filterAllAgg J Q)
+    ⟨J, Q, (hadv.2 _ hJ).rctx, rfl⟩ hv
 
 /-- **Validity is not borrowed, when every side with a live top keeps its pins.** This is what the probe
 `ownsupport` measured: 52,506 sides with a live top, 0 failures. -/

@@ -2018,6 +2018,7 @@ theorem topValid_cima (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun
       ((keeps_agg_filterAllCima (sidesOf φ (L) p) J Q).1.gowners_sub x
         (hsupX.gow x hx)) hs
 
+
 /-- **The descent, with the rule.** The same step as `HereditaryValid.pinned_source_validL` — a valid
 pinned send has a valid pinned source — but closing with the filter of `ImprovesCima` instead of the
 plain review. The support it hands down is the part of the pinned send below its top; the rule keeps it
@@ -2263,6 +2264,121 @@ theorem valid_filterAllCima_of_chain (sides : List GPathM) (G : GPathM) (hmG : R
     have hcs' : g'.current_step = G.current_step := hk.1.step_eq
     exact cimaOk_of_chain sides g' Sd hSd (by rw [hcs']; exact hcsSd) sel (hch sel rfl) hscSd
       (by rw [hcs']; exact hcs) i j hi0 (by omega) hj0 (by omega)
+
+-- ============================================================
+-- The rule, as a single sentence about the filter
+-- ============================================================
+
+/-- The filtered union of `ImprovesCima` is a readable state of the base reader: the review's result is
+an aggressive-review fixpoint of a narrowing. -/
+theorem readableAgg_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId)
+    (hrc : Reader.RCtx g) : ReaderAgg.ReadableAgg (filterAllCima sides g reqs) := by
+  obtain ⟨g₀, hk, he⟩ := filterAllCima_form sides g reqs
+  exact ⟨g₀, [], ReaderAgg.RCtx_of_keeps hk hrc, he⟩
+
+/-- **The rule never kills a live state.** At a union by key, whatever the pins, if the state survives
+the plain review it survives the review with the rule.
+
+This is everything that is left of the verdict of `ImprovesCima`, said in one line about the filter's
+behaviour — no families, no tops, no supports. -/
+def RulePreservesValidity (L : PureLine) (m : Nat) : Prop :=
+  ∀ (p : NodeId) (J : GPathM), ConservationFilter.StateOkF φ ((m : Int) + 1) (p, J) →
+    ReaderAggRun.MInv φ J → ∀ Q : List NodeId,
+      isValid (AggressiveReview.filterAllAgg J Q) = true →
+      isValid (filterAllCima (sidesOf φ L p) J Q) = true
+
+/-- **From it, validity is never borrowed.** The rule keeps the state alive, a live state has a side
+with its top alive (`side_top_alive_of`), and for that side the rule's own theorem gives the pinned send
+(`topValid_cima`). -/
+theorem validSide_of_rulePreserves (hwf : WF φ) (m : Nat)
+    (h : RulePreservesValidity φ (branchLine φ [] m) m) : HereditaryValid.ValidSideAt φ m := by
+  intro p J hJ Q _ hvX
+  have hl := branchLine_inv φ hwf [] m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ := hadv.1.2 _ hJ
+  have hmJ := hadv.2 _ hJ
+  have hvC : isValid (filterAllCima (sidesOf φ (branchLine φ [] m) p) J Q) = true :=
+    h p J hsJ hmJ Q hvX
+  obtain ⟨kv, hkv, hson, hvS, hmem⟩ := HereditaryValid.side_top_alive_of φ hwf [] m p J hJ _
+    (keeps_filterAllCima _ J Q).1 (readableAgg_filterAllCima _ J Q hmJ.rctx) hvC
+  exact ⟨kv, hkv, hson, hvS,
+    topValid_cima φ hwf (branchLine φ [] m) m hl p J hsJ hmJ Q hvC kv hkv hson hvS hmem⟩
+
+
+/-- **And nothing is lost in the translation.** If the union has a genuine path through the pins, the
+rule keeps it alive: the path is a chain of the union (`line_complete`) and of the side its top names
+(`advance_top_node`, `send_complete`), and a chain of a side keeps its state alive
+(`valid_filterAllCima_of_chain`).
+
+So `RulePreservesValidity` is not a stronger demand than the verdict — it is the verdict, said about
+the filter. -/
+theorem rulePreserves_of_genuine (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount φ)
+    (p : NodeId) (J : GPathM) (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ [] m))
+    (Q : List NodeId) (sel : Int → PathNodeId)
+    (hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) sel)
+    (htop : (sel ((m : Int) + 1)).id = p)
+    (hpass : ∀ r ∈ Q, 0 ≤ r.step → r.step < (m : Int) + 2 → (sel r.step).id = r) :
+    isValid (filterAllCima (sidesOf φ (branchLine φ [] m) p) J Q) = true := by
+  have hl := branchLine_inv φ hwf [] m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hsJ := hadv.1.2 _ hJ
+  have hmJ := hadv.2 _ hJ
+  have hcsJ : J.current_step = (m : Int) + 2 := by rw [hsJ.step]; omega
+  -- the path is a chain of the union
+  have hmemJ : (p, J) ∈ PureDriverImproves.pureStepsW φ (m + 1) (pureInit φ) := by
+    rw [RunHistory.pureStepsW_succ, ← PinHistory.branchLine_nil φ m]; exact hJ
+  have hscJ : ChainSound J sel := by
+    refine RunNoBorrow.line_complete φ hwf (m + 1) (by push_cast; omega) (p, J) hmemJ sel ?_ ?_
+    · have : ((m + 1 : Nat) : Int) + 1 = (m : Int) + 2 := by push_cast; omega
+      rw [this]; exact hgen
+    · show (sel ((m + 1 : Nat) : Int)).id = p
+      rw [show ((m + 1 : Nat) : Int) = (m : Int) + 1 by push_cast; omega]; exact htop
+  -- its top node names a side, which is therefore alive
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp
+    (hscJ.chain.1.1 ((m : Int) + 1) (by omega) (by rw [hcsJ]; omega)).1
+  obtain ⟨kv, hkv, hson, hvS, htn, _⟩ := PinDeath.advance_top_node φ hwf [] m p J hJ nt
+    (List.mem_of_find?_eq_some hnt)
+    (by rw [node?_id_eq _ _ nt hnt,
+      (hscJ.chain.1.1 ((m : Int) + 1) (by omega) (by rw [hcsJ]; omega)).2])
+  have hid : nt.id = sel ((m : Int) + 1) := node?_id_eq _ _ nt hnt
+  -- the path is a chain of that side
+  have hsrc : (sel (m : Int)).id = kv.1 := by
+    obtain ⟨a, _, hsel⟩ := hgen
+    have h1 := (hsel ((m : Int) + 1) (by omega) (by omega)).2
+    have h2 := (hsel (m : Int) (by omega) (by omega)).1
+    have heq : sel ((m : Int) + 1) = topOf p kv.1 := hid.symm.trans htn
+    have h3 : (sel ((m : Int) + 1)).parent_id = some kv.1 := by rw [heq]; rfl
+    rw [h1] at h3
+    rw [h2]
+    rw [if_neg (by omega)] at h3
+    have : selOfAssign φ a ((m : Int) + 1 - 1) = kv.1 := by
+      injection h3
+    rw [show (m : Int) + 1 - 1 = (m : Int) by omega] at this
+    exact this
+  have hkv' : kv ∈ PureDriverImproves.pureStepsW φ m (pureInit φ) := by
+    rw [← PinHistory.branchLine_nil φ m]; exact hkv
+  have hscS : ChainSound (sent φ kv.2 p) sel :=
+    RunNoBorrow.send_complete φ hwf m hm kv hkv' p hson hvS sel hgen hsrc htop
+  have hSmem : sent φ kv.2 p ∈ sidesOf φ (branchLine φ [] m) p := by
+    refine List.mem_filterMap.mpr ⟨kv, hkv, ?_⟩
+    rw [if_pos (by
+      simp only [Bool.and_eq_true]
+      exact ⟨List.contains_iff_mem.mpr hson, hvS⟩)]
+  have hcsS : (sent φ kv.2 p).current_step = J.current_step := by
+    have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+      (ConservationFilter.prunes_Fsac φ 0) m kv (hl.1.2 kv hkv) p hson hvS
+    have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+    rw [hsS', hcsJ]; omega
+  exact valid_filterAllCima_of_chain φ _ J hmJ (by rw [hcsJ]; omega) Q sel _ hSmem hcsS hscJ hscS
+    (fun r hr h0 h1 => hpass r hr h0 (by rw [hcsJ] at h1; exact h1))
+
+/-- **The verdict of `ImprovesCima`, from that one sentence.** -/
+theorem sat_of_rulePreserves (hwf : WF φ)
+    (h : ∀ m : Nat, RulePreservesValidity φ (branchLine φ [] m) m)
+    (kv : NodeId × GPathM) (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (AggressiveReview.filterAllAgg kv.2 []) = true) : Satisfiable φ :=
+  HereditaryValid.sat_of_validSideOnly φ hwf
+    (fun m => validSide_of_rulePreserves φ hwf m (h m)) kv hkv hv
 
 /-- **The chains the descent may use**: sound in the source state, sound in one of its sides, and
 compatible with the pins. Nothing here mentions a narrowing — the sweep carries them. -/
@@ -3238,6 +3354,14 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.valid_filterAllCima_of_chain' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms valid_filterAllCima_of_chain
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.sat_of_rulePreserves' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_rulePreserves
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.rulePreserves_of_genuine' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms rulePreserves_of_genuine
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
