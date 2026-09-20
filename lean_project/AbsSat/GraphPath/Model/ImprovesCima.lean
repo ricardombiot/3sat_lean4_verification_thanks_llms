@@ -130,6 +130,59 @@ theorem reaches_of_chain (g : GPathM) (a b t : PathNodeId) (h : ChainUp2 g a b a
     reaches g a b t = true :=
   List.contains_iff_mem.mpr (climbTo_of_chain g a b t a h na hna h1 h2 h1 h3)
 
+/-- Both directions of an owner table give the pair as a relation of that state. -/
+theorem rel_of_owners (S : GPathM) (a b : PathNodeId)
+    (h1 : (ownersOf S a).contains b = true) (h2 : (ownersOf S b).contains a = true) :
+    Rel S a b ∧ Rel S b a := by
+  unfold ownersOf at h1 h2
+  cases ha : S.node? a with
+  | none => rw [ha] at h1; exact absurd h1 (by rw [List.contains_iff_mem]; exact fun h => nomatch h)
+  | some na =>
+    cases hb : S.node? b with
+    | none => rw [hb] at h2; exact absurd h2 (by rw [List.contains_iff_mem]; exact fun h => nomatch h)
+    | some nb =>
+      rw [ha] at h1; rw [hb] at h2
+      exact ⟨⟨na, ha, List.contains_iff_mem.mp h1, ⟨nb, hb⟩⟩,
+        ⟨nb, hb, List.contains_iff_mem.mp h2, ⟨na, ha⟩⟩⟩
+
+/-- **The search is sound at the top**: whatever level a node is found at, the chain's top was a common
+owner of both ends to begin with — the base of the search is what every level hangs on. -/
+theorem climbTo_base (g : GPathM) (a b t : PathNodeId) :
+    ∀ (n : Nat) (c : PathNodeId), c ∈ climbTo g a b t n →
+      t ∈ commonAt g a b (g.current_step - 1) := by
+  intro n
+  induction n with
+  | zero =>
+    intro c hc
+    simp only [climbTo] at hc
+    split at hc
+    · next h =>
+      rw [List.mem_singleton] at hc
+      rw [hc] at *
+      exact List.contains_iff_mem.mp h
+    · next => cases hc
+  | succ k ih =>
+    intro c hc
+    simp only [climbTo] at hc
+    have hcl := (List.mem_filter.mp hc).2
+    simp only [climbs] at hcl
+    obtain ⟨s, hs, _⟩ := List.any_eq_true.mp hcl
+    exact ih s hs
+
+theorem reach_common (g : GPathM) (a b t : PathNodeId) (h : reaches g a b t = true) :
+    t ∈ commonAt g a b (g.current_step - 1) :=
+  climbTo_base g a b t _ a (List.contains_iff_mem.mp h)
+
+/-- **Both ends own the top the rule certifies.** This is what the family of a support asks for, and it
+comes out of the search itself, with no extra clause. -/
+theorem rel_of_reaches (g : GPathM) (a b t : PathNodeId) (h : reaches g a b t = true) :
+    Rel g a t ∧ Rel g t a ∧ Rel g b t ∧ Rel g t b := by
+  have hm := List.mem_filter.mp (reach_common g a b t h)
+  simp only [Bool.and_eq_true] at hm
+  obtain ⟨h1, h2⟩ := rel_of_owners g a t hm.2.1.2 hm.2.1.1.1
+  obtain ⟨h3, h4⟩ := rel_of_owners g b t hm.2.2 hm.2.1.1.2
+  exact ⟨h1, h2, h3, h4⟩
+
 /-- **Does a side of the top carry the entry?** The top of a side exists only in that side, so this asks
 exactly what its own table says about the pair, in both directions. -/
 def carries (sides : List GPathM) (t a b : PathNodeId) : Bool :=
@@ -536,6 +589,32 @@ theorem keeps_reviewCima (sides : List GPathM) (g : GPathM) : Keeps g (reviewCim
 theorem keeps_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId) :
     Keeps g (filterAllCima sides g reqs) :=
   Keeps.trans (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g) (keeps_reviewCima _ _)
+
+/-- **The new review is a narrowing of the old one.** Its first move is the aggressive review, and every
+later move only removes. So everything proved of a state of `Improves` transports to the same state of
+`ImprovesCima` whenever it survives a narrowing. -/
+theorem keeps_agg_reviewCimaFuel (sides : List GPathM) : ∀ (fuel : Nat) (g : GPathM),
+    Keeps (reviewAgg g) (reviewCimaFuel sides fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Keeps.refl _
+  | succ n ih =>
+    intro g
+    simp only [reviewCimaFuel]
+    split
+    · split
+      · exact Keeps.trans (keeps_cimaSweep sides _)
+          (Keeps.trans (ReaderAggRun.keeps_reviewAggFuel _ _) (ih _))
+      · exact Keeps.refl _
+    · exact Keeps.refl _
+
+theorem keeps_agg_reviewCima (sides : List GPathM) (g : GPathM) :
+    Keeps (reviewAgg g) (reviewCima sides g) :=
+  keeps_agg_reviewCimaFuel sides _ g
+
+theorem keeps_agg_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId) :
+    Keeps (AggressiveReview.filterAllAgg g reqs) (filterAllCima sides g reqs) :=
+  keeps_agg_reviewCima sides (reqs.foldl filterRequire g)
 
 /-- **The review of a union loses no solution**, given the rule's hypothesis along the way. -/
 theorem ChainSound_reviewCimaFuel (sides : List GPathM) (sel : Int → PathNodeId) :
@@ -1013,21 +1092,6 @@ theorem side_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
     rw [hSe, PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys]
   · rw [if_neg hc] at hfe; contradiction
 
-/-- Both directions of an owner table give the pair as a relation of that state. -/
-theorem rel_of_owners (S : GPathM) (a b : PathNodeId)
-    (h1 : (ownersOf S a).contains b = true) (h2 : (ownersOf S b).contains a = true) :
-    Rel S a b ∧ Rel S b a := by
-  unfold ownersOf at h1 h2
-  cases ha : S.node? a with
-  | none => rw [ha] at h1; exact absurd h1 (by rw [List.contains_iff_mem]; exact fun h => nomatch h)
-  | some na =>
-    cases hb : S.node? b with
-    | none => rw [hb] at h2; exact absurd h2 (by rw [List.contains_iff_mem]; exact fun h => nomatch h)
-    | some nb =>
-      rw [ha] at h1; rw [hb] at h2
-      exact ⟨⟨na, ha, List.contains_iff_mem.mp h1, ⟨nb, hb⟩⟩,
-        ⟨nb, hb, List.contains_iff_mem.mp h2, ⟨na, ha⟩⟩⟩
-
 /-- **What a good top hands over, in the side's own table.** Because the top names the side, every pair
 the rule certifies with `carries` is a pair of that one side — which is exactly what the support of the
 side's send needs. -/
@@ -1041,6 +1105,30 @@ theorem carries_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
   have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1.1
   rw [hSe] at hcond
   exact rel_of_owners _ a b hcond.1.2 hcond.2
+
+/-- **When one end is a top, the rule can only certify that top.** The chain the rule follows ends in a
+common owner of both ends, so the certified top is an owner of the side's top; and the only last-step
+node a top hangs on is itself (`tops_unique`). This pins the ∃ of the rule down to the side we are
+reading, which is what the support of that side's send needs. -/
+theorem cert_top_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (sides : List GPathM) (x t : PathNodeId) (hts : t.id.step = (m : Int) + 1)
+    (hgood : goodFor sides (filterAllCima sides J Q) t x (topOf p kv.1) = true) :
+    t = topOf p kv.1 := by
+  have hreach : reaches (filterAllCima sides J Q) x (topOf p kv.1) t = true := by
+    simp only [goodFor, Bool.and_eq_true] at hgood; exact hgood.1.1.1.1.1
+  have hrel := (rel_of_reaches _ x (topOf p kv.1) t hreach).2.2.1
+  have hl := branchLine_inv φ hwf P m
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
+  have hmJ : MInv φ J := hadv.2 _ hJ
+  have hndA : (((AggressiveReview.filterAllAgg J Q)).nodes.map (·.id)).Nodup :=
+    (ReaderAgg.RCtx_of_readableAgg _
+      (show ReaderAgg.ReadableAgg (AggressiveReview.filterAllAgg J Q) from
+        ⟨J, Q, hmJ.rctx, rfl⟩)).nodup
+  exact PinDeath.tops_unique φ hwf P m p J hJ Q kv hkv hson hvS t
+    (PinDeath.rel_of_pruned _ _ hndA (keeps_agg_filterAllCima sides J Q).1 _ _ hrel) hts
 
 /-- **From the fixpoint to the parent rule.** An entry with a good top whose left end is not a root has a
 parent the side of `t` carries with both ends — which is what `par` of the support asks for. -/
@@ -1137,6 +1225,55 @@ theorem top_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = t
   refine ⟨t, hts, ?_, hgood⟩
   simp only [goodFor, Bool.and_eq_true] at hgood
   exact hgood.1.1.1.1.2
+
+/-- **The cover rule of the support, in general form.** Given the two bridges — the rule can only
+certify the top `t` when one end is `t` (`cert_top_of_top`), and what `t`'s side carries is a pair of
+that side (`carries_in_side`) — every node hanging on `t` has, at every step, a witness that hangs on
+`t` too and that the side carries with it, both ways and with the top. This is the `cov` rule of
+`AnchoredSurvive.Sup`. -/
+theorem cov_gen (sides : List GPathM) (X S : GPathM) (t : PathNodeId)
+    (hok : CimaOk sides X)
+    (hcert : ∀ y t₂, t₂.id.step = X.current_step - 1 → goodFor sides X t₂ y t = true → t₂ = t)
+    (hside : ∀ a b, carries sides t a b = true → Rel S a b ∧ Rel S b a)
+    (ht0 : 0 ≤ t.id.step) (ht1 : t.id.step < X.current_step)
+    (x : PathNodeId) (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < X.current_step)
+    (hx : Rel X x t) (l : Int) (hl0 : 0 ≤ l) (hl1 : l < X.current_step) :
+    ∃ z, z.id.step = l ∧ Rel X x z ∧ Rel X z x ∧ Rel X t z ∧ Rel X z t ∧
+      Rel S x z ∧ Rel S z x ∧ Rel S t z ∧ Rel S z t := by
+  obtain ⟨nx, hnx, hmem, nt, hnt⟩ := hx
+  have hc := hok x nx t hnx (by rw [hnt]; rfl) hx0 hx1 ht0 ht1 hmem
+  obtain ⟨t₂, hts₂, hgood⟩ := top_of_cimaOk sides X x t hc
+  rw [hcert x t₂ hts₂ hgood] at hgood
+  obtain ⟨z, hzs, h1, h2, h3, h4, hc1, hc2⟩ := fam_witness sides X t x t hgood l hl0 hl1
+  obtain ⟨r1, r2⟩ := rel_of_owners X x z h1 h3
+  obtain ⟨r3, r4⟩ := rel_of_owners X t z h2 h4
+  obtain ⟨s1, s2⟩ := hside x z hc1
+  obtain ⟨s3, s4⟩ := hside t z hc2
+  exact ⟨z, hzs, r1, r2, r3, r4, s1, s2, s3, s4⟩
+
+/-- **The cover rule for the new machine.** The two bridges are discharged, so the rule of the top hands
+the support of the side's send its `cov` clause with no hypothesis left. -/
+theorem cov_cima (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
+    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (hps : p.step = (m : Int) + 1)
+    (X : GPathM) (hX : X = filterAllCima (sidesOf φ (branchLine φ P m) p) J Q)
+    (hcsX : X.current_step = (m : Int) + 2) (hvX : isValid X = true)
+    (x : PathNodeId) (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < X.current_step)
+    (hx : Rel X x (topOf p kv.1)) (l : Int) (hl0 : 0 ≤ l) (hl1 : l < X.current_step) :
+    ∃ z, z.id.step = l ∧ Rel X x z ∧ Rel X z x ∧ Rel X (topOf p kv.1) z ∧
+      Rel X z (topOf p kv.1) ∧ Rel (sent φ kv.2 p) x z ∧ Rel (sent φ kv.2 p) z x ∧
+      Rel (sent φ kv.2 p) (topOf p kv.1) z ∧ Rel (sent φ kv.2 p) z (topOf p kv.1) := by
+  subst hX
+  refine cov_gen _ _ (sent φ kv.2 p) (topOf p kv.1)
+    (cimaOk_filterAllCima _ J Q hvX)
+    (fun y t₂ hst hg => cert_top_of_top φ hwf P m p J hJ Q kv hkv hson hvS _ y t₂
+      (by rw [hst, hcsX]; omega) hg)
+    (fun a b hc => carries_in_side φ hwf P m p hps kv hkv a b hc)
+    (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps]; omega)
+    (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps, hcsX]; omega)
+    x hx0 hx1 hx l hl0 hl1
 
 /-- **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every entry with a
 good top (`cimaOk_of_noProgress`), so the family the top names is closed. Two bridges are missing:
