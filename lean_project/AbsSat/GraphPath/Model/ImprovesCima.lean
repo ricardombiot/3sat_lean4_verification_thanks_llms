@@ -1486,6 +1486,7 @@ theorem LineInv_stepsCima (hwf : WF φ) :
     have := LineInv_advanceCima φ hwf (n : Int) _ ih
     rwa [show (n : Int) + 1 = ((n + 1 : Nat) : Int) by push_cast; omega] at this
 
+
 /-- Each state of a line of `ImprovesCima` is a narrowing of the same state in `Improves`. -/
 theorem keeps_advanceCima (L : PureLine) (kv : NodeId × GPathM) (hkv : kv ∈ advanceCima φ L) :
     ∃ g, (kv.1, g) ∈ pureAdvanceW φ L ∧ Keeps g kv.2 := by
@@ -1501,6 +1502,89 @@ theorem ChainSound_reviewCima_of_side (sides : List GPathM) (g S : GPathM) (hS :
     (hcsS : S.current_step = g.current_step)
     (hcs : 0 < g.current_step) : ChainSound (reviewCima sides g) sel :=
   ChainSound_reviewCima sides g sel h (carried_of_side sides g S hS sel hSc hcsS hcs)
+
+set_option maxHeartbeats 1000000 in
+/-- **`ImprovesCima` loses no partial solution.** For an assignment satisfying the clauses below the
+step, the line of the run with the rule holds, at the assignment's node, a state carrying the
+assignment's partial branch as a sound chain.
+
+The induction is the one the rule was built for: the branch reaches the send of the previous state
+(`keepsBranch_Fsac_below`, `chainSound_up_of_prunedR`), the send is alive because a chain makes its
+state alive (`isValid_of_ChainG`), the send grows into the union by key (`full_reach`,
+`ChainSound_of_grown`), and **the rule does not touch it**, because the send is one of the sides
+(`ChainSound_reviewCima_of_side`). -/
+theorem cima_chain_below (a : AbsSat.Cnf.Assign) (hwf : WF φ) :
+    ∀ (n : Nat), (n : Int) + 1 ≤ stepCount φ → ConservationPrefix.SatBelow φ a ((n : Int) + 1) →
+      ∃ g, (selOfAssign φ a (n : Int), g) ∈ stepsCima φ n (pureInit φ) ∧
+        g.current_step = (n : Int) + 1 ∧
+        ∃ sel, ChainSound g sel ∧
+          ∀ k, 0 ≤ k → k < (n : Int) + 1 →
+            (sel k).id = selOfAssign φ a k ∧ ConservationCore.SelParent φ a (sel k) := by
+  intro n
+  induction n with
+  | zero =>
+    intro hle hs
+    have hle1 : (1 : Int) ≤ stepCount φ := by exact_mod_cast hle
+    have hs1 : ConservationPrefix.SatBelow φ a 1 := by exact_mod_cast hs
+    obtain ⟨g, hmem, hcs, rest⟩ :=
+      ConservationPrefix.pureStepsW_chain_below φ a hwf 1 (by omega) hle1 hs1
+    have h0 : (1 : Int) - 1 = ((0 : Nat) : Int) := by omega
+    rw [h0] at hmem
+    exact ⟨g, hmem, by rw [hcs]; simp, rest⟩
+  | succ m ih =>
+    intro hle hs
+    have hlecast : (m : Int) + 2 ≤ stepCount φ := by omega
+    have hs2 : ConservationPrefix.SatBelow φ a ((m : Int) + 2) := by exact_mod_cast hs
+    obtain ⟨g, hmem, hcs, sel, hsc, hids⟩ :=
+      ih (by omega) (ConservationPrefix.satBelow_mono hs2 (by omega))
+    have hL := LineInv_stepsCima φ hwf m
+    have hsok : ConservationFilter.StateOkF φ (m : Int) (selOfAssign φ a (m : Int), g) :=
+      hL.1.2 _ hmem
+    obtain ⟨d, hdd⟩ : ∃ d, d = selOfAssign φ a ((m : Int) + 1) := ⟨_, rfl⟩
+    have hd0 : d = selOfAssign φ a g.current_step := by rw [hdd, hcs]
+    have hson : d ∈ mapSons φ (selOfAssign φ a (m : Int)).step (selOfAssign φ a (m : Int)).index := by
+      rw [hdd, selOfAssign_step]
+      exact ConservationPrefix.selOfAssign_son_below φ a (m : Int) hs2 (by omega) (by omega)
+    have hids' : ∀ k, 0 ≤ k → k < g.current_step →
+        (sel k).id = selOfAssign φ a k ∧ ConservationCore.SelParent φ a (sel k) := by
+      intro k h0 h1; exact hids k h0 (by rw [hcs] at h1; exact h1)
+    have hkeep := ConservationPrefix.keepsBranch_Fsac_below φ a ((m : Int) + 2) hs2 0 d g sel hsc
+      hids' hd0 (by omega)
+    have hmp : g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j) :=
+      Or.inr ⟨(m : Int), hsok.par⟩
+    obtain ⟨sel', hsc', hcur, hids2⟩ :=
+      ConservationCore.chainSound_up_of_prunedR φ a reviewAgg hwf g _
+        (ConservationFilter.prunes_Fsac φ 0 _ g) hsok.shape hmp sel hkeep hids' ""
+    have hsend : sent φ g d = AggressiveReview.upFilteringR reviewAgg
+        (ConservationFilter.Fsac φ 0 d g)
+        (reqOfCnf φ (selOfAssign φ a g.current_step)) (selOfAssign φ a g.current_step) "" := by
+      rw [← hd0]; rfl
+    have hscS : ChainSound (sent φ g d) sel' := by rw [hsend]; exact hsc'
+    have hvS : isValid (sent φ g d) = true :=
+      PickInduction.isValid_of_ChainG _ sel' hscS.chain
+    obtain ⟨J, hJ, hgr⟩ := BranchLines.full_reach φ hwf (m : Int) _ hL
+      (selOfAssign φ a (m : Int), g) hmem d hson hvS
+    have hscJ : ChainSound J sel' := ChainSound_of_grown hgr sel' hscS
+    have hcsS : (sent φ g d).current_step = (m : Int) + 2 := by
+      rw [hsend, hcur, hcs]; omega
+    have hcsJ : J.current_step = (m : Int) + 2 := by rw [hgr.step_eq, hcsS]
+    have hcond : ((mapSons φ (selOfAssign φ a (m : Int)).step
+        (selOfAssign φ a (m : Int)).index).contains d && isValid (sent φ g d)) = true := by
+      simp only [Bool.and_eq_true]
+      exact ⟨List.contains_iff_mem.mpr hson, hvS⟩
+    have hSmem : sent φ g d ∈ sidesOf φ (stepsCima φ m (pureInit φ)) d := by
+      refine List.mem_filterMap.mpr ⟨(selOfAssign φ a (m : Int), g), hmem, ?_⟩
+      rw [if_pos hcond]
+    have hscC := ChainSound_reviewCima_of_side
+      (sidesOf φ (stepsCima φ m (pureInit φ)) d) J _ hSmem sel' hscJ hscS
+      (by rw [hcsS, hcsJ]) (by rw [hcsJ]; omega)
+    refine ⟨_, ?_, ?_, sel', hscC, ?_⟩
+    · rw [stepsCima_succ, show ((m + 1 : Nat) : Int) = (m : Int) + 1 by push_cast; omega, ← hdd]
+      exact List.mem_filter.mpr ⟨List.mem_map.mpr ⟨(d, J), hJ, rfl⟩,
+        PickInduction.isValid_of_ChainG _ sel' hscC.chain⟩
+    · rw [(keeps_reviewCima _ J).1.step_eq, hcsJ]; push_cast; omega
+    · intro k h0 h1
+      exact hids2 k h0 (by rw [hcs]; push_cast at h1; omega)
 
 theorem SMP_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) :
     Sons.SMP (cimaPair sides g x w) := SMP_prunePair _ g hs x w
@@ -3121,6 +3205,10 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.LineInv_stepsCima' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms LineInv_stepsCima
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.cima_chain_below' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms cima_chain_below
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
