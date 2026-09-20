@@ -3,6 +3,7 @@ import AbsSat.SatMachine.DiffTest
 import AbsSat.GraphPath.Model.AggressiveReview
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.Answer
+import AbsSat.GraphPath.Model.ImprovesCima
 import Std.Data.HashSet
 import Std.Data.HashMap
 
@@ -5203,6 +5204,51 @@ def runHistory (φ : Cnf) (st0 : HYStat) : HYStat := Id.run do
             if bad then st := { st with pairFails := st.pairFails + 1 }
   return st
 
+-- The author's triangle filter inside a family: going down step by step, do the nodes common to
+-- everything picked so far ever run out?
+structure TFStat where
+  unions : Nat := 0
+  fams : Nat := 0
+  steps : Nat := 0
+  fails : Nat := 0
+  famFails : Nat := 0
+  ex : List String := []
+
+open AbsSat.GraphPath.Model.ImprovesCima in
+def runTriFam (φ : Cnf) (st0 : TFStat) : TFStat := Id.run do
+  let mut st := st0
+  let lines := (aggLines φ).toArray
+  let lb : Int := 2 * (φ.nVars : Int)
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := sidesOf φ L p
+      if sides.length < 2 then continue
+      let J := kv.2
+      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      for r in ([] :: rs.map (fun r => [r])) do
+        let X := filterAllCima sides J r
+        if !isValid X then continue
+        st := { st with unions := st.unions + 1 }
+        let tops := ((X.line (X.current_step - 1)).map (·.id))
+        for t in tops do
+          let F := famFix sides t X
+          if !isValid F then continue
+          st := { st with fams := st.fams + 1 }
+          let mut bad := false
+          for n in [0:F.current_step.toNat] do
+            let l := F.current_step - 1 - (n : Int)
+            st := { st with steps := st.steps + 1 }
+            if (commonWith F (triPicks F n) l).isEmpty then
+              bad := true
+              st := { st with fails := st.fails + 1 }
+              if st.ex.length < 4 then
+                st := { st with ex := st.ex ++ [s!"{cnfS φ} line {m+1} key {p.step}.{p.index} top {pidS t} step {l}: no common node"] }
+              break
+          if bad then st := { st with famFails := st.famFails + 1 }
+  return st
+
 -- The family indexed by chains: pairs whose chain of common owners ends at the top t, kept only when
 -- the side itself carries them. Are the closure rules of a support satisfied?
 structure CFStat where
@@ -5905,6 +5951,15 @@ def main (args : List String) : IO Unit := do
         st := runHistory φ st
       let t1 ← IO.monoMsNow
       IO.println s!"history seed {seed}: pairs={st.pairs} noChain={st.noChain} | levels checked={st.levels} LEVEL_FAILS={st.levelFails} PAIRS_WITH_A_FAIL={st.pairFails} (states not found {st.noState}) | {t1 - t0}ms"
+      for e in st.ex do IO.println s!"  EX {e}"
+  | "trifam" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : TFStat := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runTriFam φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"trifam seed {seed}: filtered unions={st.unions} families={st.fams} steps={st.steps} | EMPTY_INTERSECTION={st.fails} families with a fail={st.famFails} | {t1 - t0}ms"
       for e in st.ex do IO.println s!"  EX {e}"
   | "chainfam" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do

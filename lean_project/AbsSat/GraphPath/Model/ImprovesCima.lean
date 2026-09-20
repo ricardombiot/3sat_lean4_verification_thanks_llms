@@ -1690,6 +1690,19 @@ theorem mem_commonWith (F : GPathM) (hnd : NodupIds F) (L : List PathNodeId) (l 
     simp only [Bool.and_eq_true] at this
     exact this
 
+/-- Building a member of `commonWith` from the relations. -/
+theorem mem_commonWith_mk (F : GPathM) (L : List PathNodeId) (l : Int) (z : PathNodeId)
+    (n : PNodeM) (hn : F.node? z = some n) (hl : z.id.step = l)
+    (h : ∀ y ∈ L, Rel F z y ∧ Rel F y z) : z ∈ commonWith F L l := by
+  refine List.mem_filter.mpr ⟨mem_line_of_node? F z n hn l hl, List.all_eq_true.mpr (fun y hy => ?_)⟩
+  obtain ⟨h1, h2⟩ := h y hy
+  obtain ⟨m, hm, hmem, _⟩ := h1
+  obtain ⟨m', hm', hmem', _⟩ := h2
+  simp only [Bool.and_eq_true]
+  constructor
+  · unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hmem
+  · unfold ownersOf; rw [hm']; exact List.contains_iff_mem.mpr hmem'
+
 /-- **The picks, from the top down.** At each round, the first node the triangle filter still allows:
 one that every node already picked owns, and that owns them all. -/
 def triPicks (F : GPathM) : Nat → List PathNodeId
@@ -1770,6 +1783,124 @@ theorem triPicks_inv (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) :
         · rcases List.mem_cons.mp hy with rfl | hy'
           · exact ⟨(hzall x hx').2, (hzall x hx').1⟩
           · exact hmut x hx' y hy' hxy
+
+/-- The picks are at most as many as the rounds, they are nodes, and they own each other — all of it
+without assuming the filter never fires. -/
+theorem triPicks_facts (F : GPathM) (hnd : NodupIds F) :
+    ∀ n : Nat, (triPicks F n).length ≤ n ∧
+      (∀ y ∈ triPicks F n, (F.node? y).isSome = true) ∧
+      (∀ x ∈ triPicks F n, ∀ y ∈ triPicks F n, x ≠ y →
+        (ownersOf F x).contains y = true ∧ (ownersOf F y).contains x = true) := by
+  intro n
+  induction n with
+  | zero => exact ⟨Nat.le_refl 0, fun y hy => absurd hy List.not_mem_nil,
+      fun x hx => absurd hx List.not_mem_nil⟩
+  | succ k ih =>
+    obtain ⟨hlen, hnodes, hmut⟩ := ih
+    cases hc : commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+    | nil =>
+      have hstep : triPicks F (k + 1) = triPicks F k := by
+        show (match commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+          | [] => triPicks F k | z :: _ => z :: triPicks F k) = _
+        rw [hc]
+      rw [hstep]
+      exact ⟨Nat.le_succ_of_le hlen, hnodes, hmut⟩
+    | cons z rest =>
+      have hzmem : z ∈ commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) := by
+        rw [hc]; exact List.mem_cons_self
+      obtain ⟨_, hzn, hzall⟩ := mem_commonWith F hnd _ _ z hzmem
+      have hstep : triPicks F (k + 1) = z :: triPicks F k := by
+        show (match commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+          | [] => triPicks F k | z :: _ => z :: triPicks F k) = _
+        rw [hc]
+      rw [hstep]
+      refine ⟨by simpa using Nat.succ_le_succ hlen, ?_, ?_⟩
+      · intro y hy
+        rcases List.mem_cons.mp hy with rfl | hy'
+        · exact hzn
+        · exact hnodes y hy'
+      · intro x hx y hy hxy
+        rcases List.mem_cons.mp hx with rfl | hx'
+        · rcases List.mem_cons.mp hy with rfl | hy'
+          · exact absurd rfl hxy
+          · exact hzall y hy'
+        · rcases List.mem_cons.mp hy with rfl | hy'
+          · exact ⟨(hzall x hx').2, (hzall x hx').1⟩
+          · exact hmut x hx' y hy' hxy
+
+/-- **The filter cannot fire on the first three picks.** With none picked, any node of the step will do
+and the state is live; with one, its own cover gives a partner at every step; with two, they own each
+other, so the aggressive review gives them a common owner at every step. The first time the filter can
+fire is when there are three nodes to agree with. -/
+theorem commonWith_small (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) (L : List PathNodeId) (hlen : L.length ≤ 2)
+    (hnodes : ∀ y ∈ L, (F.node? y).isSome = true)
+    (hmut : ∀ x ∈ L, ∀ y ∈ L, x ≠ y →
+      (ownersOf F x).contains y = true ∧ (ownersOf F y).contains x = true)
+    (l : Int) (h0 : 0 ≤ l) (h1 : l < F.current_step) : commonWith F L l ≠ [] := by
+  have hsup := LinkedChain.sup_self F hadj hok hsmp
+  have hmemOf : ∀ a b, Rel F a b → EmbeddedSupport.Mem F a := fun a b h => (hsup.dom a b h).1
+  rcases L with _ | ⟨a, L1⟩
+  ·
+    have hv' := hv
+    simp only [isValid, List.all_eq_true] at hv'
+    obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (hv' l (mem_intRange h0 (by omega)))
+    obtain ⟨n, hn, hnid⟩ := hadj.rc.gn q hq
+    have hnq : F.node? q = some n := by rw [← hnid]; exact node?_of_mem hadj.rc.nodup n hn
+    have hmem := mem_commonWith_mk F [] l q n hnq (eq_of_beq hqs) (fun y hy => absurd hy List.not_mem_nil)
+    intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
+  rcases L1 with _ | ⟨b, L2⟩
+  ·
+    obtain ⟨na, hna⟩ := Option.isSome_iff_exists.mp (hnodes a List.mem_cons_self)
+    obtain ⟨v, hrel, hvs⟩ := hsup.cov a ⟨na, hna⟩ l h0 h1
+    obtain ⟨nv, hnv⟩ := hmemOf v a (hsup.sym a v hrel)
+    have hmem := mem_commonWith_mk F [a] l v nv hnv hvs (fun y hy => by
+      rw [List.mem_singleton.mp hy]; exact ⟨hsup.sym a v hrel, hrel⟩)
+    intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
+  rcases L2 with _ | ⟨c, L3⟩
+  ·
+    by_cases hab : a = b
+    · obtain ⟨na, hna⟩ := Option.isSome_iff_exists.mp (hnodes a List.mem_cons_self)
+      obtain ⟨v, hrel, hvs⟩ := hsup.cov a ⟨na, hna⟩ l h0 h1
+      obtain ⟨nv, hnv⟩ := hmemOf v a (hsup.sym a v hrel)
+      have hmem := mem_commonWith_mk F [a, b] l v nv hnv hvs (fun y hy => by
+        rcases List.mem_cons.mp hy with he | hy'
+        · rw [he]; exact ⟨hsup.sym a v hrel, hrel⟩
+        · rw [List.mem_singleton.mp hy', ← hab]; exact ⟨hsup.sym a v hrel, hrel⟩)
+      intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
+    · obtain ⟨hc1, hc2⟩ := hmut a List.mem_cons_self b (List.mem_cons_of_mem _ List.mem_cons_self) hab
+      obtain ⟨hrab, hrba⟩ := rel_of_owners F a b hc1 hc2
+      obtain ⟨z, hza, hzb, hzs⟩ := hsup.agg a b hrab l h0 h1
+      obtain ⟨nz, hnz⟩ := hmemOf z a (hsup.sym a z hza)
+      have hmem := mem_commonWith_mk F [a, b] l z nz hnz hzs (fun y hy => by
+        rcases List.mem_cons.mp hy with he | hy'
+        · rw [he]; exact ⟨hsup.sym a z hza, hza⟩
+        · rw [List.mem_singleton.mp hy']; exact ⟨hsup.sym b z hzb, hzb⟩)
+      intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
+  · exact absurd hlen (by simp)
+
+/-- **The filter is proved for the first three rounds.** -/
+theorem triOk_low (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) :
+    ∀ n : Nat, n ≤ 2 → (n : Int) < F.current_step →
+      commonWith F (triPicks F n) (F.current_step - 1 - (n : Int)) ≠ [] := by
+  intro n hn2 hn
+  obtain ⟨hlen, hnodes, hmut⟩ := triPicks_facts F hadj.rc.nodup n
+  exact commonWith_small F hadj hok hsmp hv _ (Nat.le_trans hlen hn2) hnodes hmut _
+    (by omega) (by omega)
+
+/-- **So the filter only has content from the fourth pick on**: three nodes already chosen, and a fourth
+step to agree on. -/
+def TriOkHigh (F : GPathM) : Prop :=
+  ∀ n : Nat, 3 ≤ n → (n : Int) < F.current_step →
+    commonWith F (triPicks F n) (F.current_step - 1 - (n : Int)) ≠ []
+
+theorem triOk_of_high (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) (h : TriOkHigh F) : TriOk F := by
+  intro n hn
+  rcases Nat.lt_or_ge n 3 with hlt | hge
+  · exact triOk_low F hadj hok hsmp hv n (by omega) hn
+  · exact h n hge hn
 
 /-- **The pick at a step**, and what it is. -/
 theorem triSel_spec (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) (k : Int) (h0 : 0 ≤ k)
