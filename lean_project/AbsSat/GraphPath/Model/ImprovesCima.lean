@@ -1631,13 +1631,12 @@ theorem sent_top (m : Nat) (kv : NodeId × GPathM) (hsok : StateOkF φ m kv)
 send of that key: the send has exactly one node at the new step, its own top, and the keys of a line are
 distinct. This is what lets the rule read one single table: every `carries` a good top grants speaks of
 the same side. -/
-theorem side_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+theorem side_of_top (_hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
     (hps : p.step = (m : Int) + 1)
-    (S : GPathM) (hS : S ∈ sidesOf φ (branchLine φ P m) p)
-    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (S : GPathM) (hS : S ∈ sidesOf φ (L) p)
+    (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (ht : (S.node? (topOf p kv.1)).isSome = true) :
     S = sent φ kv.2 p := by
-  have hl := branchLine_inv φ hwf P m
   obtain ⟨kv', hkv', hfe⟩ := List.mem_filterMap.mp hS
   by_cases hc : ((mapSons φ kv'.1.step kv'.1.index).contains p && isValid (sent φ kv'.2 p)) = true
   · rw [if_pos hc] at hfe
@@ -1650,18 +1649,18 @@ theorem side_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
     have hv' : isValid (sent φ kv'.2 p) = true := by
       simp only [Bool.and_eq_true] at hc; exact hc.2
     have hkeys : kv'.1 = kv.1 := by
-      have := sent_top φ m kv' (hl.1.2 kv' hkv') (hl.2 kv' hkv') p hv' n hmem hstep
+      have := sent_top φ m kv' (hLI.1.2 kv' hkv') (hLI.2 kv' hkv') p hv' n hmem hstep
       rw [hnid] at this
       have : topOf p kv.1 = topOf p kv'.1 := this
       simpa [topOf] using this.symm
-    rw [hSe, PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys]
+    rw [hSe, PureDriver.key_inj _ hLI.1.1 kv' hkv' kv hkv hkeys]
   · rw [if_neg hc] at hfe; contradiction
 
 /-- **A side is a send.** Reading `sidesOf` backwards: every side is the valid send of a key of the
 line into `p`. -/
-theorem side_is_send (P : List NodeId) (m : Nat) (p : NodeId)
-    (S : GPathM) (hS : S ∈ sidesOf φ (branchLine φ P m) p) :
-    ∃ kv ∈ branchLine φ P m, S = sent φ kv.2 p ∧ isValid (sent φ kv.2 p) = true := by
+theorem side_is_send (L : PureLine) (m : Nat) (_hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (S : GPathM) (hS : S ∈ sidesOf φ (L) p) :
+    ∃ kv ∈ L, S = sent φ kv.2 p ∧ isValid (sent φ kv.2 p) = true := by
   obtain ⟨kv', hkv', hfe⟩ := List.mem_filterMap.mp hS
   by_cases hc : ((mapSons φ kv'.1.step kv'.1.index).contains p && isValid (sent φ kv'.2 p)) = true
   · rw [if_pos hc] at hfe
@@ -1673,53 +1672,52 @@ theorem side_is_send (P : List NodeId) (m : Nat) (p : NodeId)
 side, and the side holds `t`; a side is a send, and a send has one node at the new step — its own top.
 So the `t` the rule produced is the top of a key of the line, with nothing assumed about it but its
 step. -/
-theorem top_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+theorem top_of_famFix (_hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
     (X : GPathM) (hrc : Reader.RCtx X) (hsmp : Sons.SMP X) (hpms : Sons.PMS X) (hsn : Sons.SN X)
     (hcsX : X.current_step = (m : Int) + 2) (t : PathNodeId)
     (hts : t.id.step = X.current_step - 1)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) t X) = true) :
-    ∃ kv ∈ branchLine φ P m, t = topOf p kv.1 ∧ isValid (sent φ kv.2 p) = true := by
-  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) t X).current_step = X.current_step :=
+    (hv : isValid (famFix (sidesOf φ (L) p) t X) = true) :
+    ∃ kv ∈ L, t = topOf p kv.1 ∧ isValid (sent φ kv.2 p) = true := by
+  have hcsF : (famFix (sidesOf φ (L) p) t X).current_step = X.current_step :=
     (keeps_famFix _ _ X).1.step_eq
   have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
-  have hsup := sup_famFix (sidesOf φ (branchLine φ P m) p) t X hrc hsmp hpms hsn hv
-  have hadj := (adj_famFix (sidesOf φ (branchLine φ P m) p) t X hrc hsmp hpms hsn hv).1
+  have hsup := sup_famFix (sidesOf φ (L) p) t X hrc hsmp hpms hsn hv
+  have hadj := (adj_famFix (sidesOf φ (L) p) t X hrc hsmp hpms hsn hv).1
   have hv0 := hv
   simp only [isValid, List.all_eq_true] at hv0
   obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp
     (hv0 0 (mem_intRange (Int.le_refl 0) (by rw [hcsF, hcsX]; omega)))
   obtain ⟨n, hn, hnid⟩ := hadj.rc.gn q hq
-  have hmq : EmbeddedSupport.Mem (famFix (sidesOf φ (branchLine φ P m) p) t X) q :=
+  have hmq : EmbeddedSupport.Mem (famFix (sidesOf φ (L) p) t X) q :=
     ⟨n, by rw [← hnid]; exact node?_of_mem hadj.rc.nodup n hn⟩
   obtain ⟨v, hrel, hvs⟩ := hsup.cov q hmq 0 (Int.le_refl 0) (by rw [hcsF, hcsX]; omega)
   have hqz : q.id.step = 0 := eq_of_beq hqs
-  have ht := restTest_of_famFix (sidesOf φ (branchLine φ P m) p) t X
+  have ht := restTest_of_famFix (sidesOf φ (L) p) t X
     (ReaderAgg.RCtx_of_keeps (keeps_restAll _ t X) hrc).nodup hv q v hrel
     (by rw [hqz]; omega) (by rw [hqz, hcsX]; omega) (by rw [hvs]; omega)
     (by rw [hvs, hcsX]; omega)
   simp only [restTest, Bool.and_eq_true] at ht
   obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp ht.1.1.1
   simp only [Bool.and_eq_true] at hcond
-  obtain ⟨kv', hkv', hSe, hvS⟩ := side_is_send φ P m p S hS
+  obtain ⟨kv', hkv', hSe, hvS⟩ := side_is_send φ L m hLI p S hS
   obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp hcond.1.1
   rw [hSe] at hnt
   have hid : nt.id = t := node?_id_eq _ _ nt hnt
-  have hl := branchLine_inv φ hwf P m
-  have htop := sent_top φ m kv' (hl.1.2 kv' hkv') (hl.2 kv' hkv') p hvS nt
+  have htop := sent_top φ m kv' (hLI.1.2 kv' hkv') (hLI.2 kv' hkv') p hvS nt
     (List.mem_of_find?_eq_some hnt) (by rw [hid, hts, hcsX]; omega)
   exact ⟨kv', hkv', by rw [← hid]; exact htop, hvS⟩
 
 /-- **What a good top hands over, in the side's own table.** Because the top names the side, every pair
 the rule certifies with `carries` is a pair of that one side — which is exactly what the support of the
 side's send needs. -/
-theorem carries_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem carries_in_side (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (a b : PathNodeId)
-    (hc : carries (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) a b = true) :
+    (hc : carries (sidesOf φ (L) p) (topOf p kv.1) a b = true) :
     Rel (sent φ kv.2 p) a b ∧ Rel (sent φ kv.2 p) b a := by
   obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hc
   simp only [Bool.and_eq_true] at hcond
-  have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1.1
+  have hSe := side_of_top φ hwf L m hLI p hps S hS kv hkv hcond.1.1
   rw [hSe] at hcond
   exact rel_of_owners _ a b hcond.1.2 hcond.2
 
@@ -1739,14 +1737,14 @@ theorem step_of_mem_line (F : GPathM) (l : Int) (t : PathNodeId)
 
 /-- **The parent link the side holds.** Same reading as `carries_in_side`, for the parent lists: what
 the test keeps on neighbouring steps is a parent link of that one side. -/
-theorem linked_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem linked_in_side (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (a b : PathNodeId)
-    (hl : linkedIn (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) a b = true) :
+    (hl : linkedIn (sidesOf φ (L) p) (topOf p kv.1) a b = true) :
     ∃ na, (sent φ kv.2 p).node? a = some na ∧ b ∈ na.parents := by
   obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hl
   simp only [Bool.and_eq_true] at hcond
-  have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1
+  have hSe := side_of_top φ hwf L m hLI p hps S hS kv hkv hcond.1
   rw [hSe] at hcond
   cases hsa : (sent φ kv.2 p).node? a with
   | none => rw [hsa] at hcond; exact (Bool.false_ne_true hcond.2).elim
@@ -1754,24 +1752,24 @@ theorem linked_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
 
 /-- **What the family of a top gives, read in the side.** Every entry the family keeps is an entry of
 the side's send, both ways; and on neighbouring steps it is one of its parent links. -/
-theorem side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (g : GPathM) (hnd : ((restAll (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).nodes.map
+theorem side_of_famFix (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
+    (g : GPathM) (hnd : ((restAll (sidesOf φ (L) p) (topOf p kv.1) g).nodes.map
       (·.id)).Nodup)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
-    (a b : PathNodeId) (h : Rel (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) a b)
+    (hv : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1) g) = true)
+    (a b : PathNodeId) (h : Rel (famFix (sidesOf φ (L) p) (topOf p kv.1) g) a b)
     (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
     (hb0 : 0 ≤ b.id.step) (hb1 : b.id.step < g.current_step) :
     Rel (sent φ kv.2 p) a b ∧ Rel (sent φ kv.2 p) b a ∧
       (b.id.step + 1 = a.id.step → ∃ na, (sent φ kv.2 p).node? a = some na ∧ b ∈ na.parents) := by
   have ht := restTest_of_famFix _ _ g hnd hv a b h ha0 ha1 hb0 hb1
   simp only [restTest, Bool.and_eq_true] at ht
-  refine ⟨(carries_in_side φ hwf P m p hps kv hkv a b ht.1.1.1).1,
-    (carries_in_side φ hwf P m p hps kv hkv a b ht.1.1.1).2, fun hstep => ?_⟩
+  refine ⟨(carries_in_side φ hwf L m hLI p hps kv hkv a b ht.1.1.1).1,
+    (carries_in_side φ hwf L m hLI p hps kv hkv a b ht.1.1.1).2, fun hstep => ?_⟩
   have hbe : (b.id.step + 1 == a.id.step) = true := beq_iff_eq.mpr hstep
   have := ht.1.2
   rw [hbe] at this
-  exact linked_in_side φ hwf P m p hps kv hkv a b (by simpa using this)
+  exact linked_in_side φ hwf L m hLI p hps kv hkv a b (by simpa using this)
 
 -- ============================================================
 -- Cable 1: when one end is a side's top, the rule certifies that top
@@ -1781,27 +1779,27 @@ theorem side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
 one end, the side that carries it holds that node, so it is the send of that key (`side_of_top`); and a
 send has exactly one node at the new step, its own top (`sent_top`). So the top the rule certifies is
 the one we are reading. -/
-theorem cert_top_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem cert_top_of_top (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (hsok : StateOkF φ m kv) (hmkv : MInv φ kv.2) (hvS : isValid (sent φ kv.2 p) = true)
     (X : GPathM) (hcsX : X.current_step = (m : Int) + 2)
     (hrc : Reader.RCtx X) (hsmp : Sons.SMP X) (hpms : Sons.PMS X) (hsn : Sons.SN X)
     (t₂ v : PathNodeId) (hts : t₂.id.step = X.current_step - 1)
-    (hgood : goodFor (sidesOf φ (branchLine φ P m) p) X t₂ (topOf p kv.1) v = true) :
+    (hgood : goodFor (sidesOf φ (L) p) X t₂ (topOf p kv.1) v = true) :
     t₂ = topOf p kv.1 := by
   simp only [goodFor, Bool.and_eq_true] at hgood
-  have hvY : isValid (famFix (sidesOf φ (branchLine φ P m) p) t₂ X) = true := hgood.1.1
-  have hrel : Rel (famFix (sidesOf φ (branchLine φ P m) p) t₂ X) (topOf p kv.1) v :=
+  have hvY : isValid (famFix (sidesOf φ (L) p) t₂ X) = true := hgood.1.1
+  have hrel : Rel (famFix (sidesOf φ (L) p) t₂ X) (topOf p kv.1) v :=
     (rel_of_owners _ _ v hgood.1.2 hgood.2).1
-  have hadj := (adj_famFix (sidesOf φ (branchLine φ P m) p) t₂ X hrc hsmp hpms hsn hvY).1
-  have hcsY : (famFix (sidesOf φ (branchLine φ P m) p) t₂ X).current_step = X.current_step :=
+  have hadj := (adj_famFix (sidesOf φ (L) p) t₂ X hrc hsmp hpms hsn hvY).1
+  have hcsY : (famFix (sidesOf φ (L) p) t₂ X).current_step = X.current_step :=
     (keeps_famFix _ t₂ X).1.step_eq
   have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
   have hbv : 0 ≤ v.id.step ∧ v.id.step < X.current_step := by
     obtain ⟨_, _, _, hv2⟩ := hrel
     have := EmbeddedSupport.mem_bounds _ hadj hv2
     rw [hcsY] at this; exact this
-  have ht : restTest (sidesOf φ (branchLine φ P m) p) t₂ X (topOf p kv.1) v = true :=
+  have ht : restTest (sidesOf φ (L) p) t₂ X (topOf p kv.1) v = true :=
     restTest_of_famFix _ t₂ X
       (ReaderAgg.RCtx_of_keeps (keeps_restAll _ t₂ X) hrc).nodup hvY _ v hrel
       (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps]; omega)
@@ -1814,7 +1812,7 @@ theorem cert_top_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
     cases hq : S₂.node? (topOf p kv.1) with
     | none => rw [hq] at hcond; exact nomatch List.contains_iff_mem.mp hcond.1.2
     | some _ => rfl
-  have hSe := side_of_top φ hwf P m p hps S₂ hS₂ kv hkv htnode
+  have hSe := side_of_top φ hwf L m hLI p hps S₂ hS₂ kv hkv htnode
   obtain ⟨n₂, hn₂⟩ := Option.isSome_iff_exists.mp hcond.1.1
   rw [hSe] at hn₂
   have hid : n₂.id = t₂ := node?_id_eq _ _ n₂ hn₂
@@ -1963,35 +1961,31 @@ the new machine, with no hypothesis left:
   (`cert_top_of_top`);
 * its family is then a support of the side's send, and the send survives the pins
   (`valid_pinned_of_goodFor`). -/
-theorem topValid_cima (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
-    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
-    (hvX : isValid (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q) = true)
-    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem topValid_cima (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId) (J : GPathM)
+    (hsJ : StateOkF φ ((m : Int) + 1) (p, J)) (hmJ : MInv φ J) (Q : List NodeId)
+    (hvX : isValid (filterAllCima (sidesOf φ (L) p) J Q) = true)
+    (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
-    (hmem : EmbeddedSupport.Mem (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q)
+    (hmem : EmbeddedSupport.Mem (filterAllCima (sidesOf φ (L) p) J Q)
       (topOf p kv.1)) :
     isValid (AggressiveReview.filterAllAgg (sent φ kv.2 p) Q) = true := by
-  have hl := branchLine_inv φ hwf P m
-  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
-  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
-  have hmJ : MInv φ J := hadv.2 _ hJ
   have hps : p.step = (m : Int) + 1 := mapNodes_step φ _ p hsJ.onMap
-  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
-  have hmkv : MInv φ kv.2 := hl.2 kv hkv
+  have hsok : StateOkF φ m kv := hLI.1.2 kv hkv
+  have hmkv : MInv φ kv.2 := hLI.2 kv hkv
   have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
   have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
     (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
   have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
   have hcsS : (sent φ kv.2 p).current_step = (m : Int) + 2 := by omega
   -- the invariants of the filtered union
-  have hkJX : Keeps J (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q) :=
+  have hkJX : Keeps J (filterAllCima (sidesOf φ (L) p) J Q) :=
     keeps_filterAllCima _ J Q
   have hrcX := ReaderAgg.RCtx_of_keeps hkJX hmJ.rctx
-  obtain ⟨s1, s2, s3⟩ := sons_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q hmJ.smp hmJ.pms
+  obtain ⟨s1, s2, s3⟩ := sons_filterAllCima (sidesOf φ (L) p) J Q hmJ.smp hmJ.pms
     hmJ.sn hmJ.rctx.shape.notroot
-  have hcsX : (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q).current_step = (m : Int) + 2 := by
+  have hcsX : (filterAllCima (sidesOf φ (L) p) J Q).current_step = (m : Int) + 2 := by
     rw [hkJX.1.step_eq, hsJ.step]; omega
-  obtain ⟨hadjX, hsupX⟩ := sup_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q hmJ.rctx hmJ.smp
+  obtain ⟨hadjX, hsupX⟩ := sup_filterAllCima (sidesOf φ (L) p) J Q hmJ.rctx hmJ.smp
     hmJ.pms hmJ.sn hmJ.rctx.shape.notroot hvX
   have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
   -- the live top hangs on something, and the rule gives that entry a good top
@@ -1999,29 +1993,29 @@ theorem topValid_cima (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J 
   obtain ⟨nt, hnt, hmemv, hmv⟩ := id hrelv
   have hbv := EmbeddedSupport.mem_bounds _ hadjX hmv
   obtain ⟨nv, hnv⟩ := hmv
-  have hok := cimaOk_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q hvX (topOf p kv.1) nt v hnt
+  have hok := cimaOk_filterAllCima (sidesOf φ (L) p) J Q hvX (topOf p kv.1) nt v hnt
     (by rw [hnv]; rfl)
     (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps]; omega)
     (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps, hcsX]; omega)
     hbv.1 hbv.2 hmemv
   obtain ⟨t₂, htm, hgood⟩ := top_of_cimaOk _ _ (topOf p kv.1) v hok
-  have hts : t₂.id.step = (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q).current_step - 1 :=
+  have hts : t₂.id.step = (filterAllCima (sidesOf φ (L) p) J Q).current_step - 1 :=
     step_of_mem_line _ _ t₂ htm
-  rw [cert_top_of_top φ hwf P m p hps kv hkv hsok hmkv hvS _ hcsX hrcX s1 s2 s3 t₂ v hts hgood]
+  rw [cert_top_of_top φ hwf L m hLI p hps kv hkv hsok hmkv hvS _ hcsX hrcX s1 s2 s3 t₂ v hts hgood]
     at hgood
   -- and its family is a support of the side's send
-  have hvY : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1)
-      (filterAllCima (sidesOf φ (branchLine φ P m) p) J Q)) = true := by
+  have hvY : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1)
+      (filterAllCima (sidesOf φ (L) p) J Q)) = true := by
     simp only [goodFor, Bool.and_eq_true] at hgood; exact hgood.1.1
-  refine valid_pinned_of_goodFor (sidesOf φ (branchLine φ P m) p) _ (sent φ kv.2 p) Q
+  refine valid_pinned_of_goodFor (sidesOf φ (L) p) _ (sent φ kv.2 p) Q
     (topOf p kv.1) v hrcX s1 s2 s3 (by rw [hcsX, hcsS]) ?_
     (PinDeath.sent_ownGow φ hwf m kv hsok hmkv p hson hvS) ?_ hmS.smp hmS.rctx.shape.notroot hgood
   · intro a b hab ha0 ha1 hb0 hb1
-    exact side_of_famFix φ hwf P m p hps kv hkv _
+    exact side_of_famFix φ hwf L m hLI p hps kv hkv _
       (ReaderAgg.RCtx_of_keeps (keeps_restAll _ _ _) hrcX).nodup hvY a b hab ha0 ha1 hb0 hb1
   · intro r hr x hx hs
     exact ReaderAggRun.filterAllAgg_cleans J Q r hr x
-      ((keeps_agg_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q).1.gowners_sub x
+      ((keeps_agg_filterAllCima (sidesOf φ (L) p) J Q).1.gowners_sub x
         (hsupX.gow x hx)) hs
 
 /-- **The descent, with the rule.** The same step as `HereditaryValid.pinned_source_validL` — a valid
@@ -2196,17 +2190,17 @@ theorem pinned_source_valid_of_sideChain (sides : List GPathM) (hwf : WF φ) (k 
 (`side_of_famFix`), its parent links are the side's, and a node of a send that owns something is a
 global owner there (`sent_ownGow`). So the second half of `CimaChain` — "sound in one side" — is not a
 condition at all: it comes free with the chain. -/
-theorem chainSound_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem chainSound_side_of_famFix (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
     (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
     (g : GPathM) (hrc : Reader.RCtx g)
     (hcsg : g.current_step = (m : Int) + 2)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (hv : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1) g) = true)
     (sel : Int → PathNodeId)
-    (hsc : ChainSound (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) sel) :
+    (hsc : ChainSound (famFix (sidesOf φ (L) p) (topOf p kv.1) g) sel) :
     ChainSound (sent φ kv.2 p) sel := by
-  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+  have hcsF : (famFix (sidesOf φ (L) p) (topOf p kv.1) g).current_step =
       g.current_step := (keeps_famFix _ _ g).1.step_eq
   have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
     (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
@@ -2214,16 +2208,16 @@ theorem chainSound_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p :
   have hcsS : (sent φ kv.2 p).current_step = g.current_step := by rw [hsS', hcsg]; omega
   have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
   have hnd := (ReaderAgg.RCtx_of_keeps (keeps_restAll
-    (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) hrc).nodup
+    (sidesOf φ (L) p) (topOf p kv.1) g) hrc).nodup
   have hst := chain_step _ sel hsc
   have hside : ∀ i j, 0 ≤ i →
-      i < (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step → 0 ≤ j →
-      j < (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step →
+      i < (famFix (sidesOf φ (L) p) (topOf p kv.1) g).current_step → 0 ≤ j →
+      j < (famFix (sidesOf φ (L) p) (topOf p kv.1) g).current_step →
       Rel (sent φ kv.2 p) (sel i) (sel j) ∧ Rel (sent φ kv.2 p) (sel j) (sel i) ∧
         ((sel j).id.step + 1 = (sel i).id.step →
           ∃ na, (sent φ kv.2 p).node? (sel i) = some na ∧ sel j ∈ na.parents) := by
     intro i j hi0 hi1 hj0 hj1
-    exact side_of_famFix φ hwf P m p hps kv hkv g hnd hv (sel i) (sel j)
+    exact side_of_famFix φ hwf L m hLI p hps kv hkv g hnd hv (sel i) (sel j)
       (rel_of_chainSound _ sel hsc i j hi0 hi1 hj0 hj1)
       (by rw [hst i hi0 hi1]; exact hi0) (by rw [hst i hi0 hi1, ← hcsF]; exact hi1)
       (by rw [hst j hj0 hj1]; exact hj0) (by rw [hst j hj0 hj1, ← hcsF]; exact hj1)
@@ -2233,7 +2227,7 @@ theorem chainSound_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p :
   · obtain ⟨n, hn, hmem, _⟩ := (hside i i h0 h1 h0 h1).1
     exact PinDeath.sent_ownGow φ hwf m kv hsok hmkv p hson hvS (sel i) n hn (sel i) hmem
       (by rw [hst i h0 h1]; exact h0) (by rw [hst i h0 h1, hcsS, ← hcsF]; exact h1)
-  · have hi1 : i < (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step := by
+  · have hi1 : i < (famFix (sidesOf φ (L) p) (topOf p kv.1) g).current_step := by
       omega
     exact (hside (i + 1) i (by omega) h1 h0 hi1).2.2
       (by rw [hst i h0 hi1, hst (i + 1) (by omega) h1])
@@ -2252,25 +2246,25 @@ def CimaChain (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : Lis
 sound in the source, sound in one side, compatible with the pins — the first two come free from a chain
 of the family: the family is a narrowing of the source, and its chains are its side's
 (`chainSound_side_of_famFix`). Only the pins remain. -/
-theorem cimaChain_of_famChain (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem cimaChain_of_famChain (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
     (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
     (G : GPathM) (hrc : Reader.RCtx G) (hsmpG : Sons.SMP G)
     (hcsG : G.current_step = (m : Int) + 2) (k : Int) (d : NodeId) (Q : List NodeId)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) G) = true)
+    (hv : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1) G) = true)
     (sel : Int → PathNodeId)
-    (hsc : ChainSound (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) G) sel)
+    (hsc : ChainSound (famFix (sidesOf φ (L) p) (topOf p kv.1) G) sel)
     (hpins : ∀ r ∈ (reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)),
       0 ≤ r.step → r.step < G.current_step → (sel r.step).id = r) :
-    CimaChain φ (sidesOf φ (branchLine φ P m) p) k G d Q sel := by
+    CimaChain φ (sidesOf φ (L) p) k G d Q sel := by
   have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
     (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
   have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
   have hcsS : (sent φ kv.2 p).current_step = G.current_step := by rw [hsS', hcsG]; omega
   refine ⟨SubsetSemantics.ChainSound_of_pruned (keeps_famFix _ _ G).1 hrc.nodup hsmpG sel hsc,
     ⟨sent φ kv.2 p, ?_, hcsS,
-      chainSound_side_of_famFix φ hwf P m p hps kv hkv hsok hmkv hson hvS G hrc hcsG hv sel hsc⟩,
+      chainSound_side_of_famFix φ hwf L m hLI p hps kv hkv hsok hmkv hson hvS G hrc hcsG hv sel hsc⟩,
     hpins⟩
   refine List.mem_filterMap.mpr ⟨kv, hkv, ?_⟩
   rw [if_pos (by
@@ -2310,15 +2304,15 @@ theorem pinned_source_valid_of_sideChainG (sides : List GPathM) (hwf : WF φ) (k
 
 /-- **Every node of a family is a node of the side.** A node of the family has, by its own support, a
 partner at every step; the pair is an entry of the side, so the node is one of the side's. -/
-theorem mem_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem mem_side_of_famFix (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
     (hcsg : g.current_step = (m : Int) + 2)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (hv : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1) g) = true)
     (z : PathNodeId)
-    (hz : EmbeddedSupport.Mem (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) z) :
+    (hz : EmbeddedSupport.Mem (famFix (sidesOf φ (L) p) (topOf p kv.1) g) z) :
     EmbeddedSupport.Mem (sent φ kv.2 p) z := by
-  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+  have hcsF : (famFix (sidesOf φ (L) p) (topOf p kv.1) g).current_step =
       g.current_step := (keeps_famFix _ _ g).1.step_eq
   have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
   have hsup := sup_famFix _ (topOf p kv.1) g hrc hsmp hpms hsn hv
@@ -2327,7 +2321,7 @@ theorem mem_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId
   have hbz := EmbeddedSupport.mem_bounds _ hadj hz
   have hbv := EmbeddedSupport.mem_bounds _ hadj (hsup.dom z v hrel).2
   rw [hcsF] at hbz hbv
-  obtain ⟨n, hn, _, _⟩ := (side_of_famFix φ hwf P m p hps kv hkv g
+  obtain ⟨n, hn, _, _⟩ := (side_of_famFix φ hwf L m hLI p hps kv hkv g
     (ReaderAgg.RCtx_of_keeps (keeps_restAll _ _ _) hrc).nodup hv z v hrel hbz.1 hbz.2 hbv.1
     hbv.2).1
   exact ⟨n, hn⟩
@@ -2796,37 +2790,37 @@ theorem coneAt_of_topSingle (sides : List GPathM) (t : PathNodeId) (g : GPathM)
   exact ⟨hrel, hsup.sym _ _ hrel⟩
 
 /-- **The only node a real family has at the last step is its top**, and so the family is a cone. -/
-theorem coneAt_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem coneAt_famFix (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
     (hvS : isValid (sent φ kv.2 p) = true)
     (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
     (hcsg : g.current_step = (m : Int) + 2)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true) :
-    ConeAt (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) (topOf p kv.1) := by
-  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+    (hv : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1) g) = true) :
+    ConeAt (famFix (sidesOf φ (L) p) (topOf p kv.1) g) (topOf p kv.1) := by
+  have hcsF : (famFix (sidesOf φ (L) p) (topOf p kv.1) g).current_step =
       g.current_step := (keeps_famFix _ _ g).1.step_eq
   refine coneAt_of_topSingle _ _ g hrc hsmp hpms hsn (by omega) hv (fun z hz hzs => ?_)
-  obtain ⟨n, hn⟩ := mem_side_of_famFix φ hwf P m p hps kv hkv g hrc hsmp hpms hsn hcsg hv z hz
+  obtain ⟨n, hn⟩ := mem_side_of_famFix φ hwf L m hLI p hps kv hkv g hrc hsmp hpms hsn hcsg hv z hz
   have hid : n.id = z := node?_id_eq _ _ n hn
   rw [← hid]
   exact sent_top φ m kv hsok hmkv p hvS n (List.mem_of_find?_eq_some hn)
     (by rw [hid, hzs, hcsF, hcsg]; omega)
 
 /-- **So a real family only asks the author's filter from the fifth pick on.** -/
-theorem triOk_of_coneHigh_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+theorem triOk_of_coneHigh_famFix (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ L)
     (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
     (hvS : isValid (sent φ kv.2 p) = true)
     (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
     (hcsg : g.current_step = (m : Int) + 2)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
-    (h : TriOkCone (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g)) :
-    TriOk (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) := by
+    (hv : isValid (famFix (sidesOf φ (L) p) (topOf p kv.1) g) = true)
+    (h : TriOkCone (famFix (sidesOf φ (L) p) (topOf p kv.1) g)) :
+    TriOk (famFix (sidesOf φ (L) p) (topOf p kv.1) g) := by
   obtain ⟨hadj, hsm⟩ :=
-    adj_famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g hrc hsmp hpms hsn hv
+    adj_famFix (sidesOf φ (L) p) (topOf p kv.1) g hrc hsmp hpms hsn hv
   exact triOk_of_cone _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm hv _
-    (coneAt_famFix φ hwf P m p hps kv hkv hsok hmkv hvS g hrc hsmp hpms hsn hcsg hv) h
+    (coneAt_famFix φ hwf L m hLI p hps kv hkv hsok hmkv hvS g hrc hsmp hpms hsn hcsg hv) h
 
 /-- **The pick at a step**, and what it is. -/
 theorem triSel_spec (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) (k : Int) (h0 : 0 ≤ k)
@@ -3027,31 +3021,30 @@ theorem sat_of_famTriOkCone (sides : List GPathM) (hwf : WF φ)
 /-- **The structural half, discharged for the real sides.** A live family names a real top
 (`top_of_famFix`), and the family of a real top is a cone (`coneAt_famFix`). So `FamTopSingle` is not a
 hypothesis of the machine at all. -/
-theorem famTopSingle_sides (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+theorem famTopSingle_sides (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
     (hps : p.step = (m : Int) + 1) (X : GPathM) (hcsX : X.current_step = (m : Int) + 2) :
-    FamTopSingle (sidesOf φ (branchLine φ P m) p) X := by
+    FamTopSingle (sidesOf φ (L) p) X := by
   intro t hrc hsmp hpms hsn _ hv htm
-  obtain ⟨kv, hkv, he, hvS⟩ := top_of_famFix φ hwf P m p X hrc hsmp hpms hsn hcsX t
+  obtain ⟨kv, hkv, he, hvS⟩ := top_of_famFix φ hwf L m hLI p X hrc hsmp hpms hsn hcsX t
     (step_of_mem_line X _ t htm) hv
   subst he
-  have hl := branchLine_inv φ hwf P m
-  exact (coneAt_famFix φ hwf P m p hps kv hkv (hl.1.2 kv hkv) (hl.2 kv hkv) hvS X hrc hsmp hpms hsn
+  exact (coneAt_famFix φ hwf L m hLI p hps kv hkv (hLI.1.2 kv hkv) (hLI.2 kv hkv) hvS X hrc hsmp hpms hsn
     hcsX hv).2
 
 /-- **The verdict of `ImprovesCima` on a real union, under the author's filter from the fifth pick on.**
 Nothing else is assumed: the sides are the machine's own, the cone is proved, and the first four picks
 are proved. -/
-theorem sat_of_famTriOkConeSides (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+theorem sat_of_famTriOkConeSides (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
     (hps : p.step = (m : Int) + 1) (J : GPathM)
-    (hT : FamTriOkCone (sidesOf φ (branchLine φ P m) p)
-      (filterAllCima (sidesOf φ (branchLine φ P m) p) J []))
+    (hT : FamTriOkCone (sidesOf φ (L) p)
+      (filterAllCima (sidesOf φ (L) p) J []))
     (hmJ : MInv φ J) (hcs : J.current_step = (m : Int) + 2)
     (hle : (m : Int) + 2 = stepCount φ)
-    (hvX : isValid (filterAllCima (sidesOf φ (branchLine φ P m) p) J []) = true) :
+    (hvX : isValid (filterAllCima (sidesOf φ (L) p) J []) = true) :
     Satisfiable φ := by
-  have hcsX : (filterAllCima (sidesOf φ (branchLine φ P m) p) J []).current_step = (m : Int) + 2 := by
+  have hcsX : (filterAllCima (sidesOf φ (L) p) J []).current_step = (m : Int) + 2 := by
     rw [(keeps_filterAllCima _ J []).1.step_eq, hcs]
-  exact sat_of_famTriOkCone φ _ hwf m J (famTopSingle_sides φ hwf P m p hps _ hcsX) hT hmJ hcs hle hvX
+  exact sat_of_famTriOkCone φ _ hwf m J (famTopSingle_sides φ hwf L m hLI p hps _ hcsX) hT hmJ hcs hle hvX
 
 -- ============================================================
 -- The author's filter as a computation, and a verdict proved per run
@@ -3124,17 +3117,17 @@ theorem famTriOkCone_of_B (sides : List GPathM) (g : GPathM) (h : famTriOkConeB 
 
 /-- **The verdict, running the shortened filter on a real union.** The cone pays for the first four
 rounds; the machine runs the rest. -/
-theorem sat_of_filterCheckCone (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+theorem sat_of_filterCheckCone (hwf : WF φ) (L : PureLine) (m : Nat) (hLI : ReaderAggRun.LineInv φ (m : Int) L) (p : NodeId)
     (hps : p.step = (m : Int) + 1) (J : GPathM)
-    (hcheck : famTriOkConeB (sidesOf φ (branchLine φ P m) p)
-      (filterAllCima (sidesOf φ (branchLine φ P m) p) J []) = true)
+    (hcheck : famTriOkConeB (sidesOf φ (L) p)
+      (filterAllCima (sidesOf φ (L) p) J []) = true)
     (hmJ : MInv φ J) (hcs : J.current_step = (m : Int) + 2)
     (hle : (m : Int) + 2 = stepCount φ)
-    (hvX : isValid (filterAllCima (sidesOf φ (branchLine φ P m) p) J []) = true) :
+    (hvX : isValid (filterAllCima (sidesOf φ (L) p) J []) = true) :
     Satisfiable φ := by
-  have hcsX : (filterAllCima (sidesOf φ (branchLine φ P m) p) J []).current_step = (m : Int) + 2 := by
+  have hcsX : (filterAllCima (sidesOf φ (L) p) J []).current_step = (m : Int) + 2 := by
     rw [(keeps_filterAllCima _ J []).1.step_eq, hcs]
-  exact sat_of_famTriOkCone φ _ hwf m J (famTopSingle_sides φ hwf P m p hps _ hcsX)
+  exact sat_of_famTriOkCone φ _ hwf m J (famTopSingle_sides φ hwf L m hLI p hps _ hcsX)
     (famTriOkCone_of_B _ _ hcheck) hmJ hcs hle hvX
 
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
