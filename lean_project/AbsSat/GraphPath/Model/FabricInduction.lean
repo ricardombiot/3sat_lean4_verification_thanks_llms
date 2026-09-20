@@ -86,12 +86,9 @@ theorem fullFabric_initSeed (d : NodeId) (title : String) (hd : d.step = 0) :
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hx
   have hmem := List.mem_of_find?_eq_some hn
   have hid := node?_id_eq _ x n hn
-  have hseed : initSeed d title = addNode empty d title := rfl
-  rw [hseed, addNode_nodes] at hmem
-  rcases List.mem_append.mp hmem with h1 | h1
-  · simp [empty] at h1
-  · rw [List.mem_singleton.mp h1] at hid
-    exact hid.symm
+  rw [initSeed_nodes d title] at hmem
+  rw [List.mem_singleton.mp hmem] at hid
+  exact hid.symm
 
 theorem fullFabric_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
     (h₁ : FullFabric g₁) (h₂ : FullFabric g₂) : FullFabric (join g₁ g₂) := by
@@ -107,11 +104,11 @@ theorem fullFabric_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
 
 theorem fullFabric_addNode (F : GPathM) (d : NodeId) (title : String) (h : FullFabric F)
     (hd : d.step = F.current_step) (hbelow : ∀ n ∈ F.nodes, n.id.id.step < F.current_step)
-    (hne : ∃ p, (F.node? p).isSome = true) (hpos : 0 < F.current_step) :
+    (_hne : ∃ p, (F.node? p).isSome = true) (hpos : 0 < F.current_step)
+    (hoos : SelfOwn.OOS F) :
     FullFabric (addNode F d title) := by
   obtain ⟨S, T, hf, hcov⟩ := h
-  obtain ⟨p, hp⟩ := hne
-  refine ⟨_, _, FabricAdd.Fabric_addNode title hf hd hbelow ⟨p, hcov p hp⟩ hpos, ?_⟩
+  refine ⟨_, _, FabricAdd.Fabric_addNode title hf hd hbelow hpos hcov hoos, ?_⟩
   intro x hx
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hx
   have hmem := List.mem_of_find?_eq_some hn
@@ -123,8 +120,10 @@ theorem fullFabric_addNode (F : GPathM) (d : NodeId) (title : String) (h : FullF
     have hsome := node?_isSome_of_mem F m hm
     rw [hid] at hsome
     exact Or.inl (hcov x hsome)
-  · rw [List.mem_singleton.mp h1] at hid
-    exact Or.inr hid.symm
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff F d title n).mp h1
+    rw [rowNode_id] at hid
+    rw [← hid]
+    exact Or.inr hpid
 
 -- ============================================================
 -- The filter step
@@ -200,6 +199,7 @@ theorem fullFabric_reachable (reqOf : NodeId → List NodeId) (hff : FilterFabri
           (GownersNodes.GN_filterAll g (reqOf d) (GownersNodes.GN_reachable reqOf g hrg) q hq)⟩
       exact fullFabric_addNode _ d title hFF (by rw [hpr.step_eq]; exact hstep)
         (Certifies.nodes_below_of_pruned hpr (steps_below_current reqOf hrg)) hne hpos
+        (SelfOwn.OOS_of_pruned hpr (SelfOwn.OOS_reachable reqOf g hrg))
   | join g₁ g₂ hok _ _ ih₁ ih₂ =>
     intro _
     have hok' : okJoin g₁ g₂ = true := hok

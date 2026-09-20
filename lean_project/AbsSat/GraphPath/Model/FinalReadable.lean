@@ -83,48 +83,50 @@ theorem topAnchor_grown {g g' : GPathM} (hgr : Grown g g') (h : TopAnchor g) : T
   simp only [ownersOf, hn']
   exact ho q hso
 
-/-- **The node `addNode` just created is a pick at the top.** -/
+/-- **A node of the row `addNode` just created is a pick at the top.** With a
+single new node the row was a singleton and there was nothing to choose; with
+the row, any of its nodes will do — they all sit at the new step, own themselves
+and are global owners. -/
 theorem topAnchor_addNode (f : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = f.current_step) (hmok : MachineOk f) : TopAnchor (addNode f d title) := by
-  obtain ⟨h0, hz, hpos⟩ := hmok
+    (hd : d.step = f.current_step) (hmok : MachineOk f)
+    (hbelow : ∀ n ∈ f.nodes, n.id.id.step < f.current_step)
+    (hrow : ∃ z, z ∈ newRowIds f d) : TopAnchor (addNode f d title) := by
+  obtain ⟨h0, hz0, hpos⟩ := hmok
+  obtain ⟨z, hz⟩ := hrow
   have hcur := addNode_current f d title
-  have hmem : addOwner (newPid f d) (upNode f d title) ∈ (addNode f d title).nodes := by
-    rw [addNode_nodes]
-    exact List.mem_append_right _ (List.mem_singleton_self _)
-  have hsome : ((addNode f d title).node? (newPid f d)).isSome :=
-    node?_isSome_of_mem (addNode f d title) _ hmem
-  have hall : ∀ n ∈ (addNode f d title).nodes, newPid f d ∈ n.owners := by
-    intro n hn
-    rcases mem_addNode_nodes hn with ⟨m, _, rfl⟩ | rfl
-    · rw [upMap_owners]
-      exact List.mem_append_right _ (List.mem_singleton_self _)
-    · exact List.mem_append_right _ (List.mem_singleton_self _)
-  refine ⟨newPid f d, ⟨fun k h1 h2 => ⟨hsome, ?_⟩, fun k h1 h2 => ?_,
+  have hzd : z.id = d := mapId_of_mem_newRowIds f d z hz
+  have hnode := addNode_node?_new f d title hd hbelow z hz
+  refine ⟨z, ⟨fun k h1 h2 => ⟨by rw [hnode]; rfl, ?_⟩, fun k h1 h2 => ?_,
     fun i j hi hj hi2 hj2 hne => ?_, fun k h1 h2 => ?_, fun k h1 h2 => ?_, fun k h1 h2 => ?_,
     fun k h1 h2 => ?_⟩⟩
-  · show d.step = k
+  · rw [hzd]
+    show d.step = k
     rw [hcur] at h1 h2
     omega
   · rw [hcur] at h1 h2
     omega
   · rw [hcur] at hi hj hi2 hj2
     omega
-  · show newPid f d ∈ (addNode f d title).gowners
+  · show z ∈ (addNode f d title).gowners
     rw [addNode_gowners]
-    exact List.mem_append_right _ (List.mem_singleton_self _)
-  · show newPid f d ∈ ownersOf (addNode f d title) (newPid f d)
-    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
-    simp only [ownersOf, hn]
-    exact hall n (List.mem_of_find?_eq_some hn)
+    exact List.mem_append_right _ hz
+  · show z ∈ ownersOf (addNode f d title) z
+    simp only [ownersOf, hnode]
+    exact self_mem_rowOwners f d z
   · rw [hcur] at h1 h2
     omega
   · rw [hcur] at h1 h2
-    show (f.map_parent = none ↔ k = 0)
     constructor
     · intro hnone
-      exact Decidable.byContradiction fun hne => hpos (by omega) hnone
+      by_cases hfp : 0 < f.current_step
+      · exact absurd hnone (parent_id_ne_none_of_mem_newRowIds f d z hfp hz)
+      · omega
     · intro hk0
-      exact hz (by omega)
+      by_cases hfp : 0 < f.current_step
+      · exfalso; omega
+      · rw [newRowIds_of_zero f d hfp] at hz
+        rcases List.mem_singleton.mp hz with rfl
+        rfl
 
 private theorem initSeed_eq (d : NodeId) (title : String) :
     initSeed d title = addNode empty d title := rfl
@@ -135,7 +137,11 @@ theorem topAnchor_valid (φ : Cnf) (hwf : WF φ) (g : GPathM) (h : MapReachable 
   induction h with
   | seed d title hstep _ =>
     rw [initSeed_eq]
-    exact topAnchor_addNode empty d title hstep MachineOk_empty
+    refine topAnchor_addNode empty d title hstep MachineOk_empty
+      (fun n hn => absurd hn List.not_mem_nil)
+      ⟨{ id := d, parent_id := none, gparent_id := none }, ?_⟩
+    rw [newRowIds_of_zero empty d (by show ¬ (0:Int) < 0; omega)]
+    exact List.mem_cons_self
   | up g d title hstep _ hg ih =>
     have hpr := pruned_filterAll g (reqOfCnf φ d)
     have hmok : MachineOk (filterAll g (reqOfCnf φ d)) :=
@@ -150,7 +156,23 @@ theorem topAnchor_valid (φ : Cnf) (hwf : WF φ) (g : GPathM) (h : MapReachable 
       exact absurd hv (by simp)
     | true =>
       simp only [if_true]
-      exact topAnchor_addNode _ d title (by rw [hpr.step_eq]; exact hstep) hmok
+      have hreach := reachable_of_mapReachable φ hwf g hg
+      have hbel := Certifies.nodes_below_of_pruned hpr (steps_below_current (reqOfCnf φ) hreach)
+      refine topAnchor_addNode _ d title (by rw [hpr.step_eq]; exact hstep) hmok hbel ?_
+      -- the filtered state is valid, so it has a node at its top step to shift
+      have hposF : 0 < (filterAll g (reqOfCnf φ d)).current_step := by
+        rw [hpr.step_eq]; exact NodeInvariant.pos_reachable (reqOfCnf φ) g hreach
+      have hent := hasStepEntry_of_isValid _ hf
+        ((filterAll g (reqOfCnf φ d)).current_step - 1) (by omega) (by omega)
+      simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+      obtain ⟨q, hq, hqs⟩ := hent
+      obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp
+        ((GownersNodes.hasNode_iff _ q).mp
+          (GownersNodes.GN_filterAll g (reqOfCnf φ d)
+            (GownersNodes.GN_reachable (reqOfCnf φ) g hreach) q hq))
+      refine ⟨shiftPid q d, mem_newRowIds_of_mem_newParents _ d q hposF ?_⟩
+      simp only [newParents, if_pos hposF]
+      exact mem_line_of_node? _ q nq hnq _ hqs
   | join g₁ g₂ hok _ _ ih₁ _ =>
     have hok' : okJoin g₁ g₂ = true := hok
     simp only [okJoin, Bool.and_eq_true] at hok'

@@ -126,25 +126,6 @@ theorem exists_S_at (h : Fabric g S T) (hne : ∃ p, S p)
   obtain ⟨w, hw, hws⟩ := h.support p hp l hl0 hl
   exact ⟨w, h.inS p w hp hw, hws⟩
 
-/-- Every row node has a parent. -/
-theorem exists_rowParent (hpos : 0 < g.current_step) {z : PathNodeId}
-    (hz : z ∈ newRowIds g d) : ∃ r, r ∈ rowParents g d z := by
-  obtain ⟨r, hr, hrz⟩ := exists_shift_of_mem_newRowIds g d z hpos hz
-  exact ⟨r, List.mem_filter.mpr ⟨hr, beq_iff_eq.mpr hrz.symm⟩⟩
-
-/-- A parent of a row node is a node of `g` at the top old step. -/
-theorem rowParent_node (hpos : 0 < g.current_step) {z r : PathNodeId}
-    (hr : r ∈ rowParents g d z) :
-    (g.node? r).isSome = true ∧ r.id.step = g.current_step - 1 := by
-  have hmem : r ∈ newParents g := rowParents_subset g d z r hr
-  unfold newParents at hmem
-  rw [if_pos hpos] at hmem
-  obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hmem
-  have hnmem : nr ∈ g.nodes := (List.mem_filter.mp hnr).1
-  refine ⟨?_, ?_⟩
-  · have := node?_isSome_of_mem g nr hnmem; rwa [hnrid] at this
-  · rw [← hnrid]; exact eq_of_beq (List.mem_filter.mp hnr).2
-
 /-- **An entry of a parent's table is an owner of the row node.** Both halves of
 `rowOwners` — the parents' union and the `gowners` cut — come from the fabric's
 own clauses. -/
@@ -264,8 +245,8 @@ theorem Fabric_addNode (title : String) (h : Fabric g S T)
     · if hltop : l = g.current_step then
         exact ⟨p, addT_row_self hp, by rw [hrowstep p hp, hltop]⟩
       else
-        obtain ⟨r, hr⟩ := exists_rowParent hpos hp
-        obtain ⟨hrn, _⟩ := rowParent_node hpos hr
+        obtain ⟨r, hr⟩ := exists_rowParent g d hpos hp
+        obtain ⟨hrn, _⟩ := rowParent_node g d hpos hr
         have hSr : S r := hallNode r hrn
         obtain ⟨v, hv, hvs⟩ := h.support r hSr l hl0 (by omega)
         exact ⟨v, addT_row_left hp ⟨r, hr, hSr, hv⟩, hvs⟩
@@ -298,8 +279,8 @@ theorem Fabric_addNode (title : String) (h : Fabric g S T)
       · exact absurd hSp (hnew hp)
       · obtain ⟨r, hr, hSr, hTv⟩ := hrel
         exact ⟨r, by rw [hpar]; exact hr, hcarry r hr hSr, Or.inl ⟨hSr, hTv⟩⟩
-      · obtain ⟨r, hr⟩ := exists_rowParent hpos hp
-        obtain ⟨hrn, _⟩ := rowParent_node hpos hr
+      · obtain ⟨r, hr⟩ := exists_rowParent g d hpos hp
+        obtain ⟨hrn, _⟩ := rowParent_node g d hpos hr
         have hSr : S r := hallNode r hrn
         exact ⟨r, by rw [hpar]; exact hr, hcarry r hr hSr,
           addT_row_right hp ⟨r, hr, hSr, h.self r hSr⟩⟩
@@ -308,8 +289,8 @@ theorem Fabric_addNode (title : String) (h : Fabric g S T)
           · exact (hrow_eq v p hz hp hrel).symm ▸ rfl
           · rfl
         subst hvp
-        obtain ⟨r, hr⟩ := exists_rowParent hpos hp
-        obtain ⟨hrn, _⟩ := rowParent_node hpos hr
+        obtain ⟨r, hr⟩ := exists_rowParent g d hpos hp
+        obtain ⟨hrn, _⟩ := rowParent_node g d hpos hr
         have hSr : S r := hallNode r hrn
         exact ⟨r, by rw [hpar]; exact hr, hcarry r hr hSr,
           addT_row_right hp ⟨r, hr, hSr, h.self r hSr⟩⟩
@@ -336,7 +317,7 @@ theorem Fabric_addNode (title : String) (h : Fabric g S T)
           · exact absurd hp (hnew hz')
           · rcases hx with ⟨r, hr, hSr, hTrp⟩ | rfl
             · -- `r` and `p` both sit at the top old step, so they are the same
-              have hrs := (rowParent_node hpos hr).2
+              have hrs := (rowParent_node g d hpos hr).2
               have : r = p := hsame r p hSr hTrp (by rw [hrs, htop])
               subst this
               have : v = shiftPid r d := shiftPid_of_mem_rowParents g d v r hr ▸ rfl

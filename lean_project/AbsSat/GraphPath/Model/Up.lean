@@ -46,6 +46,25 @@ The definitions `newParents`, `newRowIds`, `rowParents`, `rowOwners`, `rowNode`,
 -/
 
 
+/-- Every row node has a parent (above step 0). -/
+theorem exists_rowParent (g : GPathM) (d : NodeId) (hpos : 0 < g.current_step)
+    {z : PathNodeId} (hz : z ∈ newRowIds g d) : ∃ r, r ∈ rowParents g d z := by
+  obtain ⟨r, hr, hrz⟩ := exists_shift_of_mem_newRowIds g d z hpos hz
+  exact ⟨r, List.mem_filter.mpr ⟨hr, beq_iff_eq.mpr hrz.symm⟩⟩
+
+/-- A parent of a row node is a node of the state, at the top old step. -/
+theorem rowParent_node (g : GPathM) (d : NodeId) (hpos : 0 < g.current_step)
+    {z r : PathNodeId} (hr : r ∈ rowParents g d z) :
+    (g.node? r).isSome = true ∧ r.id.step = g.current_step - 1 := by
+  have hmem : r ∈ newParents g := rowParents_subset g d z r hr
+  unfold newParents at hmem
+  rw [if_pos hpos] at hmem
+  obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hmem
+  have hnmem : nr ∈ g.nodes := (List.mem_filter.mp hnr).1
+  refine ⟨?_, ?_⟩
+  · have := node?_isSome_of_mem g nr hnmem; rwa [hnrid] at this
+  · rw [← hnrid]; exact eq_of_beq (List.mem_filter.mp hnr).2
+
 -- ============================================================
 -- `node?` through addNode
 -- ============================================================

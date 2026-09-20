@@ -140,16 +140,13 @@ theorem nonempty_of_noDeadEnd (g : GPathM) (hpos : 0 < g.current_step)
 /-- **A top anchor exists** in a valid state with at least one step whose nodes pass
 `isValidNode`, whose global owners are nodes, and which satisfies `OOS`, `Shape` and
 `RootAtZero`. -/
-theorem topAnchor_of (h : GPathM) (hv : isValid h = true) (hpos : 0 < h.current_step)
-    (hgn : GownersNodes.GN h) (hoos : SelfOwn.OOS h) (hshape : Parents.Shape h)
-    (hrz : Sons.RootAtZero h)
-    (hval : ∀ q d, h.node? q = some d → isValidNode h d = true) : TopAnchor h := by
-  -- a global owner at the top step
-  have hent := hasStepEntry_of_isValid h hv (h.current_step - 1) (by omega) (by omega)
-  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
-  obtain ⟨q, hq, hqs⟩ := hent
-  -- it is a node
-  obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff h q).mp (hgn q hq))
+theorem topAnchorAt (h : GPathM) (hpos : 0 < h.current_step)
+    (hoos : SelfOwn.OOS h) (hshape : Parents.Shape h) (hrz : Sons.RootAtZero h)
+    (hval : ∀ q d, h.node? q = some d → isValidNode h d = true)
+    (q : PathNodeId) (hq : q ∈ h.gowners) (hqn : (h.node? q).isSome = true)
+    (hqs : q.id.step = h.current_step - 1) :
+    SoundFrom h (fun _ => q) (h.current_step - 1) := by
+  obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp hqn
   have hdmem : d ∈ h.nodes := List.mem_of_find?_eq_some hd
   have hdid : d.id = q := node?_id_eq h q d hd
   -- it owns itself: its owner at its own step can only be itself
@@ -162,7 +159,7 @@ theorem topAnchor_of (h : GPathM) (hv : isValid h = true) (hpos : 0 < h.current_
     simp only [ownersOf, hd]
     rw [← hoq.trans hdid]
     exact ho
-  refine ⟨q, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro k hk1 hk2
     have hk : k = h.current_step - 1 := by omega
     subst hk
@@ -184,6 +181,19 @@ theorem topAnchor_of (h : GPathM) (hv : isValid h = true) (hpos : 0 < h.current_
       have hroot := hrz d hdmem (by rw [hdid, hqs]; exact hz)
       rw [hdid] at hroot
       exact hroot
+
+/-- **A top anchor exists** in a valid state with at least one step whose nodes pass
+`isValidNode`, whose global owners are nodes, and which satisfies `OOS`, `Shape` and
+`RootAtZero`. -/
+theorem topAnchor_of (h : GPathM) (hv : isValid h = true) (hpos : 0 < h.current_step)
+    (hgn : GownersNodes.GN h) (hoos : SelfOwn.OOS h) (hshape : Parents.Shape h)
+    (hrz : Sons.RootAtZero h)
+    (hval : ∀ q d, h.node? q = some d → isValidNode h d = true) : TopAnchor h := by
+  have hent := hasStepEntry_of_isValid h hv (h.current_step - 1) (by omega) (by omega)
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+  obtain ⟨q, hq, hqs⟩ := hent
+  exact ⟨q, topAnchorAt h hpos hoos hshape hrz hval q hq
+    ((GownersNodes.hasNode_iff h q).mp (hgn q hq)) hqs⟩
 
 /-- **After a valid filter of a reachable state, the top anchor exists.** -/
 theorem topAnchor_filterAll (reqOf : NodeId → List NodeId) (g : GPathM)
