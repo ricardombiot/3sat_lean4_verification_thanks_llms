@@ -2,7 +2,6 @@
 import AbsSat.GraphMap.CnfMapDiff
 import AbsSat.GraphPath.Model.SymReview
 import AbsSat.GraphPath.Model.TriReview
-import AbsSat.GraphPath.Model.SymTriReview
 import AbsSat.GraphMap.CnfHypergraph
 import AbsSat.GraphMap.CnfReducer
 import AbsSat.GraphMap.CnfSelection
@@ -48,13 +47,9 @@ def pureAdvanceSym (φ : Cnf) (line : PureLine) : PureLine :=
 -- exists only to measure what the two corrections do together.
 -- ------------------------------------------------------------
 
-def sendToSymTri (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
-  let g' := SymTriReview.upFilteringSymTri g (reqOfCnf φ d) d ""
-  if isValid g' then insertPure next d g' else next
-
-def pureAdvanceSymTri (φ : Cnf) (line : PureLine) : PureLine :=
-  line.foldl (fun next kv =>
-    (mapSons φ kv.1.step kv.1.index).foldl (sendToSymTri φ kv.2) next) []
+-- The `symtri` driver is gone with `SymTriReview`: that module modelled an
+-- abstract triangle review the machine does not perform. `--mode symtri` now
+-- falls through to the plain driver.
 
 
 -- ------------------------------------------------------------
@@ -2453,7 +2448,6 @@ def advanceBy (mode : String) (φ : Cnf) (line : PureLine) : PureLine :=
   match mode with
   | "sym" => pureAdvanceSym φ line
   | "tri" => pureAdvanceTri φ line
-  | "symtri" => pureAdvanceSymTri φ line
   | _ => pureAdvance φ line
 
 /-! ### P4, clause by clause
@@ -2782,7 +2776,7 @@ vars={nvMin}..{nvMin + nvSpan - 1} machine={mode} ---"
 /-! ### The joined machine against brute force
 
 The symmetric review of v64 and the triangle pass of v69 in one machine
-(`SymTriReview`). A new machine has to earn its place: it must not lose a
+(the retired `SymTriReview`). A new machine has to earn its place: it must not lose a
 solution and must not invent one. This band runs all four side by side against
 exhaustive search. -/
 

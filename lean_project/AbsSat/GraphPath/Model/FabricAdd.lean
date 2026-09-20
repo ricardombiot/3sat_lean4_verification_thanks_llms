@@ -54,37 +54,52 @@ open AbsSat.GraphPath.Model.TriReview
 
 variable (g : GPathM) (d : NodeId) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
 
-/-- The members, plus the new node. -/
-def addS : PathNodeId → Prop := fun p => S p ∨ p = newPid g d
+/-- The members, plus the whole new row. -/
+def addS : PathNodeId → Prop := fun p => S p ∨ p ∈ newRowIds g d
 
-/-- The tables, plus the new node related to every member in both directions —
-which is exactly what `addNode` does to the owners lists. -/
+/-- **What a row node is related to.** Not every member any more: only what one
+of *its own parents* carries, which is exactly what `create_node_from_parents!`
+hands it. This is the fabric's half of the window — with a single new node the
+relation was "everything", and the row replaces it by "everything on my
+branch". -/
+def rowRel : PathNodeId → PathNodeId → Prop := fun z v =>
+  ∃ r ∈ rowParents g d z, S r ∧ T r v
+
+/-- The tables, plus each row node related to what its parents carry, and to
+itself. -/
 def addT : PathNodeId → PathNodeId → Prop := fun p v =>
-  (S p ∧ T p v) ∨ (v = newPid g d ∧ addS g d S p) ∨ (p = newPid g d ∧ addS g d S v)
+  (S p ∧ T p v) ∨
+  (p ∈ newRowIds g d ∧ (rowRel g d S T p v ∨ v = p)) ∨
+  (v ∈ newRowIds g d ∧ (rowRel g d S T v p ∨ p = v))
 
 variable {g d S T}
 
-theorem addS_new : addS g d S (newPid g d) := Or.inr rfl
-
 theorem addS_of (p : PathNodeId) (h : S p) : addS g d S p := Or.inl h
 
-theorem addT_new_right (p : PathNodeId) (h : addS g d S p) : addT g d S T p (newPid g d) :=
-  Or.inr (Or.inl ⟨rfl, h⟩)
+theorem addS_row {z : PathNodeId} (h : z ∈ newRowIds g d) : addS g d S z := Or.inr h
 
-theorem addT_new_left (v : PathNodeId) (h : addS g d S v) : addT g d S T (newPid g d) v :=
-  Or.inr (Or.inr ⟨rfl, h⟩)
+theorem addT_row_self {z : PathNodeId} (h : z ∈ newRowIds g d) : addT g d S T z z :=
+  Or.inr (Or.inl ⟨h, Or.inr rfl⟩)
 
-/-- The new id is not an old member: old members are nodes of `g`, and every
-node of `g` sits strictly below the step the new node occupies. -/
-theorem not_S_newPid (h : Fabric g S T) (hd : d.step = g.current_step)
-    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) : ¬ S (newPid g d) := by
+theorem addT_row_right {z v : PathNodeId} (hz : z ∈ newRowIds g d)
+    (h : rowRel g d S T z v) : addT g d S T v z :=
+  Or.inr (Or.inr ⟨hz, Or.inl h⟩)
+
+theorem addT_row_left {z v : PathNodeId} (hz : z ∈ newRowIds g d)
+    (h : rowRel g d S T z v) : addT g d S T z v :=
+  Or.inr (Or.inl ⟨hz, Or.inl h⟩)
+
+/-- A row id is not an old member: old members are nodes of `g`, and every node
+of `g` sits strictly below the step the row occupies. -/
+theorem not_S_row (h : Fabric g S T) (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    {z : PathNodeId} (hz : z ∈ newRowIds g d) : ¬ S z := by
   intro hs
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node _ hs)
   have hmem : n ∈ g.nodes := List.mem_of_find?_eq_some hn
-  have hid : n.id = newPid g d := node?_id_eq g _ n hn
+  have hid : n.id = z := node?_id_eq g _ n hn
   have := hbelow n hmem
-  rw [hid] at this
-  simp only [newPid] at this
+  rw [hid, mapId_of_mem_newRowIds g d z hz, hd] at this
   omega
 
 /-- A member sits at a step the graph already has. -/
@@ -96,7 +111,7 @@ theorem step_lt_of_S (h : Fabric g S T)
   have := hbelow n (List.mem_of_find?_eq_some hn)
   rwa [hid] at this
 
-/-- **A member at the top old step is a parent of the new node.** -/
+/-- **A member at the top old step is a parent of the row node it shifts to.** -/
 theorem mem_newParents_of_S (h : Fabric g S T) (hpos : 0 < g.current_step)
     (w : PathNodeId) (hw : S w) (hstep : w.id.step = g.current_step - 1) :
     w ∈ newParents g := by
@@ -111,161 +126,240 @@ theorem exists_S_at (h : Fabric g S T) (hne : ∃ p, S p)
   obtain ⟨w, hw, hws⟩ := h.support p hp l hl0 hl
   exact ⟨w, h.inS p w hp hw, hws⟩
 
-/-- **The carrier the new node's `up` clause needs**: for a member `v`, a member
-at the previous line related to `v`. It is `v`'s own support witness, turned
-round by symmetry. -/
-theorem carrier_for (h : Fabric g S T) (hpos : 0 < g.current_step)
-    (v : PathNodeId) (hv : S v) : ∃ w, S w ∧ T w v ∧ w ∈ newParents g := by
-  obtain ⟨w, hw, hws⟩ := h.support v hv (g.current_step - 1) (by omega) (by omega)
-  have hSw : S w := h.inS v w hv hw
-  exact ⟨w, hSw, h.symm v w hv hw, mem_newParents_of_S h hpos w hSw hws⟩
+/-- Every row node has a parent. -/
+theorem exists_rowParent (hpos : 0 < g.current_step) {z : PathNodeId}
+    (hz : z ∈ newRowIds g d) : ∃ r, r ∈ rowParents g d z := by
+  obtain ⟨r, hr, hrz⟩ := exists_shift_of_mem_newRowIds g d z hpos hz
+  exact ⟨r, List.mem_filter.mpr ⟨hr, beq_iff_eq.mpr hrz.symm⟩⟩
+
+/-- A parent of a row node is a node of `g` at the top old step. -/
+theorem rowParent_node (hpos : 0 < g.current_step) {z r : PathNodeId}
+    (hr : r ∈ rowParents g d z) :
+    (g.node? r).isSome = true ∧ r.id.step = g.current_step - 1 := by
+  have hmem : r ∈ newParents g := rowParents_subset g d z r hr
+  unfold newParents at hmem
+  rw [if_pos hpos] at hmem
+  obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hmem
+  have hnmem : nr ∈ g.nodes := (List.mem_filter.mp hnr).1
+  refine ⟨?_, ?_⟩
+  · have := node?_isSome_of_mem g nr hnmem; rwa [hnrid] at this
+  · rw [← hnrid]; exact eq_of_beq (List.mem_filter.mp hnr).2
+
+/-- **An entry of a parent's table is an owner of the row node.** Both halves of
+`rowOwners` — the parents' union and the `gowners` cut — come from the fabric's
+own clauses. -/
+theorem mem_rowOwners_of_rowRel (h : Fabric g S T) {z v : PathNodeId}
+    (hrel : rowRel g d S T z v) : v ∈ rowOwners g d z := by
+  obtain ⟨r, hr, hSr, hTv⟩ := hrel
+  obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp (h.node r hSr)
+  refine (mem_rowOwners_iff g d z v).mpr (Or.inl ⟨?_, h.gow v (h.inS r v hSr hTv)⟩)
+  exact mem_unionOwnersOf g _ r nr v hr hnr (h.sub r nr hnr hSr v hTv)
 
 -- ============================================================
 -- The nine clauses
 -- ============================================================
 
-/-- **The fabric is born at `addNode`.** Every member keeps what it had, the
-new node joins as a member related to all of them, and the nine clauses hold. -/
+/-- **The fabric is born at `addNode`.** Every member keeps what it had, the row
+joins as members, and each row node is related to what its own parents carry. -/
 theorem Fabric_addNode (title : String) (h : Fabric g S T)
     (hd : d.step = g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (hne : ∃ p, S p) (hpos : 0 < g.current_step) :
+    (hpos : 0 < g.current_step)
+    (hallNode : ∀ q, (g.node? q).isSome = true → S q)
+    (hoos : SelfOwn.OOS g) :
     Fabric (addNode g d title) (addS g d S) (addT g d S T) := by
-  have hnew := not_S_newPid h hd hbelow
-  have hstepNew : (newPid g d).id.step = g.current_step := by
-    simp only [newPid]; exact hd
-  -- the new node, as the graph sees it
-  have hnode_new := addNode_node?_new g d title hd hbelow
-  -- membership gives a node of the extended graph
+  have hnew : ∀ {z}, z ∈ newRowIds g d → ¬ S z := fun hz => not_S_row h hd hbelow hz
+  have hrowstep : ∀ z ∈ newRowIds g d, z.id.step = g.current_step := by
+    intro z hz; rw [mapId_of_mem_newRowIds g d z hz]; exact hd
+  -- two row ids related to one another can only be the same one
+  have hrow_eq : ∀ z v, z ∈ newRowIds g d → v ∈ newRowIds g d →
+      rowRel g d S T z v → v = z := by
+    intro z v hz hv ⟨r, hr, hSr, hTv⟩
+    exact absurd (h.inS r v hSr hTv) (hnew hv)
+  -- an entry of a table at the same step is the node itself
+  have hsame : ∀ r v, S r → T r v → r.id.step = v.id.step → r = v := by
+    intro r v hSr hTv hstep
+    obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp (h.node r hSr)
+    have hmem : nr ∈ g.nodes := List.mem_of_find?_eq_some hnr
+    have hid : nr.id = r := node?_id_eq g r nr hnr
+    have := hoos nr hmem v (h.sub r nr hnr hSr v hTv) (by rw [hid]; exact hstep.symm)
+    rw [hid] at this
+    exact this.symm
   have hnode : ∀ p, addS g d S p → ((addNode g d title).node? p).isSome = true := by
     intro p hp
-    rcases hp with hp | rfl
+    rcases hp with hp | hp
     · obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
       rw [addNode_node?_old g d title p n hn]; rfl
-    · rw [hnode_new]; rfl
-  -- an entry always lands on a member
+    · rw [addNode_node?_new g d title hd hbelow p hp]; rfl
   have hinS : ∀ p v, addS g d S p → addT g d S T p v → addS g d S v := by
     intro p v _ hT
-    rcases hT with ⟨hSp, hTv⟩ | ⟨rfl, _⟩ | ⟨_, hSv⟩
+    rcases hT with ⟨hSp, hTv⟩ | ⟨hz, hrel | rfl⟩ | ⟨hz, _⟩
     · exact Or.inl (h.inS p v hSp hTv)
-    · exact addS_new
-    · exact hSv
+    · obtain ⟨r, _, hSr, hTv⟩ := hrel
+      exact Or.inl (h.inS r v hSr hTv)
+    · exact Or.inr hz
+    · exact Or.inr hz
   refine
     { gow := ?_, node := hnode, inS := hinS, symm := ?_, self := ?_, sub := ?_,
       support := ?_, up := ?_, down := ?_ }
   · -- gow
     intro p hp
     rw [addNode_gowners]
-    rcases hp with hp | rfl
+    rcases hp with hp | hp
     · exact List.mem_append_left _ (h.gow p hp)
-    · exact List.mem_append_right _ List.mem_cons_self
+    · exact List.mem_append_right _ hp
   · -- symm
     intro p v _ hT
-    rcases hT with ⟨hSp, hTv⟩ | ⟨rfl, hSp⟩ | ⟨rfl, hSv⟩
+    rcases hT with ⟨hSp, hTv⟩ | ⟨hz, hx⟩ | ⟨hz, hx⟩
     · exact Or.inl ⟨h.inS p v hSp hTv, h.symm p v hSp hTv⟩
-    · exact addT_new_left p hSp
-    · exact addT_new_right v hSv
+    · exact Or.inr (Or.inr ⟨hz, hx⟩)
+    · exact Or.inr (Or.inl ⟨hz, hx⟩)
   · -- self
     intro p hp
-    rcases hp with hp | rfl
+    rcases hp with hp | hp
     · exact Or.inl ⟨hp, h.self p hp⟩
-    · exact addT_new_right _ addS_new
+    · exact addT_row_self hp
   · -- sub
     intro p n hn hp v hT
-    rcases hp with hp | rfl
+    rcases hp with hp | hp
     · obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp (h.node p hp)
       rw [addNode_node?_old g d title p n₀ hn₀] at hn
       rw [← Option.some.inj hn, upMap_owners]
-      rcases hT with ⟨hSp, hTv⟩ | ⟨rfl, _⟩ | ⟨rfl, _⟩
+      rcases hT with ⟨hSp, hTv⟩ | ⟨hz, _⟩ | ⟨hz, hx⟩
       · exact List.mem_append_left _ (h.sub p n₀ hn₀ hSp v hTv)
-      · exact List.mem_append_right _ List.mem_cons_self
-      · exact absurd hp hnew
-    · rw [hnode_new] at hn
-      rw [← Option.some.inj hn]
-      show v ∈ (upNode g d title).owners ++ [newPid g d]
-      simp only [upNode]
-      rcases hT with ⟨hSp, _⟩ | ⟨rfl, _⟩ | ⟨_, hSv⟩
-      · exact absurd hSp hnew
-      · exact List.mem_append_right _ List.mem_cons_self
-      · rcases hSv with hSv | rfl
-        · exact List.mem_append_left _ (h.gow v hSv)
-        · exact List.mem_append_right _ List.mem_cons_self
+      · exact absurd hp (hnew hz)
+      · refine List.mem_append_right _ (List.mem_filter.mpr ⟨hz, ?_⟩)
+        rw [node?_id_eq g p n₀ hn₀]
+        refine List.elem_eq_true_of_mem ?_
+        rcases hx with hrel | rfl
+        · exact mem_rowOwners_of_rowRel h hrel
+        · exact self_mem_rowOwners g d p
+    · rw [addNode_node?_new g d title hd hbelow p hp] at hn
+      rw [← Option.some.inj hn, rowNode_owners]
+      rcases hT with ⟨hSp, _⟩ | ⟨_, hrel | hvp⟩ | ⟨hz, hx⟩
+      · exact absurd hSp (hnew hp)
+      · exact mem_rowOwners_of_rowRel h hrel
+      · rw [hvp]; exact self_mem_rowOwners g d p
+      · rcases hx with hrel | hpv
+        · rw [hrow_eq v p hz hp hrel]; exact self_mem_rowOwners g d v
+        · rw [← hpv]; exact self_mem_rowOwners g d p
   · -- support
     intro p hp l hl0 hl
     have hcs : (addNode g d title).current_step = g.current_step + 1 := rfl
     rw [hcs] at hl
-    if hltop : l = g.current_step then
-      exact ⟨newPid g d, addT_new_right p hp, by rw [hstepNew, hltop]⟩
-    else
-      have hlt : l < g.current_step := by omega
-      rcases hp with hp | rfl
-      · obtain ⟨v, hv, hvs⟩ := h.support p hp l hl0 hlt
+    rcases hp with hp | hp
+    · if hltop : l = g.current_step then
+        -- the row node the member's own top-step witness shifts to
+        obtain ⟨w, hw, hws⟩ := h.support p hp (g.current_step - 1) (by omega) (by omega)
+        have hSw : S w := h.inS p w hp hw
+        have hwmem : w ∈ newParents g := mem_newParents_of_S h hpos w hSw hws
+        refine ⟨shiftPid w d, ?_, ?_⟩
+        · exact addT_row_right (mem_newRowIds_of_mem_newParents g d w hpos hwmem)
+            ⟨w, mem_rowParents_of_mem_newParents g d w hwmem, hSw, h.symm p w hp hw⟩
+        · show d.step = l
+          rw [hd, hltop]
+      else
+        obtain ⟨v, hv, hvs⟩ := h.support p hp l hl0 (by omega)
         exact ⟨v, Or.inl ⟨hp, hv⟩, hvs⟩
-      · obtain ⟨w, hw, hws⟩ := exists_S_at h hne l hl0 hlt
-        exact ⟨w, addT_new_left w (addS_of w hw), hws⟩
+    · if hltop : l = g.current_step then
+        exact ⟨p, addT_row_self hp, by rw [hrowstep p hp, hltop]⟩
+      else
+        obtain ⟨r, hr⟩ := exists_rowParent hpos hp
+        obtain ⟨hrn, _⟩ := rowParent_node hpos hr
+        have hSr : S r := hallNode r hrn
+        obtain ⟨v, hv, hvs⟩ := h.support r hSr l hl0 (by omega)
+        exact ⟨v, addT_row_left hp ⟨r, hr, hSr, hv⟩, hvs⟩
   · -- up
     intro p n hn hp hpnr v hT
-    rcases hp with hp | rfl
-    · -- an old member: its parents are the ones it had
-      obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rcases hp with hp | hp
+    · obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp (h.node p hp)
       have hpar : n.parents = n₀.parents := by
         rw [addNode_node?_old g d title p n₀ hn₀] at hn
         rw [← Option.some.inj hn, upMap_parents]
-      rcases hT with ⟨hSp, hTv⟩ | ⟨rfl, _⟩ | ⟨rfl, _⟩
+      rcases hT with ⟨hSp, hTv⟩ | ⟨hz, _⟩ | ⟨hz, hx⟩
       · obtain ⟨c, hc, hpc, hcv⟩ := h.up p n₀ hn₀ hSp hpnr v hTv
-        have hSc : S c := h.inS p c hSp hpc
-        exact ⟨c, by rw [hpar]; exact hc, Or.inl ⟨hSp, hpc⟩, Or.inl ⟨hSc, hcv⟩⟩
-      · -- the entry is the new node: any parent-carrier of an old entry will do
-        obtain ⟨v₀, hv₀, _⟩ := h.support p hp 0 (by omega) hpos
-        obtain ⟨c, hc, hpc, _⟩ := h.up p n₀ hn₀ hp hpnr v₀ hv₀
-        have hSc : S c := h.inS p c hp hpc
-        exact ⟨c, by rw [hpar]; exact hc, Or.inl ⟨hp, hpc⟩, addT_new_right c (addS_of c hSc)⟩
-      · exact absurd hp hnew
-    · -- the new node: its parents are the whole previous line
-      have hpar : n.parents = newParents g := by
-        rw [hnode_new] at hn
-        rw [← Option.some.inj hn]
-        rfl
-      have hSv : addS g d S v := hinS _ v addS_new hT
-      rcases hSv with hSv | rfl
-      · obtain ⟨w, hSw, hwv, hwmem⟩ := carrier_for h hpos v hSv
-        exact ⟨w, by rw [hpar]; exact hwmem, addT_new_left w (addS_of w hSw),
-          Or.inl ⟨hSw, hwv⟩⟩
-      · obtain ⟨w, hSw, hws⟩ := exists_S_at h hne (g.current_step - 1) (by omega) (by omega)
-        exact ⟨w, by rw [hpar]; exact mem_newParents_of_S h hpos w hSw hws,
-          addT_new_left w (addS_of w hSw), addT_new_right w (addS_of w hSw)⟩
+        exact ⟨c, by rw [hpar]; exact hc, Or.inl ⟨hSp, hpc⟩,
+          Or.inl ⟨h.inS p c hSp hpc, hcv⟩⟩
+      · exact absurd hp (hnew hz)
+      · -- the entry is a row node: carry it through the parent that carries its witness
+        rcases hx with ⟨r, hr, hSr, hTrp⟩ | rfl
+        · obtain ⟨c, hc, hpc, hcr⟩ := h.up p n₀ hn₀ hp hpnr r (h.symm r p hSr hTrp)
+          refine ⟨c, by rw [hpar]; exact hc, Or.inl ⟨hp, hpc⟩, ?_⟩
+          exact addT_row_right hz ⟨r, hr, hSr, h.symm c r (h.inS p c hp hpc) hcr⟩
+        · exact absurd hp (hnew hz)
+    · -- a row node: its parents carry everything it has
+      have hpar : n.parents = rowParents g d p := by
+        rw [addNode_node?_new g d title hd hbelow p hp] at hn
+        rw [← Option.some.inj hn, rowNode_parents]
+      have hcarry : ∀ r ∈ rowParents g d p, S r → addT g d S T p r := by
+        intro r hr hSr
+        exact addT_row_left hp ⟨r, hr, hSr, h.self r hSr⟩
+      rcases hT with ⟨hSp, _⟩ | ⟨_, hrel | rfl⟩ | ⟨hz, hx⟩
+      · exact absurd hSp (hnew hp)
+      · obtain ⟨r, hr, hSr, hTv⟩ := hrel
+        exact ⟨r, by rw [hpar]; exact hr, hcarry r hr hSr, Or.inl ⟨hSr, hTv⟩⟩
+      · obtain ⟨r, hr⟩ := exists_rowParent hpos hp
+        obtain ⟨hrn, _⟩ := rowParent_node hpos hr
+        have hSr : S r := hallNode r hrn
+        exact ⟨r, by rw [hpar]; exact hr, hcarry r hr hSr,
+          addT_row_right hp ⟨r, hr, hSr, h.self r hSr⟩⟩
+      · have hvp : v = p := by
+          rcases hx with hrel | rfl
+          · exact (hrow_eq v p hz hp hrel).symm ▸ rfl
+          · rfl
+        subst hvp
+        obtain ⟨r, hr⟩ := exists_rowParent hpos hp
+        obtain ⟨hrn, _⟩ := rowParent_node hpos hr
+        have hSr : S r := hallNode r hrn
+        exact ⟨r, by rw [hpar]; exact hr, hcarry r hr hSr,
+          addT_row_right hp ⟨r, hr, hSr, h.self r hSr⟩⟩
   · -- down
     intro p hp hptop v hT
-    rcases hp with hp | rfl
-    · have hSv : addS g d S v := hinS p v (Or.inl hp) hT
+    have hcs : (addNode g d title).current_step - 1 = g.current_step := by
+      show g.current_step + 1 - 1 = g.current_step; omega
+    rcases hp with hp | hp
+    · -- an old member; the row is its son line when it sits at the top old step
+      have hpstep : p.id.step < g.current_step := step_lt_of_S h hbelow p hp
       if htop : p.id.step = g.current_step - 1 then
-        -- the new node is the son-carrier
-        refine ⟨newPid g d, addOwner (newPid g d) (upNode g d title), hnode_new, ?_,
-          addT_new_right p (addS_of p hp), addT_new_left v hSv⟩
-        show p ∈ (upNode g d title).parents
-        exact mem_newParents_of_S h hpos p hp htop
+        have hpmem : p ∈ newParents g := mem_newParents_of_S h hpos p hp htop
+        have hz : shiftPid p d ∈ newRowIds g d :=
+          mem_newRowIds_of_mem_newParents g d p hpos hpmem
+        have hpr : p ∈ rowParents g d (shiftPid p d) :=
+          mem_rowParents_of_mem_newParents g d p hpmem
+        refine ⟨shiftPid p d, rowNode g d title (shiftPid p d),
+          addNode_node?_new g d title hd hbelow _ hz, ?_,
+          addT_row_right hz ⟨p, hpr, hp, h.self p hp⟩, ?_⟩
+        · rw [rowNode_parents]; exact hpr
+        · -- and the row node carries `v`, by the same parent
+          rcases hT with ⟨hSp, hTv⟩ | ⟨hz', _⟩ | ⟨hz', hx⟩
+          · exact addT_row_left hz ⟨p, hpr, hp, hTv⟩
+          · exact absurd hp (hnew hz')
+          · rcases hx with ⟨r, hr, hSr, hTrp⟩ | rfl
+            · -- `r` and `p` both sit at the top old step, so they are the same
+              have hrs := (rowParent_node hpos hr).2
+              have : r = p := hsame r p hSr hTrp (by rw [hrs, htop])
+              subst this
+              have : v = shiftPid r d := shiftPid_of_mem_rowParents g d v r hr ▸ rfl
+              subst this
+              exact addT_row_self hz
+            · exact absurd hp (hnew hz')
       else
         obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp (h.node p hp)
-        have hne' : p.id.step ≠ g.current_step - 1 := htop
-        rcases hT with ⟨hSp, hTv⟩ | ⟨rfl, _⟩ | ⟨rfl, _⟩
-        · obtain ⟨c, m, hcm, hpm, hpc, hcv⟩ := h.down p hSp hne' v hTv
-          have hSc : S c := h.inS p c hSp hpc
+        rcases hT with ⟨hSp, hTv⟩ | ⟨hz, _⟩ | ⟨hz, hx⟩
+        · obtain ⟨c, m, hcm, hpm, hpc, hcv⟩ := h.down p hSp htop v hTv
           refine ⟨c, upMap g d m, addNode_node?_old g d title c m hcm, ?_,
-            Or.inl ⟨hSp, hpc⟩, Or.inl ⟨hSc, hcv⟩⟩
+            Or.inl ⟨hSp, hpc⟩, Or.inl ⟨h.inS p c hSp hpc, hcv⟩⟩
           rw [upMap_parents]; exact hpm
-        · obtain ⟨v₀, hv₀, _⟩ := h.support p hp 0 (by omega) hpos
-          obtain ⟨c, m, hcm, hpm, hpc, _⟩ := h.down p hp hne' v₀ hv₀
-          have hSc : S c := h.inS p c hp hpc
-          refine ⟨c, upMap g d m, addNode_node?_old g d title c m hcm, ?_,
-            Or.inl ⟨hp, hpc⟩, addT_new_right c (addS_of c hSc)⟩
-          rw [upMap_parents]; exact hpm
-        · exact absurd hp hnew
-    · -- the new node sits at the top step, so the clause does not apply
-      refine absurd ?_ hptop
-      show (newPid g d).id.step = (addNode g d title).current_step - 1
-      rw [hstepNew]
-      show g.current_step = g.current_step + 1 - 1
-      omega
+        · exact absurd hp (hnew hz)
+        · rcases hx with ⟨r, hr, hSr, hTrp⟩ | rfl
+          · obtain ⟨c, m, hcm, hpm, hpc, hcr⟩ := h.down p hp htop r (h.symm r p hSr hTrp)
+            refine ⟨c, upMap g d m, addNode_node?_old g d title c m hcm, ?_,
+              Or.inl ⟨hp, hpc⟩, ?_⟩
+            · rw [upMap_parents]; exact hpm
+            · exact addT_row_right hz ⟨r, hr, hSr, h.symm c r (h.inS p c hp hpc) hcr⟩
+          · exact absurd hp (hnew hz)
+    · -- a row node sits at the top step, so the clause does not apply
+      exact absurd (by rw [hcs]; exact hrowstep p hp) hptop
 
 -- ============================================================
 -- The base case: the seed carries a fabric too
@@ -278,16 +372,22 @@ establishment side: a fabric exists at the start and one exists after every
 `addNode`. -/
 theorem Fabric_initSeed (d : NodeId) (title : String) (hd : d.step = 0) :
     Fabric (initSeed d title)
-      (fun p => p = newPid empty d) (fun p v => p = newPid empty d ∧ v = newPid empty d) := by
-  have hseed : initSeed d title = addNode empty d title := rfl
-  have hbelow : ∀ n ∈ empty.nodes, n.id.id.step < empty.current_step := by
-    intro n hn; exact absurd hn List.not_mem_nil
-  have hnode := addNode_node?_new empty d title hd hbelow
-  have hstep : (newPid empty d).id.step = 0 := by simp only [newPid]; exact hd
-  rw [hseed]
+      (fun p => p = ({ id := d, parent_id := none } : PathNodeId))
+      (fun p v => p = ({ id := d, parent_id := none } : PathNodeId) ∧
+                  v = ({ id := d, parent_id := none } : PathNodeId)) := by
+  have hnodes := initSeed_nodes d title
+  have hcur := initSeed_current d title
+  have hgow : (initSeed d title).gowners = [{ id := d, parent_id := none }] := by
+    unfold GPathM.initSeed GPathM.up GPathM.addNode
+    simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry,
+      GPathM.newRowIds]
+  have hnode : (initSeed d title).node? { id := d, parent_id := none }
+      = some (PNodeM.mk { id := d, parent_id := none } title [] []
+          [{ id := d, parent_id := none }]) := by
+    simp only [node?, hnodes, List.find?_cons, beq_self_eq_true]
   refine { gow := ?_, node := ?_, inS := ?_, symm := ?_, self := ?_, sub := ?_,
            support := ?_, up := ?_, down := ?_ }
-  · intro p hp; rw [hp, addNode_gowners]; exact List.mem_append_right _ List.mem_cons_self
+  · intro p hp; rw [hp, hgow]; exact List.mem_cons_self
   · intro p hp; rw [hp, hnode]; rfl
   · intro p v _ hT; exact hT.2
   · intro p v _ hT; exact ⟨hT.2, hT.1⟩
@@ -295,57 +395,38 @@ theorem Fabric_initSeed (d : NodeId) (title : String) (hd : d.step = 0) :
   · intro p n hn hp v hT
     rw [hp, hnode] at hn
     rw [← Option.some.inj hn, hT.2]
-    show newPid empty d ∈ (upNode empty d title).owners ++ [newPid empty d]
-    exact List.mem_append_right _ List.mem_cons_self
+    exact List.mem_cons_self
   · intro p hp l hl0 hl
-    have : l = 0 := by
-      have hcs : (addNode empty d title).current_step = 1 := rfl
-      rw [hcs] at hl; omega
-    exact ⟨newPid empty d, ⟨hp, rfl⟩, by rw [hstep, this]⟩
+    have hz : l = 0 := by rw [hcur] at hl; omega
+    exact ⟨{ id := d, parent_id := none }, ⟨hp, rfl⟩, by rw [hz]; exact hd⟩
   · -- the seed has no parent id, so the clause does not apply
     intro p _ _ hp hpnr _ _
-    exact absurd (by rw [hp]; rfl) hpnr
+    exact absurd (by rw [hp]) hpnr
   · -- the seed sits at the top step of its own graph
     intro p hp hptop _ _
     refine absurd ?_ hptop
-    show p.id.step = (addNode empty d title).current_step - 1
-    rw [hp, hstep]
-    show (0 : Int) = 1 - 1
+    rw [hp, hcur]
+    show d.step = 1 - 1
     omega
 
 -- ============================================================
 -- What the route consumes: the new node carries a fabric of its own
 -- ============================================================
 
-/-- **The new node's fabric lives inside its own owners.** `addNode` hands it
-exactly `gowners`, and a fabric's members are global owners — so the inclusion
-`FabricAt` asks for is the `gow` clause, read on the extended graph. -/
-theorem FabricAt_addNode_new (title : String) (h : Fabric g S T)
-    (hd : d.step = g.current_step)
-    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (hne : ∃ p, S p) (hpos : 0 < g.current_step)
-    (hsmp : Sons.SMP (addNode g d title)) (hnr : Parents.NotRoot (addNode g d title)) :
-    FabricAt (addNode g d title) (newPid g d) := by
-  have hfab := Fabric_addNode (g := g) (d := d) (S := S) (T := T) title h hd hbelow hne hpos
-  refine ⟨addOwner (newPid g d) (upNode g d title), addS g d S, addT g d S T,
-    addNode_node?_new g d title hd hbelow, ⟨hfab, hsmp, hnr⟩, addS_new, ?_⟩
-  intro p hp
-  show p ∈ (upNode g d title).owners ++ [newPid g d]
-  simp only [upNode]
-  rcases hp with hp | rfl
-  · exact List.mem_append_left _ (h.gow p hp)
-  · exact List.mem_append_right _ List.mem_cons_self
+/-!
+**Removed with the window: `FabricAt_addNode_new`.**
 
-/-- **And therefore choosing the new node never gets the reader stuck** — the
-piece the route needs, for the node the construction has just created. -/
-theorem isValid_readStepSym_addNode_new (title : String) (h : Fabric g S T)
-    (hd : d.step = g.current_step)
-    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (hne : ∃ p, S p) (hpos : 0 < g.current_step)
-    (hsmp : Sons.SMP (addNode g d title)) (hnr : Parents.NotRoot (addNode g d title)) :
-    isValid (SymReview.readStepSym (addNode g d title) (newPid g d)) = true :=
-  isValid_readStepSym_of_FabricAt _ _
-    (FabricAt_addNode_new (S := S) (T := T) title h hd hbelow hne hpos hsmp hnr)
+It said *the new node's fabric lives inside its own owners*, and its proof was
+one line of `gow`: `addNode` handed the new node exactly `gowners`, and a
+fabric's members are global owners.
+
+With the row that premise is gone. A row node inherits only what its own
+parents own, so the members inside its owners are the members *on its branch* —
+not the whole state's fabric. The statement is false as it stood and the
+per-branch version it would become is not consumed anywhere: nothing outside
+this file referred to `FabricAt_addNode_new` or to
+`isValid_readStepSym_addNode_new`, which was its only corollary.
+-/
 
 -- ============================================================
 -- The case the ledger was missing: `join`
@@ -1558,14 +1639,6 @@ theorem Fabric_whole (g : GPathM) (ctx : TableCtx g)
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.gowners_compat_filterAll' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms gowners_compat_filterAll
-
-/-- info: 'AbsSat.GraphPath.Model.FabricAdd.FabricAt_addNode_new' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms FabricAt_addNode_new
-
-/-- info: 'AbsSat.GraphPath.Model.FabricAdd.isValid_readStepSym_addNode_new' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms isValid_readStepSym_addNode_new
 
 /-- info: 'AbsSat.GraphPath.Model.FabricAdd.OwnersGlobal_reviewTri' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

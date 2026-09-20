@@ -293,6 +293,56 @@ theorem OOS_initSeed (d : NodeId) (title : String) : OOS (GPathM.initSeed d titl
   exact List.mem_singleton.mp hq
 
 -- ============================================================
+-- `Below` — nodes sit at a step the state actually has
+-- ============================================================
+
+/-- Every node sits at a step the state actually has. Lifted out of
+`SymTriReview.lean` when that module — an abstract model of a triangle review
+the machine does not perform — was removed. -/
+def Below (g : GPathM) : Prop :=
+  ∀ n ∈ g.nodes, 0 ≤ n.id.id.step ∧ n.id.id.step < g.current_step
+
+theorem Below_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : Below g) : Below g' := by
+  intro n' hn'
+  obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'
+  rw [hid, hpr.step_eq]
+  exact h n hn
+
+theorem Below_filterRequire (g : GPathM) (req : NodeId) (h : Below g) :
+    Below (filterRequire g req) := h
+
+theorem Below_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (hmok : MachineOk g) (h : Below g) :
+    Below (addNode g d title) := by
+  intro n' hn'
+  rw [addNode_current]
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_id]
+    obtain ⟨h0, h1⟩ := h n hn
+    exact ⟨h0, by omega⟩
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid, hd]
+    exact ⟨hmok.1, by omega⟩
+
+theorem Below_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : Below g₁) (h₂ : Below g₂) : Below (join g₁ g₂) := by
+  have hstep : g₁.current_step = g₂.current_step :=
+    eq_of_beq ((Bool.and_eq_true _ _).mp ((Bool.and_eq_true _ _).mp
+      ((Bool.and_eq_true _ _).mp hok).1).1).1
+  intro n' hn'
+  show 0 ≤ n'.id.id.step ∧ n'.id.id.step < g₁.current_step
+  simp only [GPathM.join, List.mem_append] at hn'
+  rcases hn' with hm | hm
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hm
+    have hid : n'.id = n.id := by
+      rw [← hEq]; cases g₂.node? n.id <;> rfl
+    rw [hid]; exact h₁ n hn
+  · have hb := h₂ _ (List.mem_filter.mp hm).1
+    rw [hstep]; exact hb
+
+-- ============================================================
 -- `OwnBelow` — owner entries live below the current step
 -- ============================================================
 

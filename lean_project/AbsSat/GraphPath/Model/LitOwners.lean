@@ -81,25 +81,22 @@ theorem LitInv_initSeed (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
     (d : NodeId) (title : String) (hd : d.step = 0) : LitInv reqOf (initSeed d title) := by
   have hseed : initSeed d title = addNode empty d title := rfl
   have hnode : ∀ n ∈ (initSeed d title).nodes,
-      n = addOwner (newPid empty d) (upNode empty d title) := by
+      n = PNodeM.mk { id := d, parent_id := none } title [] []
+        [{ id := d, parent_id := none }] := by
     intro n hn
-    rw [hseed] at hn
-    rcases mem_addNode_nodes hn with ⟨m, hm, _⟩ | h
-    · exact absurd hm List.not_mem_nil
-    · exact h
+    rw [initSeed_nodes d title] at hn
+    exact List.mem_singleton.mp hn
   have hfix : ∀ n ∈ (initSeed d title).nodes, ∀ m, FixMap n m → m = d := by
     intro n hn m hm
     rw [hnode n hn] at hm
     rcases hm with hm | hm
     · exact hm
-    · exact absurd hm (by simp [newPid, empty, addOwner, upNode])
-  have hown : ∀ n ∈ (initSeed d title).nodes, ∀ w ∈ n.owners, w = newPid empty d := by
+    · exact absurd hm (by simp)
+  have hown : ∀ n ∈ (initSeed d title).nodes, ∀ w ∈ n.owners,
+      w = ({ id := d, parent_id := none } : PathNodeId) := by
     intro n hn w hw
     rw [hnode n hn] at hw
-    have hw' : w ∈ empty.gowners ++ [newPid empty d] := hw
-    rcases List.mem_append.mp hw' with hw | hw
-    · exact absurd hw List.not_mem_nil
-    · exact List.mem_singleton.mp hw
+    exact List.mem_singleton.mp hw
   refine ⟨?_, ?_⟩
   · intro n hn m hm l hl w hw req hreq hs
     have hmd := hfix n hn m hm
@@ -114,7 +111,7 @@ theorem LitInv_initSeed (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
     subst hwz
     have h1 := hback l req hreq
     have h2 := hback _ l hl
-    have h3 : (newPid empty m).id.step = m.step := rfl
+    have h3 : ({ id := m, parent_id := none } : PathNodeId).id.step = m.step := rfl
     omega
 
 theorem LitInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
@@ -129,18 +126,30 @@ theorem LitInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
     (hrf : ReqFiltered reqOf F) (hoc : UnitPropagation.OwnedCompatible reqOf F)
     (hpi : ParentInv reqOf F)
     (hpin : ∀ q ∈ F.gowners, ∀ req ∈ reqOf d, q.id.step = req.step → q.id = req)
-    (hkey : ∀ p, F.map_parent = some p → p.step + 1 = F.current_step) :
+    (hkey : ∀ p, F.map_parent = some p → p.step + 1 = F.current_step)
+    (htl : ParentId.TL F) (hpos : 0 < F.current_step) :
     LitInv reqOf (addNode F d title) := by
-  have hnewp : (newPid F d).id.step = d.step := rfl
+  -- a row identifier's parent record is `map_parent`, by `TL`
+  have hrowpar : ∀ pid ∈ newRowIds F d, ∀ p, pid.parent_id = some p → F.map_parent = some p := by
+    intro pid hpid p hp
+    obtain ⟨r, hr, rfl⟩ := exists_shift_of_mem_newRowIds F d pid hpos hpid
+    have hrp : (some r.id : Option NodeId) = some p := hp
+    unfold newParents at hr
+    rw [if_pos hpos] at hr
+    obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hr
+    have := htl nr (List.mem_filter.mp hnr).1 (eq_of_beq (List.mem_filter.mp hnr).2)
+    rw [hnrid, hrp] at this
+    exact this.symm
   -- the new node's fixed literals are pinned in `F`'s global owners, and sit below the top
-  have hzfix : ∀ m, FixMap (addOwner (newPid F d) (upNode F d title)) m → ∀ l ∈ reqOf m,
+  have hzfix : ∀ pid ∈ newRowIds F d, ∀ m, FixMap (rowNode F d title pid) m → ∀ l ∈ reqOf m,
       (∀ q ∈ F.gowners, q.id.step = l.step → q.id = l) ∧ 0 ≤ l.step ∧ l.step < F.current_step := by
-    intro m hm l hl
+    intro pid hpid m hm l hl
     rcases hm with hm | hm
-    · have hmd : m = d := hm
+    · have hmd : m = d := by
+        rw [hm, rowNode_id, mapId_of_mem_newRowIds F d pid hpid]
       subst hmd
       exact ⟨fun q hq hs => hpin q hq l hl hs, hnonneg _ l hl, by have := hback _ l hl; omega⟩
-    · have hp : F.map_parent = some m := hm
+    · have hp : F.map_parent = some m := hrowpar pid hpid m hm
       exact ⟨fun q hq hs => hpi.kp m hp q hq l hl hs, hnonneg _ l hl,
         by have := hback _ l hl; have := hkey m hp; omega⟩
   -- an old node's fixed literals: its owners there are the literal, and they sit below its step
@@ -154,32 +163,32 @@ theorem LitInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
         by have := hback _ l hl; have := hpi.ps n hn m hm; omega⟩
   refine ⟨?_, ?_⟩
   · intro n' hn' m hm l hl w hw req hreq hs
-    rcases mem_addNode_nodes hn' with ⟨n, hn, rfl⟩ | rfl
+    rcases mem_addNode_nodes hn' with ⟨n, hn, rfl⟩ | ⟨pid, hpid, rfl⟩
     · have hmn : FixMap n m := by unfold FixMap at hm ⊢; rw [upMap_id] at hm; exact hm
       rw [upMap_owners] at hw
       rcases List.mem_append.mp hw with hw | hw
       · exact h.own n hn m hmn l hl w hw req hreq hs
-      · have hwz := List.mem_singleton.mp hw
-        subst hwz
+      · -- the gained owner is a row id, so its requirements are `reqOf d`
+        have hwd : w.id = d := mapId_of_mem_newRowIds F d w (gainedOwners_subset F d n w hw)
+        rw [hwd] at hreq
         obtain ⟨hlit, hl0, hlt⟩ := hnfix n hn m hmn l hl
         obtain ⟨u, hu, hus, hug⟩ := hownF n hn l.step hl0 (by have := hbelow n hn; omega)
         have hul := hlit u hu hus
         have hureq := hpin u hug req hreq (by rw [hus, hs])
         rw [← hureq, hul]
-    · have hq' : w ∈ F.gowners ++ [newPid F d] := hw
-      obtain ⟨hpinned, hl0, hlt⟩ := hzfix m hm l hl
-      rcases List.mem_append.mp hq' with hw | hw
+    · rw [rowNode_owners] at hw
+      obtain ⟨hpinned, hl0, hlt⟩ := hzfix pid hpid m hm l hl
+      rcases rowOwners_mem_gowners_or_self F d pid w hw with hw | rfl
       · obtain ⟨x, hx, hxid⟩ := hgn w hw
         obtain ⟨u, hu, hus, hug⟩ := hownF x hx l.step hl0 hlt
         have hul := hpinned u hug hus
         have hreqx : req ∈ reqOf x.id.id := by rw [hxid]; exact hreq
         have hureq := hrf x hx req hreqx u hu (by rw [hus, hs])
         rw [← hureq, hul]
-      · have hwz := List.mem_singleton.mp hw
-        subst hwz
-        have hreqd : req ∈ reqOf d := hreq
+      · have hwd : w.id = d := mapId_of_mem_newRowIds F d w hpid
+        have hreqd : req ∈ reqOf d := by rwa [hwd] at hreq
         rcases hm with hm | hm
-        · have hmd : m = d := hm
+        · have hmd : m = d := by rw [hm, rowNode_id, hwd]
           subst hmd
           exact hdist _ req hreqd l hl hs
         · have hent := hasStepEntry_of_isValid F hv l.step hl0 hlt
@@ -189,21 +198,21 @@ theorem LitInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
           have hqr := hpin q hq req hreqd (by rw [hqs, hs])
           rw [← hqr, hql]
   · intro n' hn' m hm l hl req hreq w hw hs
-    rcases mem_addNode_nodes hn' with ⟨n, hn, rfl⟩ | rfl
+    rcases mem_addNode_nodes hn' with ⟨n, hn, rfl⟩ | ⟨pid, hpid, rfl⟩
     · have hmn : FixMap n m := by unfold FixMap at hm ⊢; rw [upMap_id] at hm; exact hm
       rw [upMap_owners] at hw
       rcases List.mem_append.mp hw with hw | hw
       · exact h.twin n hn m hmn l hl req hreq w hw hs
       · exfalso
-        have hwz := List.mem_singleton.mp hw
-        subst hwz
         obtain ⟨_, _, hlt⟩ := hnfix n hn m hmn l hl
         have h1 := hback l req hreq
         have h2 := hbelow n hn
+        rw [mapId_of_mem_newRowIds F d w (gainedOwners_subset F d n w hw)] at hs
+        rw [hd] at hs
         omega
-    · have hq' : w ∈ F.gowners ++ [newPid F d] := hw
-      obtain ⟨hpinned, hl0, hlt⟩ := hzfix m hm l hl
-      rcases List.mem_append.mp hq' with hw | hw
+    · rw [rowNode_owners] at hw
+      obtain ⟨hpinned, hl0, hlt⟩ := hzfix pid hpid m hm l hl
+      rcases rowOwners_mem_gowners_or_self F d pid w hw with hw | rfl
       · obtain ⟨x, hx, hxid⟩ := hgn w hw
         obtain ⟨u, hu, hus, hug⟩ := hownF x hx l.step hl0 hlt
         have hul := hpinned u hug hus
@@ -212,9 +221,9 @@ theorem LitInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
         rw [← hxid]
         exact hx'
       · exfalso
-        have hwz := List.mem_singleton.mp hw
-        subst hwz
         have h1 := hback l req hreq
+        rw [mapId_of_mem_newRowIds F d w hpid] at hs
+        rw [hd] at hs
         omega
 
 /-- **Owners agree with the literals a node's id fixes, in every state the machine builds.** -/
@@ -255,6 +264,8 @@ theorem LitInv_reachable (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
           (UnitPropagation.OwnedCompatible_reachable reqOf hback hnonneg g hr))
         (ParentInv_of_pruned reqOf hpr (ParentInv_reachable reqOf hback g hr))
         (fun q hq req hreq hs => filterAll_cleans_gowner g (reqOf d) req q hreq hq hs) hkey
+        (ParentId.TL_of_pruned hpr (ParentId.TL_reachable reqOf g hr))
+        (by rw [hpr.step_eq]; exact NodeInvariant.pos_reachable reqOf g hr)
       · intro n hn k h0 hk
         have hnode := node?_of_mem hnd n hn
         have hvalid := review_node_valid ((reqOf d).foldl filterRequire g) hv n.id n hnode

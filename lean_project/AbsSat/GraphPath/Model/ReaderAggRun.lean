@@ -3,7 +3,6 @@ import AbsSat.GraphPath.Model.ReaderAgg
 import AbsSat.GraphPath.Model.ConservationImproves
 import AbsSat.GraphPath.Model.PrefixDecode
 import AbsSat.GraphPath.Model.ParentOwners
-import AbsSat.GraphPath.Model.SymTriReview
 import AbsSat.GraphPath.Model.AnchoredSurvive
 import AbsSat.GraphPath.Model.AggInvariants
 
@@ -155,14 +154,14 @@ theorem MInv_addNode (hwf : WF φ) (F : GPathM) (d : NodeId) (title : String)
     (hcl : ∀ req ∈ reqOfCnf φ d, ∀ q ∈ F.gowners, q.id.step = req.step → q.id = req)
     (h : MInv φ F) : MInv φ (addNode F d title) := by
   have hc := h.rctx
-  have hBelow : SymTriReview.Below F := fun n hn => ⟨hc.snn n hn, hc.below n hn⟩
+  have hBelow : SelfOwn.Below F := fun n hn => ⟨hc.snn n hn, hc.below n hn⟩
   have hup : up F d title = addNode F d title := by simp only [GPathM.up, hv, if_pos]
   refine ⟨⟨SelfOwn.OOS_addNode F d title hd hc.below hc.gn hc.oos,
       SelfOwn.SNN_addNode F d title hd h.mok hc.snn, GownersNodes.GN_addNode F d title hc.gn,
       ⟨Parents.PN_addNode F d title hc.shape.pn, Parents.PBelow_addNode F d title hd hc.shape.pbelow,
         Parents.NotRoot_addNode F d title hd h.mok hc.shape.notroot⟩,
       Sons.RootAtZero_addNode F d title hd h.mok hc.rootz, ParentId.PMP_addNode F d title h.tl hc.pmp,
-      fun n hn => (SymTriReview.Below_addNode F d title hd h.mok hBelow n hn).2,
+      fun n hn => (SelfOwn.Below_addNode F d title hd h.mok hBelow n hn).2,
       Reader.nodup_addNode F d title hc.nodup hc.below hd⟩,
     MachineOk_addNode F d title h.mok, ParentId.TL_addNode F d title hd hc.below, ?_, ?_,
     by rw [← hup]; exact NodesOnMap_up φ F d title hdm h.onMap,
@@ -216,15 +215,15 @@ theorem MInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : M
     MInv φ (join g₁ g₂) := by
   have c₁ := h₁.rctx
   have c₂ := h₂.rctx
-  have hB₁ : SymTriReview.Below g₁ := fun n hn => ⟨c₁.snn n hn, c₁.below n hn⟩
-  have hB₂ : SymTriReview.Below g₂ := fun n hn => ⟨c₂.snn n hn, c₂.below n hn⟩
+  have hB₁ : SelfOwn.Below g₁ := fun n hn => ⟨c₁.snn n hn, c₁.below n hn⟩
+  have hB₂ : SelfOwn.Below g₂ := fun n hn => ⟨c₂.snn n hn, c₂.below n hn⟩
   refine ⟨⟨SelfOwn.OOS_join g₁ g₂ c₁.oos c₂.oos, SelfOwn.SNN_join g₁ g₂ c₁.snn c₂.snn,
       GownersNodes.GN_join g₁ g₂ c₁.gn c₂.gn,
       ⟨Parents.PN_join g₁ g₂ c₁.shape.pn c₂.shape.pn,
         Parents.PBelow_join g₁ g₂ c₁.shape.pbelow c₂.shape.pbelow,
         Parents.NotRoot_join g₁ g₂ c₁.shape.notroot c₂.shape.notroot⟩,
       Sons.RootAtZero_join g₁ g₂ c₁.rootz c₂.rootz, ParentId.PMP_join g₁ g₂ c₁.pmp c₂.pmp,
-      fun n hn => (SymTriReview.Below_join g₁ g₂ hok hB₁ hB₂ n hn).2,
+      fun n hn => (SelfOwn.Below_join g₁ g₂ hok hB₁ hB₂ n hn).2,
       Reader.nodup_join g₁ g₂ c₁.nodup c₂.nodup⟩,
     Certifies.MachineOk_join g₁ g₂ h₁.mok, ParentId.TL_join g₁ g₂ hok h₁.tl h₂.tl,
     join_preserves_ReqFiltered (reqOfCnf φ) h₁.rf h₂.rf hok, ?_,
