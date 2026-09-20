@@ -307,6 +307,86 @@ theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : C
 #guard_msgs in
 #print axioms AOk_cimaSweep
 
+
+-- ============================================================
+-- The fixpoint: at the end, every entry has a good top
+-- ============================================================
+
+open AbsSat.GraphPath.Model.AggFixpoint (EqOrLt eqOrLt_foldl foldl_noProgress weight_drop_lt
+  weight_uniMap_le measure_updateAt_uniMap_lt mem_reverse_intRange)
+
+theorem cimaPair_eqOrLt (sides : List GPathM) (g : GPathM) (x w : PathNodeId) :
+    EqOrLt g (cimaPair sides g x w) := by
+  unfold cimaPair
+  split
+  · next nx nw hx hw =>
+    split
+    · next hcond =>
+      have hmem : w ∈ nx.owners := by
+        simp only [Bool.and_eq_true] at hcond
+        exact List.contains_iff_mem.mp hcond.1
+      refine Or.inr (Nat.lt_of_le_of_lt ?_
+        (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem)))
+      exact GPathM.measure_updateAt_le _ w _ (fun n => weight_uniMap_le _ n)
+    · exact Or.inl rfl
+  · exact Or.inl rfl
+
+theorem measure_cimaPair_lt (sides : List GPathM) (g : GPathM) (x w : PathNodeId) (nx nw : PNodeM)
+    (hx : g.node? x = some nx) (hw : g.node? w = some nw) (hmem : w ∈ nx.owners)
+    (hfire : cimaOk sides g x w = false) :
+    GPathM.measure (cimaPair sides g x w) < GPathM.measure g := by
+  have hcw : nx.owners.contains w = true := List.contains_iff_mem.mpr hmem
+  have heq : cimaPair sides g x w = dropOwnerPair g x w nx.owners nw.owners := by
+    unfold cimaPair
+    rw [hx, hw]
+    simp only [hcw, hfire, Bool.not_false, Bool.and_self, if_pos]
+  rw [heq]
+  refine Nat.lt_of_le_of_lt ?_ (measure_updateAt_uniMap_lt g x _ nx hx (weight_drop_lt nx w hmem))
+  exact GPathM.measure_updateAt_le _ w _ (fun n => weight_uniMap_le _ n)
+
+/-- **The test the rule leaves behind**: every live entry has a good top. -/
+def CimaOk (sides : List GPathM) (g : GPathM) : Prop :=
+  ∀ x nx w, g.node? x = some nx → (g.node? w).isSome = true →
+    0 ≤ x.id.step → x.id.step < g.current_step →
+    0 ≤ w.id.step → w.id.step < g.current_step →
+    w ∈ nx.owners → cimaOk sides g x w = true
+
+/-- **If the sweep does not lower the measure of a valid state, the state passes the test.** -/
+theorem cimaOk_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = true)
+    (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g) : CimaOk sides g := by
+  intro x nx w hx hw hx1 hx2 hw1 hw2 hmem
+  cases hok : cimaOk sides g x w with
+  | true => rfl
+  | false =>
+    exfalso
+    obtain ⟨nw, hnw⟩ := Option.isSome_iff_exists.mp hw
+    have hsweep : cimaSweep sides g = (intRange 0 (g.current_step - 1)).reverse.foldl
+        (fun g k => ((g.line k).map (·.id)).foldl (cimaNode sides) g) g := by
+      unfold cimaSweep
+      rw [if_pos hv]
+    rw [hsweep] at hnp
+    have hnodeEq : ∀ g' (x' : PathNodeId), EqOrLt g' (cimaNode sides g' x') := by
+      intro g' x'
+      unfold cimaNode
+      split
+      · exact Or.inl rfl
+      · next nx' _ => exact eqOrLt_foldl _ (fun g'' w' => cimaPair_eqOrLt sides g'' x' w') _ g'
+    have houter := foldl_noProgress _
+      (fun g' k => eqOrLt_foldl _ (fun g'' x' => hnodeEq g'' x') _ g') _ g hnp x.id.step
+      (mem_reverse_intRange hx1 (by omega))
+    have hline : x ∈ (g.line x.id.step).map (·.id) := mem_line_of_node? g x nx hx _ rfl
+    have hinner := foldl_noProgress _ (fun g' x' => hnodeEq g' x') _ g
+      (by rw [houter]; exact Nat.lt_irrefl _) x hline
+    have hfold : nx.owners.foldl (fun g' w' => cimaPair sides g' x w') g = g := by
+      have : cimaNode sides g x = nx.owners.foldl (fun g' w' => cimaPair sides g' x w') g := by
+        unfold cimaNode; rw [hx]
+      rw [← this]; exact hinner
+    have hpair := foldl_noProgress _ (fun g' w' => cimaPair_eqOrLt sides g' x w') _ g
+      (by rw [hfold]; exact Nat.lt_irrefl _) w hmem
+    have hlt := measure_cimaPair_lt sides g x w nx nw hx hnw hmem hok
+    rw [hpair] at hlt
+    exact Nat.lt_irrefl _ hlt
+
 -- ============================================================
 -- The review of a union: the aggressive review and the rule, to their fixpoint
 -- ============================================================
@@ -418,6 +498,62 @@ theorem AOk_filterAllCima (sides : List GPathM) (g : GPathM) (h : AOk g S R) (re
           (AnchoredSurvive.AOk_filterRequire h' hw x (hx x List.mem_cons_self))
     exact main reqs hpin g h
   · exact hC
+
+
+-- ============================================================
+-- The machine: the line advance with the sides
+-- ============================================================
+
+open AbsSat.Cnf
+open AbsSat.GraphMap.CnfMap
+open AbsSat.GraphMap.CnfSel
+open AbsSat.GraphPath.Model.PureDriver (PureLine pureInit)
+open AbsSat.GraphPath.Model.PureDriverImproves (pureAdvanceW)
+open AbsSat.GraphPath.Model.BranchLines (sent)
+
+variable (φ : Cnf)
+
+/-- The sides that build the union of key `p`: the valid sends of the line into `p`. -/
+def sidesOf (L : PureLine) (p : NodeId) : List GPathM :=
+  L.filterMap (fun kv =>
+    if (mapSons φ kv.1.step kv.1.index).contains p && isValid (sent φ kv.2 p) then
+      some (sent φ kv.2 p)
+    else none)
+
+/-- **One line of `ImprovesCima`**: the line of `Improves`, and then, per key, the review of the union
+with the rule of the top, which reads the sides that built it. -/
+def advanceCima (L : PureLine) : PureLine :=
+  (pureAdvanceW φ L).map (fun kv => (kv.1, reviewCima (sidesOf φ L kv.1) kv.2))
+
+def stepsCima : Nat → PureLine → PureLine
+  | 0, L => L
+  | n + 1, L => stepsCima n (advanceCima φ L)
+
+/-- The whole run. An empty result is the UNSAT answer, as in `Improves`. -/
+def runCima : PureLine := stepsCima φ (stepCount φ - 1).toNat (pureInit φ)
+
+/-- Each state of a line of `ImprovesCima` is a narrowing of the same state in `Improves`. -/
+theorem keeps_advanceCima (L : PureLine) (kv : NodeId × GPathM) (hkv : kv ∈ advanceCima φ L) :
+    ∃ g, (kv.1, g) ∈ pureAdvanceW φ L ∧ Keeps g kv.2 := by
+  obtain ⟨kv', hkv', he⟩ := List.mem_map.mp hkv
+  refine ⟨kv'.2, ?_, ?_⟩
+  · rw [show kv.1 = kv'.1 from by rw [← he]]; exact hkv'
+  · rw [← he]; exact keeps_reviewCima _ _
+
+/-- **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every entry with a
+good top (`cimaOk_of_noProgress`), so the family the top names is closed. Two bridges are missing:
+
+* `reachTops` accepts an explicit chain: a path's own nodes make its top reachable;
+* a side carries the pairs of the paths that reach its top (branch completeness, already proved for
+  `Improves`, to be carried over).
+
+With them, a genuine path always has a good top, so `Carried` holds and the machine loses no solution;
+and `HereditaryValid.ChainClosureAt` follows from `CimaOk`, which closes the verdict through route C. -/
+def Bridges : Prop :=
+  (∀ (g : GPathM) (a b t : PathNodeId), t.id.step = g.current_step - 1 →
+      PinDeath.ChainUp2 g a b a t → t ∈ reachTops g a b) ∧
+  (∀ (sides : List GPathM) (t a b : PathNodeId), (∃ S ∈ sides, (S.node? t).isSome = true ∧
+      EmbeddedSupport.Rel S a b ∧ EmbeddedSupport.Rel S b a) → carries sides t a b = true)
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_filterAllCima' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
