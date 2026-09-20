@@ -735,6 +735,46 @@ theorem keeps_agg_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List 
     Keeps (AggressiveReview.filterAllAgg g reqs) (filterAllCima sides g reqs) :=
   keeps_agg_reviewCima sides (reqs.foldl filterRequire g)
 
+/-- The sons invariants survive the whole review of a union. -/
+theorem sons_reviewCimaFuel (sides : List GPathM) : ∀ (fuel : Nat) (g : GPathM),
+    Sons.SMP g → Sons.PMS g → Sons.SN g → Parents.NotRoot g →
+    Sons.SMP (reviewCimaFuel sides fuel g) ∧ Sons.PMS (reviewCimaFuel sides fuel g) ∧
+      Sons.SN (reviewCimaFuel sides fuel g) := by
+  have hagg : ∀ g : GPathM, Sons.SMP g → Sons.PMS g → Sons.SN g → Parents.NotRoot g →
+      Sons.SMP (reviewAgg g) ∧ Sons.PMS (reviewAgg g) ∧ Sons.SN (reviewAgg g) := by
+    intro g h1 h2 h3 h4
+    exact ⟨AnchoredSurvive.SMP_filterAllAgg g h1 h4 [], AggInvariants.PMS_filterAllAgg g [] h2,
+      AggInvariants.SN_filterAllAgg g [] h3⟩
+  intro fuel
+  induction fuel with
+  | zero => intro g h1 h2 h3 h4; exact hagg g h1 h2 h3 h4
+  | succ n ih =>
+    intro g h1 h2 h3 h4
+    obtain ⟨a1, a2, a3⟩ := hagg g h1 h2 h3 h4
+    have a4 : Parents.NotRoot (reviewAgg g) :=
+      Parents.NotRoot_of_pruned (ReaderAggRun.keeps_reviewAggFuel _ g).1 h4
+    simp only [reviewCimaFuel]
+    split
+    · split
+      · obtain ⟨b1, b2, b3⟩ := sons_pruneSweep (cimaOk sides) (reviewAgg g) a1 a2 a3
+        exact ih _ b1 b2 b3 (Parents.NotRoot_of_pruned (keeps_cimaSweep sides _).1 a4)
+      · exact ⟨a1, a2, a3⟩
+    · exact ⟨a1, a2, a3⟩
+
+theorem sons_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId)
+    (h1 : Sons.SMP g) (h2 : Sons.PMS g) (h3 : Sons.SN g) (h4 : Parents.NotRoot g) :
+    Sons.SMP (filterAllCima sides g reqs) ∧ Sons.PMS (filterAllCima sides g reqs) ∧
+      Sons.SN (filterAllCima sides g reqs) := by
+  refine sons_reviewCimaFuel sides _ _ ?_ ?_ ?_ ?_
+  · exact BranchLines.foldl_inv filterRequire Sons.SMP reqs
+      (fun g' r _ hg' => Sons.SMP_filterRequire g' r hg') g h1
+  · exact BranchLines.foldl_inv filterRequire Sons.PMS reqs
+      (fun g' r _ hg' => Sons.PMS_filterRequire g' r hg') g h2
+  · exact BranchLines.foldl_inv filterRequire Sons.SN reqs
+      (fun g' r _ hg' => Sons.SN_filterRequire g' r hg') g h3
+  · exact Parents.NotRoot_of_pruned
+      (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g).1 h4
+
 /-- **The review of a union loses no solution**, given the rule's hypothesis along the way. -/
 theorem ChainSound_reviewCimaFuel (sides : List GPathM) (sel : Int → PathNodeId) :
     ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → ChainSound g sel → Carried sides g₀ sel →
@@ -1178,6 +1218,71 @@ theorem sup_of_famSide (Y S : GPathM)
   · intro x c d h1 h2 hstep hn
     obtain ⟨na, hna, hmem⟩ := (hside x c h1).2.2 hstep
     rw [hn] at hna; cases hna; exact hmem
+
+/-- **The side's pinned send stays live.** With the family as its support, the send survives the pins:
+the family's nodes are nodes of the pinned union, so they respect the pins, and a support that survives
+them leaves the state live. This is the conclusion `HereditaryValid.TopValidAt` asks for. -/
+theorem valid_pinned_of_famSide (Y S : GPathM) (Q : List NodeId) (t : PathNodeId)
+    (hY : AnchoredSurvive.Sup Y (EmbeddedSupport.Mem Y) (Rel Y))
+    (hadj : AdjacentOwners.Adj Y) (hcs : Y.current_step = S.current_step)
+    (hside : ∀ a b, Rel Y a b → Rel S a b ∧ Rel S b a ∧
+      (b.id.step + 1 = a.id.step → ∃ na, S.node? a = some na ∧ b ∈ na.parents))
+    (hgow : ∀ q n, S.node? q = some n → ∀ z ∈ n.owners, 0 ≤ z.id.step →
+      z.id.step < S.current_step → z ∈ S.gowners)
+    (hmemY : EmbeddedSupport.Mem Y t)
+    (hsmpS : Sons.SMP S) (hnrS : Parents.NotRoot S)
+    (hpin : ∀ r ∈ Q, ∀ x, EmbeddedSupport.Mem Y x → x.id.step = r.step → x.id = r) :
+    isValid (AggressiveReview.filterAllAgg S Q) = true :=
+  SupportSplit.valid_of_sup _ _ _
+    (AnchoredSurvive.AOk_filterAllAgg S ⟨sup_of_famSide Y S hY hadj hcs hside hgow, hsmpS, hnrS⟩
+      Q hpin).sup t hmemY
+
+/-- **From one good top to the side's pinned send.** Everything the rule leaves is here: the family is
+live, it holds the top, it is a support of the send, and its nodes are nodes of the pinned union, so
+they respect the pins. -/
+theorem valid_pinned_of_goodFor (sides : List GPathM) (X S : GPathM) (Q : List NodeId)
+    (t v : PathNodeId)
+    (hrc : Reader.RCtx X) (hsmp : Sons.SMP X) (hpms : Sons.PMS X) (hsn : Sons.SN X)
+    (hcsXS : X.current_step = S.current_step)
+    (hside : ∀ a b, Rel (famFix sides t X) a b → 0 ≤ a.id.step → a.id.step < X.current_step →
+      0 ≤ b.id.step → b.id.step < X.current_step →
+      Rel S a b ∧ Rel S b a ∧
+        (b.id.step + 1 = a.id.step → ∃ na, S.node? a = some na ∧ b ∈ na.parents))
+    (hgow : ∀ q n, S.node? q = some n → ∀ z ∈ n.owners, 0 ≤ z.id.step →
+      z.id.step < S.current_step → z ∈ S.gowners)
+    (hpinX : ∀ r ∈ Q, ∀ x, EmbeddedSupport.Mem X x → x.id.step = r.step → x.id = r)
+    (hsmpS : Sons.SMP S) (hnrS : Parents.NotRoot S)
+    (hgood : goodFor sides X t t v = true) :
+    isValid (AggressiveReview.filterAllAgg S Q) = true := by
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  have hvY : isValid (famFix sides t X) = true := hgood.1.1
+  have hrel : Rel (famFix sides t X) t v :=
+    (rel_of_owners _ t v hgood.1.2 hgood.2).1
+  have hcsY : (famFix sides t X).current_step = X.current_step := (keeps_famFix sides t X).1.step_eq
+  have hadj := (adj_famFix sides t X hrc hsmp hpms hsn hvY).1
+  have hbnd : ∀ x, EmbeddedSupport.Mem (famFix sides t X) x →
+      0 ≤ x.id.step ∧ x.id.step < X.current_step := by
+    intro x hx
+    have := EmbeddedSupport.mem_bounds _ hadj hx
+    rw [hcsY] at this; exact this
+  have hmemX : ∀ x, EmbeddedSupport.Mem (famFix sides t X) x → EmbeddedSupport.Mem X x := by
+    intro x hx
+    obtain ⟨n, hn⟩ := hx
+    obtain ⟨n0, hn0, hid, _, _⟩ :=
+      (keeps_famFix sides t X).1.nodes_derived n (List.mem_of_find?_eq_some hn)
+    exact ⟨n0, by rw [← node?_id_eq _ x n hn, hid]; exact node?_of_mem hrc.nodup n0 hn0⟩
+  refine valid_pinned_of_famSide (famFix sides t X) S Q t
+    (sup_famFix sides t X hrc hsmp hpms hsn hvY) hadj (by rw [hcsY]; exact hcsXS) ?_ hgow
+    (by obtain ⟨n, hn, _, _⟩ := hrel; exact ⟨n, hn⟩)
+    hsmpS hnrS ?_
+  · intro a b hab
+    have hab' := hab
+    obtain ⟨na, hna, _, hmb⟩ := hab'
+    have ha := hbnd a ⟨na, hna⟩
+    have hb := hbnd b hmb
+    exact hside a b hab ha.1 ha.2 hb.1 hb.2
+  · intro r hr x hx hs
+    exact hpinX r hr x (hmemX x hx) hs
 
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
