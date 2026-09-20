@@ -77,7 +77,7 @@ theorem TopKey_addNode (g : GPathM) (d : NodeId) (title : String)
     rcases List.mem_append.mp hq with hq | hq
     · obtain ⟨hq0, hq1⟩ := hb q hq
       exact ⟨hq0, by omega⟩
-    · rw [List.mem_singleton.mp hq]
+    · rw [mapId_of_mem_newRowIds g d q hq]
       show 0 ≤ d.step ∧ d.step < g.current_step + 1
       exact ⟨by omega, by omega⟩
   · intro q hq hqs
@@ -87,7 +87,7 @@ theorem TopKey_addNode (g : GPathM) (d : NodeId) (title : String)
     rcases List.mem_append.mp hq with hq | hq
     · obtain ⟨_, hq1⟩ := hb q hq
       exact absurd hqs (by omega)
-    · rw [List.mem_singleton.mp hq]; rfl
+    · rw [mapId_of_mem_newRowIds g d q hq]
 
 theorem TopKey_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : TopKey g) : TopKey g' := by
   obtain ⟨h0, hb, ht⟩ := h
@@ -220,13 +220,40 @@ theorem SupportedS_addNode (g : GPathM) (d : NodeId) (title : String)
     refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hsel, ?_⟩
     rw [extend_below g d sel pid.id.step hstep]
     exact htop
-  · simp only [List.mem_singleton] at hr
-    have hpid : pid = newPid g d := by rw [← hid, hr]; rfl
-    obtain ⟨sel, hsel⟩ := hinh
-    refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hsel, ?_⟩
-    rw [hpid]
-    rw [show (newPid g d).id.step = g.current_step from by simp only [newPid]; exact hd]
-    exact extend_top g d sel
+  · -- a node of the new row: the chain that supports one of its parents
+    obtain ⟨q, hq, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+    rw [rowNode_id] at hid
+    subst hid
+    have hstepq : q.id.step = g.current_step := by
+      rw [mapId_of_mem_newRowIds g d q hq]; exact hd
+    by_cases hpos : 0 < g.current_step
+    · obtain ⟨p, hp⟩ : ∃ p, p ∈ rowParents g d q := by
+        obtain ⟨r, hr', hrq⟩ := exists_shift_of_mem_newRowIds g d q hpos hq
+        exact ⟨r, List.mem_filter.mpr ⟨hr', beq_iff_eq.mpr hrq.symm⟩⟩
+      have hpmem : p ∈ newParents g := rowParents_subset g d q p hp
+      have hpline : p ∈ (g.line (g.current_step - 1)).map (·.id) := by
+        unfold newParents at hpmem; rwa [if_pos hpos] at hpmem
+      obtain ⟨np, hnp, hnq⟩ := List.mem_map.mp hpline
+      have hmemp : np ∈ g.nodes := (List.mem_filter.mp hnp).1
+      have hsomep : (g.node? p).isSome = true := by
+        have := node?_isSome_of_mem g np hmemp; rwa [hnq] at this
+      obtain ⟨mp, hmp⟩ := Option.isSome_iff_exists.mp hsomep
+      obtain ⟨sel, hsel, htop⟩ := hsup p mp hmp
+      have hpstep : p.id.step = g.current_step - 1 := by
+        rw [← hnq]; exact eq_of_beq (List.mem_filter.mp hnp).2
+      have hselp : sel (g.current_step - 1) = p := by rw [← hpstep]; exact htop
+      refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hsel, ?_⟩
+      rw [hstepq, extend_top]
+      unfold extendPid
+      rw [if_pos hpos, hselp]
+      exact shiftPid_of_mem_rowParents g d q p hp
+    · obtain ⟨sel, hsel⟩ := hinh
+      refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hsel, ?_⟩
+      rw [hstepq, extend_top]
+      unfold extendPid
+      rw [if_neg hpos]
+      rw [newRowIds_of_zero g d hpos] at hq
+      exact (List.mem_singleton.mp hq).symm
 
 /-- A valid state with support has a chain: take any global owner at step 0. -/
 theorem chain_of_SupportedS (g : GPathM) (hgn : GownersNodes.GN g) (hsup : SupportedS g)

@@ -120,6 +120,7 @@ theorem RCtx_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : RCtx g) : RCtx g' w
   shape := Parents.Shape_of_pruned_pn hk.1 (hk.2.2.1 h.shape.pn) h.shape
   rootz := Sons.RootAtZero_of_pruned hk.1 h.rootz
   pmp := ParentId.PMP_of_pruned hk.1 h.pmp
+  gpmp := ParentId.GPMP_of_pruned hk.1 h.gpmp
   below := Certifies.nodes_below_of_pruned hk.1 h.below
   nodup := List.Sublist.nodup hk.2.2.2 h.nodup
 

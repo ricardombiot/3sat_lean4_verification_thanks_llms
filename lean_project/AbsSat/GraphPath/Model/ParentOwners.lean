@@ -36,12 +36,13 @@ open AbsSat.GraphPath.Model.GPathM
 
 theorem mem_addNode_nodes {F : GPathM} {d : NodeId} {title : String} {n' : PNodeM}
     (hn : n' ∈ (addNode F d title).nodes) :
-    (∃ m ∈ F.nodes, n' = upMap F d m) ∨ n' = addOwner (newPid F d) (upNode F d title) := by
+    (∃ m ∈ F.nodes, n' = upMap F d m) ∨
+    (∃ pid ∈ newRowIds F d, n' = rowNode F d title pid) := by
   rw [addNode_nodes] at hn
   rcases List.mem_append.mp hn with h | h
   · obtain ⟨m, hm, heq⟩ := List.mem_map.mp h
     exact Or.inl ⟨m, hm, heq.symm⟩
-  · exact Or.inr (List.mem_singleton.mp h)
+  · exact Or.inr ((mem_newRow_iff F d title n').mp h)
 
 theorem mem_join_nodes' {g₁ g₂ : GPathM} {n : PNodeM} (hn : n ∈ (join g₁ g₂).nodes) :
     (∃ a ∈ g₁.nodes, n.id = a.id ∧
@@ -116,6 +117,7 @@ theorem ParentInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
     (F : GPathM) (d : NodeId) (title : String) (h : ParentInv reqOf F)
     (hd : d.step = F.current_step) (hbelow : ∀ n ∈ F.nodes, n.id.id.step < F.current_step)
     (htk : NodeInvariant.TopKey F) (hv : isValid F = true) (hpos : 0 < F.current_step)
+    (htl : ParentId.TL F)
     (hpin : ∀ q ∈ F.gowners, ∀ req ∈ reqOf d, q.id.step = req.step → q.id = req) :
     ParentInv reqOf (addNode F d title) := by
   have hkey : ∀ p, F.map_parent = some p → p.step + 1 = F.current_step := by
@@ -128,66 +130,95 @@ theorem ParentInv_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
     have hpq : p = q.id := Option.some.inj htop
     rw [hpq]
     omega
-  have hnew : (addOwner (newPid F d) (upNode F d title)).id.id.step = d.step := rfl
-  have hnewp : (newPid F d).id.step = d.step := rfl
+  -- a row identifier records its parent, and by `TL` that parent is `map_parent`
+  have hrowpar : ∀ pid ∈ newRowIds F d, ∀ p, pid.parent_id = some p → F.map_parent = some p := by
+    intro pid hpid p hp
+    obtain ⟨r, hr, rfl⟩ := exists_shift_of_mem_newRowIds F d pid hpos hpid
+    have hrp : (some r.id : Option NodeId) = some p := hp
+    unfold newParents at hr
+    rw [if_pos hpos] at hr
+    obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hr
+    have := htl nr (List.mem_filter.mp hnr).1 (eq_of_beq (List.mem_filter.mp hnr).2)
+    rw [hnrid, hrp] at this
+    exact this.symm
+  have hrowstep : ∀ pid ∈ newRowIds F d, pid.id.step = d.step := by
+    intro pid hpid; rw [mapId_of_mem_newRowIds F d pid hpid]
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro n' hn' q hq hs
-    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_owners] at hq
       rw [upMap_id] at hs ⊢
       rcases List.mem_append.mp hq with hq | hq
       · exact h.po m hm q hq hs
-      · rw [List.mem_singleton.mp hq] at hs
+      · rw [hrowstep q (gainedOwners_subset F d m q hq)] at hs
         have := hbelow m hm
         omega
-    · have hq' : q ∈ F.gowners ++ [newPid F d] := hq
-      rcases List.mem_append.mp hq' with hq | hq
-      · exact (htk.2.2 q hq (by omega)).symm
-      · rw [List.mem_singleton.mp hq] at hs
+    · rw [rowNode_owners] at hq
+      rw [rowNode_id] at hs ⊢
+      rw [hrowstep _ hpid] at hs
+      rcases rowOwners_mem_gowners_or_self F d pid q hq with hq | rfl
+      · have hmp := (htk.2.2 q hq (by omega)).symm
+        obtain ⟨r, hr, rfl⟩ := exists_shift_of_mem_newRowIds F d pid hpos hpid
+        show (some q.id : Option NodeId) = some r.id
+        -- both `q` and `r` sit at the top step of `F`, and `TL` pins that map id
+        have hrtl : F.map_parent = some r.id := by
+          unfold newParents at hr
+          rw [if_pos hpos] at hr
+          obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hr
+          have := htl nr (List.mem_filter.mp hnr).1 (eq_of_beq (List.mem_filter.mp hnr).2)
+          rw [hnrid] at this
+          exact this.symm
+        rw [← hmp] at hrtl
+        exact hrtl
+      · rw [hrowstep _ hpid] at hs
         omega
   · intro n' hn' p hp
-    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_id] at hp ⊢
       exact h.ps m hm p hp
-    · have hp' : F.map_parent = some p := hp
+    · rw [rowNode_id] at hp ⊢
+      have hp' : F.map_parent = some p := hrowpar pid hpid p hp
       have := hkey p hp'
+      rw [hrowstep _ hpid]
       omega
   · intro p hp q hq req hreq hs
     have hdp : d = p := Option.some.inj hp
     subst hdp
-    have hq' : q ∈ F.gowners ++ [newPid F d] := hq
-    rcases List.mem_append.mp hq' with hq | hq
+    rcases List.mem_append.mp hq with hq | hq
     · exact hpin q hq req hreq hs
-    · rw [List.mem_singleton.mp hq] at hs
+    · rw [hrowstep q hq] at hs
       have := hback d req hreq
       omega
   · intro n' hn' p hp req hreq q hq hs
-    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_id] at hp
       rw [upMap_owners] at hq
       rcases List.mem_append.mp hq with hq | hq
       · exact h.pr m hm p hp req hreq q hq hs
       · exfalso
-        rw [List.mem_singleton.mp hq] at hs
+        rw [hrowstep q (gainedOwners_subset F d m q hq)] at hs
         have h1 := h.ps m hm p hp
         have h2 := hback p req hreq
         have h3 := hbelow m hm
         omega
-    · have hp' : F.map_parent = some p := hp
-      have hq' : q ∈ F.gowners ++ [newPid F d] := hq
-      rcases List.mem_append.mp hq' with hq | hq
+    · rw [rowNode_id] at hp
+      rw [rowNode_owners] at hq
+      have hp' : F.map_parent = some p := hrowpar pid hpid p hp
+      rcases rowOwners_mem_gowners_or_self F d pid q hq with hq | rfl
       · exact h.kp p hp' q hq req hreq hs
       · exfalso
-        rw [List.mem_singleton.mp hq] at hs
+        rw [hrowstep _ hpid] at hs
         have h1 := hkey p hp'
         have h2 := hback p req hreq
         omega
   · intro n' hn' p hp req hreq hs
-    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_id] at hp hreq
       exact h.rp m hm p hp req hreq hs
-    · have hp' : F.map_parent = some p := hp
-      have hreq' : req ∈ reqOf d := hreq
+    · rw [rowNode_id] at hp hreq
+      have hp' : F.map_parent = some p := hrowpar pid hpid p hp
+      have hreq' : req ∈ reqOf d := by
+        rwa [mapId_of_mem_newRowIds F d pid hpid] at hreq
       have hent := hasStepEntry_of_isValid F hv (F.current_step - 1) (by omega) (by omega)
       simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
       obtain ⟨q, hq, hqs⟩ := hent
@@ -239,40 +270,39 @@ theorem ParentInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
 theorem ParentInv_initSeed (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
     (d : NodeId) (title : String) (hd : d.step = 0) : ParentInv reqOf (initSeed d title) := by
   have hseed : initSeed d title = addNode empty d title := rfl
-  have hnode : ∀ n ∈ (initSeed d title).nodes, n = addOwner (newPid empty d) (upNode empty d title) := by
+  have hnode : ∀ n ∈ (initSeed d title).nodes,
+      n = PNodeM.mk { id := d, parent_id := none } title [] []
+        [{ id := d, parent_id := none }] := by
     intro n hn
-    rw [hseed] at hn
-    rcases mem_addNode_nodes hn with ⟨m, hm, _⟩ | h
-    · exact absurd hm List.not_mem_nil
-    · exact h
-  have hnewp : (newPid empty d).id.step = d.step := rfl
+    have := initSeed_nodes d title
+    rw [this] at hn
+    exact List.mem_singleton.mp hn
+  have hgow : (initSeed d title).gowners = [{ id := d, parent_id := none }] := by
+    unfold GPathM.initSeed GPathM.up GPathM.addNode
+    simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry,
+      GPathM.newRowIds]
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro n hn q hq hs
     rw [hnode n hn] at hq hs
-    have hq' : q ∈ empty.gowners ++ [newPid empty d] := hq
-    rcases List.mem_append.mp hq' with hq | hq
-    · exact absurd hq List.not_mem_nil
-    · rw [List.mem_singleton.mp hq] at hs
-      have : (addOwner (newPid empty d) (upNode empty d title)).id.id.step = d.step := rfl
-      omega
+    rcases List.mem_singleton.mp hq with rfl
+    exact absurd hs (by simp only []; omega)
   · intro n hn p hp
     rw [hnode n hn] at hp
-    exact absurd hp (by simp [newPid, empty, addOwner, upNode])
+    exact absurd hp (by simp)
   · intro p hp q hq req hreq hs
     have hdp : d = p := Option.some.inj hp
     subst hdp
-    have hq' : q ∈ empty.gowners ++ [newPid empty d] := hq
-    rcases List.mem_append.mp hq' with hq | hq
-    · exact absurd hq List.not_mem_nil
-    · rw [List.mem_singleton.mp hq] at hs
-      have := hback d req hreq
-      omega
+    rw [hgow] at hq
+    rcases List.mem_singleton.mp hq with rfl
+    have := hback d req hreq
+    show ({ id := d, parent_id := none } : PathNodeId).id = req
+    exact absurd hs (by simp; omega)
   · intro n hn p hp
     rw [hnode n hn] at hp
-    exact absurd hp (by simp [newPid, empty, addOwner, upNode])
+    exact absurd hp (by simp)
   · intro n hn p hp
     rw [hnode n hn] at hp
-    exact absurd hp (by simp [newPid, empty, addOwner, upNode])
+    exact absurd hp (by simp)
 
 /-- **The owners table agrees with the parent record in every state the machine builds.** -/
 theorem ParentInv_reachable (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
@@ -289,6 +319,7 @@ theorem ParentInv_reachable (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.step)
         (Certifies.nodes_below_of_pruned hpr (steps_below_current reqOf hr))
         (NodeInvariant.TopKey_of_pruned hpr (NodeInvariant.TopKey_reachable reqOf g hr))
         hv (by rw [hpr.step_eq]; exact NodeInvariant.pos_reachable reqOf g hr)
+        (ParentId.TL_of_pruned hpr (ParentId.TL_reachable reqOf g hr))
         (fun q hq req hreq hs => filterAll_cleans_gowner g (reqOf d) req q hreq hq hs)
     · exact hF
   | join g₁ g₂ hok _ _ ih₁ ih₂ => exact ParentInv_join reqOf g₁ g₂ hok ih₁ ih₂
