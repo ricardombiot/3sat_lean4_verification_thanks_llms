@@ -374,11 +374,17 @@ open AbsSat.GraphPath.Model.AggFixpoint (aggOk_reviewAgg)
 /-- **A valid pinned send has a valid pinned source, for any list of pins** (`pinned_source_valid`, with
 the son's requirements added). The part of the pinned send below its top is a support of the source that
 agrees with the son's requirements and with the pins; it survives them. -/
-theorem pinned_source_validL (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM)
+theorem pinned_source_support (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM)
     (hsG : StateOkF φ k (key, G)) (hmG : MInv φ G) (d : NodeId) (hd : d ∈ mapSons φ key.step key.index)
     (hval : isValid (sent φ G d) = true) (Q : List NodeId)
     (hvY : isValid (filterAllAgg (sent φ G d) Q) = true) :
-    isValid (filterAllAgg G ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+    AnchoredSurvive.AOk G
+        (fun p => Mem (filterAllAgg (sent φ G d) Q) p ∧ p.id.step < k + 1)
+        (fun x v => Rel (filterAllAgg (sent φ G d) Q) x v ∧ x.id.step < k + 1 ∧
+          v.id.step < k + 1) ∧
+      (∀ r ∈ (reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)), ∀ p,
+        (Mem (filterAllAgg (sent φ G d) Q) p ∧ p.id.step < k + 1) → p.id.step = r.step → p.id = r) ∧
+      ∃ z, Mem (filterAllAgg (sent φ G d) Q) z ∧ z.id.step < k + 1 := by
   have hdstep : d.step = k + 1 := PinHistory.dstep_of φ k (key, G) hsG d hd
   have hvF := ClauseReview.valid_pinned φ G d hval
   have heqG : sent φ G d = addNode (pinnedAt φ G d) d "" := by
@@ -424,7 +430,7 @@ theorem pinned_source_validL (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM)
         have : p.id.step = k + 1 := by rw [e]; exact hdstep
         omega
     · exact cleanY r hq p (gowS p hp.1) hs
-  have supGr := (AOk_filterAllAgg G ⟨supG, hmG.smp, hmG.rctx.shape.notroot⟩ _ hpin).sup
+  refine ⟨⟨supG, hmG.smp, hmG.rctx.shape.notroot⟩, hpin, ?_⟩
   have ctxY := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRY) hvY
   have hk0 : 0 ≤ k := SliceInvariant.nonneg_of_mapNodes φ k key hsG.onMap
   have hcsY : Y.current_step = k + 2 := by
@@ -433,8 +439,17 @@ theorem pinned_source_validL (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM)
   simp only [isValid, List.all_eq_true] at hv'
   obtain ⟨z, hz, hzs⟩ := List.any_eq_true.mp (hv' 0 (mem_intRange (Int.le_refl 0) (by rw [hcsY]; omega)))
   obtain ⟨n, hn, hnid⟩ := ctxY.gn z hz
-  exact SupportSplit.valid_of_sup _ _ _ supGr z
-    ⟨⟨n, by rw [← hnid]; exact node?_of_mem adY.rc.nodup n hn⟩, by rw [eq_of_beq hzs]; omega⟩
+  exact ⟨z, ⟨n, by rw [← hnid]; exact node?_of_mem adY.rc.nodup n hn⟩, by rw [eq_of_beq hzs]; omega⟩
+
+/-- **A valid pinned send has a valid pinned source, for any list of pins** (`pinned_source_valid`, with
+the son's requirements added). -/
+theorem pinned_source_validL (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM)
+    (hsG : StateOkF φ k (key, G)) (hmG : MInv φ G) (d : NodeId) (hd : d ∈ mapSons φ key.step key.index)
+    (hval : isValid (sent φ G d) = true) (Q : List NodeId)
+    (hvY : isValid (filterAllAgg (sent φ G d) Q) = true) :
+    isValid (filterAllAgg G ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+  obtain ⟨hA, hpin, z, hz⟩ := pinned_source_support φ hwf k key G hsG hmG d hd hval Q hvY
+  exact SupportSplit.valid_of_sup _ _ _ (AOk_filterAllAgg G hA _ hpin).sup z hz
 
 /-- **`SendPinAt` holds at every line.** -/
 theorem sendPin (hwf : WF φ) (m : Nat) : SendPinAt φ m := by

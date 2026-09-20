@@ -1490,6 +1490,27 @@ theorem topValid_cima (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J 
       ((keeps_agg_filterAllCima (sidesOf φ (branchLine φ P m) p) J Q).1.gowners_sub x
         (hsupX.gow x hx)) hs
 
+/-- **The descent, with the rule.** The same step as `HereditaryValid.pinned_source_validL` — a valid
+pinned send has a valid pinned source — but closing with the filter of `ImprovesCima` instead of the
+plain review. The support it hands down is the part of the pinned send below its top; the rule keeps it
+as long as one side of the source carries its pairs, which `carriedR_of_side` turns into the rule's
+hypothesis. -/
+theorem pinned_source_validCima (sides : List GPathM) (hwf : WF φ) (k : Int) (key : NodeId)
+    (G : GPathM) (hsG : ConservationFilter.StateOkF φ k (key, G)) (hmG : MInv φ G) (d : NodeId)
+    (hd : d ∈ mapSons φ key.step key.index) (hval : isValid (sent φ G d) = true) (Q : List NodeId)
+    (hvY : isValid (AggressiveReview.filterAllAgg (sent φ G d) Q) = true)
+    (t : PathNodeId) (ht : t.id.step = G.current_step - 1)
+    (hSt : EmbeddedSupport.Mem (AggressiveReview.filterAllAgg (sent φ G d) Q) t ∧
+      t.id.step < k + 1)
+    (hR : ∀ x v, (Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧ x.id.step < k + 1 ∧
+      v.id.step < k + 1) → restTest sides t G x v = true) :
+    isValid (filterAllCima sides G
+      ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+  obtain ⟨hA, hpin, z, hz⟩ :=
+    HereditaryValid.pinned_source_support φ hwf k key G hsG hmG d hd hval Q hvY
+  exact SupportSplit.valid_of_sup _ _ _
+    (AOk_filterAllCima sides G hA _ hpin (carriedR_of_side sides G t ht hSt hR)).sup z hz
+
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
 state of the machine's own kind whose entries are entries of that one side. What remains is to read the
