@@ -801,6 +801,44 @@ theorem restTest_of_chain (sides : List GPathM) (S : GPathM) (hS : S ∈ sides)
       simp only [Bool.not_true, Bool.false_or]
       exact hlk q p hq0 hq1 hp0 (eq_of_beq hb)
 
+/-- **A chain carries over to any state that holds its pairs.** If every pair of a sound chain is a
+relation of `Sd`, its parent links are `Sd`'s, and its nodes are global owners there, then the chain is
+sound in `Sd` too. The cover, the aggregation and the sons come from the chain's own shape and from
+`Sd`'s sons invariant; nothing else is needed. This is the chain's version of `sup_transfer`. -/
+theorem chainSound_transfer (F Sd : GPathM) (sel : Int → PathNodeId) (h : ChainSound F sel)
+    (hcs : Sd.current_step = F.current_step) (hsmp : Sons.SMP Sd)
+    (hrel : ∀ i j, 0 ≤ i → i < F.current_step → 0 ≤ j → j < F.current_step →
+      Rel Sd (sel i) (sel j))
+    (hgow : ∀ i, 0 ≤ i → i < F.current_step → sel i ∈ Sd.gowners)
+    (hpar : ∀ i, 0 ≤ i → i + 1 < F.current_step →
+      ∃ n, Sd.node? (sel (i + 1)) = some n ∧ sel i ∈ n.parents) :
+    ChainSound Sd sel := by
+  have hst : ∀ k, 0 ≤ k → k < F.current_step → (sel k).id.step = k := chain_step F sel h
+  have hown : ∀ i j, 0 ≤ i → i < F.current_step → 0 ≤ j → j < F.current_step →
+      sel j ∈ ownersOf Sd (sel i) := by
+    intro i j hi0 hi1 hj0 hj1
+    obtain ⟨m, hm, hmem, _⟩ := hrel i j hi0 hi1 hj0 hj1
+    unfold ownersOf; rw [hm]; exact hmem
+  refine ⟨⟨⟨fun k h0 h1 => ?_, fun k h0 h1 => ?_⟩, fun i j hi0 hj0 hi1 hj1 _ => ?_,
+    fun k h0 h1 => ?_⟩, fun k h0 h1 => ?_, fun k h0 h1 => ?_,
+    ⟨h.root_shape.1, fun k hk0 hk1 => h.root_shape.2 k hk0 (by rw [← hcs]; exact hk1)⟩⟩
+  · rw [hcs] at h1
+    obtain ⟨m, hm, _, _⟩ := hrel k k h0 h1 h0 h1
+    exact ⟨by rw [hm]; rfl, hst k h0 h1⟩
+  · rw [hcs] at h1
+    obtain ⟨n, hn, hmem⟩ := hpar k h0 (by omega)
+    rw [hn]; exact hmem
+  · rw [hcs] at hi1 hj1
+    exact List.mem_filter.mpr ⟨hown j i hj0 hj1 hi0 hi1, beq_iff_eq.mpr (hst i hi0 hi1)⟩
+  · rw [hcs] at h1; exact hgow k h0 h1
+  · rw [hcs] at h1; exact hown k k h0 h1 h0 h1
+  · rw [hcs] at h1
+    obtain ⟨n, hn, hmem⟩ := hpar k h0 (by omega)
+    obtain ⟨m, hm, _, _⟩ := hrel k k h0 (by omega) h0 (by omega)
+    have hres := hsmp n (List.mem_of_find?_eq_some hn) (sel k) hmem m
+      (List.mem_of_find?_eq_some hm) (node?_id_eq _ _ m hm)
+    unfold sonsOf; rw [hm, ← node?_id_eq _ _ n hn]; exact hres
+
 /-- **A sound chain is a support.** Everything `Sup` asks for, a chain hands over from its own shape:
 the cover and the aggregation are the chain's node at that step, the parent and the son are its
 neighbours, and the links are its own. This is what lets the descent exhibit a sub-support without
@@ -1984,6 +2022,53 @@ theorem pinned_source_valid_of_sideChain (sides : List GPathM) (hwf : WF φ) (k 
     (pairSide_of_chainSide φ sides k G d Q hcs (chainSide_of_sideChain φ sides k G d Q hcs h))
 
 
+
+/-- **A chain of a family is a chain of its side.** Every pair it uses is a pair of the side
+(`side_of_famFix`), its parent links are the side's, and a node of a send that owns something is a
+global owner there (`sent_ownGow`). So the second half of `CimaChain` — "sound in one side" — is not a
+condition at all: it comes free with the chain. -/
+theorem chainSound_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (g : GPathM) (hrc : Reader.RCtx g)
+    (hcsg : g.current_step = (m : Int) + 2)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (sel : Int → PathNodeId)
+    (hsc : ChainSound (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) sel) :
+    ChainSound (sent φ kv.2 p) sel := by
+  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+      g.current_step := (keeps_famFix _ _ g).1.step_eq
+  have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+    (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
+  have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+  have hcsS : (sent φ kv.2 p).current_step = g.current_step := by rw [hsS', hcsg]; omega
+  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
+  have hnd := (ReaderAgg.RCtx_of_keeps (keeps_restAll
+    (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) hrc).nodup
+  have hst := chain_step _ sel hsc
+  have hside : ∀ i j, 0 ≤ i →
+      i < (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step → 0 ≤ j →
+      j < (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step →
+      Rel (sent φ kv.2 p) (sel i) (sel j) ∧ Rel (sent φ kv.2 p) (sel j) (sel i) ∧
+        ((sel j).id.step + 1 = (sel i).id.step →
+          ∃ na, (sent φ kv.2 p).node? (sel i) = some na ∧ sel j ∈ na.parents) := by
+    intro i j hi0 hi1 hj0 hj1
+    exact side_of_famFix φ hwf P m p hps kv hkv g hnd hv (sel i) (sel j)
+      (rel_of_chainSound _ sel hsc i j hi0 hi1 hj0 hj1)
+      (by rw [hst i hi0 hi1]; exact hi0) (by rw [hst i hi0 hi1, ← hcsF]; exact hi1)
+      (by rw [hst j hj0 hj1]; exact hj0) (by rw [hst j hj0 hj1, ← hcsF]; exact hj1)
+  refine chainSound_transfer _ _ sel hsc (by rw [hcsS, hcsF]) hmS.smp
+    (fun i j hi0 hi1 hj0 hj1 => (hside i j hi0 hi1 hj0 hj1).1) (fun i h0 h1 => ?_)
+    (fun i h0 h1 => ?_)
+  · obtain ⟨n, hn, hmem, _⟩ := (hside i i h0 h1 h0 h1).1
+    exact PinDeath.sent_ownGow φ hwf m kv hsok hmkv p hson hvS (sel i) n hn (sel i) hmem
+      (by rw [hst i h0 h1]; exact h0) (by rw [hst i h0 h1, hcsS, ← hcsF]; exact h1)
+  · have hi1 : i < (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step := by
+      omega
+    exact (hside (i + 1) i (by omega) h1 h0 hi1).2.2
+      (by rw [hst i h0 hi1, hst (i + 1) (by omega) h1])
+
 /-- **The chains the descent may use**: sound in the source state, sound in one of its sides, and
 compatible with the pins. Nothing here mentions a narrowing — the sweep carries them. -/
 def CimaChain (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId)
@@ -1992,6 +2077,36 @@ def CimaChain (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : Lis
   (∃ Sd ∈ sides, Sd.current_step = G.current_step ∧ ChainSound Sd sel) ∧
   ∀ r ∈ (reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)),
     0 ≤ r.step → r.step < G.current_step → (sel r.step).id = r
+
+
+/-- **A chain of the family is a chain the descent can use.** Of the three things `CimaChain` asks —
+sound in the source, sound in one side, compatible with the pins — the first two come free from a chain
+of the family: the family is a narrowing of the source, and its chains are its side's
+(`chainSound_side_of_famFix`). Only the pins remain. -/
+theorem cimaChain_of_famChain (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
+    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
+    (G : GPathM) (hrc : Reader.RCtx G) (hsmpG : Sons.SMP G)
+    (hcsG : G.current_step = (m : Int) + 2) (k : Int) (d : NodeId) (Q : List NodeId)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) G) = true)
+    (sel : Int → PathNodeId)
+    (hsc : ChainSound (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) G) sel)
+    (hpins : ∀ r ∈ (reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)),
+      0 ≤ r.step → r.step < G.current_step → (sel r.step).id = r) :
+    CimaChain φ (sidesOf φ (branchLine φ P m) p) k G d Q sel := by
+  have hsS := ConservationFilter.StateOkF_sent φ (ConservationFilter.Fsac φ 0) reviewAgg
+    (ConservationFilter.prunes_Fsac φ 0) m kv hsok p hson hvS
+  have hsS' : (sent φ kv.2 p).current_step = (m : Int) + 1 + 1 := hsS.step
+  have hcsS : (sent φ kv.2 p).current_step = G.current_step := by rw [hsS', hcsG]; omega
+  refine ⟨SubsetSemantics.ChainSound_of_pruned (keeps_famFix _ _ G).1 hrc.nodup hsmpG sel hsc,
+    ⟨sent φ kv.2 p, ?_, hcsS,
+      chainSound_side_of_famFix φ hwf P m p hps kv hkv hsok hmkv hson hvS G hrc hcsG hv sel hsc⟩,
+    hpins⟩
+  refine List.mem_filterMap.mpr ⟨kv, hkv, ?_⟩
+  rw [if_pos (by
+    simp only [Bool.and_eq_true]
+    exact ⟨List.contains_iff_mem.mpr hson, hvS⟩)]
 
 /-- **The descent's obligation, in its tight form.** Every pair of the support lies on such a chain.
 The quantifier over narrowings is gone: the chain is asked of the source state only, because
@@ -2905,6 +3020,14 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.pinned_source_valid_of_sideChainG' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pinned_source_valid_of_sideChainG
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.chainSound_transfer' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chainSound_transfer
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.cimaChain_of_famChain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms cimaChain_of_famChain
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
