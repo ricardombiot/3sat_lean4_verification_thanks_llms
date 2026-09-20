@@ -307,4 +307,120 @@ theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : C
 #guard_msgs in
 #print axioms AOk_cimaSweep
 
+-- ============================================================
+-- The review of a union: the aggressive review and the rule, to their fixpoint
+-- ============================================================
+
+open AbsSat.GraphPath.Model.AggressiveReview (reviewAgg ChainSound_reviewAgg)
+open AbsSat.GraphPath.Model.AnchoredSurvive (AOk_filterAllAgg)
+
+/-- The review a union gets: the aggressive review to its fixpoint, one sweep of the rule, and again
+while the sweep removes something. Same shape as `reviewAgg`, so everything proved about review
+fixpoints still applies to the state it returns. -/
+def reviewCimaFuel (sides : List GPathM) : Nat → GPathM → GPathM
+  | 0, g => reviewAgg g
+  | fuel + 1, g =>
+    let g₁ := reviewAgg g
+    if isValid g₁ then
+      let g₂ := cimaSweep sides g₁
+      if measure g₂ < measure g₁ then reviewCimaFuel sides fuel g₂ else g₁
+    else g₁
+
+def reviewCima (sides : List GPathM) (g : GPathM) : GPathM := reviewCimaFuel sides (measure g + 1) g
+
+/-- Pins, then that review: the filter of a union in `ImprovesCima`. -/
+def filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId) : GPathM :=
+  reviewCima sides (reqs.foldl filterRequire g)
+
+-- ============================================================
+-- What the review of a union earns
+-- ============================================================
+
+theorem keeps_reviewCimaFuel (sides : List GPathM) :
+    ∀ (fuel : Nat) (g : GPathM), Keeps g (reviewCimaFuel sides fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact ReaderAggRun.keeps_reviewAggFuel _ g
+  | succ n ih =>
+    intro g
+    simp only [reviewCimaFuel]
+    split
+    · split
+      · exact Keeps.trans (ReaderAggRun.keeps_reviewAggFuel _ g)
+          (Keeps.trans (keeps_cimaSweep sides _) (ih _))
+      · exact ReaderAggRun.keeps_reviewAggFuel _ g
+    · exact ReaderAggRun.keeps_reviewAggFuel _ g
+
+theorem keeps_reviewCima (sides : List GPathM) (g : GPathM) : Keeps g (reviewCima sides g) :=
+  keeps_reviewCimaFuel sides _ g
+
+theorem keeps_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId) :
+    Keeps g (filterAllCima sides g reqs) :=
+  Keeps.trans (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g) (keeps_reviewCima _ _)
+
+/-- **The review of a union loses no solution**, given the rule's hypothesis along the way. -/
+theorem ChainSound_reviewCimaFuel (sides : List GPathM) (sel : Int → PathNodeId) :
+    ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → ChainSound g sel → Carried sides g₀ sel →
+      ChainSound (reviewCimaFuel sides fuel g) sel := by
+  intro fuel
+  induction fuel with
+  | zero => intro g g₀ _ h _; exact ChainSound_reviewAgg g sel h
+  | succ n ih =>
+    intro g g₀ hk h hC
+    simp only [reviewCimaFuel]
+    have h₁ : ChainSound (reviewAgg g) sel := ChainSound_reviewAgg g sel h
+    have hk₁ : Keeps g₀ (reviewAgg g) := Keeps.trans hk (ReaderAggRun.keeps_reviewAggFuel _ g)
+    split
+    · split
+      · refine ih _ g₀ (Keeps.trans hk₁ (keeps_cimaSweep sides _)) ?_ hC
+        exact ChainSound_cimaSweep sides _ sel h₁ (fun g' hk' i j => hC g' (Keeps.trans hk₁ hk') i j)
+      · exact h₁
+    · exact h₁
+
+theorem ChainSound_reviewCima (sides : List GPathM) (g : GPathM) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) (hC : Carried sides g sel) : ChainSound (reviewCima sides g) sel :=
+  ChainSound_reviewCimaFuel sides sel _ g g (Keeps.refl g) h hC
+
+/-- **A support survives the review of a union**, given the rule's hypothesis along the way. -/
+theorem AOk_reviewCimaFuel (sides : List GPathM) :
+    ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → AOk g S R → CarriedR sides g₀ R →
+      AOk (reviewCimaFuel sides fuel g) S R := by
+  intro fuel
+  induction fuel with
+  | zero => intro g g₀ _ h _; exact AnchoredSurvive.AOk_reviewAggFuel _ g h
+  | succ n ih =>
+    intro g g₀ hk h hC
+    simp only [reviewCimaFuel]
+    have h₁ : AOk (reviewAgg g) S R := AnchoredSurvive.AOk_reviewAggFuel _ g h
+    have hk₁ : Keeps g₀ (reviewAgg g) := Keeps.trans hk (ReaderAggRun.keeps_reviewAggFuel _ g)
+    split
+    · split
+      · refine ih _ g₀ (Keeps.trans hk₁ (keeps_cimaSweep sides _)) ?_ hC
+        exact AOk_cimaSweep sides _ h₁ (fun g' hk' x v hr => hC g' (Keeps.trans hk₁ hk') x v hr)
+      · exact h₁
+    · exact h₁
+
+/-- **A support survives the pins and the review of a union.** -/
+theorem AOk_filterAllCima (sides : List GPathM) (g : GPathM) (h : AOk g S R) (reqs : List NodeId)
+    (hpin : ∀ r ∈ reqs, ∀ p, S p → p.id.step = r.step → p.id = r)
+    (hC : CarriedR sides g R) : AOk (filterAllCima sides g reqs) S R := by
+  refine AOk_reviewCimaFuel sides _ _ g ?_ ?_ ?_
+  · exact ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g
+  · have main : ∀ (l : List NodeId), (∀ r ∈ l, ∀ p, S p → p.id.step = r.step → p.id = r) →
+        ∀ h' : GPathM, AOk h' S R → AOk (l.foldl filterRequire h') S R := by
+      intro l
+      induction l with
+      | nil => intro _ h' hw; exact hw
+      | cons x xs ih =>
+        intro hx h' hw
+        simp only [List.foldl_cons]
+        exact ih (fun r hr => hx r (List.mem_cons_of_mem _ hr)) _
+          (AnchoredSurvive.AOk_filterRequire h' hw x (hx x List.mem_cons_self))
+    exact main reqs hpin g h
+  · exact hC
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_filterAllCima' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms AOk_filterAllCima
+
 end AbsSat.GraphPath.Model.ImprovesCima
