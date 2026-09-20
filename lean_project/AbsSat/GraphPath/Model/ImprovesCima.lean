@@ -239,38 +239,38 @@ def cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId) : Bool :=
   ((g.line (g.current_step - 1)).map (·.id)).any (fun t => goodFor sides g t a b)
 
 -- ============================================================
--- The sweep
+-- The sweep, for any test on an entry
 -- ============================================================
 
 /-- **The rule of the top, for one entry.** If some top the pair's chain reaches has a side that does not
 carry the pair, the two stop owning each other. -/
-def cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId) : GPathM :=
+def prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x w : PathNodeId) : GPathM :=
   match g.node? x, g.node? w with
   | some nx, some nw =>
-    if nx.owners.contains w && !cimaOk sides g x w then
+    if nx.owners.contains w && !test g x w then
       dropOwnerPair g x w nx.owners nw.owners
     else g
   | _, _ => g
 
-def cimaNode (sides : List GPathM) (g : GPathM) (x : PathNodeId) : GPathM :=
+def pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x : PathNodeId) : GPathM :=
   match g.node? x with
   | none => g
-  | some nx => nx.owners.foldl (fun g w => cimaPair sides g x w) g
+  | some nx => nx.owners.foldl (fun g w => prunePair test g x w) g
 
 /-- The sweep: every node, from the last step down. -/
-def cimaSweep (sides : List GPathM) (g : GPathM) : GPathM :=
+def pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) : GPathM :=
   if isValid g then
     (intRange 0 (g.current_step - 1)).reverse.foldl
-      (fun g k => ((g.line k).map (·.id)).foldl (cimaNode sides) g) g
+      (fun g k => ((g.line k).map (·.id)).foldl (pruneNode test) g) g
   else g
 
 -- ============================================================
 -- The sweep only removes
 -- ============================================================
 
-theorem keeps_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId) :
-    Keeps g (cimaPair sides g x w) := by
-  unfold cimaPair
+theorem keeps_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x w : PathNodeId) :
+    Keeps g (prunePair test g x w) := by
+  unfold prunePair
   split
   · split
     · exact Keeps.trans (ReaderAgg.keeps_updateAt_uniMap _ _ _)
@@ -278,18 +278,18 @@ theorem keeps_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId) :
     · exact Keeps.refl g
   · exact Keeps.refl g
 
-theorem keeps_cimaNode (sides : List GPathM) (g : GPathM) (x : PathNodeId) :
-    Keeps g (cimaNode sides g x) := by
-  unfold cimaNode
+theorem keeps_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x : PathNodeId) :
+    Keeps g (pruneNode test g x) := by
+  unfold pruneNode
   cases hx : g.node? x with
   | none => exact Keeps.refl g
-  | some nx => exact ReaderAgg.keeps_foldl _ (fun g w => keeps_cimaPair sides g x w) _ _
+  | some nx => exact ReaderAgg.keeps_foldl _ (fun g w => keeps_prunePair test g x w) _ _
 
-theorem keeps_cimaSweep (sides : List GPathM) (g : GPathM) : Keeps g (cimaSweep sides g) := by
-  unfold cimaSweep
+theorem keeps_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) : Keeps g (pruneSweep test g) := by
+  unfold pruneSweep
   split
   · exact ReaderAgg.keeps_foldl _
-      (fun g k => ReaderAgg.keeps_foldl _ (fun g x => keeps_cimaNode sides g x) _ _) _ _
+      (fun g k => ReaderAgg.keeps_foldl _ (fun g x => keeps_pruneNode test g x) _ _) _ _
   · exact Keeps.refl g
 
 -- ============================================================
@@ -300,12 +300,12 @@ open AbsSat.GraphPath.Model.AggressiveReview (mem_dropList chain_mem_owners)
 
 /-- **One entry: the rule never separates two nodes of a sound chain** whose reached tops the sides
 carry. Off the chain it only removes, as every drop does. -/
-theorem ChainSound_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId)
+theorem ChainSound_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x w : PathNodeId)
     (sel : Int → PathNodeId) (h : ChainSound g sel)
     (hcar : ∀ i j, 0 ≤ i → i < g.current_step → 0 ≤ j → j < g.current_step → sel i = x → sel j = w →
-      cimaOk sides g x w = true) :
-    ChainSound (cimaPair sides g x w) sel := by
-  unfold cimaPair
+      test g x w = true) :
+    ChainSound (prunePair test g x w) sel := by
+  unfold prunePair
   split
   · next nx nw hx hw =>
     split
@@ -335,40 +335,40 @@ theorem ChainSound_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId
 
 /-- The rule's hypothesis, robust along the sweep: at every narrowing the sweep can reach, the tops a
 chain pair reaches are carried by their sides. -/
-def Carried (sides : List GPathM) (g : GPathM) (sel : Int → PathNodeId) : Prop :=
+def TestC (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (sel : Int → PathNodeId) : Prop :=
   ∀ g', Keeps g g' → ChainSound g' sel → ∀ i j, 0 ≤ i → i < g'.current_step → 0 ≤ j →
-    j < g'.current_step → cimaOk sides g' (sel i) (sel j) = true
+    j < g'.current_step → test g' (sel i) (sel j) = true
 
-theorem ChainSound_cimaNode (sides : List GPathM) (g g₀ : GPathM) (x : PathNodeId)
-    (sel : Int → PathNodeId) (hk : Keeps g₀ g) (h : ChainSound g sel) (hC : Carried sides g₀ sel) :
-    ChainSound (cimaNode sides g x) sel ∧ Keeps g₀ (cimaNode sides g x) := by
-  refine ⟨?_, Keeps.trans hk (keeps_cimaNode sides g x)⟩
-  unfold cimaNode
+theorem ChainSound_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g g₀ : GPathM) (x : PathNodeId)
+    (sel : Int → PathNodeId) (hk : Keeps g₀ g) (h : ChainSound g sel) (hC : TestC test g₀ sel) :
+    ChainSound (pruneNode test g x) sel ∧ Keeps g₀ (pruneNode test g x) := by
+  refine ⟨?_, Keeps.trans hk (keeps_pruneNode test g x)⟩
+  unfold pruneNode
   split
   · exact h
   · next nx _ =>
-    refine BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w)
+    refine BranchLines.foldl_inv (fun g' w => prunePair test g' x w)
       (fun g' => ChainSound g' sel ∧ Keeps g₀ g') nx.owners ?_ g ⟨h, hk⟩ |>.1
     intro g' w _ hg'
-    refine ⟨ChainSound_cimaPair sides g' x w sel hg'.1 ?_, Keeps.trans hg'.2 (keeps_cimaPair _ _ _ _)⟩
+    refine ⟨ChainSound_prunePair test g' x w sel hg'.1 ?_, Keeps.trans hg'.2 (keeps_prunePair _ _ _ _)⟩
     intro i j hi0 hi hj0 hj hix hjw
     have := hC g' hg'.2 hg'.1 i j hi0 hi hj0 hj
     rw [hix, hjw] at this
     exact this
 
 /-- **The sweep loses no solution.** -/
-theorem ChainSound_cimaSweep (sides : List GPathM) (g : GPathM) (sel : Int → PathNodeId)
-    (h : ChainSound g sel) (hC : Carried sides g sel) : ChainSound (cimaSweep sides g) sel := by
-  unfold cimaSweep
+theorem ChainSound_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) (hC : TestC test g sel) : ChainSound (pruneSweep test g) sel := by
+  unfold pruneSweep
   split
   · refine BranchLines.foldl_inv
-      (fun g' k => ((g'.line k).map (·.id)).foldl (cimaNode sides) g')
+      (fun g' k => ((g'.line k).map (·.id)).foldl (pruneNode test) g')
       (fun g' => ChainSound g' sel ∧ Keeps g g') _ ?_ g ⟨h, Keeps.refl g⟩ |>.1
     intro g' k _ hg'
-    refine BranchLines.foldl_inv (cimaNode sides) (fun g'' => ChainSound g'' sel ∧ Keeps g g'')
+    refine BranchLines.foldl_inv (pruneNode test) (fun g'' => ChainSound g'' sel ∧ Keeps g g'')
       _ ?_ g' hg'
     intro g'' x _ hg''
-    exact ChainSound_cimaNode sides g'' g x sel hg''.2 hg''.1 hC
+    exact ChainSound_pruneNode test g'' g x sel hg''.2 hg''.1 hC
   · exact h
 
 -- ============================================================
@@ -380,10 +380,10 @@ open AbsSat.GraphPath.Model.AnchoredSurvive (Sup AOk Sup_updateAt)
 variable {S : PathNodeId → Prop} {R : PathNodeId → PathNodeId → Prop}
 
 /-- **One entry: the rule never drops a pair of a support** whose reached tops the sides carry. -/
-theorem Sup_cimaPair (sides : List GPathM) (g : GPathM) (h : Sup g S R) (x w : PathNodeId)
-    (hcar : R x w → cimaOk sides g x w = true) :
-    Sup (cimaPair sides g x w) S R := by
-  unfold cimaPair
+theorem Sup_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (h : Sup g S R) (x w : PathNodeId)
+    (hcar : R x w → test g x w = true) :
+    Sup (prunePair test g x w) S R := by
+  unfold prunePair
   split
   · next nx nw hx hw =>
     split
@@ -401,9 +401,9 @@ theorem Sup_cimaPair (sides : List GPathM) (g : GPathM) (h : Sup g S R) (x w : P
     · exact h
   · exact h
 
-theorem SMP_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) :
-    Sons.SMP (cimaPair sides g x w) := by
-  unfold cimaPair
+theorem SMP_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) :
+    Sons.SMP (prunePair test g x w) := by
+  unfold prunePair
   split
   · split
     · exact Sons.SMP_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
@@ -411,53 +411,53 @@ theorem SMP_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x w :
     · exact hs
   · exact hs
 
-theorem AOk_cimaPair (sides : List GPathM) (g : GPathM) (h : AOk g S R) (x w : PathNodeId)
-    (hcar : R x w → cimaOk sides g x w = true) :
-    AOk (cimaPair sides g x w) S R :=
-  ⟨Sup_cimaPair sides g h.sup x w hcar, SMP_cimaPair sides g h.smp x w,
-    Parents.NotRoot_of_pruned (keeps_cimaPair sides g x w).1 h.nr⟩
+theorem AOk_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (h : AOk g S R) (x w : PathNodeId)
+    (hcar : R x w → test g x w = true) :
+    AOk (prunePair test g x w) S R :=
+  ⟨Sup_prunePair test g h.sup x w hcar, SMP_prunePair test g h.smp x w,
+    Parents.NotRoot_of_pruned (keeps_prunePair test g x w).1 h.nr⟩
 
 /-- The rule's hypothesis for a support, robust along the sweep. -/
-def CarriedR (sides : List GPathM) (g : GPathM) (R : PathNodeId → PathNodeId → Prop) : Prop :=
-  ∀ g', Keeps g g' → ∀ x v, R x v → cimaOk sides g' x v = true
+def TestR (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (R : PathNodeId → PathNodeId → Prop) : Prop :=
+  ∀ g', Keeps g g' → ∀ x v, R x v → test g' x v = true
 
-theorem AOk_cimaNode (sides : List GPathM) (g g₀ : GPathM) (x : PathNodeId) (hk : Keeps g₀ g)
-    (h : AOk g S R) (hC : CarriedR sides g₀ R) : AOk (cimaNode sides g x) S R ∧ Keeps g₀ (cimaNode sides g x) := by
-  refine ⟨?_, Keeps.trans hk (keeps_cimaNode sides g x)⟩
-  unfold cimaNode
+theorem AOk_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g g₀ : GPathM) (x : PathNodeId) (hk : Keeps g₀ g)
+    (h : AOk g S R) (hC : TestR test g₀ R) : AOk (pruneNode test g x) S R ∧ Keeps g₀ (pruneNode test g x) := by
+  refine ⟨?_, Keeps.trans hk (keeps_pruneNode test g x)⟩
+  unfold pruneNode
   split
   · exact h
   · next nx _ =>
-    refine BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w)
+    refine BranchLines.foldl_inv (fun g' w => prunePair test g' x w)
       (fun g' => AOk g' S R ∧ Keeps g₀ g') nx.owners ?_ g ⟨h, hk⟩ |>.1
     intro g' w _ hg'
-    exact ⟨AOk_cimaPair sides g' hg'.1 x w (fun hr => hC g' hg'.2 x w hr),
-      Keeps.trans hg'.2 (keeps_cimaPair _ _ _ _)⟩
+    exact ⟨AOk_prunePair test g' hg'.1 x w (fun hr => hC g' hg'.2 x w hr),
+      Keeps.trans hg'.2 (keeps_prunePair _ _ _ _)⟩
 
 /-- **A support survives the sweep.** The rule only drops pairs whose chain reaches a top the sides do
 not carry, and a support's pairs are carried by hypothesis; everything else it removes leaves the support
 where it was. -/
-theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : CarriedR sides g R) :
-    AOk (cimaSweep sides g) S R := by
-  unfold cimaSweep
+theorem AOk_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (h : AOk g S R) (hC : TestR test g R) :
+    AOk (pruneSweep test g) S R := by
+  unfold pruneSweep
   split
   · refine BranchLines.foldl_inv
-      (fun g' k => ((g'.line k).map (·.id)).foldl (cimaNode sides) g')
+      (fun g' k => ((g'.line k).map (·.id)).foldl (pruneNode test) g')
       (fun g' => AOk g' S R ∧ Keeps g g') _ ?_ g ⟨h, Keeps.refl g⟩ |>.1
     intro g' k _ hg'
-    refine BranchLines.foldl_inv (cimaNode sides) (fun g'' => AOk g'' S R ∧ Keeps g g'')
+    refine BranchLines.foldl_inv (pruneNode test) (fun g'' => AOk g'' S R ∧ Keeps g g'')
       _ ?_ g' hg'
     intro g'' x _ hg''
-    exact AOk_cimaNode sides g'' g x hg''.2 hg''.1 hC
+    exact AOk_pruneNode test g'' g x hg''.2 hg''.1 hC
   · exact h
 
-/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.ChainSound_cimaSweep' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.ChainSound_pruneSweep' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms ChainSound_cimaSweep
+#print axioms ChainSound_pruneSweep
 
-/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_cimaSweep' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_pruneSweep' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms AOk_cimaSweep
+#print axioms AOk_pruneSweep
 
 
 -- ============================================================
@@ -467,9 +467,9 @@ theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : C
 open AbsSat.GraphPath.Model.AggFixpoint (EqOrLt eqOrLt_foldl foldl_noProgress weight_drop_lt
   weight_uniMap_le measure_updateAt_uniMap_lt mem_reverse_intRange)
 
-theorem cimaPair_eqOrLt (sides : List GPathM) (g : GPathM) (x w : PathNodeId) :
-    EqOrLt g (cimaPair sides g x w) := by
-  unfold cimaPair
+theorem prunePair_eqOrLt (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x w : PathNodeId) :
+    EqOrLt g (prunePair test g x w) := by
+  unfold prunePair
   split
   · next nx nw hx hw =>
     split
@@ -483,13 +483,13 @@ theorem cimaPair_eqOrLt (sides : List GPathM) (g : GPathM) (x w : PathNodeId) :
     · exact Or.inl rfl
   · exact Or.inl rfl
 
-theorem measure_cimaPair_lt (sides : List GPathM) (g : GPathM) (x w : PathNodeId) (nx nw : PNodeM)
+theorem measure_prunePair_lt (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (x w : PathNodeId) (nx nw : PNodeM)
     (hx : g.node? x = some nx) (hw : g.node? w = some nw) (hmem : w ∈ nx.owners)
-    (hfire : cimaOk sides g x w = false) :
-    GPathM.measure (cimaPair sides g x w) < GPathM.measure g := by
+    (hfire : test g x w = false) :
+    GPathM.measure (prunePair test g x w) < GPathM.measure g := by
   have hcw : nx.owners.contains w = true := List.contains_iff_mem.mpr hmem
-  have heq : cimaPair sides g x w = dropOwnerPair g x w nx.owners nw.owners := by
-    unfold cimaPair
+  have heq : prunePair test g x w = dropOwnerPair g x w nx.owners nw.owners := by
+    unfold prunePair
     rw [hx, hw]
     simp only [hcw, hfire, Bool.not_false, Bool.and_self, if_pos]
   rw [heq]
@@ -497,47 +497,85 @@ theorem measure_cimaPair_lt (sides : List GPathM) (g : GPathM) (x w : PathNodeId
   exact GPathM.measure_updateAt_le _ w _ (fun n => weight_uniMap_le _ n)
 
 /-- **The test the rule leaves behind**: every live entry has a good top. -/
-def CimaOk (sides : List GPathM) (g : GPathM) : Prop :=
+def TestOk (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) : Prop :=
   ∀ x nx w, g.node? x = some nx → (g.node? w).isSome = true →
     0 ≤ x.id.step → x.id.step < g.current_step →
     0 ≤ w.id.step → w.id.step < g.current_step →
-    w ∈ nx.owners → cimaOk sides g x w = true
+    w ∈ nx.owners → test g x w = true
 
 /-- **If the sweep does not lower the measure of a valid state, the state passes the test.** -/
-theorem cimaOk_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = true)
-    (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g) : CimaOk sides g := by
+theorem testOk_of_noProgress (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hv : isValid g = true)
+    (hnp : ¬ GPathM.measure (pruneSweep test g) < GPathM.measure g) : TestOk test g := by
   intro x nx w hx hw hx1 hx2 hw1 hw2 hmem
-  cases hok : cimaOk sides g x w with
+  cases hok : test g x w with
   | true => rfl
   | false =>
     exfalso
     obtain ⟨nw, hnw⟩ := Option.isSome_iff_exists.mp hw
-    have hsweep : cimaSweep sides g = (intRange 0 (g.current_step - 1)).reverse.foldl
-        (fun g k => ((g.line k).map (·.id)).foldl (cimaNode sides) g) g := by
-      unfold cimaSweep
+    have hsweep : pruneSweep test g = (intRange 0 (g.current_step - 1)).reverse.foldl
+        (fun g k => ((g.line k).map (·.id)).foldl (pruneNode test) g) g := by
+      unfold pruneSweep
       rw [if_pos hv]
     rw [hsweep] at hnp
-    have hnodeEq : ∀ g' (x' : PathNodeId), EqOrLt g' (cimaNode sides g' x') := by
+    have hnodeEq : ∀ g' (x' : PathNodeId), EqOrLt g' (pruneNode test g' x') := by
       intro g' x'
-      unfold cimaNode
+      unfold pruneNode
       split
       · exact Or.inl rfl
-      · next nx' _ => exact eqOrLt_foldl _ (fun g'' w' => cimaPair_eqOrLt sides g'' x' w') _ g'
+      · next nx' _ => exact eqOrLt_foldl _ (fun g'' w' => prunePair_eqOrLt test g'' x' w') _ g'
     have houter := foldl_noProgress _
       (fun g' k => eqOrLt_foldl _ (fun g'' x' => hnodeEq g'' x') _ g') _ g hnp x.id.step
       (mem_reverse_intRange hx1 (by omega))
     have hline : x ∈ (g.line x.id.step).map (·.id) := mem_line_of_node? g x nx hx _ rfl
     have hinner := foldl_noProgress _ (fun g' x' => hnodeEq g' x') _ g
       (by rw [houter]; exact Nat.lt_irrefl _) x hline
-    have hfold : nx.owners.foldl (fun g' w' => cimaPair sides g' x w') g = g := by
-      have : cimaNode sides g x = nx.owners.foldl (fun g' w' => cimaPair sides g' x w') g := by
-        unfold cimaNode; rw [hx]
+    have hfold : nx.owners.foldl (fun g' w' => prunePair test g' x w') g = g := by
+      have : pruneNode test g x = nx.owners.foldl (fun g' w' => prunePair test g' x w') g := by
+        unfold pruneNode; rw [hx]
       rw [← this]; exact hinner
-    have hpair := foldl_noProgress _ (fun g' w' => cimaPair_eqOrLt sides g' x w') _ g
+    have hpair := foldl_noProgress _ (fun g' w' => prunePair_eqOrLt test g' x w') _ g
       (by rw [hfold]; exact Nat.lt_irrefl _) w hmem
-    have hlt := measure_cimaPair_lt sides g x w nx nw hx hnw hmem hok
+    have hlt := measure_prunePair_lt test g x w nx nw hx hnw hmem hok
     rw [hpair] at hlt
     exact Nat.lt_irrefl _ hlt
+
+-- ============================================================
+-- The rule of the top as one instance of that sweep
+-- ============================================================
+
+/-- The rule of the top, for one entry, one node, and the whole state. -/
+abbrev cimaPair (sides : List GPathM) : GPathM → PathNodeId → PathNodeId → GPathM :=
+  prunePair (cimaOk sides)
+
+abbrev cimaNode (sides : List GPathM) : GPathM → PathNodeId → GPathM := pruneNode (cimaOk sides)
+
+abbrev cimaSweep (sides : List GPathM) : GPathM → GPathM := pruneSweep (cimaOk sides)
+
+/-- The rule's hypothesis for a chain, and for a support. -/
+abbrev Carried (sides : List GPathM) : GPathM → (Int → PathNodeId) → Prop := TestC (cimaOk sides)
+
+abbrev CarriedR (sides : List GPathM) : GPathM → (PathNodeId → PathNodeId → Prop) → Prop :=
+  TestR (cimaOk sides)
+
+/-- **The test the rule leaves behind**: every live entry has a good top. -/
+abbrev CimaOk (sides : List GPathM) : GPathM → Prop := TestOk (cimaOk sides)
+
+theorem keeps_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId) :
+    Keeps g (cimaPair sides g x w) := keeps_prunePair _ g x w
+
+theorem keeps_cimaSweep (sides : List GPathM) (g : GPathM) : Keeps g (cimaSweep sides g) :=
+  keeps_pruneSweep _ g
+
+theorem ChainSound_cimaSweep (sides : List GPathM) (g : GPathM) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) (hC : Carried sides g sel) : ChainSound (cimaSweep sides g) sel :=
+  ChainSound_pruneSweep _ g sel h hC
+
+theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : CarriedR sides g R) :
+    AOk (cimaSweep sides g) S R := AOk_pruneSweep _ g h hC
+
+theorem cimaOk_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = true)
+    (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g) : CimaOk sides g :=
+  testOk_of_noProgress _ g hv hnp
 
 -- ============================================================
 -- The review of a union: the aggressive review and the rule, to their fixpoint
@@ -943,9 +981,9 @@ theorem ChainSound_reviewCima_of_side (sides : List GPathM) (g S : GPathM) (hS :
 -- The invariants of a state survive the rule
 -- ============================================================
 
-theorem PMS_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.PMS g) (x w : PathNodeId) :
-    Sons.PMS (cimaPair sides g x w) := by
-  unfold cimaPair
+theorem PMS_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.PMS g) (x w : PathNodeId) :
+    Sons.PMS (prunePair test g x w) := by
+  unfold prunePair
   split
   · split
     · exact Sons.PMS_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
@@ -953,9 +991,9 @@ theorem PMS_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.PMS g) (x w :
     · exact hs
   · exact hs
 
-theorem SN_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SN g) (x w : PathNodeId) :
-    Sons.SN (cimaPair sides g x w) := by
-  unfold cimaPair
+theorem SN_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SN g) (x w : PathNodeId) :
+    Sons.SN (prunePair test g x w) := by
+  unfold prunePair
   split
   · split
     · exact Sons.SN_updateAt _ w _ (fun _ => rfl) (fun _ => rfl)
@@ -963,48 +1001,56 @@ theorem SN_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SN g) (x w : P
     · exact hs
   · exact hs
 
-theorem SMP_cimaNode (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x : PathNodeId) :
-    Sons.SMP (cimaNode sides g x) := by
-  unfold cimaNode
+theorem SMP_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SMP g) (x : PathNodeId) :
+    Sons.SMP (pruneNode test g x) := by
+  unfold pruneNode
   split
   · exact hs
   · next nx _ =>
-    exact BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w) (fun g' => Sons.SMP g')
-      nx.owners (fun g' w _ hg' => SMP_cimaPair sides g' hg' x w) g hs
+    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.SMP g')
+      nx.owners (fun g' w _ hg' => SMP_prunePair test g' hg' x w) g hs
 
-theorem PMS_cimaNode (sides : List GPathM) (g : GPathM) (hs : Sons.PMS g) (x : PathNodeId) :
-    Sons.PMS (cimaNode sides g x) := by
-  unfold cimaNode
+theorem PMS_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.PMS g) (x : PathNodeId) :
+    Sons.PMS (pruneNode test g x) := by
+  unfold pruneNode
   split
   · exact hs
   · next nx _ =>
-    exact BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w) (fun g' => Sons.PMS g')
-      nx.owners (fun g' w _ hg' => PMS_cimaPair sides g' hg' x w) g hs
+    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.PMS g')
+      nx.owners (fun g' w _ hg' => PMS_prunePair test g' hg' x w) g hs
 
-theorem SN_cimaNode (sides : List GPathM) (g : GPathM) (hs : Sons.SN g) (x : PathNodeId) :
-    Sons.SN (cimaNode sides g x) := by
-  unfold cimaNode
+theorem SN_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SN g) (x : PathNodeId) :
+    Sons.SN (pruneNode test g x) := by
+  unfold pruneNode
   split
   · exact hs
   · next nx _ =>
-    exact BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w) (fun g' => Sons.SN g')
-      nx.owners (fun g' w _ hg' => SN_cimaPair sides g' hg' x w) g hs
+    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.SN g')
+      nx.owners (fun g' w _ hg' => SN_prunePair test g' hg' x w) g hs
+
+theorem sons_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hsmp : Sons.SMP g) (hpms : Sons.PMS g)
+    (hsn : Sons.SN g) :
+    Sons.SMP (pruneSweep test g) ∧ Sons.PMS (pruneSweep test g) ∧ Sons.SN (pruneSweep test g) := by
+  unfold pruneSweep
+  split
+  · refine BranchLines.foldl_inv
+      (fun g' k => ((g'.line k).map (·.id)).foldl (pruneNode test) g')
+      (fun g' => Sons.SMP g' ∧ Sons.PMS g' ∧ Sons.SN g') _ ?_ g ⟨hsmp, hpms, hsn⟩
+    intro g' k _ hg'
+    refine BranchLines.foldl_inv (pruneNode test) (fun g'' => Sons.SMP g'' ∧ Sons.PMS g'' ∧ Sons.SN g'')
+      _ ?_ g' hg'
+    intro g'' x _ hg''
+    exact ⟨SMP_pruneNode test g'' hg''.1 x, PMS_pruneNode test g'' hg''.2.1 x,
+      SN_pruneNode test g'' hg''.2.2 x⟩
+  · exact ⟨hsmp, hpms, hsn⟩
+
+theorem SMP_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) :
+    Sons.SMP (cimaPair sides g x w) := SMP_prunePair _ g hs x w
 
 theorem sons_cimaSweep (sides : List GPathM) (g : GPathM) (hsmp : Sons.SMP g) (hpms : Sons.PMS g)
     (hsn : Sons.SN g) :
-    Sons.SMP (cimaSweep sides g) ∧ Sons.PMS (cimaSweep sides g) ∧ Sons.SN (cimaSweep sides g) := by
-  unfold cimaSweep
-  split
-  · refine BranchLines.foldl_inv
-      (fun g' k => ((g'.line k).map (·.id)).foldl (cimaNode sides) g')
-      (fun g' => Sons.SMP g' ∧ Sons.PMS g' ∧ Sons.SN g') _ ?_ g ⟨hsmp, hpms, hsn⟩
-    intro g' k _ hg'
-    refine BranchLines.foldl_inv (cimaNode sides) (fun g'' => Sons.SMP g'' ∧ Sons.PMS g'' ∧ Sons.SN g'')
-      _ ?_ g' hg'
-    intro g'' x _ hg''
-    exact ⟨SMP_cimaNode sides g'' hg''.1 x, PMS_cimaNode sides g'' hg''.2.1 x,
-      SN_cimaNode sides g'' hg''.2.2 x⟩
-  · exact ⟨hsmp, hpms, hsn⟩
+    Sons.SMP (cimaSweep sides g) ∧ Sons.PMS (cimaSweep sides g) ∧ Sons.SN (cimaSweep sides g) :=
+  sons_pruneSweep _ g hsmp hpms hsn
 
 /-- **The family a good top names, at the fixpoint**: the live entries the side of `t` carries. The rule
 leaves it closed under the witness of every step — the `cov` and `agg` rules of a support. -/
