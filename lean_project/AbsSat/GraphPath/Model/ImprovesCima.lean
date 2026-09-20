@@ -1390,9 +1390,12 @@ def sidesOf (L : PureLine) (p : NodeId) : List GPathM :=
     else none)
 
 /-- **One line of `ImprovesCima`**: the line of `Improves`, and then, per key, the review of the union
-with the rule of the top, which reads the sides that built it. -/
+with the rule of the top, which reads the sides that built it. A key whose state the rule leaves dead is
+dropped, exactly as the driver of `Improves` drops a send that does not survive: a dead state is the
+UNSAT answer for that key and has no business in the line. -/
 def advanceCima (L : PureLine) : PureLine :=
-  (pureAdvanceW φ L).map (fun kv => (kv.1, reviewCima (sidesOf φ L kv.1) kv.2))
+  ((pureAdvanceW φ L).map (fun kv => (kv.1, reviewCima (sidesOf φ L kv.1) kv.2))).filter
+    (fun kv => isValid kv.2)
 
 def stepsCima : Nat → PureLine → PureLine
   | 0, L => L
@@ -1401,10 +1404,53 @@ def stepsCima : Nat → PureLine → PureLine
 /-- The whole run. An empty result is the UNSAT answer, as in `Improves`. -/
 def runCima : PureLine := stepsCima φ (stepCount φ - 1).toNat (pureInit φ)
 
+/-- The run, advanced from the back: one more line is one more advance of the line so far. -/
+theorem stepsCima_succ : ∀ (n : Nat) (L : PureLine),
+    stepsCima φ (n + 1) L = advanceCima φ (stepsCima φ n L)
+  | 0, _ => rfl
+  | n + 1, L => stepsCima_succ n (advanceCima φ L)
+
+/-- **Every state of a line of `ImprovesCima` is alive.** -/
+theorem valid_of_mem_advanceCima (L : PureLine) (kv : NodeId × GPathM)
+    (hkv : kv ∈ advanceCima φ L) : isValid kv.2 = true := (List.mem_filter.mp hkv).2
+
+/-- **The keys of a line of `ImprovesCima` are the keys of the line of `Improves` that survive.** -/
+theorem mem_advanceCima (L : PureLine) (kv : NodeId × GPathM) (hkv : kv ∈ advanceCima φ L) :
+    ∃ g, (kv.1, g) ∈ pureAdvanceW φ L ∧ kv.2 = reviewCima (sidesOf φ L kv.1) g := by
+  obtain ⟨kv', hkv', he⟩ := List.mem_map.mp (List.mem_filter.mp hkv).1
+  exact ⟨kv'.2, by rw [show kv.1 = kv'.1 from by rw [← he]]; exact hkv',
+    by rw [← he]⟩
+
+
+/-- **A live state of `ImprovesCima` is a machine state.** The review only narrows, so everything but
+one clause comes from `MInv_of_keeps`; and the clause that does not — that the owners of a node are
+nodes — comes from the review's own shape: the result is an aggressive-review fixpoint, where an owner
+is a global owner and a global owner is a node. -/
+theorem MInv_reviewCima (sides : List GPathM) (g : GPathM) (hm : ReaderAggRun.MInv φ g)
+    (hv : isValid (reviewCima sides g) = true) : ReaderAggRun.MInv φ (reviewCima sides g) := by
+  obtain ⟨g₀, hk0, hform⟩ := reviewCimaFuel_form sides (measure g + 1) g
+  have hform' : reviewCima sides g = reviewAgg g₀ := hform
+  have hk : Keeps g (reviewCima sides g) := keeps_reviewCima sides g
+  obtain ⟨s1, s2, s3⟩ :=
+    sons_reviewCimaFuel sides (measure g + 1) g hm.smp hm.pms hm.sn hm.rctx.shape.notroot
+  refine ReaderAggRun.MInv_of_keeps φ hk hm s1 s2 s3 ?_
+  intro n hn q hq
+  obtain ⟨n0, hn0, _, hsub, _⟩ := hk.1.nodes_derived n hn
+  obtain ⟨n1, hn1, hid1⟩ := hm.own n0 hn0 q (hsub q hq)
+  have hq0 : 0 ≤ q.id.step := by rw [← hid1]; exact hm.rctx.snn n1 hn1
+  have hstep : (reviewCima sides g).current_step = g.current_step := hk.1.step_eq
+  have hq1 : q.id.step < (reviewCima sides g).current_step := by
+    rw [hstep, ← hid1]; exact hm.rctx.below n1 hn1
+  have hRF : ReaderAgg.ReadableAgg (reviewCima sides g) :=
+    ⟨g₀, [], ReaderAgg.RCtx_of_keeps hk0 hm.rctx, hform'⟩
+  have rcF := ReaderAgg.RCtx_of_readableAgg _ hRF
+  have ctxF := Reader.Ctx_of_readable _ (ReaderAgg.readable_of_readableAgg _ hRF) hv
+  exact rcF.gn q (ctxF.ownGow n.id n (node?_of_mem rcF.nodup n hn) q hq hq0 hq1)
+
 /-- Each state of a line of `ImprovesCima` is a narrowing of the same state in `Improves`. -/
 theorem keeps_advanceCima (L : PureLine) (kv : NodeId × GPathM) (hkv : kv ∈ advanceCima φ L) :
     ∃ g, (kv.1, g) ∈ pureAdvanceW φ L ∧ Keeps g kv.2 := by
-  obtain ⟨kv', hkv', he⟩ := List.mem_map.mp hkv
+  obtain ⟨kv', hkv', he⟩ := List.mem_map.mp (List.mem_filter.mp hkv).1
   refine ⟨kv'.2, ?_, ?_⟩
   · rw [show kv.1 = kv'.1 from by rw [← he]]; exact hkv'
   · rw [← he]; exact keeps_reviewCima _ _
@@ -3028,6 +3074,10 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.cimaChain_of_famChain' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms cimaChain_of_famChain
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.MInv_reviewCima' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms MInv_reviewCima
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

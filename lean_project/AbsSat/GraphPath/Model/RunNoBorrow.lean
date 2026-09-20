@@ -134,20 +134,17 @@ theorem genuine_restrict {K K' : Int} {sel : Int → PathNodeId} (h : Genuine φ
   obtain ⟨a, hs, hsel⟩ := h
   exact ⟨a, satBelow_mono hs hK, fun k h0 h1 => hsel k h0 (by omega)⟩
 
-/-- **A send holds every genuine path through its source.** The state sent from the line's state at
-key `p` to `d` contains every genuine path whose last two map nodes are `p` and `d`. -/
-theorem send_complete (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount φ)
-    (kv : NodeId × GPathM) (hkv : kv ∈ pureStepsW φ m (pureInit φ)) (d : NodeId)
+/-- **A send holds every genuine path its source holds.** The same as `send_complete`, but for any
+state at all: what the line gives is only its invariants and the chain, so they are asked directly.
+This is what lets a machine with a different line — `ImprovesCima` — use it. -/
+theorem send_complete_of (hwf : WF φ) (m : Nat) (_hm : (m : Int) + 2 ≤ stepCount φ)
+    (kv : NodeId × GPathM) (hsok : StateOkF φ m kv) (hmkv : MInv φ kv.2) (d : NodeId)
     (hd : d ∈ mapSons φ kv.1.step kv.1.index)
     (hval : isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true)
     (sel : Int → PathNodeId) (hgen : Genuine φ ((m : Int) + 2) sel)
+    (hsc : ChainSound kv.2 sel)
     (hsrc : (sel (m : Int)).id = kv.1) (htop : (sel ((m : Int) + 1)).id = d) :
     ChainSound (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") sel := by
-  have hl := LineInv_steps φ hwf m 0 (pureInit φ) (LineInv_init φ hwf)
-  rw [show (0 : Int) + (m : Int) = m by omega] at hl
-  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
-  have hmkv : MInv φ kv.2 := hl.2 kv hkv
-  have hsc := line_complete φ hwf m (by omega) kv hkv sel (genuine_restrict φ hgen (by omega)) hsrc
   obtain ⟨a, hs, hsel⟩ := hgen
   have hcs : kv.2.current_step = (m : Int) + 1 := hsok.step
   have hids : ∀ k, 0 ≤ k → k < kv.2.current_step →
@@ -179,6 +176,21 @@ theorem send_complete (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount 
   refine chainSound_congr _ sel sel' hs' hpos (eq_of_along φ _ hmh.rctx.pmp sel sel' hs' a
     (fun k h0 h1 => (hids' k h0 (by rw [← hcur]; exact h1)).1)
     (fun k h0 h1 => hsel k h0 (by rw [hcur, hcs] at h1; exact h1)))
+
+/-- **A send holds every genuine path through its source.** The state sent from the line's state at
+key `p` to `d` contains every genuine path whose last two map nodes are `p` and `d`. -/
+theorem send_complete (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount φ)
+    (kv : NodeId × GPathM) (hkv : kv ∈ pureStepsW φ m (pureInit φ)) (d : NodeId)
+    (hd : d ∈ mapSons φ kv.1.step kv.1.index)
+    (hval : isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true)
+    (sel : Int → PathNodeId) (hgen : Genuine φ ((m : Int) + 2) sel)
+    (hsrc : (sel (m : Int)).id = kv.1) (htop : (sel ((m : Int) + 1)).id = d) :
+    ChainSound (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") sel := by
+  have hl := LineInv_steps φ hwf m 0 (pureInit φ) (LineInv_init φ hwf)
+  rw [show (0 : Int) + (m : Int) = m by omega] at hl
+  exact send_complete_of φ hwf m hm kv (hl.1.2 kv hkv) (hl.2 kv hkv) d hd hval sel hgen
+    (line_complete φ hwf m (by omega) kv hkv sel (genuine_restrict φ hgen (by omega)) hsrc)
+    hsrc htop
 
 /-- info: 'AbsSat.GraphPath.Model.RunNoBorrow.send_complete' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
