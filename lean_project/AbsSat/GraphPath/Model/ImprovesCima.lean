@@ -294,6 +294,67 @@ theorem AOk_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g
     exact AOk_pruneNode test g'' g x hg''.2 hg''.1 hC
   · exact h
 
+-- ============================================================
+-- The sweep carries the chains, so the hypothesis can be asked where the sweep is
+-- ============================================================
+
+/-- A family of chains, all still sound in the state. -/
+def ChainsOk (C : (Int → PathNodeId) → Prop) (g : GPathM) : Prop := ∀ sel, C sel → ChainSound g sel
+
+/-- **The rule's hypothesis for a support, asked only where the sweep can actually be.** Same as
+`TestR`, but the narrowing is also known to hold the chains. The sweep carries them (`ChainSound_prunePair`
+at every step), so nothing is ever asked of a state the sweep cannot reach — which is exactly the slack
+`TestR` had. -/
+def TestRC (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM)
+    (C : (Int → PathNodeId) → Prop) (Sc : PathNodeId → Prop)
+    (Rl : PathNodeId → PathNodeId → Prop) : Prop :=
+  ∀ g', Keeps g g' → ChainsOk C g' → AOk g' Sc Rl → ∀ x v, Rl x v → test g' x v = true
+
+theorem testRC_of_testR (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM)
+    (C : (Int → PathNodeId) → Prop) (h : TestR test g S R) : TestRC test g C S R :=
+  fun g' hk _ hA x v hr => h g' hk hA x v hr
+
+theorem AOk_pruneNodeC (test : GPathM → PathNodeId → PathNodeId → Bool) (g g₀ : GPathM)
+    (x : PathNodeId) (C : (Int → PathNodeId) → Prop) (hk : Keeps g₀ g)
+    (h : AOk g S R) (hch : ChainsOk C g)
+    (hCc : ∀ sel, C sel → TestC test g₀ sel) (hR : TestRC test g₀ C S R) :
+    (AOk (pruneNode test g x) S R ∧ ChainsOk C (pruneNode test g x)) ∧
+      Keeps g₀ (pruneNode test g x) := by
+  refine ⟨?_, Keeps.trans hk (keeps_pruneNode test g x)⟩
+  unfold pruneNode
+  split
+  · exact ⟨h, hch⟩
+  · next nx _ =>
+    refine BranchLines.foldl_inv (fun g' w => prunePair test g' x w)
+      (fun g' => (AOk g' S R ∧ ChainsOk C g') ∧ Keeps g₀ g') nx.owners ?_ g ⟨⟨h, hch⟩, hk⟩ |>.1
+    intro g' w _ hg'
+    refine ⟨⟨AOk_prunePair test g' hg'.1.1 x w
+        (fun hr => hR g' hg'.2 hg'.1.2 hg'.1.1 x w hr), ?_⟩,
+      Keeps.trans hg'.2 (keeps_prunePair _ _ _ _)⟩
+    intro sel hsel
+    refine ChainSound_prunePair test g' x w sel (hg'.1.2 sel hsel) ?_
+    intro i j hi0 hi hj0 hj hix hjw
+    have hp := hCc sel hsel g' hg'.2 (hg'.1.2 sel hsel) i j hi0 hi hj0 hj
+    rw [hix, hjw] at hp
+    exact hp
+
+/-- **A support survives the sweep, and so do the chains.** -/
+theorem AOk_pruneSweepC (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM)
+    (C : (Int → PathNodeId) → Prop) (h : AOk g S R) (hch : ChainsOk C g)
+    (hCc : ∀ sel, C sel → TestC test g sel) (hR : TestRC test g C S R) :
+    AOk (pruneSweep test g) S R ∧ ChainsOk C (pruneSweep test g) := by
+  unfold pruneSweep
+  split
+  · refine BranchLines.foldl_inv
+      (fun g' k => ((g'.line k).map (·.id)).foldl (pruneNode test) g')
+      (fun g' => (AOk g' S R ∧ ChainsOk C g') ∧ Keeps g g') _ ?_ g ⟨⟨h, hch⟩, Keeps.refl g⟩ |>.1
+    intro g' k _ hg'
+    refine BranchLines.foldl_inv (pruneNode test)
+      (fun g'' => (AOk g'' S R ∧ ChainsOk C g'') ∧ Keeps g g'') _ ?_ g' hg'
+    intro g'' x _ hg''
+    exact AOk_pruneNodeC test g'' g x C hg''.2 hg''.1.1 hg''.1.2 hCc hR
+  · exact ⟨h, hch⟩
+
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.ChainSound_pruneSweep' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms ChainSound_pruneSweep
@@ -1040,6 +1101,76 @@ theorem AOk_reviewCimaFuel (sides : List GPathM) :
         exact AOk_cimaSweep sides _ h₁ (fun g' hk' hA x v hr => hC g' (Keeps.trans hk₁ hk') hA x v hr)
       · exact h₁
     · exact h₁
+
+
+/-- The rule's hypothesis for a support, with the chains, and for a chain. -/
+abbrev CarriedRC (sides : List GPathM) : GPathM → ((Int → PathNodeId) → Prop) →
+    (PathNodeId → Prop) → (PathNodeId → PathNodeId → Prop) → Prop :=
+  TestRC (cimaOk sides)
+
+/-- **The whole review of a union carries a support and its chains.** -/
+theorem AOk_reviewCimaFuelC (sides : List GPathM) (C : (Int → PathNodeId) → Prop) :
+    ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → AOk g S R → ChainsOk C g →
+      (∀ sel, C sel → Carried sides g₀ sel) → CarriedRC sides g₀ C S R →
+      AOk (reviewCimaFuel sides fuel g) S R ∧ ChainsOk C (reviewCimaFuel sides fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro g g₀ _ h hch _ _
+    exact ⟨AnchoredSurvive.AOk_reviewAggFuel _ g h,
+      fun sel hsel => ChainSound_reviewAgg g sel (hch sel hsel)⟩
+  | succ n ih =>
+    intro g g₀ hk h hch hCc hC
+    simp only [reviewCimaFuel]
+    have h₁ : AOk (reviewAgg g) S R := AnchoredSurvive.AOk_reviewAggFuel _ g h
+    have hch₁ : ChainsOk C (reviewAgg g) :=
+      fun sel hsel => ChainSound_reviewAgg g sel (hch sel hsel)
+    have hk₁ : Keeps g₀ (reviewAgg g) := Keeps.trans hk (ReaderAggRun.keeps_reviewAggFuel _ g)
+    split
+    · split
+      · obtain ⟨hA2, hch2⟩ := AOk_pruneSweepC (cimaOk sides) (reviewAgg g) C h₁ hch₁
+          (fun sel hsel g' hk' hsc' i j => hCc sel hsel g' (Keeps.trans hk₁ hk') hsc' i j)
+          (fun g' hk' hchg' hA x v hr => hC g' (Keeps.trans hk₁ hk') hchg' hA x v hr)
+        exact ih _ g₀ (Keeps.trans hk₁ (keeps_cimaSweep sides _)) hA2 hch2 hCc hC
+      · exact ⟨h₁, hch₁⟩
+    · exact ⟨h₁, hch₁⟩
+
+/-- **A support and its chains survive the pins and the review of a union.** -/
+theorem AOk_filterAllCimaC (sides : List GPathM) (g : GPathM) (C : (Int → PathNodeId) → Prop)
+    (h : AOk g S R) (hch : ChainsOk C g) (reqs : List NodeId)
+    (hpin : ∀ r ∈ reqs, ∀ p, S p → p.id.step = r.step → p.id = r)
+    (hpinC : ∀ r ∈ reqs, ∀ sel, C sel → 0 ≤ r.step → r.step < g.current_step →
+      (sel r.step).id = r)
+    (hCc : ∀ sel, C sel → Carried sides g sel)
+    (hC : CarriedRC sides g C S R) : AOk (filterAllCima sides g reqs) S R := by
+  have main : ∀ (l : List NodeId), (∀ r ∈ l, ∀ p, S p → p.id.step = r.step → p.id = r) →
+      ∀ h' : GPathM, AOk h' S R → AOk (l.foldl filterRequire h') S R := by
+    intro l
+    induction l with
+    | nil => intro _ h' hw; exact hw
+    | cons x xs ih =>
+      intro hx h' hw
+      simp only [List.foldl_cons]
+      exact ih (fun r hr => hx r (List.mem_cons_of_mem _ hr)) _
+        (AnchoredSurvive.AOk_filterRequire h' hw x (hx x List.mem_cons_self))
+  have mainC : ∀ (l : List NodeId),
+      (∀ r ∈ l, ∀ sel, C sel → 0 ≤ r.step → r.step < g.current_step → (sel r.step).id = r) →
+      ∀ h' : GPathM, h'.current_step = g.current_step → ChainsOk C h' →
+        ChainsOk C (l.foldl filterRequire h') := by
+    intro l
+    induction l with
+    | nil => intro _ h' _ hw; exact hw
+    | cons x xs ih =>
+      intro hx h' hcs hw
+      simp only [List.foldl_cons]
+      refine ih (fun r hr => hx r (List.mem_cons_of_mem _ hr)) _
+        ((ReaderAgg.keeps_filterRequire h' x).1.step_eq.symm.trans hcs) ?_
+      intro sel hsel
+      exact ChainSound_filterRequire h' x sel (hw sel hsel)
+        (fun h0 h1 => hx x List.mem_cons_self sel hsel h0 (by rw [← hcs]; exact h1))
+  exact (AOk_reviewCimaFuelC sides C _ _ g
+    (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g)
+    (main reqs hpin g h) (mainC reqs hpinC g rfl hch) hCc hC).1
 
 /-- **A support survives the pins and the review of a union.** -/
 theorem AOk_filterAllCima (sides : List GPathM) (g : GPathM) (h : AOk g S R) (reqs : List NodeId)
@@ -1851,6 +1982,47 @@ theorem pinned_source_valid_of_sideChain (sides : List GPathM) (hwf : WF φ) (k 
       ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true :=
   pinned_source_valid_of_pairSide φ sides hwf k key G hsG hmG d hd hval Q hvY
     (pairSide_of_chainSide φ sides k G d Q hcs (chainSide_of_sideChain φ sides k G d Q hcs h))
+
+
+/-- **The chains the descent may use**: sound in the source state, sound in one of its sides, and
+compatible with the pins. Nothing here mentions a narrowing — the sweep carries them. -/
+def CimaChain (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId)
+    (sel : Int → PathNodeId) : Prop :=
+  ChainSound G sel ∧
+  (∃ Sd ∈ sides, Sd.current_step = G.current_step ∧ ChainSound Sd sel) ∧
+  ∀ r ∈ (reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)),
+    0 ≤ r.step → r.step < G.current_step → (sel r.step).id = r
+
+/-- **The descent's obligation, in its tight form.** Every pair of the support lies on such a chain.
+The quantifier over narrowings is gone: the chain is asked of the source state only, because
+`AOk_filterAllCimaC` carries both the support and the chains through the pins and the whole review. -/
+def SideChainG (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId) : Prop :=
+  ∀ x v, (Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧
+      x.id.step < k + 1 ∧ v.id.step < k + 1) →
+    ∃ (sel : Int → PathNodeId) (i j : Int), CimaChain φ sides k G d Q sel ∧
+      0 ≤ i ∧ i < G.current_step ∧ 0 ≤ j ∧ j < G.current_step ∧ x = sel i ∧ v = sel j
+
+/-- **The descent, from chains of the source state alone.** -/
+theorem pinned_source_valid_of_sideChainG (sides : List GPathM) (hwf : WF φ) (k : Int)
+    (key : NodeId) (G : GPathM) (hsG : ConservationFilter.StateOkF φ k (key, G)) (hmG : MInv φ G)
+    (d : NodeId) (hd : d ∈ mapSons φ key.step key.index) (hval : isValid (sent φ G d) = true)
+    (Q : List NodeId) (hvY : isValid (AggressiveReview.filterAllAgg (sent φ G d) Q) = true)
+    (hcs : 0 < G.current_step) (h : SideChainG φ sides k G d Q) :
+    isValid (filterAllCima sides G
+      ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+  obtain ⟨hA, hpin, z, hz⟩ :=
+    HereditaryValid.pinned_source_support φ hwf k key G hsG hmG d hd hval Q hvY
+  refine SupportSplit.valid_of_sup _ _ _
+    (AOk_filterAllCimaC sides G (CimaChain φ sides k G d Q) hA (fun sel hsel => hsel.1) _ hpin
+      (fun r hr sel hsel h0 h1 => hsel.2.2 r hr h0 h1) (fun sel hsel => ?_) (fun g' hk hchg' _ x v hr => ?_)).sup z hz
+  · obtain ⟨Sd, hS, hcsS, hscS⟩ := hsel.2.1
+    exact carried_of_side sides G Sd hS sel hscS hcsS hcs
+  · obtain ⟨sel, i, j, hsel, hi0, hi1, hj0, hj1, hxe, hve⟩ := h x v hr
+    obtain ⟨Sd, hS, hcsS, hscS⟩ := hsel.2.1
+    have hcs' : g'.current_step = G.current_step := hk.1.step_eq
+    rw [hxe, hve]
+    exact cimaOk_of_chain sides g' Sd hS (by rw [hcs']; exact hcsS) sel (hchg' sel hsel) hscS
+      (by rw [hcs']; exact hcs) i j hi0 (by omega) hj0 (by omega)
 
 /-- **Every node of a family is a node of the side.** A node of the family has, by its own support, a
 partner at every step; the pair is an entry of the side, so the node is one of the side's. -/
@@ -2725,6 +2897,14 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.pinned_source_valid_of_sideChain' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pinned_source_valid_of_sideChain
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_filterAllCimaC' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms AOk_filterAllCimaC
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.pinned_source_valid_of_sideChainG' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinned_source_valid_of_sideChainG
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
