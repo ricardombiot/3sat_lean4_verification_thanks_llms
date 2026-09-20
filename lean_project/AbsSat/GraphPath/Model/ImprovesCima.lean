@@ -1642,6 +1642,31 @@ theorem chainSound_of_pairwise (F : GPathM) (hadj : AdjacentOwners.Adj F)
     rw [node?_id_eq F (sel k) n hn] at this
     exact this
 
+/-- **Pairwise ownership already carries the links.** In a review fixpoint, two members of the support
+that own each other on neighbouring steps are a parent link (`Sup.link`). So a selection that picks one
+node per step and is pairwise owned is a linked chain for free — `IsChain` asks for nothing more. -/
+theorem isChain_of_pairwise (F : GPathM) (hadj : AdjacentOwners.Adj F)
+    (hok : AggFixpoint.AggOk F) (hsmp : Sons.SMP F) (sel : Int → PathNodeId)
+    (hnode : ∀ k, 0 ≤ k → k < F.current_step → (F.node? (sel k)).isSome = true ∧ (sel k).id.step = k)
+    (hpw : PairwiseOwned F sel) : IsChain F sel := by
+  have hsup := LinkedChain.sup_self F hadj hok hsmp
+  have hrel : ∀ i j, 0 ≤ i → 0 ≤ j → i < F.current_step → j < F.current_step → i ≠ j →
+      Rel F (sel j) (sel i) := by
+    intro i j hi0 hj0 hi hj hne
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hnode j hj0 hj).1
+    obtain ⟨n', hn'⟩ := Option.isSome_iff_exists.mp (hnode i hi0 hi).1
+    have hmem := hpw i j hi0 hj0 hi hj hne
+    have : sel i ∈ ownersOf F (sel j) := (List.mem_filter.mp hmem).1
+    unfold ownersOf at this; rw [hn] at this
+    exact ⟨n, hn, this, n', hn'⟩
+  refine ⟨hnode, fun k h0 h1 => ?_⟩
+  obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (hnode (k + 1) (by omega) h1).1
+  have hlink := hsup.link (sel (k + 1)) (sel k)
+    d (hrel k (k + 1) h0 (by omega) (by omega) h1 (by omega))
+    (hrel (k + 1) k (by omega) h0 h1 (by omega) (by omega))
+    (by rw [(hnode k h0 (by omega)).2, (hnode (k + 1) (by omega) h1).2]) hd
+  rw [hd]; simpa using hlink
+
 -- ============================================================
 -- The verdict, straight from the family
 -- ============================================================
@@ -1654,20 +1679,24 @@ def FamHasChain (sides : List GPathM) : Prop :=
     0 < g.current_step → isValid (famFix sides t g) = true →
     ∃ sel, ChainSound (famFix sides t g) sel
 
-/-- **And what is left of it**: some linked selection of the family is pairwise owned. Everything else
-a sound chain asks for the family already has (`chainSound_of_pairwise`), and a linked selection through
-any of its entries is free (`LinkedChain.entry_on_linked_chain`). -/
+/-- **And what is left of it, with nothing else attached**: the family has one node per step, and those
+nodes own each other. No links and no other condition: the links follow (`isChain_of_pairwise`) and so
+does everything else a sound chain asks for (`chainSound_of_pairwise`). -/
 def FamPairwise (sides : List GPathM) : Prop :=
   ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
     0 < g.current_step → isValid (famFix sides t g) = true →
-    ∃ sel, IsChain (famFix sides t g) sel ∧ PairwiseOwned (famFix sides t g) sel
+    ∃ sel, (∀ k, 0 ≤ k → k < (famFix sides t g).current_step →
+        ((famFix sides t g).node? (sel k)).isSome = true ∧ (sel k).id.step = k) ∧
+      PairwiseOwned (famFix sides t g) sel
 
 theorem famHasChain_of_pairwise (sides : List GPathM) (h : FamPairwise sides) :
     FamHasChain sides := by
   intro g t hrc hsmp hpms hsn hcs hv
-  obtain ⟨sel, hic, hpw⟩ := h g t hrc hsmp hpms hsn hcs hv
+  obtain ⟨sel, hnode, hpw⟩ := h g t hrc hsmp hpms hsn hcs hv
   obtain ⟨hadj, hsm⟩ := adj_famFix sides t g hrc hsmp hpms hsn hv
-  refine ⟨sel, chainSound_of_pairwise _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm ?_ sel hic hpw⟩
+  have hok := AggFixpoint.aggOk_reviewAgg _ hv
+  refine ⟨sel, chainSound_of_pairwise _ hadj hok hsm ?_ sel
+    (isChain_of_pairwise _ hadj hok hsm sel hnode hpw) hpw⟩
   rw [(keeps_famFix sides t g).1.step_eq]; exact hcs
 
 /-- **The verdict of `ImprovesCima`, straight from that.** No induction along the lines and no descent:
