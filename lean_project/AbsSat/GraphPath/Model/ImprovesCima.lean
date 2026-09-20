@@ -1565,33 +1565,6 @@ theorem mem_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId
     hbv.2).1
   exact ⟨n, hn⟩
 
-set_option maxHeartbeats 1000000 in
-/-- **A family is a cone over its top.** Every node of it owns the top and is owned by the top: the
-node's partner at the last step is a node of the side at that step, and a send has exactly one
-(`sent_top`). So the family is not just a support — it hangs entirely on `t`. -/
-theorem cone_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
-    (hvS : isValid (sent φ kv.2 p) = true)
-    (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
-    (hcsg : g.current_step = (m : Int) + 2)
-    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
-    (z : PathNodeId)
-    (hz : EmbeddedSupport.Mem (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) z) :
-    Rel (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) z (topOf p kv.1) := by
-  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
-      g.current_step := (keeps_famFix _ _ g).1.step_eq
-  have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
-  have hsup := sup_famFix _ (topOf p kv.1) g hrc hsmp hpms hsn hv
-  obtain ⟨v, hrel, hvs⟩ := hsup.cov z hz ((m : Int) + 1) (by omega) (by rw [hcsF, hcsg]; omega)
-  obtain ⟨n, hn⟩ := mem_side_of_famFix φ hwf P m p hps kv hkv g hrc hsmp hpms hsn hcsg hv v
-    (hsup.dom z v hrel).2
-  have hid : n.id = v := node?_id_eq _ _ n hn
-  have heq : v = topOf p kv.1 := by
-    rw [← hid]
-    exact sent_top φ m kv hsok hmkv p hvS n (List.mem_of_find?_eq_some hn) (by rw [hid, hvs])
-  rw [heq] at hrel; exact hrel
-
 -- ============================================================
 -- What a chain still asks for, in a state of the machine's kind
 -- ============================================================
@@ -1828,6 +1801,52 @@ theorem triPicks_facts (F : GPathM) (hnd : NodupIds F) :
           · exact ⟨(hzall x hx').2, (hzall x hx').1⟩
           · exact hmut x hx' y hy' hxy
 
+/-- **What the first three picks hand over, as a witness.** Same three cases as below, but keeping the
+node it builds: a node of the state, at the step asked for, related both ways to everything picked. -/
+theorem common_exists (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) (L : List PathNodeId) (hlen : L.length ≤ 2)
+    (hnodes : ∀ y ∈ L, (F.node? y).isSome = true)
+    (hmut : ∀ x ∈ L, ∀ y ∈ L, x ≠ y →
+      (ownersOf F x).contains y = true ∧ (ownersOf F y).contains x = true)
+    (l : Int) (h0 : 0 ≤ l) (h1 : l < F.current_step) :
+    ∃ z n, F.node? z = some n ∧ z.id.step = l ∧ ∀ y ∈ L, Rel F z y ∧ Rel F y z := by
+  have hsup := LinkedChain.sup_self F hadj hok hsmp
+  have hmemOf : ∀ a b, Rel F a b → EmbeddedSupport.Mem F a := fun a b h => (hsup.dom a b h).1
+  rcases L with _ | ⟨a, L1⟩
+  ·
+    have hv' := hv
+    simp only [isValid, List.all_eq_true] at hv'
+    obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (hv' l (mem_intRange h0 (by omega)))
+    obtain ⟨n, hn, hnid⟩ := hadj.rc.gn q hq
+    have hnq : F.node? q = some n := by rw [← hnid]; exact node?_of_mem hadj.rc.nodup n hn
+    exact ⟨q, n, hnq, eq_of_beq hqs, fun y hy => absurd hy List.not_mem_nil⟩
+  rcases L1 with _ | ⟨b, L2⟩
+  ·
+    obtain ⟨na, hna⟩ := Option.isSome_iff_exists.mp (hnodes a List.mem_cons_self)
+    obtain ⟨v, hrel, hvs⟩ := hsup.cov a ⟨na, hna⟩ l h0 h1
+    obtain ⟨nv, hnv⟩ := hmemOf v a (hsup.sym a v hrel)
+    exact ⟨v, nv, hnv, hvs, fun y hy => by
+      rw [List.mem_singleton.mp hy]; exact ⟨hsup.sym a v hrel, hrel⟩⟩
+  rcases L2 with _ | ⟨c, L3⟩
+  ·
+    by_cases hab : a = b
+    · obtain ⟨na, hna⟩ := Option.isSome_iff_exists.mp (hnodes a List.mem_cons_self)
+      obtain ⟨v, hrel, hvs⟩ := hsup.cov a ⟨na, hna⟩ l h0 h1
+      obtain ⟨nv, hnv⟩ := hmemOf v a (hsup.sym a v hrel)
+      exact ⟨v, nv, hnv, hvs, fun y hy => by
+        rcases List.mem_cons.mp hy with he | hy'
+        · rw [he]; exact ⟨hsup.sym a v hrel, hrel⟩
+        · rw [List.mem_singleton.mp hy', ← hab]; exact ⟨hsup.sym a v hrel, hrel⟩⟩
+    · obtain ⟨hc1, hc2⟩ := hmut a List.mem_cons_self b (List.mem_cons_of_mem _ List.mem_cons_self) hab
+      obtain ⟨hrab, _⟩ := rel_of_owners F a b hc1 hc2
+      obtain ⟨z, hza, hzb, hzs⟩ := hsup.agg a b hrab l h0 h1
+      obtain ⟨nz, hnz⟩ := hmemOf z a (hsup.sym a z hza)
+      exact ⟨z, nz, hnz, hzs, fun y hy => by
+        rcases List.mem_cons.mp hy with he | hy'
+        · rw [he]; exact ⟨hsup.sym a z hza, hza⟩
+        · rw [List.mem_singleton.mp hy']; exact ⟨hsup.sym b z hzb, hzb⟩⟩
+  · exact absurd hlen (by simp)
+
 /-- **The filter cannot fire on the first three picks.** With none picked, any node of the step will do
 and the state is live; with one, its own cover gives a partner at every step; with two, they own each
 other, so the aggressive review gives them a common owner at every step. The first time the filter can
@@ -1838,46 +1857,9 @@ theorem commonWith_small (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFi
     (hmut : ∀ x ∈ L, ∀ y ∈ L, x ≠ y →
       (ownersOf F x).contains y = true ∧ (ownersOf F y).contains x = true)
     (l : Int) (h0 : 0 ≤ l) (h1 : l < F.current_step) : commonWith F L l ≠ [] := by
-  have hsup := LinkedChain.sup_self F hadj hok hsmp
-  have hmemOf : ∀ a b, Rel F a b → EmbeddedSupport.Mem F a := fun a b h => (hsup.dom a b h).1
-  rcases L with _ | ⟨a, L1⟩
-  ·
-    have hv' := hv
-    simp only [isValid, List.all_eq_true] at hv'
-    obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (hv' l (mem_intRange h0 (by omega)))
-    obtain ⟨n, hn, hnid⟩ := hadj.rc.gn q hq
-    have hnq : F.node? q = some n := by rw [← hnid]; exact node?_of_mem hadj.rc.nodup n hn
-    have hmem := mem_commonWith_mk F [] l q n hnq (eq_of_beq hqs) (fun y hy => absurd hy List.not_mem_nil)
-    intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
-  rcases L1 with _ | ⟨b, L2⟩
-  ·
-    obtain ⟨na, hna⟩ := Option.isSome_iff_exists.mp (hnodes a List.mem_cons_self)
-    obtain ⟨v, hrel, hvs⟩ := hsup.cov a ⟨na, hna⟩ l h0 h1
-    obtain ⟨nv, hnv⟩ := hmemOf v a (hsup.sym a v hrel)
-    have hmem := mem_commonWith_mk F [a] l v nv hnv hvs (fun y hy => by
-      rw [List.mem_singleton.mp hy]; exact ⟨hsup.sym a v hrel, hrel⟩)
-    intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
-  rcases L2 with _ | ⟨c, L3⟩
-  ·
-    by_cases hab : a = b
-    · obtain ⟨na, hna⟩ := Option.isSome_iff_exists.mp (hnodes a List.mem_cons_self)
-      obtain ⟨v, hrel, hvs⟩ := hsup.cov a ⟨na, hna⟩ l h0 h1
-      obtain ⟨nv, hnv⟩ := hmemOf v a (hsup.sym a v hrel)
-      have hmem := mem_commonWith_mk F [a, b] l v nv hnv hvs (fun y hy => by
-        rcases List.mem_cons.mp hy with he | hy'
-        · rw [he]; exact ⟨hsup.sym a v hrel, hrel⟩
-        · rw [List.mem_singleton.mp hy', ← hab]; exact ⟨hsup.sym a v hrel, hrel⟩)
-      intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
-    · obtain ⟨hc1, hc2⟩ := hmut a List.mem_cons_self b (List.mem_cons_of_mem _ List.mem_cons_self) hab
-      obtain ⟨hrab, hrba⟩ := rel_of_owners F a b hc1 hc2
-      obtain ⟨z, hza, hzb, hzs⟩ := hsup.agg a b hrab l h0 h1
-      obtain ⟨nz, hnz⟩ := hmemOf z a (hsup.sym a z hza)
-      have hmem := mem_commonWith_mk F [a, b] l z nz hnz hzs (fun y hy => by
-        rcases List.mem_cons.mp hy with he | hy'
-        · rw [he]; exact ⟨hsup.sym a z hza, hza⟩
-        · rw [List.mem_singleton.mp hy']; exact ⟨hsup.sym b z hzb, hzb⟩)
-      intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
-  · exact absurd hlen (by simp)
+  obtain ⟨z, n, hn, hzs, hrel⟩ := common_exists F hadj hok hsmp hv L hlen hnodes hmut l h0 h1
+  have hmem := mem_commonWith_mk F L l z n hn hzs hrel
+  intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
 
 /-- **The filter is proved for the first three rounds.** -/
 theorem triOk_low (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
@@ -1901,6 +1883,152 @@ theorem triOk_of_high (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpo
   rcases Nat.lt_or_ge n 3 with hlt | hge
   · exact triOk_low F hadj hok hsmp hv n (by omega) hn
   · exact h n hge hn
+
+/-- **A family hangs on its top.** Two facts about the cone: every member is related both ways to the
+centre `c`, and the centre is the only member at the last step. -/
+def ConeAt (F : GPathM) (c : PathNodeId) : Prop :=
+  (∀ z, EmbeddedSupport.Mem F z → Rel F z c ∧ Rel F c z) ∧
+  (∀ z, EmbeddedSupport.Mem F z → z.id.step = F.current_step - 1 → z = c)
+
+/-- **The centre of a cone is free.** Anything the state hands over is a member, so it is already
+related to `c`: a list made of at most two nodes plus the centre never empties the intersection. -/
+theorem commonWith_cone (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) (c : PathNodeId)
+    (hcone : ∀ z, EmbeddedSupport.Mem F z → Rel F z c ∧ Rel F c z)
+    (L L' : List PathNodeId) (hsub : ∀ y ∈ L, y ∈ L' ∨ y = c) (hlen : L'.length ≤ 2)
+    (hnodes : ∀ y ∈ L', (F.node? y).isSome = true)
+    (hmut : ∀ x ∈ L', ∀ y ∈ L', x ≠ y →
+      (ownersOf F x).contains y = true ∧ (ownersOf F y).contains x = true)
+    (l : Int) (h0 : 0 ≤ l) (h1 : l < F.current_step) : commonWith F L l ≠ [] := by
+  obtain ⟨z, n, hn, hzs, hrel⟩ := common_exists F hadj hok hsmp hv L' hlen hnodes hmut l h0 h1
+  have hmem := mem_commonWith_mk F L l z n hn hzs (fun y hy => by
+    rcases hsub y hy with hy' | hyc
+    · exact hrel y hy'
+    · rw [hyc]; exact hcone z ⟨n, hn⟩)
+  intro he; rw [he] at hmem; exact absurd hmem List.not_mem_nil
+
+/-- **The centre is always picked first.** The first round reads the last step, and the cone has exactly
+one node there; so from then on every pick list ends in the centre. -/
+theorem triPicks_cone (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) (hcs : 0 < F.current_step)
+    (c : PathNodeId) (hcone : ConeAt F c) :
+    ∀ n : Nat, 1 ≤ n → ∃ L', triPicks F n = L' ++ [c] ∧ L'.length + 1 ≤ n := by
+  intro n
+  induction n with
+  | zero => intro h; exact absurd h (by omega)
+  | succ k ih =>
+    intro _
+    rcases Nat.eq_zero_or_pos k with rfl | hk
+    · have hne := triOk_low F hadj hok hsmp hv 0 (by omega) (by push_cast; omega)
+      cases hc : commonWith F (triPicks F 0) (F.current_step - 1 - ((0 : Nat) : Int)) with
+      | nil => exact absurd hc hne
+      | cons z rest =>
+        have hstep : triPicks F 1 = z :: triPicks F 0 := by
+          show (match commonWith F (triPicks F 0) (F.current_step - 1 - ((0 : Nat) : Int)) with
+            | [] => triPicks F 0 | z :: _ => z :: triPicks F 0) = _
+          rw [hc]
+        have hzmem : z ∈ commonWith F (triPicks F 0) (F.current_step - 1 - ((0 : Nat) : Int)) := by
+          rw [hc]; exact List.mem_cons_self
+        obtain ⟨hzs, hzn, _⟩ := mem_commonWith F hadj.rc.nodup _ _ z hzmem
+        have hzc : z = c :=
+          hcone.2 z (Option.isSome_iff_exists.mp hzn) (by rw [hzs]; push_cast; omega)
+        exact ⟨[], by rw [hstep, hzc]; rfl, by omega⟩
+    · obtain ⟨L', hL', hlen⟩ := ih hk
+      cases hc : commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+      | nil =>
+        have hstep : triPicks F (k + 1) = triPicks F k := by
+          show (match commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+            | [] => triPicks F k | z :: _ => z :: triPicks F k) = _
+          rw [hc]
+        exact ⟨L', by rw [hstep, hL'], by omega⟩
+      | cons z rest =>
+        have hstep : triPicks F (k + 1) = z :: triPicks F k := by
+          show (match commonWith F (triPicks F k) (F.current_step - 1 - (k : Int)) with
+            | [] => triPicks F k | z :: _ => z :: triPicks F k) = _
+          rw [hc]
+        exact ⟨z :: L', by rw [hstep, hL']; rfl, by simp only [List.length_cons]; omega⟩
+
+/-- **In a cone the filter only has content from the fifth pick on.** Three of the four already picked
+must agree, and one of them is always the centre, which agrees with everything. -/
+def TriOkCone (F : GPathM) : Prop :=
+  ∀ n : Nat, 4 ≤ n → (n : Int) < F.current_step →
+    commonWith F (triPicks F n) (F.current_step - 1 - (n : Int)) ≠ []
+
+theorem triOk_of_cone (F : GPathM) (hadj : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F)
+    (hsmp : Sons.SMP F) (hv : isValid F = true) (c : PathNodeId) (hcone : ConeAt F c)
+    (h : TriOkCone F) : TriOk F := by
+  intro n hn
+  rcases Nat.lt_or_ge n 4 with hlt | hge
+  · rcases Nat.eq_zero_or_pos n with rfl | hpos
+    · exact triOk_low F hadj hok hsmp hv 0 (by omega) hn
+    · have hcs : 0 < F.current_step := by
+        have h1 : (0 : Int) < (n : Int) := by exact_mod_cast hpos
+        omega
+      obtain ⟨L', hL', hlen⟩ := triPicks_cone F hadj hok hsmp hv hcs c hcone n hpos
+      obtain ⟨_, hnodes, hmut⟩ := triPicks_facts F hadj.rc.nodup n
+      refine commonWith_cone F hadj hok hsmp hv c hcone.1 (triPicks F n) L' ?_ (by omega) ?_ ?_ _
+        (by omega) (by omega)
+      · intro y hy
+        rw [hL'] at hy
+        rcases List.mem_append.mp hy with h1 | h2
+        · exact Or.inl h1
+        · exact Or.inr (List.mem_singleton.mp h2)
+      · intro y hy; exact hnodes y (by rw [hL']; exact List.mem_append_left _ hy)
+      · intro x hx y hy hxy
+        exact hmut x (by rw [hL']; exact List.mem_append_left _ hx)
+          y (by rw [hL']; exact List.mem_append_left _ hy) hxy
+  · exact h n hge hn
+
+/-- **One node at the last step makes the cone.** Every member has, by its own support, a partner at
+the last step; if the only member there is `t`, that partner is `t`. So the whole family hangs on `t`
+with nothing else assumed about the sides. -/
+theorem coneAt_of_topSingle (sides : List GPathM) (t : PathNodeId) (g : GPathM)
+    (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hcs : 0 < g.current_step) (hv : isValid (famFix sides t g) = true)
+    (hsingle : ∀ z, EmbeddedSupport.Mem (famFix sides t g) z →
+      z.id.step = (famFix sides t g).current_step - 1 → z = t) :
+    ConeAt (famFix sides t g) t := by
+  have hcsF : (famFix sides t g).current_step = g.current_step := (keeps_famFix _ _ g).1.step_eq
+  have hsup := sup_famFix sides t g hrc hsmp hpms hsn hv
+  refine ⟨fun z hz => ?_, hsingle⟩
+  obtain ⟨v, hrel, hvs⟩ := hsup.cov z hz ((famFix sides t g).current_step - 1)
+    (by rw [hcsF]; omega) (by omega)
+  have hvt : v = t := hsingle v (hsup.dom z v hrel).2 hvs
+  rw [hvt] at hrel
+  exact ⟨hrel, hsup.sym _ _ hrel⟩
+
+/-- **The only node a real family has at the last step is its top**, and so the family is a cone. -/
+theorem coneAt_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
+    (hvS : isValid (sent φ kv.2 p) = true)
+    (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hcsg : g.current_step = (m : Int) + 2)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true) :
+    ConeAt (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) (topOf p kv.1) := by
+  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+      g.current_step := (keeps_famFix _ _ g).1.step_eq
+  refine coneAt_of_topSingle _ _ g hrc hsmp hpms hsn (by omega) hv (fun z hz hzs => ?_)
+  obtain ⟨n, hn⟩ := mem_side_of_famFix φ hwf P m p hps kv hkv g hrc hsmp hpms hsn hcsg hv z hz
+  have hid : n.id = z := node?_id_eq _ _ n hn
+  rw [← hid]
+  exact sent_top φ m kv hsok hmkv p hvS n (List.mem_of_find?_eq_some hn)
+    (by rw [hid, hzs, hcsF, hcsg]; omega)
+
+/-- **So a real family only asks the author's filter from the fifth pick on.** -/
+theorem triOk_of_coneHigh_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
+    (hvS : isValid (sent φ kv.2 p) = true)
+    (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hcsg : g.current_step = (m : Int) + 2)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (h : TriOkCone (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g)) :
+    TriOk (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) := by
+  obtain ⟨hadj, hsm⟩ :=
+    adj_famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g hrc hsmp hpms hsn hv
+  exact triOk_of_cone _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm hv _
+    (coneAt_famFix φ hwf P m p hps kv hkv hsok hmkv hvS g hrc hsmp hpms hsn hcsg hv) h
 
 /-- **The pick at a step**, and what it is. -/
 theorem triSel_spec (F : GPathM) (hnd : NodupIds F) (hT : TriOk F) (k : Int) (h0 : 0 ≤ k)
@@ -1982,6 +2110,30 @@ def FamTriOk (sides : List GPathM) : Prop :=
   ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
     0 < g.current_step → isValid (famFix sides t g) = true → TriOk (famFix sides t g)
 
+/-- **The last step of a family has one node: its top.** This is the structural half of the cone, and
+it is what the real sides give (`coneAt_famFix`). -/
+def FamTopSingle (sides : List GPathM) : Prop :=
+  ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
+    0 < g.current_step → isValid (famFix sides t g) = true →
+      ∀ z, EmbeddedSupport.Mem (famFix sides t g) z →
+        z.id.step = (famFix sides t g).current_step - 1 → z = t
+
+/-- **The author's filter on a family, from the fifth pick on.** The first four are now proved: three
+of them by pairwise consistency, the fourth because one of the picks is always the top of the cone. -/
+def FamTriOkCone (sides : List GPathM) : Prop :=
+  ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
+    0 < g.current_step → isValid (famFix sides t g) = true → TriOkCone (famFix sides t g)
+
+/-- **The reduction.** The filter on a family, in full, follows from the filter from the fifth pick on
+plus the fact that the family's last step holds only its top. -/
+theorem famTriOk_of_cone (sides : List GPathM) (hs : FamTopSingle sides) (h : FamTriOkCone sides) :
+    FamTriOk sides := by
+  intro g t hrc hsmp hpms hsn hcs hv
+  obtain ⟨hadj, hsm⟩ := adj_famFix sides t g hrc hsmp hpms hsn hv
+  exact triOk_of_cone _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm hv t
+    (coneAt_of_topSingle sides t g hrc hsmp hpms hsn hcs hv (hs g t hrc hsmp hpms hsn hcs hv))
+    (h g t hrc hsmp hpms hsn hcs hv)
+
 /-- **From the filter to the pairwise selection.** The picks are the chain: one node per step, and each
 new one is taken from the nodes that own, and are owned by, everything picked before. -/
 theorem famPairwise_of_triOk (sides : List GPathM) (h : FamTriOk sides) : FamPairwise sides := by
@@ -2052,6 +2204,16 @@ theorem sat_of_famTriOk (sides : List GPathM) (hwf : WF φ) (hT : FamTriOk sides
   sat_of_famHasChain φ sides hwf (famHasChain_of_pairwise sides (famPairwise_of_triOk sides hT))
     m J hmJ hcs hle hvX
 
+/-- **The verdict of `ImprovesCima`, with the cone taken out of the filter.** The author's triangle
+filter is only asked from the fifth pick on; the first four are proved, and the last step of a family
+holding only its top is what the real sides give. -/
+theorem sat_of_famTriOkCone (sides : List GPathM) (hwf : WF φ) (hs : FamTopSingle sides)
+    (hT : FamTriOkCone sides)
+    (m : Nat) (J : GPathM) (hmJ : MInv φ J) (hcs : J.current_step = (m : Int) + 2)
+    (hle : (m : Int) + 2 = stepCount φ)
+    (hvX : isValid (filterAllCima sides J []) = true) : Satisfiable φ :=
+  sat_of_famTriOk φ sides hwf (famTriOk_of_cone sides hs hT) m J hmJ hcs hle hvX
+
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
 state of the machine's own kind whose entries are entries of that one side. What remains is to read the
@@ -2060,5 +2222,13 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_filterAllCima' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms AOk_filterAllCima
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.sat_of_famTriOkCone' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_famTriOkCone
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms coneAt_famFix
 
 end AbsSat.GraphPath.Model.ImprovesCima
