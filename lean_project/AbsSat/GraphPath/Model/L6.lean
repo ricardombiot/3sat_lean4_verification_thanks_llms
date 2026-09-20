@@ -76,7 +76,9 @@ theorem initSeed_nodes (d : NodeId) (title : String) :
     (GPathM.initSeed d title).nodes =
       [PNodeM.mk { id := d, parent_id := none } title [] [] [{ id := d, parent_id := none }]] := by
   unfold GPathM.initSeed GPathM.up GPathM.addNode
-  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
+  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry,
+    GPathM.newRow, GPathM.newRowIds, GPathM.rowNode, GPathM.rowParents, GPathM.rowOwners,
+    GPathM.newParents, GPathM.unionOwnersOf]
 
 theorem initSeed_current (d : NodeId) (title : String) :
     (GPathM.initSeed d title).current_step = 1 := by

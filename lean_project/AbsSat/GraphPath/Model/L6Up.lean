@@ -72,37 +72,69 @@ def InhabitedG (g : GPathM) : Prop := ∃ sel, ChainG g sel
 theorem Supported_filterRequire (g : GPathM) (req : NodeId) :
     Supported (filterRequire g req) ↔ Supported g := Iff.rfl
 
+/-- **The identifier the chain continues into.** With a window of two the row is
+a single node and this is that node; with three, which node of the row the chain
+enters is decided by the branch it came up — by its own last pick. -/
+def extendPid (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) : PathNodeId :=
+  if 0 < g.current_step then shiftPid (sel (g.current_step - 1)) d
+  else { id := d, parent_id := none, gparent_id := none }
+
+theorem extendPid_mapId (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) :
+    (extendPid g d sel).id = d := by unfold extendPid; split <;> rfl
+
 def extend (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) : Int → PathNodeId :=
-  fun k => if k = g.current_step then newPid g d else sel k
+  fun k => if k = g.current_step then extendPid g d sel else sel k
 
 theorem extend_top (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) :
-    extend g d sel g.current_step = newPid g d := by simp [extend]
+    extend g d sel g.current_step = extendPid g d sel := by simp [extend]
 
 theorem extend_below (g : GPathM) (d : NodeId) (sel : Int → PathNodeId)
     (k : Int) (h : k < g.current_step) : extend g d sel k = sel k := by
   simp [extend, Int.ne_of_lt h]
 
+/-- `find?` against an identifier answers with that identifier. -/
+theorem find?_beq_self {α : Type} [BEq α] [LawfulBEq α] (l : List α) (a : α) (h : a ∈ l) :
+    l.find? (fun x => x == a) = some a := by
+  induction l with
+  | nil => exact absurd h List.not_mem_nil
+  | cons b bs ih =>
+    rw [List.find?_cons]
+    cases hb : (b == a) with
+    | true => simp only; rw [eq_of_beq hb]
+    | false =>
+      simp only
+      refine ih ?_
+      rcases List.mem_cons.mp h with rfl | h'
+      · rw [beq_self_eq_true] at hb; exact absurd hb (by simp)
+      · exact h'
+
+/-- **Looking up a node of the new row.** -/
 theorem addNode_node?_new (g : GPathM) (d : NodeId) (title : String)
     (hd : d.step = g.current_step)
-    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) :
-    (addNode g d title).node? (newPid g d)
-      = some (addOwner (newPid g d) (upNode g d title)) := by
-  have hnone : g.nodes.find? (fun x : PNodeM => x.id == newPid g d) = none := by
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (pid : PathNodeId) (hpid : pid ∈ newRowIds g d) :
+    (addNode g d title).node? pid = some (rowNode g d title pid) := by
+  have hstep : pid.id.step = g.current_step := by
+    rw [mapId_of_mem_newRowIds g d pid hpid]; exact hd
+  have hnone : g.nodes.find? (fun x : PNodeM => x.id == pid) = none := by
     rw [List.find?_eq_none]
     intro x hx hbeq
-    have hxid : x.id = newPid g d := eq_of_beq hbeq
+    have hxid : x.id = pid := eq_of_beq hbeq
     have := hbelow x hx
-    rw [hxid] at this
-    simp only [newPid] at this
+    rw [hxid, hstep] at this
     omega
-  have hp : (fun x : PNodeM => (upMap g d x).id == newPid g d)
-      = (fun x : PNodeM => x.id == newPid g d) := by funext x; rw [upMap_id]
+  have hp : (fun x : PNodeM => (upMap g d x).id == pid)
+      = (fun x : PNodeM => x.id == pid) := by funext x; rw [upMap_id]
+  have hrow : (newRow g d title).find? (fun x : PNodeM => x.id == pid)
+      = some (rowNode g d title pid) := by
+    show ((newRowIds g d).map (rowNode g d title)).find? (fun x : PNodeM => x.id == pid) = _
+    rw [List.find?_map, Function.comp_def]
+    show ((newRowIds g d).find? (fun q => q == pid)).map (rowNode g d title) = _
+    rw [find?_beq_self _ pid hpid]
+    rfl
   simp only [node?, addNode_nodes, List.find?_append, List.find?_map, Function.comp_def, hp,
     hnone, Option.map_none, Option.none_or]
-  simp [addOwner, upNode, newPid]
-
-theorem addNode_gowners (g : GPathM) (d : NodeId) (title : String) :
-    (addNode g d title).gowners = g.gowners ++ [newPid g d] := rfl
+  exact hrow
 
 theorem mem_line_of_node? (g : GPathM) (pid : PathNodeId) (n : PNodeM)
     (hn : g.node? pid = some n) (k : Int) (hstep : pid.id.step = k) :
@@ -115,16 +147,82 @@ theorem mem_line_of_node? (g : GPathM) (pid : PathNodeId) (n : PNodeM)
   have := List.mem_map_of_mem (f := fun m : PNodeM => m.id) this
   rwa [hid] at this
 
+/-- **The identifier the chain continues into is a node of the row.** -/
+theorem extendPid_mem_newRowIds (g : GPathM) (d : NodeId) (sel : Int → PathNodeId)
+    (hchain : IsChain g sel) : extendPid g d sel ∈ newRowIds g d := by
+  unfold extendPid
+  split
+  · rename_i hpos
+    obtain ⟨hsome, hstep⟩ := hchain.1 (g.current_step - 1) (by omega) (by omega)
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+    have hmem : sel (g.current_step - 1) ∈ (g.line (g.current_step - 1)).map (·.id) :=
+      mem_line_of_node? g _ n hn (g.current_step - 1) hstep
+    refine mem_newRowIds_of_mem_newParents g d _ hpos ?_
+    unfold newParents
+    rw [if_pos hpos]
+    exact hmem
+  · rename_i hnp
+    unfold newRowIds
+    rw [if_neg hnp]
+    exact List.mem_singleton.mpr rfl
+
+/-- **And the chain's last pick is one of its parents.** -/
+theorem lastPick_mem_rowParents (g : GPathM) (d : NodeId) (sel : Int → PathNodeId)
+    (hpos : 0 < g.current_step) (hchain : IsChain g sel) :
+    sel (g.current_step - 1) ∈ rowParents g d (extendPid g d sel) := by
+  obtain ⟨hsome, hstep⟩ := hchain.1 (g.current_step - 1) (by omega) (by omega)
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have hmem : sel (g.current_step - 1) ∈ newParents g := by
+    unfold newParents; rw [if_pos hpos]
+    exact mem_line_of_node? g _ n hn (g.current_step - 1) hstep
+  have := mem_rowParents_of_mem_newParents g d _ hmem
+  unfold extendPid
+  rw [if_pos hpos]
+  exact this
+
+/-- Self-ownership, read along a chain. -/
+theorem selfOwned_pointwise (g : GPathM)
+    (hso : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (sel : Int → PathNodeId) (hchain : IsChain g sel) :
+    ∀ k, 0 ≤ k → k < g.current_step → sel k ∈ ownersOf g (sel k) := by
+  intro k h0 h1
+  obtain ⟨hsome, _⟩ := hchain.1 k h0 h1
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  simpa only [ownersOf, hn] using hso (sel k) n hn
+
 /-- **The chain-extension construction.** A chain of the base graph, extended
 by the new node at the new top step, is a chain of the extended graph. -/
 theorem ChainG_addNode (g : GPathM) (d : NodeId) (title : String)
     (hd : d.step = g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (sel : Int → PathNodeId) (h : ChainG g sel) :
+    (sel : Int → PathNodeId)
+    (hself : ∀ k, 0 ≤ k → k < g.current_step → sel k ∈ ownersOf g (sel k))
+    (h : ChainG g sel) :
     ChainG (addNode g d title) (extend g d sel) := by
   obtain ⟨hchain, howned, hgow⟩ := h
-  have hnew := addNode_node?_new g d title hd hbelow
-  have hnewstep : (newPid g d).id.step = g.current_step := by simp only [newPid]; omega
+  have hpidmem : extendPid g d sel ∈ newRowIds g d := extendPid_mem_newRowIds g d sel hchain
+  have hnew := addNode_node?_new g d title hd hbelow _ hpidmem
+  have hnewstep : (extendPid g d sel).id.step = g.current_step := by
+    rw [extendPid_mapId]; exact hd
+  -- what the row node at the top owns: everything the chain picks
+  have howntop : ∀ k, 0 ≤ k → k < g.current_step →
+      sel k ∈ rowOwners g d (extendPid g d sel) := by
+    intro k hk0 hk1
+    have hpos : 0 < g.current_step := by omega
+    have hpar := lastPick_mem_rowParents g d sel hpos hchain
+    have hinher : sel k ∈ unionOwnersOf g (rowParents g d (extendPid g d sel)) := by
+      obtain ⟨hsome, _⟩ := hchain.1 (g.current_step - 1) (by omega) (by omega)
+      obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hsome
+      have hmemown : sel k ∈ nl.owners := by
+        rcases int_eq_or_ne k (g.current_step - 1) with hkeq | hkne
+        · have := hself k hk0 hk1
+          rw [hkeq] at this ⊢
+          simpa only [ownersOf, hnl] using this
+        · have := howned k (g.current_step - 1) hk0 (by omega) hk1 (by omega) hkne
+          simp only [ownersAt, List.mem_filter, ownersOf, hnl] at this
+          exact this.1
+      exact mem_unionOwnersOf g _ _ nl _ hpar hnl hmemown
+    exact (mem_rowOwners_iff g d _ _).mpr (Or.inl ⟨hinher, hgow k hk0 hk1⟩)
   refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
   -- IsChain, node existence and step
   · intro k hlo hhi
@@ -143,11 +241,11 @@ theorem ChainG_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [addNode_current] at hhi
     rcases int_eq_or_ne (k + 1) (g.current_step) with hk | hk
     · rw [hk, extend_top, hnew, extend_below g d sel k (by omega)]
-      simp only [Option.map_some, Option.getD_some, addOwner, upNode, newParents,
-        if_pos (show g.current_step > 0 by omega)]
-      obtain ⟨hsome, hstep⟩ := hchain.1 k hlo (by omega)
-      obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
-      exact mem_line_of_node? g (sel k) n hn (g.current_step - 1) (by omega)
+      simp only [Option.map_some, Option.getD_some, rowNode_parents]
+      have hpos : 0 < g.current_step := by omega
+      have := lastPick_mem_rowParents g d sel hpos hchain
+      rw [show g.current_step - 1 = k by omega] at this
+      exact this
     · have hlt : k + 1 < g.current_step := by omega
       rw [extend_below g d sel k (by omega), extend_below g d sel (k + 1) hlt]
       have hlink := hchain.2 k hlo hlt
@@ -162,12 +260,12 @@ theorem ChainG_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [addNode_current] at hi' hj'
     simp only [ownersAt, List.mem_filter]
     rcases int_eq_or_ne (j) (g.current_step) with hjc | hjc
-    · -- the other end is the new node: its owners are exactly the global owners
+    · -- the other end is the row node the chain entered
       subst hjc
       have hic : i < g.current_step := by omega
       rw [extend_below g d sel i hic, extend_top]
-      simp only [ownersOf, hnew, addOwner, upNode]
-      refine ⟨List.mem_append_left _ (hgow i hi hic), ?_⟩
+      simp only [ownersOf, hnew, rowNode_owners]
+      refine ⟨howntop i hi hic, ?_⟩
       have hstepi := (hchain.1 i hi hic).2
       rw [hstepi]
       exact beq_iff_eq.mpr rfl
@@ -177,9 +275,15 @@ theorem ChainG_addNode (g : GPathM) (d : NodeId) (title : String)
       obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
       simp only [ownersOf, addNode_node?_old g d title _ n hn, upMap_owners]
       rcases int_eq_or_ne (i) (g.current_step) with hic | hic
-      · subst hic
+      · -- the row node owns the chain's picks, so by symmetry it is gained
+        subst hic
         rw [extend_top]
-        exact ⟨List.mem_append_right _ (by simp), by rw [hnewstep]; exact beq_iff_eq.mpr rfl⟩
+        refine ⟨List.mem_append_right _ ?_, by rw [hnewstep]; exact beq_iff_eq.mpr rfl⟩
+        refine List.mem_filter.mpr ⟨hpidmem, ?_⟩
+        have hnid : n.id = sel j := node?_id_eq g _ n hn
+        have := howntop j hj hjlt
+        rw [← hnid] at this
+        simpa using this
       · have hilt : i < g.current_step := by omega
         rw [extend_below g d sel i hilt]
         have hmem := howned i j hi hj hilt hjlt hne
@@ -190,7 +294,7 @@ theorem ChainG_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [addNode_current] at hhi
     rw [addNode_gowners]
     rcases int_eq_or_ne (k) (g.current_step) with hk | hk
-    · subst hk; rw [extend_top]; exact List.mem_append_right _ (by simp)
+    · subst hk; rw [extend_top]; exact List.mem_append_right _ hpidmem
     · have hlt : k < g.current_step := by omega
       rw [extend_below g d sel k hlt]
       exact List.mem_append_left _ (hgow k hlo hlt)
@@ -198,17 +302,23 @@ theorem ChainG_addNode (g : GPathM) (d : NodeId) (title : String)
 theorem InhabitedG_addNode (g : GPathM) (d : NodeId) (title : String)
     (hd : d.step = g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hso : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
     (h : InhabitedG g) : InhabitedG (addNode g d title) := by
   obtain ⟨sel, hsel⟩ := h
-  exact ⟨extend g d sel, ChainG_addNode g d title hd hbelow sel hsel⟩
+  exact ⟨extend g d sel,
+    ChainG_addNode g d title hd hbelow sel (selfOwned_pointwise g hso sel hsel.1) hsel⟩
 
-/-- **L6's UP step, for `addNode`.** Adding a node preserves total support,
-provided the base graph already had *some* admissible chain — the new node's
-owners are exactly `gowners`, so it needs a chain living inside them to
-co-own. That is why `SupportedG` and `InhabitedG` have to travel together. -/
+/-- **L6's UP step, for `addNode`.** Adding a row preserves total support. With
+a window of two the new node inherited `gowners` and *any* admissible chain of
+the base co-owned it, which is why `InhabitedG` travelled alongside; with the
+row, a row node inherits only what its own parents own, so the chain that
+supports it is the one that supports one of its parents — and that is
+`SupportedG` itself. `InhabitedG` is still needed for the seed row, which has no
+parents. -/
 theorem SupportedG_addNode (g : GPathM) (d : NodeId) (title : String)
     (hd : d.step = g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hso : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
     (hsup : SupportedG g) (hinh : InhabitedG g) : SupportedG (addNode g d title) := by
   intro pid n hn
   have hmem : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hn
@@ -221,17 +331,52 @@ theorem SupportedG_addNode (g : GPathM) (d : NodeId) (title : String)
     have hstep : pid.id.step < g.current_step := by rw [← hid, hsame]; exact hbelow n₁ hn₁
     obtain ⟨n₀, hn₀, _⟩ := addNode_node?_below g d title hd pid n hn hstep
     obtain ⟨sel, hsel, htop⟩ := hsup pid n₀ hn₀
-    refine ⟨extend g d sel, ChainG_addNode g d title hd hbelow sel hsel, ?_⟩
+    refine ⟨extend g d sel,
+      ChainG_addNode g d title hd hbelow sel (selfOwned_pointwise g hso sel hsel.1) hsel, ?_⟩
     rw [extend_below g d sel pid.id.step hstep]
     exact htop
-  · -- the new node: any admissible chain of the base, extended
-    simp only [List.mem_singleton] at hr
-    have hpid : pid = newPid g d := by rw [← hid, hr]; rfl
-    obtain ⟨sel, hsel⟩ := hinh
-    refine ⟨extend g d sel, ChainG_addNode g d title hd hbelow sel hsel, ?_⟩
-    rw [hpid]
-    rw [show (newPid g d).id.step = g.current_step from by simp only [newPid]; exact hd]
-    exact extend_top g d sel
+  · -- a node of the new row: the chain that supports one of its parents
+    obtain ⟨q, hq, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+    have hqid : q = pid := by rw [← hid]; rfl
+    subst hqid
+    have hstepq : q.id.step = g.current_step := by
+      rw [mapId_of_mem_newRowIds g d q hq]; exact hd
+    by_cases hpos : 0 < g.current_step
+    · -- it has parents, and any of them carries a chain
+      obtain ⟨p, hp⟩ : ∃ p, p ∈ rowParents g d q := by
+        unfold newRowIds at hq
+        rw [if_pos hpos] at hq
+        obtain ⟨r, hr', hrq⟩ := List.mem_map.mp (List.mem_eraseDups.mp hq)
+        exact ⟨r, List.mem_filter.mpr ⟨hr', beq_iff_eq.mpr hrq⟩⟩
+      have hpmem : p ∈ newParents g := rowParents_subset g d q p hp
+      have hpline : p ∈ (g.line (g.current_step - 1)).map (·.id) := by
+        unfold newParents at hpmem; rwa [if_pos hpos] at hpmem
+      obtain ⟨np, hnp, hnpid⟩ := List.mem_map.mp hpline
+      have hmemp : np ∈ g.nodes := (List.mem_filter.mp hnp).1
+      have hsomep : (g.node? p).isSome = true := by
+        have := node?_isSome_of_mem g np hmemp; rwa [hnpid] at this
+      obtain ⟨mp, hmp⟩ := Option.isSome_iff_exists.mp hsomep
+      obtain ⟨sel, hsel, htop⟩ := hsup p mp hmp
+      have hpstep : p.id.step = g.current_step - 1 := by
+        rw [← hnpid]; exact eq_of_beq (List.mem_filter.mp hnp).2
+      have hselp : sel (g.current_step - 1) = p := by rw [← hpstep]; exact htop
+      have hext : extendPid g d sel = q := by
+        unfold extendPid
+        rw [if_pos hpos, hselp]
+        exact shiftPid_of_mem_rowParents g d q p hp
+      refine ⟨extend g d sel,
+        ChainG_addNode g d title hd hbelow sel (selfOwned_pointwise g hso sel hsel.1) hsel, ?_⟩
+      rw [hstepq, extend_top, hext]
+    · -- the seed row: no parents, any admissible chain will do
+      obtain ⟨sel, hsel⟩ := hinh
+      refine ⟨extend g d sel,
+        ChainG_addNode g d title hd hbelow sel (selfOwned_pointwise g hso sel hsel.1) hsel, ?_⟩
+      rw [hstepq, extend_top]
+      unfold extendPid
+      rw [if_neg hpos]
+      unfold newRowIds at hq
+      rw [if_neg hpos] at hq
+      exact (List.mem_singleton.mp hq).symm
 
 /-- **L6's `up` case, reduced to the review step.** Everything the UP
 constructor does *except* `review` preserves total support:
@@ -250,12 +395,13 @@ theorem SupportedG_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (t
     (hd : d.step = (filterAll g reqs).current_step)
     (hbelow : ∀ n ∈ (filterAll g reqs).nodes,
       n.id.id.step < (filterAll g reqs).current_step)
+    (hso : ∀ pid n, (filterAll g reqs).node? pid = some n → pid ∈ n.owners)
     (hsup : SupportedG (filterAll g reqs)) (hinh : InhabitedG (filterAll g reqs)) :
     SupportedG (upFiltering g reqs d title) := by
   have hshape : upFiltering g reqs d title = addNode (filterAll g reqs) d title := by
     simp only [upFiltering, up, hvalid, if_pos]
   rw [hshape]
-  exact SupportedG_addNode _ d title hd hbelow hsup hinh
+  exact SupportedG_addNode _ d title hd hbelow hso hsup hinh
 
 -- ============================================================
 -- Axiom guards

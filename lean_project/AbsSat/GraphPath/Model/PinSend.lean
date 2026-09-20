@@ -104,7 +104,7 @@ theorem addNode_top_parents (F : GPathM) (d : NodeId) (t : String) (hd : d.step 
   have hid := node?_id_eq _ c m hc
   have htop := RunNoBorrow.tops_addNode F d t hbelow m hmem (by rw [hid, hcs])
   have hnew := addNode_node?_new F d t hd hbelow
-  rw [← hid, htop, show (⟨d, F.map_parent⟩ : PathNodeId) = newPid F d from rfl, hnew] at hc
+  rw [← hid, htop, show (⟨d, F.map_parent, none⟩ : PathNodeId) = newPid F d from rfl, hnew] at hc
   cases hc
   intro x hx
   simp only [addOwner, upNode, newParents] at hx

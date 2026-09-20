@@ -39,48 +39,12 @@ namespace AbsSat.GraphPath.Model
 open AbsSat.Utils.Alias
 open GPathM
 
-/-- The `PathNodeId` `addNode` creates. -/
-def newPid (g : GPathM) (d : NodeId) : PathNodeId := { id := d, parent_id := g.map_parent }
+/-!
+The definitions `newParents`, `newRowIds`, `rowParents`, `rowOwners`, `rowNode`,
+`newRow`, `gainedSons`, `gainedOwners`, `upSons`, `upOwners` and `upMap` live in
+`GPathM.lean`, next to `addNode` itself. What follows are their shape lemmas.
+-/
 
-def newParents (g : GPathM) : List PathNodeId :=
-  if g.current_step > 0 then (g.line (g.current_step - 1)).map (·.id) else []
-
-def upNode (g : GPathM) (d : NodeId) (title : String) : PNodeM :=
-  { id := newPid g d, title := title, parents := newParents g, sons := [], owners := g.gowners }
-
-def upSons (g : GPathM) (d : NodeId) (n : PNodeM) : PNodeM :=
-  if (newParents g).contains n.id then { n with sons := n.sons ++ [newPid g d] } else n
-
-def addOwner (pid : PathNodeId) (n : PNodeM) : PNodeM :=
-  { n with owners := n.owners ++ [pid] }
-
-/-- What `addNode` does to every pre-existing node: it may gain the new node as
-a son, and always gains it as an owner. The new node itself only gets the
-owner, not the son — it is appended after the sons pass. -/
-def upMap (g : GPathM) (d : NodeId) (n : PNodeM) : PNodeM :=
-  addOwner (newPid g d) (upSons g d n)
-
-theorem upMap_id (g : GPathM) (d : NodeId) (n : PNodeM) : (upMap g d n).id = n.id := by
-  simp only [upMap, upSons, addOwner]; split <;> rfl
-
-theorem upMap_parents (g : GPathM) (d : NodeId) (n : PNodeM) :
-    (upMap g d n).parents = n.parents := by
-  simp only [upMap, upSons, addOwner]; split <;> rfl
-
-theorem upMap_owners (g : GPathM) (d : NodeId) (n : PNodeM) :
-    (upMap g d n).owners = n.owners ++ [newPid g d] := by
-  simp only [upMap, upSons, addOwner]; split <;> rfl
-
-theorem addNode_nodes (g : GPathM) (d : NodeId) (title : String) :
-    (addNode g d title).nodes =
-      g.nodes.map (upMap g d) ++ [addOwner (newPid g d) (upNode g d title)] := by
-  show ((g.nodes.map (upSons g d)) ++ [upNode g d title]).map (addOwner (newPid g d))
-      = g.nodes.map (upMap g d) ++ [addOwner (newPid g d) (upNode g d title)]
-  rw [List.map_append, List.map_map]
-  rfl
-
-theorem addNode_current (g : GPathM) (d : NodeId) (title : String) :
-    (addNode g d title).current_step = g.current_step + 1 := rfl
 
 -- ============================================================
 -- `node?` through addNode
@@ -115,12 +79,9 @@ theorem addNode_node?_below (g : GPathM) (d : NodeId) (title : String)
     have := addNode_node?_old g d title pid' n₀ hn₀
     rw [hn'] at this
     exact (Option.some.inj this)
-  · simp only [List.mem_singleton] at hr
-    exfalso
-    have : n'.id = newPid g d := by rw [hr]; rfl
+  · exfalso
+    have := newRow_step g d title hd n' hr
     rw [hid] at this
-    rw [this] at hstep
-    simp only [newPid] at hstep
     omega
 
 -- ============================================================
@@ -171,20 +132,26 @@ theorem PairwiseOwned_of_addNode (g : GPathM) (d : NodeId) (title : String)
     rcases List.mem_append.mp hown with hl | hr
     · exact hl
     · exfalso
-      simp only [List.mem_singleton] at hr
-      rw [hr] at hstepi
-      simp only [newPid] at hstepi
+      have hmemids : sel i ∈ newRowIds g d := (List.mem_filter.mp hr).1
+      have := mapId_of_mem_newRowIds g d _ hmemids
+      rw [this] at hstepi
+      rw [hd] at hstepi
       omega
 
 -- ============================================================
 -- The new node is what every chain selects at the top step
 -- ============================================================
 
-theorem chain_top_is_new (g : GPathM) (d : NodeId) (title : String)
+/-- **The chain picks a node of the new row at the top step.** With a window of
+two the row is a single node and this pins the pick outright; with three the row
+is a node per grandparent, so what is pinned is the *map id*, and which node of
+the row is pinned by the pick below it (`ParentId.parentId_coherent`) and the one
+below that (`ParentId.gparentId_coherent`). -/
+theorem chain_top_mem_newRowIds (g : GPathM) (d : NodeId) (title : String)
     (hpos : 0 ≤ g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
     (sel : Int → PathNodeId) (h : IsChain (addNode g d title) sel) :
-    sel g.current_step = newPid g d := by
+    sel g.current_step ∈ newRowIds g d := by
   obtain ⟨hsome, hstep⟩ := h.1 g.current_step hpos (by rw [addNode_current]; omega)
   obtain ⟨n', hn'⟩ := Option.isSome_iff_exists.mp hsome
   have hid : n'.id = sel g.current_step := node?_id_eq _ _ n' hn'
@@ -197,9 +164,17 @@ theorem chain_top_is_new (g : GPathM) (d : NodeId) (title : String)
     have hnn : n'.id = n.id := by rw [← hEq, upMap_id]
     rw [← hnn, hid] at hlt
     omega
-  · simp only [List.mem_singleton] at hr
-    rw [← hid, hr]
-    rfl
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hr
+    rw [← hid, rowNode_id]
+    exact hpid
+
+/-- **And so the top pick carries the map id the `UP` visited.** -/
+theorem chain_top_mapId (g : GPathM) (d : NodeId) (title : String)
+    (hpos : 0 ≤ g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (sel : Int → PathNodeId) (h : IsChain (addNode g d title) sel) :
+    (sel g.current_step).id = d :=
+  mapId_of_mem_newRowIds g d _ (chain_top_mem_newRowIds g d title hpos hbelow sel h)
 
 -- ============================================================
 -- The path splits at the new step
@@ -227,8 +202,8 @@ theorem pathOf_addNode (g : GPathM) (d : NodeId) (title : String)
 -- ============================================================
 
 /-- **L3 ⊆, for the `addNode` half of UP.** Every path the extended graph
-denotes is `d` followed by a path the base graph denotes: the top line holds
-exactly one node, so every chain is forced to select it there, and the rest of
+denotes is `d` followed by a path the base graph denotes: every node of the top
+row carries the map id `d`, so every chain reports `d` there, and the rest of
 the chain is a chain of the base graph. -/
 theorem denot_addNode (g : GPathM) (d : NodeId) (title : String)
     (hpos : 0 ≤ g.current_step) (hd : d.step = g.current_step)
@@ -239,8 +214,7 @@ theorem denot_addNode (g : GPathM) (d : NodeId) (title : String)
   refine ⟨pathOf sel g, ?_, sel, IsChain_of_addNode g d title hd sel hchain,
     PairwiseOwned_of_addNode g d title hd sel hchain howned, rfl⟩
   rw [hpath, pathOf_addNode g d title hpos sel,
-      chain_top_is_new g d title hpos hbelow sel hchain]
-  rfl
+      chain_top_mapId g d title hpos hbelow sel hchain]
 
 /-- **L3 ⊆, as the machine calls it.** -/
 theorem denot_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String)

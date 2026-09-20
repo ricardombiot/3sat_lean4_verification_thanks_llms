@@ -9,7 +9,7 @@ v33 sized the residual gap in `ReqSatImpliesOwned`: at a pinned step the owner
 set holds at most two path nodes, both carrying the map id the requirement
 names, differing only in `parent_id`. So the question is which parent.
 
-`parent_id` is not decoration. `addNode` builds `⟨d, g.map_parent⟩`, where
+`parent_id` is not decoration. `addNode` builds `⟨d, g.map_parent, none⟩`, where
 `map_parent` is the map node the last `up` visited on that branch — and the
 node's `parents` are exactly that branch's previous line. So:
 
@@ -101,6 +101,26 @@ theorem TL_initSeed (d : NodeId) (title : String) (_hstep : d.step = 0) :
 
 def PMP (h : GPathM) : Prop :=
   ∀ n ∈ h.nodes, ∀ p ∈ n.parents, some p.id = n.id.parent_id
+
+/-- **GPMP** — *the grandparent the id declares is the parent of every parent.*
+
+The sibling of `PMP` one level up, and the whole point of widening the window:
+where `PMP` reads `IsChain`'s parent link off the ids, `GPMP` reads the
+*grandparent* link off them too. It holds by construction of the windowed `UP`
+(`shiftPid` copies `last.parent_id` into the new id's `gparent_id`, and every
+node of a row is grouped by an identifier that already contains it), so all the
+nodes merged into one row node agree on it.
+
+Note it needs no `m ∈ h.nodes` side condition: `p` is a `PathNodeId` and
+carries its own `parent_id`. -/
+def GPMP (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ p ∈ n.parents, n.id.gparent_id = p.parent_id
+
+theorem GPMP_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : GPMP g) : GPMP g' := by
+  intro n' hn' p hp
+  obtain ⟨n, hn, hid, _, hpar⟩ := hpr.nodes_derived n' hn'
+  rw [hid]
+  exact h n hn p (hpar p hp)
 
 theorem PMP_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : PMP g) : PMP g' := by
   intro n' hn' p hp
@@ -211,23 +231,41 @@ theorem parentId_coherent (h : GPathM) (hpmp : PMP h) (sel : Int → PathNodeId)
     rw [hnid] at this
     exact this.symm
 
+/-- **The local condition on `gparent_id`.** The node a chain picks at `k+1`
+records, in its third component, the *`parent_id`* of the node it picked at `k`
+— so the pick at `k+1` already names the map id of the pick at `k-1`. This is
+what makes a pair of adjacent picks carry three steps of history. -/
+theorem gparentId_coherent (h : GPathM) (hgpmp : GPMP h) (sel : Int → PathNodeId)
+    (hchain : IsChain h sel) (k : Int) (hlo : 0 ≤ k) (hhi : k + 1 < h.current_step) :
+    (sel (k + 1)).gparent_id = (sel k).parent_id := by
+  have hlink := hchain.2 k hlo hhi
+  cases hn : h.node? (sel (k + 1)) with
+  | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
+  | some n =>
+    rw [hn] at hlink
+    have hnid : n.id = sel (k + 1) := node?_id_eq h _ n hn
+    have := hgpmp n (List.mem_of_find?_eq_some hn) (sel k) hlink
+    rw [hnid] at this
+    exact this
+
 theorem pathNodeId_ext {a b : PathNodeId} (h1 : a.id = b.id)
-    (h2 : a.parent_id = b.parent_id) : a = b := by
+    (h2 : a.parent_id = b.parent_id) (h3 : a.gparent_id = b.gparent_id) : a = b := by
   cases a with
-  | mk ai ap =>
+  | mk ai ap ag =>
     cases b with
-    | mk bi bp =>
-      simp only at h1 h2
-      rw [h1, h2]
+    | mk bi bp bg =>
+      simp only at h1 h2 h3
+      rw [h1, h2, h3]
 
 /-- **A chain is determined by its map ids.** Two chains that agree on every
 map id are the same chain. So at a pinned step there is no choice between two
 path nodes: the pick is fixed by the requirement's map id and the map id below
 it. -/
-theorem chain_eq_of_mapIds_eq (h : GPathM) (hpmp : PMP h)
+theorem chain_eq_of_mapIds_eq (h : GPathM) (hpmp : PMP h) (hgpmp : GPMP h)
     (sel sel' : Int → PathNodeId)
     (hchain : IsChain h sel) (hchain' : IsChain h sel')
     (hroot : (sel 0).parent_id = none) (hroot' : (sel' 0).parent_id = none)
+    (hrootg : (sel 0).gparent_id = none) (hrootg' : (sel' 0).gparent_id = none)
     (hids : ∀ k, 0 ≤ k → k < h.current_step → (sel k).id = (sel' k).id) :
     ∀ (m : Nat) (k : Int), k.toNat ≤ m → 0 ≤ k → k < h.current_step → sel k = sel' k := by
   intro m
@@ -237,11 +275,13 @@ theorem chain_eq_of_mapIds_eq (h : GPathM) (hpmp : PMP h)
     have hk : k = 0 := by omega
     subst hk
     exact pathNodeId_ext (hids 0 (Int.le_refl _) hhi) (by rw [hroot, hroot'])
+      (by rw [hrootg, hrootg'])
   | succ m ih =>
     intro k hm hlo hhi
     if hz : k = 0 then
       subst hz
       exact pathNodeId_ext (hids 0 (Int.le_refl _) hhi) (by rw [hroot, hroot'])
+        (by rw [hrootg, hrootg'])
     else
       have hprev : sel (k - 1) = sel' (k - 1) :=
         ih (k - 1) (by omega) (by omega) (by omega)
@@ -253,7 +293,15 @@ theorem chain_eq_of_mapIds_eq (h : GPathM) (hpmp : PMP h)
         have := parentId_coherent h hpmp sel' hchain' (k - 1) (by omega) (by omega)
         rw [show k - 1 + 1 = k by omega] at this
         exact this
-      exact pathNodeId_ext (hids k hlo hhi) (by rw [hp, hp', hprev])
+      have hg : (sel k).gparent_id = (sel (k - 1)).parent_id := by
+        have := gparentId_coherent h hgpmp sel hchain (k - 1) (by omega) (by omega)
+        rw [show k - 1 + 1 = k by omega] at this
+        exact this
+      have hg' : (sel' k).gparent_id = (sel' (k - 1)).parent_id := by
+        have := gparentId_coherent h hgpmp sel' hchain' (k - 1) (by omega) (by omega)
+        rw [show k - 1 + 1 = k by omega] at this
+        exact this
+      exact pathNodeId_ext (hids k hlo hhi) (by rw [hp, hp', hprev]) (by rw [hg, hg', hprev])
 
 -- ============================================================
 -- Axiom guards
@@ -302,21 +350,26 @@ theorem owner_eq_chain_pick (reqOf : NodeId → List NodeId) (g : GPathM)
     (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
     (hrlo : 0 ≤ req.step) (hrhi : req.step < g.current_step)
     (q : PathNodeId) (hq : q ∈ ownersAt n.owners req.step)
-    (hpar : q.parent_id = (sel req.step).parent_id) :
+    (hpar : q.parent_id = (sel req.step).parent_id)
+    (hgpar : q.gparent_id = (sel req.step).gparent_id) :
     q = sel req.step :=
   pathNodeId_ext
     (MapChain.owner_at_req_shares_mapid reqOf g hrf sel hrs j hjlo hjhi n hn req hreq
       hrlo hrhi q hq)
-    hpar
+    hpar hgpar
 
 /-- **The single remaining obligation of the pinned half.** Some owner at the
-required step carries the chain's `parent_id`. Measured at exactly one, over 4,429,212 (chain node,
-requirement) pairs across two seeds; not proved. -/
+required step carries the chain's **window** — `parent_id` and, since the window
+widened, `gparent_id` as well. Measured at exactly one for the `parent_id` half,
+over 4,429,212 (chain node, requirement) pairs across two seeds; not proved.
+The `gparent_id` conjunct is a strictly stronger demand on the owner list and
+has not been measured. -/
 def OwnerMatchesPredecessor (reqOf : NodeId → List NodeId) (g : GPathM)
     (sel : Int → PathNodeId) : Prop :=
   ∀ j, 0 ≤ j → j < g.current_step → ∀ n, g.node? (sel j) = some n →
     ∀ req ∈ reqOf (sel j).id, 0 ≤ req.step → req.step < g.current_step →
-      ∃ q ∈ ownersAt n.owners req.step, q.parent_id = (sel req.step).parent_id
+      ∃ q ∈ ownersAt n.owners req.step,
+        q.parent_id = (sel req.step).parent_id ∧ q.gparent_id = (sel req.step).gparent_id
 
 /-- **And it gives the pinned half.** Existence of a matching owner plus the
 two proved facts puts the chain's own pick in the owner set. -/
@@ -329,9 +382,9 @@ theorem chain_pick_mem_owners (reqOf : NodeId → List NodeId) (g : GPathM)
     (req : NodeId) (hreq : req ∈ reqOf (sel j).id)
     (hrlo : 0 ≤ req.step) (hrhi : req.step < g.current_step) :
     sel req.step ∈ ownersAt n.owners req.step := by
-  obtain ⟨q, hq, hpar⟩ := hmatch j hjlo hjhi n hn req hreq hrlo hrhi
+  obtain ⟨q, hq, hpar, hgpar⟩ := hmatch j hjlo hjhi n hn req hreq hrlo hrhi
   have : q = sel req.step :=
-    owner_eq_chain_pick reqOf g hrf sel hrs j hjlo hjhi n hn req hreq hrlo hrhi q hq hpar
+    owner_eq_chain_pick reqOf g hrf sel hrs j hjlo hjhi n hn req hreq hrlo hrhi q hq hpar hgpar
   rw [← this]; exact hq
 
 /-- info: 'AbsSat.GraphPath.Model.ParentId.chain_pick_mem_owners' depends on axioms: [propext, Quot.sound] -/

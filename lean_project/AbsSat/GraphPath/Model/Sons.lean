@@ -416,11 +416,8 @@ theorem SMP_addNode (g : GPathM) (d : NodeId) (title : String)
   · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
     have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d m
     have hsub : ∀ x ∈ m.sons, x ∈ m'.sons := by
-      rw [← hmEq]
-      simp only [upMap, addOwner, upSons]
-      split
-      · intro x hx; exact List.mem_append_left _ hx
-      · intro x hx; exact hx
+      rw [← hmEq, upMap_sons]
+      intro x hx; exact List.mem_append_left _ hx
     rcases List.mem_append.mp hn' with hnn | hnn
     · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
       have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
@@ -428,16 +425,16 @@ theorem SMP_addNode (g : GPathM) (d : NodeId) (title : String)
       rw [hnp] at hp
       rw [hni]
       exact hsub _ (h n hn p hp m hm (by rw [← hmi]; exact hmid))
-    · rcases List.mem_singleton.mp hnn with rfl
-      have hnp : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-      rw [hnp] at hp
-      have hcontains : (newParents g).contains m.id = true := by
-        rw [hmi] at hmid; rw [hmid]; exact List.elem_iff.mpr hp
-      show newPid g d ∈ m'.sons
-      rw [← hmEq]
-      simp only [upMap, addOwner, upSons, hcontains, if_pos]
-      exact List.mem_append_right _ List.mem_cons_self
-  · rcases List.mem_singleton.mp hmm with rfl
+    · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hnn
+      rw [rowNode_parents] at hp
+      rw [rowNode_id]
+      have hmsons : m'.sons = m.sons ++ gainedSons g d m := by rw [← hmEq]; exact upMap_sons g d m
+      rw [hmsons]
+      refine List.mem_append_right _ (List.mem_filter.mpr ⟨hpid, ?_⟩)
+      rw [hmi] at hmid
+      rw [hmid]
+      exact List.elem_eq_true_of_mem hp
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title m').mp hmm
     exfalso
     have hpstep : p.id.step < g.current_step := by
       rcases List.mem_append.mp hn' with hnn | hnn
@@ -447,15 +444,16 @@ theorem SMP_addNode (g : GPathM) (d : NodeId) (title : String)
         have h1 := hpb n hn p hp
         have h2 := hbelow n hn
         omega
-      · rcases List.mem_singleton.mp hnn with rfl
-        have hnp : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-        rw [hnp] at hp
-        unfold newParents at hp
-        split at hp
-        · have hstep := Parents.mem_line_step g (g.current_step - 1) p hp
+      · obtain ⟨pid', hpid', rfl⟩ := (mem_newRow_iff g d title n').mp hnn
+        rw [rowNode_parents] at hp
+        have hp' : p ∈ newParents g := rowParents_subset g d pid' p hp
+        unfold newParents at hp'
+        split at hp'
+        · have hstep := Parents.mem_line_step g (g.current_step - 1) p hp'
           omega
-        · exact absurd hp List.not_mem_nil
-    have hps : p.id.step = d.step := by rw [← hmid]; rfl
+        · exact absurd hp' List.not_mem_nil
+    have hps : p.id.step = d.step := by
+      rw [← hmid, rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
     omega
 
 theorem SMP_up (g : GPathM) (d : NodeId) (title : String) (hd : d.step = g.current_step)
@@ -731,24 +729,21 @@ theorem SAbove_addNode (g : GPathM) (d : NodeId) (title : String)
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
     rw [hni]
-    rw [← hEq] at hs
-    simp only [upMap, addOwner, upSons] at hs
-    split at hs
-    · next hc =>
-      rcases List.mem_append.mp hs with h1 | h1
-      · exact h n hn s h1
-      · rcases List.mem_singleton.mp h1 with rfl
-        have hline : n.id ∈ newParents g := List.elem_iff.mp hc
-        unfold newParents at hline
-        split at hline
-        · have hstep := Parents.mem_line_step g (g.current_step - 1) n.id hline
-          show d.step = n.id.id.step + 1
-          rw [hstep, hd]; omega
-        · exact absurd hline List.not_mem_nil
-    · exact h n hn s hs
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hnil : (addOwner (newPid g d) (upNode g d title)).sons = [] := rfl
-    rw [hnil] at hs
+    rw [← hEq, upMap_sons] at hs
+    rcases List.mem_append.mp hs with h1 | h1
+    · exact h n hn s h1
+    · have hrow : s ∈ newRowIds g d := gainedSons_subset g d n s h1
+      have hline : n.id ∈ newParents g :=
+        rowParents_subset g d s n.id (List.elem_iff.mp (List.mem_filter.mp h1).2)
+      unfold newParents at hline
+      split at hline
+      · have hstep := Parents.mem_line_step g (g.current_step - 1) n.id hline
+        rw [mapId_of_mem_newRowIds g d s hrow]
+        show d.step = n.id.id.step + 1
+        rw [hstep, hd]; omega
+      · exact absurd hline List.not_mem_nil
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_sons] at hs
     exact absurd hs List.not_mem_nil
 
 theorem SAbove_up (g : GPathM) (d : NodeId) (title : String) (hd : d.step = g.current_step)
@@ -922,22 +917,15 @@ theorem SN_addNode (g : GPathM) (d : NodeId) (title : String) (h : SN g) :
   rw [addNode_nodes]
   rcases List.mem_append.mp hn' with hmem | hmem
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
-    rw [← hEq] at hs
-    simp only [upMap, addOwner, upSons] at hs
-    split at hs
-    · rcases List.mem_append.mp hs with h1 | h1
-      · obtain ⟨m, hm, hmid⟩ := h n hn s h1
-        exact ⟨upMap g d m, List.mem_append_left _ (List.mem_map_of_mem hm),
-          (upMap_id g d m).trans hmid⟩
-      · rcases List.mem_singleton.mp h1 with rfl
-        exact ⟨addOwner (newPid g d) (upNode g d title),
-          List.mem_append_right _ List.mem_cons_self, rfl⟩
-    · obtain ⟨m, hm, hmid⟩ := h n hn s hs
+    rw [← hEq, upMap_sons] at hs
+    rcases List.mem_append.mp hs with h1 | h1
+    · obtain ⟨m, hm, hmid⟩ := h n hn s h1
       exact ⟨upMap g d m, List.mem_append_left _ (List.mem_map_of_mem hm),
         (upMap_id g d m).trans hmid⟩
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hnil : (addOwner (newPid g d) (upNode g d title)).sons = [] := rfl
-    rw [hnil] at hs
+    · exact ⟨rowNode g d title s,
+        List.mem_append_right _ (List.mem_map_of_mem (gainedSons_subset g d n s h1)), rfl⟩
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_sons] at hs
     exact absurd hs List.not_mem_nil
 
 theorem SN_up (g : GPathM) (d : NodeId) (title : String) (h : SN g) : SN (up g d title) := by
@@ -981,55 +969,39 @@ theorem PMS_addNode (g : GPathM) (d : NodeId) (title : String)
   rcases List.mem_append.mp hn' with hnn | hnn
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
     have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
-    rw [← hEq] at hs
-    simp only [upMap, addOwner, upSons] at hs
-    have hnew : ∀ x ∈ g.nodes, x.id ≠ newPid g d := by
-      intro x hx he
+    rw [← hEq, upMap_sons] at hs
+    have hnew : ∀ x ∈ g.nodes, ∀ r ∈ newRowIds g d, x.id ≠ r := by
+      intro x hx r hr he
       have := hbelow x hx
-      rw [he] at this
-      show False
-      have : (newPid g d).id.step = d.step := rfl
+      rw [he, mapId_of_mem_newRowIds g d r hr] at this
       omega
-    split at hs
-    · next hc =>
-      rcases List.mem_append.mp hs with h1 | h1
-      · -- an old son: `m'` must be the old node carrying it
-        have hsold : s ≠ newPid g d := by
-          obtain ⟨x, hx, hxid⟩ := hsn n hn s h1
-          intro he; exact hnew x hx (hxid.trans he)
-        rcases List.mem_append.mp hm' with hmm | hmm
-        · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
-          have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d m
-          have hmp : m'.parents = m.parents := by rw [← hmEq]; exact upMap_parents g d m
-          rw [hni, hmp]
-          exact h n hn s h1 m hm (by rw [← hmi]; exact hmid)
-        · rcases List.mem_singleton.mp hmm with rfl
-          exact absurd hmid.symm hsold
-      · -- the new son
-        rcases List.mem_singleton.mp h1 with rfl
-        rcases List.mem_append.mp hm' with hmm | hmm
-        · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
-          have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d m
-          exact absurd (by rw [← hmi]; exact hmid) (hnew m hm)
-        · rcases List.mem_singleton.mp hmm with rfl
-          show n'.id ∈ newParents g
-          rw [hni]
-          exact List.elem_iff.mp hc
-    · -- `n` gained no son
-      have hsold : s ≠ newPid g d := by
-        obtain ⟨x, hx, hxid⟩ := hsn n hn s hs
-        intro he; exact hnew x hx (hxid.trans he)
+    rcases List.mem_append.mp hs with h1 | h1
+    · -- an old son: `m'` must be the old node carrying it
+      have hsold : ∀ r ∈ newRowIds g d, s ≠ r := by
+        obtain ⟨x, hx, hxid⟩ := hsn n hn s h1
+        intro r hr he; exact hnew x hx r hr (hxid.trans he)
       rcases List.mem_append.mp hm' with hmm | hmm
       · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
         have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d m
         have hmp : m'.parents = m.parents := by rw [← hmEq]; exact upMap_parents g d m
         rw [hni, hmp]
-        exact h n hn s hs m hm (by rw [← hmi]; exact hmid)
-      · rcases List.mem_singleton.mp hmm with rfl
-        exact absurd hmid.symm hsold
-  · rcases List.mem_singleton.mp hnn with rfl
-    have hnil : (addOwner (newPid g d) (upNode g d title)).sons = [] := rfl
-    rw [hnil] at hs
+        exact h n hn s h1 m hm (by rw [← hmi]; exact hmid)
+      · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title m').mp hmm
+        rw [rowNode_id] at hmid
+        exact absurd hmid.symm (hsold pid hpid)
+    · -- a son of the new row: `m'` is that row node, and `n` is one of its parents
+      have hsrow : s ∈ newRowIds g d := gainedSons_subset g d n s h1
+      rcases List.mem_append.mp hm' with hmm | hmm
+      · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
+        have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d m
+        exact absurd (by rw [← hmi]; exact hmid) (hnew m hm s hsrow)
+      · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title m').mp hmm
+        rw [rowNode_id] at hmid
+        subst hmid
+        rw [hni, rowNode_parents]
+        exact List.elem_iff.mp (List.mem_filter.mp h1).2
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hnn
+    rw [rowNode_sons] at hs
     exact absurd hs List.not_mem_nil
 
 theorem PMS_up (g : GPathM) (d : NodeId) (title : String) (hd : d.step = g.current_step)
@@ -1132,7 +1104,7 @@ theorem RootAtZero_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : RootAtZero
   exact h n hn hz
 
 theorem RootAtZero_addNode (g : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = g.current_step) (hmok : MachineOk g) (h : RootAtZero g) :
+    (hd : d.step = g.current_step) (_hmok : MachineOk g) (h : RootAtZero g) :
     RootAtZero (addNode g d title) := by
   intro n' hn' hz
   rw [addNode_nodes] at hn'
@@ -1140,11 +1112,15 @@ theorem RootAtZero_addNode (g : GPathM) (d : NodeId) (title : String)
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     rw [← hEq, upMap_id] at hz ⊢
     exact h n hn hz
-  · rcases List.mem_singleton.mp hmem with rfl
-    show g.map_parent = none
-    refine hmok.2.1 ?_
-    have : d.step = 0 := hz
-    rw [← hd]; exact this
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id] at hz ⊢
+    by_cases hpos : 0 < g.current_step
+    · exfalso
+      rw [mapId_of_mem_newRowIds g d pid hpid] at hz
+      omega
+    · rw [newRowIds_of_zero g d hpos] at hpid
+      rcases List.mem_singleton.mp hpid with rfl
+      rfl
 
 theorem RootAtZero_join (g₁ g₂ : GPathM) (h₁ : RootAtZero g₁) (h₂ : RootAtZero g₂) :
     RootAtZero (join g₁ g₂) := by

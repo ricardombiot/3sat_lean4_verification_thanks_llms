@@ -49,48 +49,6 @@ namespace AbsSat.GraphPath.Model
 open AbsSat.Utils.Alias
 open GPathM
 
-private def unionStep (g : GPathM) (acc : List PathNodeId) (pid : PathNodeId) : List PathNodeId :=
-  match g.node? pid with
-  | some p => acc ++ p.owners
-  | none => acc
-
-private theorem unionOwnersOf_eq (g : GPathM) (ids : List PathNodeId) :
-    unionOwnersOf g ids = ids.foldl (unionStep g) [] := rfl
-
-private theorem mem_unionFold_acc (g : GPathM) (ids : List PathNodeId) :
-    ∀ (acc : List PathNodeId) (q : PathNodeId), q ∈ acc → q ∈ ids.foldl (unionStep g) acc := by
-  induction ids with
-  | nil => intro acc q hq; exact hq
-  | cons id rest ih =>
-    intro acc q hq
-    simp only [List.foldl_cons]
-    refine ih _ q ?_
-    simp only [unionStep]
-    cases g.node? id
-    · exact hq
-    · exact List.mem_append_left _ hq
-
-private theorem mem_unionFold (g : GPathM) (ids : List PathNodeId) :
-    ∀ (acc : List PathNodeId) (pid : PathNodeId) (p : PNodeM) (q : PathNodeId),
-      pid ∈ ids → g.node? pid = some p → q ∈ p.owners →
-      q ∈ ids.foldl (unionStep g) acc := by
-  induction ids with
-  | nil => intro _ _ _ _ hpid; exact absurd hpid List.not_mem_nil
-  | cons id rest ih =>
-    intro acc pid p q hpid hp hq
-    simp only [List.foldl_cons]
-    rcases List.mem_cons.mp hpid with rfl | hrest
-    · refine mem_unionFold_acc g rest _ q ?_
-      simp only [unionStep, hp]
-      exact List.mem_append_right _ hq
-    · exact ih _ pid p q hrest hp hq
-
-/-- An owner of any *existing* neighbour is in the neighbours' union. -/
-theorem mem_unionOwnersOf (g : GPathM) (ids : List PathNodeId) (pid : PathNodeId)
-    (p : PNodeM) (q : PathNodeId) (hpid : pid ∈ ids) (hp : g.node? pid = some p)
-    (hq : q ∈ p.owners) : q ∈ unionOwnersOf g ids :=
-  mem_unionFold g ids [] pid p q hpid hp hq
-
 /-- **The coherence analogue of the `gowners` argument.** If some chain node
 `sel w` is among the neighbours, then *every* chain node is in the
 neighbours' owners union — by pairwise ownership when `i ≠ w`, and by

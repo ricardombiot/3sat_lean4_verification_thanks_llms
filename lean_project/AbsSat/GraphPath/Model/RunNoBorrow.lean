@@ -211,7 +211,7 @@ def SendsOk (m : Nat) (d : NodeId) (g : GPathM) : Prop :=
 /-- The top nodes of `addNode`: only the new node sits at the old current step. -/
 theorem tops_addNode (g : GPathM) (d : NodeId) (t : String)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) :
-    ∀ n ∈ (addNode g d t).nodes, n.id.id.step = g.current_step → n.id = ⟨d, g.map_parent⟩ := by
+    ∀ n ∈ (addNode g d t).nodes, n.id.id.step = g.current_step → n.id = ⟨d, g.map_parent, none⟩ := by
   intro n hn hs
   rw [addNode_nodes] at hn
   rcases List.mem_append.mp hn with h1 | h2

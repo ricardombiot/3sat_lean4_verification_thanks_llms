@@ -55,7 +55,8 @@ theorem SNN_addNode (g : GPathM) (d : NodeId) (title : String)
   rcases List.mem_append.mp hn' with hmem | hmem
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     rw [← hEq, upMap_id]; exact h n hn
-  · rcases List.mem_singleton.mp hmem with rfl
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
     show (0 : Int) ≤ d.step
     rw [hd]; exact hmok.1
 
@@ -235,30 +236,29 @@ theorem OOS_addNode (g : GPathM) (d : NodeId) (title : String)
   rcases List.mem_append.mp hn' with hmem | hmem
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
-    have hno : n'.owners = n.owners ++ [newPid g d] := by rw [← hEq]; exact upMap_owners g d n
+    have hno : n'.owners = n.owners ++ gainedOwners g d n := by
+      rw [← hEq]; exact upMap_owners g d n
     rw [hno, List.mem_append] at hq
     rw [hni] at hstep ⊢
     rcases hq with hq | hq
     · exact h n hn q hq hstep
-    · rcases List.mem_singleton.mp hq with rfl
-      exfalso
-      have h1 : (newPid g d).id.step = d.step := rfl
+    · exfalso
+      have h1 : q.id.step = d.step := by
+        rw [mapId_of_mem_newRowIds g d q (gainedOwners_subset g d n q hq)]
       have h2 := hbelow n hn
       rw [h1, hd] at hstep
       omega
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hno : (addOwner (newPid g d) (upNode g d title)).owners = g.gowners ++ [newPid g d] :=
-      rfl
-    rw [hno, List.mem_append] at hq
-    rcases hq with hq | hq
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id] at hstep ⊢
+    rw [rowNode_owners] at hq
+    rcases (mem_rowOwners_iff g d pid q).mp hq with ⟨_, hgow⟩ | rfl
     · exfalso
-      obtain ⟨m, hm, hmid⟩ := hgn q hq
+      obtain ⟨m, hm, hmid⟩ := hgn q hgow
       have h2 := hbelow m hm
       rw [hmid] at h2
-      have h1 : (addOwner (newPid g d) (upNode g d title)).id.id.step = d.step := rfl
-      rw [h1, hd] at hstep
+      rw [mapId_of_mem_newRowIds g d pid hpid, hd] at hstep
       omega
-    · exact List.mem_singleton.mp hq
+    · rfl
 
 theorem OOS_join (g₁ g₂ : GPathM) (h₁ : OOS g₁) (h₂ : OOS g₂) : OOS (join g₁ g₂) := by
   intro n' hn' q hq hstep

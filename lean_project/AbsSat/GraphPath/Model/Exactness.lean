@@ -110,7 +110,7 @@ theorem tablesSound_initSeed (d : NodeId) (title : String) (hd : d.step = 0) :
 private theorem extend_old (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) {y : PathNodeId}
     (hy : y.id.step < g.current_step) (hsel : sel y.id.step = y) :
     extend g d sel y.id.step = y := by
-  show (if y.id.step = g.current_step then newPid g d else sel y.id.step) = y
+  show (if y.id.step = g.current_step then extendPid g d sel else sel y.id.step) = y
   rw [if_neg (show ¬(y.id.step = g.current_step) from by omega)]
   exact hsel
 
@@ -119,62 +119,72 @@ and the new node's table is the state's global owners, each realized by the chai
 theorem tablesSound_addNode (g : GPathM) (d : NodeId) (title : String)
     (hd : d.step = g.current_step) (hpos : 0 < g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (hmok : MachineOk g) (hnd : NodupIds g) (hv : isValid g = true)
+    (hmok : MachineOk g) (_hnd : NodupIds g) (_hv : isValid g = true)
     (hself : ∀ y m, g.node? y = some m → y ∈ m.owners)
     (hownBelow : ∀ y m, g.node? y = some m → ∀ w ∈ m.owners, w.id.step < g.current_step)
-    (hgn : GownersNodes.GN g)
+    (_hgn : GownersNodes.GN g)
     (h : TablesSound g) : TablesSound (addNode g d title) := by
   have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
-  have hnp : (newPid g d).id.step = g.current_step := by simp only [newPid]; exact hd
-  have hnodeA := addNode_node?_new g d title hd hbelow
-  -- the chain of `g` through a node, extended, is a chain of `addNode g d` through it
+  -- A chain of `g` through a node, extended, is a chain of the extended state through it.
   have hlift : ∀ (y q : PathNodeId), y.id.step < g.current_step → q.id.step < g.current_step →
       Realizes g y q → Realizes (addNode g d title) y q := by
     intro y q hy hq ⟨sel, hcs, hys, hqs⟩
     refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, ?_, ?_⟩
     · exact extend_old g d sel hy hys
     · exact extend_old g d sel hq hqs
-  -- and the extended chain picks the new node at the new step
-  have htop : ∀ (sel : Int → PathNodeId), extend g d sel (newPid g d).id.step = newPid g d := by
-    intro sel
-    rw [hnp]
-    exact extend_top g d sel
+  -- **The row version of `htop`.** Which node of the row the extended chain reaches is
+  -- decided by the chain's own last pick, so it is reached only by the chains that come
+  -- up through one of its parents.
+  have htop : ∀ (sel : Int → PathNodeId) (p pid : PathNodeId), p ∈ rowParents g d pid →
+      sel (g.current_step - 1) = p → pid.id.step = g.current_step →
+      extend g d sel pid.id.step = pid := by
+    intro sel p pid hp hsel hstep
+    rw [hstep, extend_top]
+    unfold extendPid
+    rw [if_pos hpos, hsel]
+    exact shiftPid_of_mem_rowParents g d pid p hp
+  -- A parent of a row node carries a chain of `g` ending at it.
+  have hparent : ∀ pid ∈ newRowIds g d, ∀ p ∈ rowParents g d pid,
+      ∃ mp, g.node? p = some mp ∧ p.id.step = g.current_step - 1 := by
+    intro pid _ p hp
+    have hpmem : p ∈ newParents g := rowParents_subset g d pid p hp
+    unfold newParents at hpmem
+    rw [if_pos hpos] at hpmem
+    obtain ⟨np, hnp, hnpid⟩ := List.mem_map.mp hpmem
+    have hmemp : np ∈ g.nodes := (List.mem_filter.mp hnp).1
+    have hsomep : (g.node? p).isSome = true := by
+      have := node?_isSome_of_mem g np hmemp; rwa [hnpid] at this
+    obtain ⟨mp, hmp⟩ := Option.isSome_iff_exists.mp hsomep
+    exact ⟨mp, hmp, by rw [← hnpid]; exact eq_of_beq (List.mem_filter.mp hnp).2⟩
   intro x n hx hx0 hx1 q hq0 hq1 hqn
   rw [hcsA] at hx1 hq1
-  by_cases hxnew : x = newPid g d
-  · -- the new node: its table is `gowners`, plus itself
-    subst hxnew
-    rw [hnodeA] at hx
-    have hn' : n = addOwner (newPid g d) (upNode g d title) := (Option.some_inj.mp hx).symm
-    have how : n.owners = g.gowners ++ [newPid g d] := by rw [hn']; rfl
-    have hqn' : q ∈ g.gowners ++ [newPid g d] := by rw [← how]; exact hqn
-    rcases List.mem_append.mp hqn' with hgow | hnew
-    · -- an old global owner: it is a node, realized by the chain through itself
-      obtain ⟨mq, hmq, hmqid⟩ := hgn q hgow
-      have hqnode : g.node? q = some mq := by rw [← hmqid]; exact node?_of_mem hnd mq hmq
-      have hqstep : q.id.step < g.current_step := by
-        have := hbelow mq hmq
-        rw [hmqid] at this
-        exact this
-      obtain ⟨sel, hcs, _, hqs⟩ := h q mq hqnode hq0 hqstep q hq0 hqstep (hself q mq hqnode)
+  by_cases hxnew : x ∈ newRowIds g d
+  · -- a node of the new row: its table is what its parents own, plus itself
+    have hxstep : x.id.step = g.current_step := by
+      rw [mapId_of_mem_newRowIds g d x hxnew]; exact hd
+    rw [addNode_node?_new g d title hd hbelow x hxnew] at hx
+    have hn' : n = rowNode g d title x := (Option.some_inj.mp hx).symm
+    have hqn' : q ∈ rowOwners g d x := by rw [hn'] at hqn; exact hqn
+    rcases (mem_rowOwners_iff g d x q).mp hqn' with ⟨hinh, _⟩ | rfl
+    · -- inherited: the parent that owns `q` carries the chain
+      obtain ⟨p, hp, mp, hmp, hqmp⟩ := exists_owner_of_mem_unionOwnersOf g _ q hinh
+      obtain ⟨_, _, hpstep⟩ := hparent x hxnew p hp
+      have hqstep : q.id.step < g.current_step := hownBelow p mp hmp q hqmp
+      obtain ⟨sel, hcs, hps, hqs⟩ :=
+        h p mp hmp (by omega) (by omega) q hq0 hqstep hqmp
       refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, ?_, ?_⟩
-      · exact htop sel
+      · exact htop sel p x hp (by rw [← hpstep]; exact hps) hxstep
       · exact extend_old g d sel hqstep hqs
-    · -- the new node itself: extend any chain of the state
-      have hqeq : q = newPid g d := List.mem_singleton.mp hnew
-      subst hqeq
-      have hent := hasStepEntry_of_isValid g hv (g.current_step - 1) (by omega) (by omega)
-      simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
-      obtain ⟨t, htg, hts⟩ := hent
-      obtain ⟨mt, hmt, hmtid⟩ := hgn t htg
-      have htnode : g.node? t = some mt := by rw [← hmtid]; exact node?_of_mem hnd mt hmt
-      have ht0 : 0 ≤ t.id.step := by rw [hts]; omega
-      have htstep : t.id.step < g.current_step := by rw [hts]; omega
-      obtain ⟨sel, hcs, _, _⟩ :=
-        h t mt htnode ht0 htstep t ht0 htstep (hself t mt htnode)
-      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs,
-        htop sel, htop sel⟩
-  · -- an old node: its table is its own, plus the new node
+    · -- itself: any parent's chain will do
+      obtain ⟨p, hp⟩ : ∃ p, p ∈ rowParents g d q := by
+        obtain ⟨r, hr, hrq⟩ := exists_shift_of_mem_newRowIds g d q hpos hxnew
+        exact ⟨r, List.mem_filter.mpr ⟨hr, beq_iff_eq.mpr hrq.symm⟩⟩
+      obtain ⟨mp, hmp, hpstep⟩ := hparent q hxnew p hp
+      obtain ⟨sel, hcs, hps, _⟩ :=
+        h p mp hmp (by omega) (by omega) p (by omega) (by omega) (hself p mp hmp)
+      have htp := htop sel p q hp (by rw [← hpstep]; exact hps) hxstep
+      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, htp, htp⟩
+  · -- an old node: its table is its own, plus the row ids that own it
     have hold : ∃ m, g.node? x = some m := by
       have hnB : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hx
       have hid : n.id = x := node?_id_eq _ x n hx
@@ -186,9 +196,8 @@ theorem tablesSound_addNode (g : GPathM) (d : NodeId) (title : String)
         rw [hid₀] at hm
         exact ⟨m, hm⟩
       · exfalso
-        have hsing : n = addOwner (newPid g d) (upNode g d title) := List.eq_of_mem_singleton hr
-        rw [hsing] at hid
-        exact hxnew (by rw [← hid]; rfl)
+        obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+        exact hxnew (by rw [← hid]; exact hpid)
     obtain ⟨m, hm⟩ := hold
     have hxstep : x.id.step < g.current_step := by
       have hid := node?_id_eq g x m hm
@@ -197,19 +206,30 @@ theorem tablesSound_addNode (g : GPathM) (d : NodeId) (title : String)
       exact this
     rw [addNode_node?_old g d title x m hm] at hx
     have hn' : n = upMap g d m := (Option.some_inj.mp hx).symm
-    have how : n.owners = m.owners ++ [newPid g d] := by rw [hn']; exact upMap_owners g d m
-    have hqn' : q ∈ m.owners ++ [newPid g d] := by rw [← how]; exact hqn
+    have how : n.owners = m.owners ++ gainedOwners g d m := by rw [hn']; exact upMap_owners g d m
+    have hqn' : q ∈ m.owners ++ gainedOwners g d m := by rw [← how]; exact hqn
     rcases List.mem_append.mp hqn' with hq | hnew
     · -- an old entry: lift its realizer
       have hqstep : q.id.step < g.current_step := hownBelow x m hm q hq
       exact hlift x q hxstep hqstep (h x m hm hx0 hxstep q hq0 hqstep hq)
-    · -- the new node: extend the chain through `x`
-      have hqeq : q = newPid g d := List.mem_singleton.mp hnew
-      subst hqeq
-      obtain ⟨sel, hcs, hxs, _⟩ := h x m hm hx0 hxstep x hx0 hxstep (hself x m hm)
-      refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, ?_, ?_⟩
-      · exact extend_old g d sel hxstep hxs
-      · exact htop sel
+    · -- a row id that owns `x`: the chain is the one through the parent that owns `x`
+      have hqrow : q ∈ newRowIds g d := gainedOwners_subset g d m q hnew
+      have hqstep : q.id.step = g.current_step := by
+        rw [mapId_of_mem_newRowIds g d q hqrow]; exact hd
+      have hxown : x ∈ rowOwners g d q := by
+        have := (List.mem_filter.mp hnew).2
+        have hmid : m.id = x := node?_id_eq g x m hm
+        rw [hmid] at this
+        simpa using this
+      rcases (mem_rowOwners_iff g d q x).mp hxown with ⟨hinh, _⟩ | rfl
+      · obtain ⟨p, hp, mp, hmp, hxmp⟩ := exists_owner_of_mem_unionOwnersOf g _ x hinh
+        obtain ⟨_, _, hpstep⟩ := hparent q hqrow p hp
+        obtain ⟨sel, hcs, hps, hxs⟩ :=
+          h p mp hmp (by omega) (by omega) x hx0 hxstep hxmp
+        refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, ?_, ?_⟩
+        · exact extend_old g d sel hxstep hxs
+        · exact htop sel p q hp (by rw [← hpstep]; exact hps) hqstep
+      · exact absurd hxstep (by rw [hqstep]; omega)
 
 -- ============================================================
 -- The join

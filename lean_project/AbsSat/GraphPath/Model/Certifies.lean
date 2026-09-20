@@ -579,7 +579,8 @@ theorem not_GownersAreNodes_degenerate : ¬ GownersAreNodes degenerate := by
 theorem initSeed_gowners (d : NodeId) (title : String) :
     (GPathM.initSeed d title).gowners = [{ id := d, parent_id := none }] := by
   unfold GPathM.initSeed GPathM.up GPathM.addNode
-  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
+  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry,
+    GPathM.newRowIds]
 
 /-- The seed satisfies it. The remaining ledger for this invariant is
 `addNode`, `filterAll` and `join` — and `filterRequire` is where it can

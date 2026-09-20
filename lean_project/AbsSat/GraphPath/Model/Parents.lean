@@ -190,15 +190,15 @@ theorem PN_addNode (g : GPathM) (d : NodeId) (title : String) (h : PN g) :
     obtain ⟨m, hm, hmid⟩ := h n hn p hp
     exact ⟨upMap g d m, List.mem_append_left _ (List.mem_map_of_mem hm),
       (upMap_id g d m).trans hmid⟩
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hpar : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-    rw [hpar] at hp
-    unfold newParents at hp
-    split at hp
-    · obtain ⟨m, hm, hmid⟩ := mem_nodes_of_mem_line g (g.current_step - 1) p hp
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_parents] at hp
+    have hp' : p ∈ newParents g := rowParents_subset g d pid p hp
+    unfold newParents at hp'
+    split at hp'
+    · obtain ⟨m, hm, hmid⟩ := mem_nodes_of_mem_line g (g.current_step - 1) p hp'
       exact ⟨upMap g d m, List.mem_append_left _ (List.mem_map_of_mem hm),
         (upMap_id g d m).trans hmid⟩
-    · exact absurd hp List.not_mem_nil
+    · exact absurd hp' List.not_mem_nil
 
 theorem hasNode_join_left (g₁ g₂ : GPathM) (p : PathNodeId) (h : HasNode g₁ p) :
     HasNode (join g₁ g₂) p := by
@@ -297,18 +297,19 @@ theorem PBelow_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [← hEq, upMap_parents] at hp
     rw [← hEq, upMap_id]
     exact h n hn p hp
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hpar : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-    rw [hpar] at hp
-    unfold newParents at hp
-    split at hp
-    · have hstep := mem_line_step g (g.current_step - 1) p hp
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_parents] at hp
+    have hp' : p ∈ newParents g := rowParents_subset g d pid p hp
+    unfold newParents at hp'
+    split at hp'
+    · have hstep := mem_line_step g (g.current_step - 1) p hp'
+      rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
       show p.id.step = d.step - 1
       rw [hstep, hd]
-    · exact absurd hp List.not_mem_nil
+    · exact absurd hp' List.not_mem_nil
 
 theorem NotRoot_addNode (g : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = g.current_step) (hmok : MachineOk g) (h : NotRoot g) :
+    (hd : d.step = g.current_step) (_hmok : MachineOk g) (h : NotRoot g) :
     NotRoot (addNode g d title) := by
   intro n' hn' hpos
   rw [addNode_nodes] at hn'
@@ -316,12 +317,11 @@ theorem NotRoot_addNode (g : GPathM) (d : NodeId) (title : String)
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     rw [← hEq, upMap_id] at hpos ⊢
     exact h n hn hpos
-  · rcases List.mem_singleton.mp hmem with rfl
-    show (newPid g d).parent_id ≠ none
-    show g.map_parent ≠ none
-    refine hmok.2.2 ?_
-    rw [← hd]
-    exact hpos
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id] at hpos ⊢
+    refine parent_id_ne_none_of_mem_newRowIds g d pid ?_ hpid
+    rw [mapId_of_mem_newRowIds g d pid hpid] at hpos
+    omega
 
 theorem PBelow_join (g₁ g₂ : GPathM) (h₁ : PBelow g₁) (h₂ : PBelow g₂) :
     PBelow (join g₁ g₂) := by

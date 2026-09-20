@@ -80,21 +80,21 @@ theorem MachineOk_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : MachineOk g
 -- What `addNode` does to sons
 -- ============================================================
 
-theorem upMap_sons (g : GPathM) (d : NodeId) (n : PNodeM) :
-    (upMap g d n).sons = (upSons g d n).sons := rfl
+theorem mem_upMap_sons (g : GPathM) (d : NodeId) (n : PNodeM) (q : PathNodeId)
+    (hq : q ∈ n.sons) : q ∈ (upMap g d n).sons :=
+  List.mem_append_left _ hq
 
-theorem mem_upSons_sons (g : GPathM) (d : NodeId) (n : PNodeM) (q : PathNodeId)
-    (hq : q ∈ n.sons) : q ∈ (upSons g d n).sons := by
-  simp only [upSons]
-  split
-  · exact List.mem_append_left _ hq
-  · exact hq
-
-theorem newPid_mem_upSons_sons (g : GPathM) (d : NodeId) (n : PNodeM)
-    (hc : (newParents g).contains n.id = true) :
-    newPid g d ∈ (upSons g d n).sons := by
-  simp only [upSons, hc]
-  exact List.mem_append_right _ (by simp)
+/-- **The last node of a chain gains, as a son, the row node the chain enters.**
+Which row node that is depends on the chain — that is the whole of the window. -/
+theorem extendPid_mem_upMap_sons (g : GPathM) (d : NodeId) (sel : Int → PathNodeId)
+    (hpos : 0 < g.current_step) (hchain : IsChain g sel) (n : PNodeM)
+    (hn : g.node? (sel (g.current_step - 1)) = some n) :
+    extendPid g d sel ∈ (upMap g d n).sons := by
+  rw [upMap_sons]
+  refine List.mem_append_right _ (List.mem_filter.mpr ⟨extendPid_mem_newRowIds g d sel hchain, ?_⟩)
+  have hnid : n.id = sel (g.current_step - 1) := node?_id_eq g _ n hn
+  rw [hnid]
+  exact List.elem_eq_true_of_mem (lastPick_mem_rowParents g d sel hpos hchain)
 
 -- ============================================================
 -- addNode establishes the three extra ChainSound fields
@@ -107,16 +107,18 @@ theorem ChainSound_addNode (g : GPathM) (d : NodeId) (title : String)
     (sel : Int → PathNodeId) (h : ChainSound g sel) :
     ChainSound (addNode g d title) (extend g d sel) := by
   obtain ⟨h0, hz, hposmp⟩ := hmok
-  have hnew := addNode_node?_new g d title hd hbelow
-  refine ⟨ChainG_addNode g d title hd hbelow sel h.chain, ?_, ?_, ?_⟩
-  · -- self_owned: the new node's owners are exactly the global owners plus itself
+  have hpidmem : extendPid g d sel ∈ newRowIds g d :=
+    extendPid_mem_newRowIds g d sel h.chain.1
+  have hnew := addNode_node?_new g d title hd hbelow _ hpidmem
+  refine ⟨ChainG_addNode g d title hd hbelow sel h.self_owned h.chain, ?_, ?_, ?_⟩
+  · -- self_owned: a row node owns itself by construction
     intro k hlo hhi
     rw [addNode_current] at hhi
     rcases int_eq_or_ne k g.current_step with hk | hk
     · subst hk
       rw [extend_top]
-      simp only [ownersOf, hnew, addOwner, upNode]
-      exact List.mem_append_right _ (by simp)
+      simp only [ownersOf, hnew, rowNode_owners]
+      exact self_mem_rowOwners g d _
     · have hlt : k < g.current_step := by omega
       rw [extend_below g d sel k hlt]
       have hs := h.self_owned k hlo hlt
@@ -135,14 +137,10 @@ theorem ChainSound_addNode (g : GPathM) (d : NodeId) (title : String)
     · rw [hk, extend_top, extend_below g d sel k (by omega)]
       obtain ⟨hsome, _⟩ := h.chain.1.1 k hlo (by omega)
       obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
-      simp only [sonsOf, addNode_node?_old g d title _ n hn, upMap_sons]
-      refine newPid_mem_upSons_sons g d n ?_
-      have hmem : sel k ∈ (g.line (g.current_step - 1)).map (·.id) :=
-        mem_line_of_node? g (sel k) n hn (g.current_step - 1)
-          (by rw [(h.chain.1.1 k hlo (by omega)).2]; omega)
-      rw [node?_id_eq g (sel k) n hn]
-      simp only [newParents, if_pos (show g.current_step > 0 by omega)]
-      exact List.elem_eq_true_of_mem hmem
+      have hkeq : k = g.current_step - 1 := by omega
+      subst hkeq
+      simp only [sonsOf, addNode_node?_old g d title _ n hn]
+      exact extendPid_mem_upMap_sons g d sel (by omega) h.chain.1 n hn
     · have hlt : k + 1 < g.current_step := by omega
       rw [extend_below g d sel k (by omega), extend_below g d sel (k + 1) hlt]
       have hs := h.son_link k hlo hlt
@@ -152,13 +150,13 @@ theorem ChainSound_addNode (g : GPathM) (d : NodeId) (title : String)
       | some n =>
         rw [hn] at hs
         rw [addNode_node?_old g d title _ n hn]
-        simp only [upMap_sons]
-        exact mem_upSons_sons g d n _ hs
+        exact mem_upMap_sons g d n _ hs
   · -- root_shape: this is what `MachineOk` is for
     constructor
     · rcases int_eq_or_ne (0 : Int) g.current_step with hz0 | hz0
-      · simp only [extend, if_pos hz0, newPid]
-        exact hz hz0.symm
+      · rw [show extend g d sel 0 = extendPid g d sel from by simp [extend, ← hz0]]
+        unfold extendPid
+        rw [if_neg (by omega)]
       · rw [extend_below g d sel 0 (by omega)]
         exact h.root_shape.1
     · intro k hk hhi
@@ -166,8 +164,10 @@ theorem ChainSound_addNode (g : GPathM) (d : NodeId) (title : String)
       rcases int_eq_or_ne k g.current_step with hkc | hkc
       · subst hkc
         rw [extend_top]
-        simp only [newPid]
-        exact hposmp (by omega)
+        unfold extendPid
+        rw [if_pos (by omega)]
+        show (some (sel (g.current_step - 1)).id : Option NodeId) ≠ none
+        simp
       · rw [extend_below g d sel k (by omega)]
         exact h.root_shape.2 k hk (by omega)
 
@@ -256,7 +256,8 @@ theorem ChainSound_initSeed (d : NodeId) (title : String) (hstep : d.step = 0) :
   · intro k hlo hhi
     show _ ∈ (GPathM.initSeed d title).gowners
     unfold GPathM.initSeed GPathM.up GPathM.addNode
-    simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
+    simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry,
+      GPathM.newRowIds]
   · intro k hlo hhi
     simp only [ownersOf, hnode]
     simp

@@ -214,9 +214,8 @@ theorem GN_addNode (g : GPathM) (d : NodeId) (title : String) (h : GN g) :
   · obtain ⟨n, hn, hid⟩ := h q hq
     exact ⟨upMap g d n, List.mem_append_left _ (List.mem_map_of_mem hn),
       (upMap_id g d n).trans hid⟩
-  · rcases List.mem_singleton.mp hq with rfl
-    exact ⟨addOwner (newPid g d) (upNode g d title),
-      List.mem_append_right _ List.mem_cons_self, rfl⟩
+  · exact ⟨rowNode g d title q,
+      List.mem_append_right _ (List.mem_map_of_mem hq), rfl⟩
 
 theorem GN_up (g : GPathM) (d : NodeId) (title : String) (h : GN g) :
     GN (up g d title) := by

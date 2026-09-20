@@ -73,9 +73,8 @@ theorem NodesOnMap_addNode (g : GPathM) (d : NodeId) (title : String)
     have hid : n.id = m.id := by rw [← hEq]; exact upMap_id g d m
     rw [hid]
     exact h m hm
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hid : (addOwner (newPid g d) (upNode g d title)).id.id = d := rfl
-    rw [hid]
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n).mp hmem
+    rw [show (rowNode g d title pid).id.id = d from mapId_of_mem_newRowIds g d pid hpid]
     exact hd
 
 theorem NodesOnMap_up (g : GPathM) (d : NodeId) (title : String)
