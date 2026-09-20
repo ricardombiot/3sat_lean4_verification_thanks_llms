@@ -5260,6 +5260,27 @@ def runTriFam (φ : Cnf) (st0 : TFStat) : TFStat := Id.run do
           if bad then st := { st with famFails := st.famFails + 1 }
   return st
 
+-- The author's filter AS THE LEAN DEFINITION runs it (`famTriOkB`), not a hand-rolled copy: does the
+-- Bool that `sat_of_filterCheck` reads actually come back true on real unions? Run on the plain fixed
+-- union, which is the harder object than the rule-filtered one the theorem speaks of.
+open AbsSat.GraphPath.Model.ImprovesCima in
+def runBCheck (φ : Cnf) (st0 : Nat × Nat × Nat) : Nat × Nat × Nat := Id.run do
+  let mut ok := st0.1
+  let mut bad := st0.2.1
+  let mut uni := st0.2.2
+  let lines := (aggLines φ).toArray
+  for m in [0:lines.size - 1] do
+    let L := lines[m]!
+    for kv in lines[m+1]! do
+      let p := kv.1
+      let sides := sidesOf φ L p
+      if sides.length < 2 then continue
+      let X := filterAllAgg kv.2 []
+      if !isValid X then continue
+      uni := uni + 1
+      if famTriOkB sides X then ok := ok + 1 else bad := bad + 1
+  return (ok, bad, uni)
+
 -- The family indexed by chains: pairs whose chain of common owners ends at the top t, kept only when
 -- the side itself carries them. Are the closure rules of a support satisfied?
 structure CFStat where
@@ -5972,6 +5993,14 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       IO.println s!"trifam seed {seed}: filtered unions={st.unions} families={st.fams} steps={st.steps} | EMPTY_INTERSECTION={st.fails} families with a fail={st.famFails} | {t1 - t0}ms"
       for e in st.ex do IO.println s!"  EX {e}"
+  | "bcheck" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut st : Nat × Nat × Nat := (0, 0, 0)
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        st := runBCheck φ st
+      let t1 ← IO.monoMsNow
+      IO.println s!"bcheck seed {seed}: unions={st.2.2} famTriOkB TRUE={st.1} FALSE={st.2.1} | {t1 - t0}ms"
   | "chainfam" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
