@@ -11,8 +11,13 @@ side the pair's chain names (`HereditaryValid.ChainClosureAt`). Probes `chainsid
 This module adds a rule that does force it. It is the `Improves` machine with one more sweep inside the
 review, run at a union by key, where the sides that built the union are still at hand:
 
-> **The rule of the top.** Keep an entry `a → b` only if, for every top `t` that a chain of common
-> owners of `a` and `b` reaches, the side of `t` carries `a → b` in its own table, in both directions.
+> **The rule of the top.** Keep an entry `a → b` only if **some** top `t` is good for it: a chain of
+> common owners of `a` and `b` reaches `t`, the side of `t` carries `a → b` in its own table, and at
+> every step there is a witness `z` that the same side carries with both ends.
+
+The rule asks for one good top, not for all of them. A genuine path hands one over — its own top, with
+its own nodes as witnesses and as the chain — so the rule never removes a pair of a genuine path, and
+that is what keeps the machine from losing solutions.
 
 The sweep only removes entries, and a genuine path is never touched: its own nodes are the chain and the
 witnesses, and the side of any top it reaches carries all of its pairs.
@@ -66,6 +71,21 @@ def carries (sides : List GPathM) (t a b : PathNodeId) : Bool :=
   | none => false
   | some S => (ownersOf S a).contains b && (ownersOf S b).contains a
 
+/-- Is the entry good for the top `t`: the top is reached by a chain of common owners, the side carries
+it, and at every step there is a witness that the same side carries too. -/
+def goodFor (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
+  (reachTops g a b).contains t && carries sides t a b &&
+    (intRange 0 (g.current_step - 1)).all (fun k =>
+      ((g.line k).map (·.id)).any (fun z =>
+        (ownersOf g a).contains z && (ownersOf g b).contains z &&
+          (ownersOf g z).contains a && (ownersOf g z).contains b &&
+          carries sides t a z && carries sides t b z))
+
+/-- **The rule of the top.** An entry stays only if some top is good for it. A genuine path gives one:
+its own top, with its own nodes as witnesses. -/
+def cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId) : Bool :=
+  (reachTops g a b).any (fun t => goodFor sides g t a b)
+
 -- ============================================================
 -- The sweep
 -- ============================================================
@@ -75,7 +95,7 @@ carry the pair, the two stop owning each other. -/
 def cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId) : GPathM :=
   match g.node? x, g.node? w with
   | some nx, some nw =>
-    if nx.owners.contains w && !(reachTops g x w).all (fun t => carries sides t x w) then
+    if nx.owners.contains w && !cimaOk sides g x w then
       dropOwnerPair g x w nx.owners nw.owners
     else g
   | _, _ => g
@@ -131,7 +151,7 @@ carry. Off the chain it only removes, as every drop does. -/
 theorem ChainSound_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId)
     (sel : Int → PathNodeId) (h : ChainSound g sel)
     (hcar : ∀ i j, 0 ≤ i → i < g.current_step → 0 ≤ j → j < g.current_step → sel i = x → sel j = w →
-      (reachTops g x w).all (fun t => carries sides t x w) = true) :
+      cimaOk sides g x w = true) :
     ChainSound (cimaPair sides g x w) sel := by
   unfold cimaPair
   split
@@ -165,7 +185,7 @@ theorem ChainSound_cimaPair (sides : List GPathM) (g : GPathM) (x w : PathNodeId
 chain pair reaches are carried by their sides. -/
 def Carried (sides : List GPathM) (g : GPathM) (sel : Int → PathNodeId) : Prop :=
   ∀ g', Keeps g g' → ∀ i j, 0 ≤ i → i < g'.current_step → 0 ≤ j → j < g'.current_step →
-    (reachTops g' (sel i) (sel j)).all (fun t => carries sides t (sel i) (sel j)) = true
+    cimaOk sides g' (sel i) (sel j) = true
 
 theorem ChainSound_cimaNode (sides : List GPathM) (g g₀ : GPathM) (x : PathNodeId)
     (sel : Int → PathNodeId) (hk : Keeps g₀ g) (h : ChainSound g sel) (hC : Carried sides g₀ sel) :
@@ -199,15 +219,92 @@ theorem ChainSound_cimaSweep (sides : List GPathM) (g : GPathM) (sel : Int → P
     exact ChainSound_cimaNode sides g'' g x sel hg''.2 hg''.1 hC
   · exact h
 
-/-- **A support survives the sweep**: the other core statement, for the supports the verdict uses. -/
-def KeepsSupports : Prop :=
-  ∀ (sides : List GPathM) (g : GPathM) (S : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop),
-    AnchoredSurvive.Sup g S R →
-    (∀ x v, R x v → ∀ t ∈ reachTops g x v, carries sides t x v = true) →
-    AnchoredSurvive.Sup (cimaSweep sides g) S R
+-- ============================================================
+-- The core: a support survives
+-- ============================================================
+
+open AbsSat.GraphPath.Model.AnchoredSurvive (Sup AOk Sup_updateAt)
+
+variable {S : PathNodeId → Prop} {R : PathNodeId → PathNodeId → Prop}
+
+/-- **One entry: the rule never drops a pair of a support** whose reached tops the sides carry. -/
+theorem Sup_cimaPair (sides : List GPathM) (g : GPathM) (h : Sup g S R) (x w : PathNodeId)
+    (hcar : R x w → cimaOk sides g x w = true) :
+    Sup (cimaPair sides g x w) S R := by
+  unfold cimaPair
+  split
+  · next nx nw hx hw =>
+    split
+    · next hcond =>
+      rw [Bool.and_eq_true, Bool.not_eq_true'] at hcond
+      have hnxw : ¬ R x w := fun hr => by
+        rw [hcar hr] at hcond
+        exact Bool.noConfusion hcond.2
+      have hnwx : ¬ R w x := fun hr => hnxw (h.sym w x hr)
+      have hb1 : S x → ∀ v, R x v → v ∈ dropList nx.owners w := fun _ v hr =>
+        AggressiveReview.mem_dropList _ w v (h.own x v nx hr hx) (fun he => hnxw (he ▸ hr))
+      have hb2 : S w → ∀ v, R w v → v ∈ dropList nw.owners x := fun _ v hr =>
+        AggressiveReview.mem_dropList _ x v (h.own w v nw hr hw) (fun he => hnwx (he ▸ hr))
+      exact Sup_updateAt _ w _ hb2 (Sup_updateAt g x _ hb1 h)
+    · exact h
+  · exact h
+
+theorem SMP_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) :
+    Sons.SMP (cimaPair sides g x w) := by
+  unfold cimaPair
+  split
+  · split
+    · exact Sons.SMP_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
+        (Sons.SMP_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs)
+    · exact hs
+  · exact hs
+
+theorem AOk_cimaPair (sides : List GPathM) (g : GPathM) (h : AOk g S R) (x w : PathNodeId)
+    (hcar : R x w → cimaOk sides g x w = true) :
+    AOk (cimaPair sides g x w) S R :=
+  ⟨Sup_cimaPair sides g h.sup x w hcar, SMP_cimaPair sides g h.smp x w,
+    Parents.NotRoot_of_pruned (keeps_cimaPair sides g x w).1 h.nr⟩
+
+/-- The rule's hypothesis for a support, robust along the sweep. -/
+def CarriedR (sides : List GPathM) (g : GPathM) (R : PathNodeId → PathNodeId → Prop) : Prop :=
+  ∀ g', Keeps g g' → ∀ x v, R x v → cimaOk sides g' x v = true
+
+theorem AOk_cimaNode (sides : List GPathM) (g g₀ : GPathM) (x : PathNodeId) (hk : Keeps g₀ g)
+    (h : AOk g S R) (hC : CarriedR sides g₀ R) : AOk (cimaNode sides g x) S R ∧ Keeps g₀ (cimaNode sides g x) := by
+  refine ⟨?_, Keeps.trans hk (keeps_cimaNode sides g x)⟩
+  unfold cimaNode
+  split
+  · exact h
+  · next nx _ =>
+    refine BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w)
+      (fun g' => AOk g' S R ∧ Keeps g₀ g') nx.owners ?_ g ⟨h, hk⟩ |>.1
+    intro g' w _ hg'
+    exact ⟨AOk_cimaPair sides g' hg'.1 x w (fun hr => hC g' hg'.2 x w hr),
+      Keeps.trans hg'.2 (keeps_cimaPair _ _ _ _)⟩
+
+/-- **A support survives the sweep.** The rule only drops pairs whose chain reaches a top the sides do
+not carry, and a support's pairs are carried by hypothesis; everything else it removes leaves the support
+where it was. -/
+theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : CarriedR sides g R) :
+    AOk (cimaSweep sides g) S R := by
+  unfold cimaSweep
+  split
+  · refine BranchLines.foldl_inv
+      (fun g' k => ((g'.line k).map (·.id)).foldl (cimaNode sides) g')
+      (fun g' => AOk g' S R ∧ Keeps g g') _ ?_ g ⟨h, Keeps.refl g⟩ |>.1
+    intro g' k _ hg'
+    refine BranchLines.foldl_inv (cimaNode sides) (fun g'' => AOk g'' S R ∧ Keeps g g'')
+      _ ?_ g' hg'
+    intro g'' x _ hg''
+    exact AOk_cimaNode sides g'' g x hg''.2 hg''.1 hC
+  · exact h
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.ChainSound_cimaSweep' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms ChainSound_cimaSweep
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_cimaSweep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms AOk_cimaSweep
 
 end AbsSat.GraphPath.Model.ImprovesCima
