@@ -146,8 +146,11 @@ theorem carries_of_side (sides : List GPathM) (S : GPathM) (hS : S ∈ sides) (t
     unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hy
   exact List.any_eq_true.mpr ⟨S, hS, by simp only [ht, how a b h1, how b a h2, Bool.and_self]⟩
 
-/-- Is the entry good for the top `t`: the top is reached by a chain of common owners, the side carries
-it, and at every step there is a witness that the same side carries too. -/
+/-- Is the entry good for the top `t`: a chain of common owners reaches `t`, a side of `t` carries the
+entry, and at every step there is a witness the same side carries with both ends.
+
+The parent and son clauses the closure also needs are the next step; they read the same way, over the
+node's parents and sons. -/
 def goodFor (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
   reaches g a b t && carries sides t a b &&
     (intRange 0 (g.current_step - 1)).all (fun k =>
@@ -750,6 +753,28 @@ theorem ChainSound_reviewCima_of_side (sides : List GPathM) (g S : GPathM) (hS :
     (hcsS : S.current_step = g.current_step) (hcs : 0 < g.current_step) :
     ChainSound (reviewCima sides g) sel :=
   ChainSound_reviewCima sides g sel h (carried_of_side sides g S hS sel hSc hcsS hcs)
+
+/-- **The family a good top names, at the fixpoint**: the live entries the side of `t` carries. The rule
+leaves it closed under the witness of every step — the `cov` and `agg` rules of a support. -/
+def FamAt (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Prop :=
+  Rel g a b ∧ carries sides t a b = true
+
+/-- **From the fixpoint to the closure.** At a state the sweep no longer shrinks, every entry with a good
+top `t` has, at every step, a witness that the side of `t` carries with both ends — which is what `cov`
+and `agg` of the support ask for. -/
+theorem fam_witness (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
+    (hgood : goodFor sides g t a b = true) (l : Int) (hl0 : 0 ≤ l) (hl1 : l < g.current_step) :
+    ∃ z, z.id.step = l ∧ (ownersOf g a).contains z = true ∧ (ownersOf g b).contains z = true ∧
+      (ownersOf g z).contains a = true ∧ (ownersOf g z).contains b = true ∧
+      carries sides t a z = true ∧ carries sides t b z = true := by
+  simp only [goodFor, Bool.and_eq_true] at hgood
+  have hall := hgood.2
+  have hk := List.all_eq_true.mp hall l (mem_intRange hl0 (by omega))
+  obtain ⟨z, hz, hcond⟩ := List.any_eq_true.mp hk
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hz
+  simp only [Bool.and_eq_true] at hcond
+  exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hcond.1.1.1.1.1, hcond.1.1.1.1.2,
+    hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
 
 /-- **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every entry with a
 good top (`cimaOk_of_noProgress`), so the family the top names is closed. Two bridges are missing:
