@@ -777,6 +777,41 @@ theorem carried_of_side (sides : List GPathM) (g S : GPathM) (hS : S ∈ sides)
   refine cimaOk_of_chain sides g' S hS (by rw [hstep]; exact hcsS) sel hsc hSc hroot ?_ i j hi0 hi hj0 hj
   rw [hstep]; exact hcs
 
+/-- **Every valid result of the review of a union passes the rule.** Same shape as the aggressive
+review's fixpoint: the loop only stops when the sweep removes nothing, and then the test holds. -/
+theorem cimaOk_reviewCimaFuel (sides : List GPathM) : ∀ (fuel : Nat) (g : GPathM),
+    GPathM.measure g < fuel → isValid (reviewCimaFuel sides fuel g) = true →
+    CimaOk sides (reviewCimaFuel sides fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact absurd h (Nat.not_lt_zero _)
+  | succ n ih =>
+    intro g hm hv
+    have hle : GPathM.measure (reviewAgg g) ≤ GPathM.measure g :=
+      ReaderAgg.measure_reviewAggFuel_le _ g
+    simp only [reviewCimaFuel] at hv ⊢
+    split at hv
+    · next hv₁ =>
+      rw [if_pos hv₁]
+      split at hv
+      · next hlt =>
+        rw [if_pos hlt]
+        exact ih _ (Nat.lt_of_lt_of_le hlt (Nat.le_trans hle (Nat.le_of_lt_succ hm))) hv
+      · next hnlt =>
+        rw [if_neg hnlt]
+        exact cimaOk_of_noProgress sides _ hv₁ hnlt
+    · next hv₁ => exact absurd hv hv₁
+
+theorem cimaOk_reviewCima (sides : List GPathM) (g : GPathM)
+    (hv : isValid (reviewCima sides g) = true) : CimaOk sides (reviewCima sides g) :=
+  cimaOk_reviewCimaFuel sides _ g (Nat.lt_succ_self _) hv
+
+/-- **And so does the whole filter of a union**: pins, then that review. -/
+theorem cimaOk_filterAllCima (sides : List GPathM) (g : GPathM) (reqs : List NodeId)
+    (hv : isValid (filterAllCima sides g reqs) = true) :
+    CimaOk sides (filterAllCima sides g reqs) :=
+  cimaOk_reviewCima sides _ hv
+
 -- ============================================================
 -- The machine: the line advance with the sides
 -- ============================================================
