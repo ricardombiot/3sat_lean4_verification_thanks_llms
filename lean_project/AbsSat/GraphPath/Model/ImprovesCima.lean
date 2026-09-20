@@ -680,6 +680,103 @@ theorem cimaOk_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g 
     (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g) : CimaOk sides g :=
   testOk_of_noProgress _ g hv hnp
 
+/-- **A sound chain is a support.** Everything `Sup` asks for, a chain hands over from its own shape:
+the cover and the aggregation are the chain's node at that step, the parent and the son are its
+neighbours, and the links are its own. This is what lets the descent exhibit a sub-support without
+computing anything. -/
+theorem sup_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel) :
+    Sup g (fun p => ∃ k, 0 ≤ k ∧ k < g.current_step ∧ p = sel k)
+      (fun x v => ∃ i j, 0 ≤ i ∧ i < g.current_step ∧ 0 ≤ j ∧ j < g.current_step ∧
+        x = sel i ∧ v = sel j) := by
+  have hst : ∀ k, 0 ≤ k → k < g.current_step → (sel k).id.step = k :=
+    fun k h0 h1 => (h.chain.1.1 k h0 h1).2
+  have hnd : ∀ k, 0 ≤ k → k < g.current_step → (g.node? (sel k)).isSome = true :=
+    fun k h0 h1 => (h.chain.1.1 k h0 h1).1
+  have howns : ∀ i j, 0 ≤ i → i < g.current_step → 0 ≤ j → j < g.current_step →
+      sel j ∈ ownersOf g (sel i) := by
+    intro i j hi0 hi1 hj0 hj1
+    exact if he : i = j then (by rw [he]; exact h.self_owned j hj0 hj1)
+      else (List.mem_filter.mp
+        (h.chain.2.1 j i hj0 hi0 hj1 hi1 (fun hc => he hc.symm))).1
+  have hpr : ∀ k, 0 ≤ k → k + 1 < g.current_step →
+      sel k ∈ ((g.node? (sel (k + 1))).map PNodeM.parents).getD [] := h.chain.1.2
+  have hprn : ∀ k n, 0 ≤ k → k + 1 < g.current_step → g.node? (sel (k + 1)) = some n →
+      sel k ∈ n.parents := by
+    intro k n h0 h1 hn
+    have := hpr k h0 h1
+    rw [hn] at this; exact this
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rintro p ⟨k, h0, h1, rfl⟩; exact h.chain.2.2 k h0 h1
+  · rintro p ⟨k, h0, h1, rfl⟩; exact hnd k h0 h1
+  · rintro p ⟨k, h0, h1, rfl⟩; rw [hst k h0 h1]; exact ⟨h0, h1⟩
+  · rintro x v ⟨i, j, hi0, hi1, hj0, hj1, rfl, rfl⟩
+    exact ⟨⟨i, hi0, hi1, rfl⟩, ⟨j, hj0, hj1, rfl⟩⟩
+  · rintro x v n ⟨i, j, hi0, hi1, hj0, hj1, rfl, rfl⟩ hn
+    have hm := howns i j hi0 hi1 hj0 hj1
+    unfold ownersOf at hm; rw [hn] at hm; exact hm
+  · rintro x ⟨i, hi0, hi1, rfl⟩ l hl0 hl1
+    exact ⟨sel l, ⟨i, l, hi0, hi1, hl0, hl1, rfl, rfl⟩, hst l hl0 hl1⟩
+  · rintro x d ⟨i, hi0, hi1, rfl⟩ hn hroot v ⟨i', j', hi0', hi1', hj0', hj1', hxe, rfl⟩
+    have hine : i ≠ 0 := fun he => hroot (by rw [he]; exact h.root_shape.1)
+    clear hroot
+    have hipos : 0 < i := by
+      rcases Int.lt_or_lt_of_ne hine with hlt | hgt
+      · exact absurd hlt (Int.not_lt.mpr hi0)
+      · exact hgt
+    clear hine
+    have hsucc : i - 1 + 1 = i := by omega
+    refine ⟨sel (i - 1), ?_, ⟨i, i - 1, hi0, hi1, by omega, by omega, rfl, rfl⟩,
+      ⟨i - 1, i, by omega, by omega, hi0, hi1, rfl, rfl⟩,
+      ⟨i - 1, j', by omega, by omega, hj0', hj1', rfl, rfl⟩⟩
+    have := hpr (i - 1) (by omega) (by omega)
+    rw [hsucc, hn] at this; exact this
+  · rintro x ⟨i, hi0, hi1, rfl⟩ hne v ⟨i', j', hi0', hi1', hj0', hj1', hxe, rfl⟩
+    rw [hst i hi0 hi1] at hne
+    have hi2 : i + 1 < g.current_step := by
+      rcases Int.lt_or_lt_of_ne hne with hlt | hgt
+      · omega
+      · omega
+    clear hne
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hnd (i + 1) (by omega) hi2)
+    exact ⟨sel (i + 1), n, hn, hprn i n hi0 hi2 hn,
+      ⟨i, i + 1, hi0, hi1, by omega, hi2, rfl, rfl⟩,
+      ⟨i + 1, i, by omega, hi2, hi0, hi1, rfl, rfl⟩,
+      ⟨i + 1, j', by omega, hi2, hj0', hj1', rfl, rfl⟩⟩
+  · rintro x v ⟨i, j, hi0, hi1, hj0, hj1, rfl, rfl⟩ l hl0 hl1
+    exact ⟨sel l, ⟨i, l, hi0, hi1, hl0, hl1, rfl, rfl⟩,
+      ⟨j, l, hj0, hj1, hl0, hl1, rfl, rfl⟩, hst l hl0 hl1⟩
+  · rintro x v ⟨i, j, hi0, hi1, hj0, hj1, rfl, rfl⟩
+    exact ⟨j, i, hj0, hj1, hi0, hi1, rfl, rfl⟩
+  · rintro x c d ⟨i, j, hi0, hi1, hj0, hj1, rfl, rfl⟩ _ hstep hn
+    rw [hst i hi0 hi1, hst j hj0 hj1] at hstep
+    have hlt : j + 1 < g.current_step := by rw [hstep]; exact hi1
+    have := hpr j hj0 hlt
+    rw [hstep, hn] at this; exact this
+
+/-- **The rule's hypothesis for a support, per pair.** `cimaOk` is existential over the tops, so the
+sweep never asks for one single side for the whole support: it is enough that **each pair** of the
+support sits in *some* sub-support that *some* side carries. Each pair may name its own side and its own
+sub-support. -/
+theorem carriedR_of_pair (sides : List GPathM) (g : GPathM)
+    (h : ∀ g', Keeps g g' → AOk g' S R → ∀ x v, R x v →
+      ∃ (S' : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop) (t : PathNodeId),
+        t.id.step = g.current_step - 1 ∧ S' t ∧ R' x v ∧ AOk g' S' R' ∧
+        (∀ a b, R' a b → restTest sides t g a b = true)) :
+    CarriedR sides g S R := by
+  intro g' hk hA x v hr
+  obtain ⟨S', R', t, ht, hSt, hrxv, hA', hR'⟩ := h g' hk hA x v hr
+  have hcs : g'.current_step = g.current_step := hk.1.step_eq
+  have hA2 : AOk (famFix sides t g') S' R' := AOk_famFix sides t g' hA' (fun a b hab => hR' a b hab)
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp (hA'.sup.node t hSt)
+  refine List.any_eq_true.mpr ⟨t, mem_line_of_node? g' t nt hnt _ (by rw [hcs]; exact ht), ?_⟩
+  have hown : ∀ a b, R' a b → (ownersOf (famFix sides t g') a).contains b = true := by
+    intro a b hab
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hA2.sup.node a (hA2.sup.dom a b hab).1)
+    unfold ownersOf; rw [hn]
+    exact List.contains_iff_mem.mpr (hA2.sup.own a b n hab hn)
+  simp only [goodFor, hown x v hrxv, hown v x (hA2.sup.sym x v hrxv),
+    SupportSplit.valid_of_sup _ _ _ hA2.sup t hSt, Bool.and_self]
+
 /-- **The rule's hypothesis, for a support carried by one side.** If every pair of a support is carried
 by the side of a top `t` of the state — and linked as parent and son where the steps are neighbours —
 then the support passes the rule wherever it is still standing. The reason is the same one the machine
@@ -688,19 +785,8 @@ runs on: the restriction to that side never touches the support, the review keep
 theorem carriedR_of_side (sides : List GPathM) (g : GPathM) (t : PathNodeId)
     (ht : t.id.step = g.current_step - 1) (hSt : S t)
     (hR : ∀ x v, R x v → restTest sides t g x v = true) :
-    CarriedR sides g S R := by
-  intro g' hk hA x v hr
-  have hcs : g'.current_step = g.current_step := hk.1.step_eq
-  have hA2 : AOk (famFix sides t g') S R := AOk_famFix sides t g' hA (fun a b hab => hR a b hab)
-  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp (hA.sup.node t hSt)
-  refine List.any_eq_true.mpr ⟨t, mem_line_of_node? g' t nt hnt _ (by rw [hcs]; exact ht), ?_⟩
-  have hown : ∀ a b, R a b → (ownersOf (famFix sides t g') a).contains b = true := by
-    intro a b hab
-    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hA2.sup.node a (hA2.sup.dom a b hab).1)
-    unfold ownersOf; rw [hn]
-    exact List.contains_iff_mem.mpr (hA2.sup.own a b n hab hn)
-  simp only [goodFor, hown x v hr, hown v x (hA2.sup.sym x v hr),
-    SupportSplit.valid_of_sup _ _ _ hA2.sup t hSt, Bool.and_self]
+    CarriedR sides g S R :=
+  carriedR_of_pair sides g (fun _ _ hA _ _ hr => ⟨S, R, t, ht, hSt, hr, hA, hR⟩)
 
 -- ============================================================
 -- The review of a union: the aggressive review and the rule, to their fixpoint
@@ -1599,6 +1685,80 @@ theorem pinned_source_valid_of_sideSupport (sides : List GPathM) (hwf : WF φ) (
 -- The shape of a family: a cone over its top
 -- ============================================================
 
+
+/-- **What the descent actually asks for.** Not one side for the whole support — the rule's test is
+existential over the tops, so the sweep is content if **each pair** of the support is held by some
+sub-support that some side carries. Different pairs may name different sides.
+
+This is strictly weaker than `SideSupportAt`, and it is the shape the rule already grants one line
+below: the state passed the rule, so every live entry has a good top whose family is a support inside
+that top's side. -/
+def PairSideAt (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId) : Prop :=
+  ∀ g', Keeps G g' →
+    AOk g' (fun p => EmbeddedSupport.Mem (AggressiveReview.filterAllAgg (sent φ G d) Q) p ∧
+              p.id.step < k + 1)
+           (fun x v => Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧
+              x.id.step < k + 1 ∧ v.id.step < k + 1) →
+    ∀ x v, (Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧
+        x.id.step < k + 1 ∧ v.id.step < k + 1) →
+      ∃ (S' : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop) (t : PathNodeId),
+        t.id.step = G.current_step - 1 ∧ S' t ∧ R' x v ∧ AOk g' S' R' ∧
+        (∀ a b, R' a b → restTest sides t G a b = true)
+
+/-- **The descent with the rule, under the per-pair property alone.** -/
+theorem pinned_source_valid_of_pairSide (sides : List GPathM) (hwf : WF φ) (k : Int)
+    (key : NodeId) (G : GPathM) (hsG : ConservationFilter.StateOkF φ k (key, G)) (hmG : MInv φ G)
+    (d : NodeId) (hd : d ∈ mapSons φ key.step key.index) (hval : isValid (sent φ G d) = true)
+    (Q : List NodeId) (hvY : isValid (AggressiveReview.filterAllAgg (sent φ G d) Q) = true)
+    (hP : PairSideAt φ sides k G d Q) :
+    isValid (filterAllCima sides G
+      ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+  obtain ⟨hA, hpin, z, hz⟩ :=
+    HereditaryValid.pinned_source_support φ hwf k key G hsG hmG d hd hval Q hvY
+  exact SupportSplit.valid_of_sup _ _ _
+    (AOk_filterAllCima sides G hA _ hpin (carriedR_of_pair sides G hP)).sup z hz
+
+/-- **The old form is the special case where every pair names the same side.** -/
+theorem pairSide_of_sideSupport (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId)
+    (Q : List NodeId) (h : SideSupportAt φ sides k G d Q) : PairSideAt φ sides k G d Q := by
+  obtain ⟨t, ht, hSt, hR⟩ := h
+  exact fun _ _ hA x v hr => ⟨_, _, t, ht, hSt, hr, hA, hR⟩
+
+
+/-- **The descent, in the currency this project measures: one chain per pair.** At every narrowing where
+the descent's support still lives, each of its pairs lies on a sound chain of that narrowing, and one
+side carries the whole chain. The side is not quantified: it is the chain's own node at the last step,
+which is the top that names it.
+
+This is `PairChain` — "every owner pair lies on a chain" — localized to the descent, and it is what the
+rule of the top already grants entry by entry one line below. -/
+def ChainSideAt (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId) : Prop :=
+  ∀ g', Keeps G g' →
+    AOk g' (fun p => EmbeddedSupport.Mem (AggressiveReview.filterAllAgg (sent φ G d) Q) p ∧
+              p.id.step < k + 1)
+           (fun x v => Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧
+              x.id.step < k + 1 ∧ v.id.step < k + 1) →
+    ∀ x v, (Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧
+        x.id.step < k + 1 ∧ v.id.step < k + 1) →
+      ∃ (sel : Int → PathNodeId) (i j : Int), ChainSound g' sel ∧
+        0 ≤ i ∧ i < g'.current_step ∧ 0 ≤ j ∧ j < g'.current_step ∧ x = sel i ∧ v = sel j ∧
+        ∀ a b, (∃ p q, 0 ≤ p ∧ p < g'.current_step ∧ 0 ≤ q ∧ q < g'.current_step ∧
+            a = sel p ∧ b = sel q) →
+          restTest sides (sel (G.current_step - 1)) G a b = true
+
+/-- **A chain per pair is enough for the descent.** The chain is the sub-support (`sup_of_chainSound`),
+and its own top is the side that carries it. -/
+theorem pairSide_of_chainSide (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId)
+    (Q : List NodeId) (hcs : 0 < G.current_step) (h : ChainSideAt φ sides k G d Q) :
+    PairSideAt φ sides k G d Q := by
+  intro g' hk hA x v hr
+  obtain ⟨sel, i, j, hsc, hi0, hi1, hj0, hj1, hxe, hve, hcar⟩ := h g' hk hA x v hr
+  have hcs' : g'.current_step = G.current_step := hk.1.step_eq
+  refine ⟨_, _, sel (G.current_step - 1), ?_, ⟨G.current_step - 1, by omega, by omega, rfl⟩,
+    ⟨i, j, hi0, hi1, hj0, hj1, hxe, hve⟩,
+    ⟨sup_of_chainSound g' sel hsc, hA.smp, hA.nr⟩, hcar⟩
+  exact (hsc.chain.1.1 (G.current_step - 1) (by omega) (by omega)).2
+
 /-- **Every node of a family is a node of the side.** A node of the family has, by its own support, a
 partner at every step; the pair is an entry of the side, so the node is one of the side's. -/
 theorem mem_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
@@ -2452,6 +2612,18 @@ carries it over to the side's send — and to close `HereditaryValid.ChainClosur
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.sat_of_filterCheckCone' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms sat_of_filterCheckCone
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.sup_of_chainSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sup_of_chainSound
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.pinned_source_valid_of_pairSide' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinned_source_valid_of_pairSide
+
+/-- info: 'AbsSat.GraphPath.Model.ImprovesCima.pairSide_of_chainSide' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairSide_of_chainSide
 
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.coneAt_famFix' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
