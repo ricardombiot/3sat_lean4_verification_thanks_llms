@@ -258,12 +258,14 @@ theorem AOk_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g 
   ⟨Sup_prunePair test g h.sup x w hcar, SMP_prunePair test g h.smp x w,
     Parents.NotRoot_of_pruned (keeps_prunePair test g x w).1 h.nr⟩
 
-/-- The rule's hypothesis for a support, robust along the sweep. -/
-def TestR (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (R : PathNodeId → PathNodeId → Prop) : Prop :=
-  ∀ g', Keeps g g' → ∀ x v, R x v → test g' x v = true
+/-- The rule's hypothesis for a support, robust along the sweep. As with a chain (`TestC`), the test is
+only asked for where the support is still there: the sweep keeps it as it goes. -/
+def TestR (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM)
+    (Sc : PathNodeId → Prop) (Rl : PathNodeId → PathNodeId → Prop) : Prop :=
+  ∀ g', Keeps g g' → AOk g' Sc Rl → ∀ x v, Rl x v → test g' x v = true
 
 theorem AOk_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g g₀ : GPathM) (x : PathNodeId) (hk : Keeps g₀ g)
-    (h : AOk g S R) (hC : TestR test g₀ R) : AOk (pruneNode test g x) S R ∧ Keeps g₀ (pruneNode test g x) := by
+    (h : AOk g S R) (hC : TestR test g₀ S R) : AOk (pruneNode test g x) S R ∧ Keeps g₀ (pruneNode test g x) := by
   refine ⟨?_, Keeps.trans hk (keeps_pruneNode test g x)⟩
   unfold pruneNode
   split
@@ -272,13 +274,13 @@ theorem AOk_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g 
     refine BranchLines.foldl_inv (fun g' w => prunePair test g' x w)
       (fun g' => AOk g' S R ∧ Keeps g₀ g') nx.owners ?_ g ⟨h, hk⟩ |>.1
     intro g' w _ hg'
-    exact ⟨AOk_prunePair test g' hg'.1 x w (fun hr => hC g' hg'.2 x w hr),
+    exact ⟨AOk_prunePair test g' hg'.1 x w (fun hr => hC g' hg'.2 hg'.1 x w hr),
       Keeps.trans hg'.2 (keeps_prunePair _ _ _ _)⟩
 
 /-- **A support survives the sweep.** The rule only drops pairs whose chain reaches a top the sides do
 not carry, and a support's pairs are carried by hypothesis; everything else it removes leaves the support
 where it was. -/
-theorem AOk_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (h : AOk g S R) (hC : TestR test g R) :
+theorem AOk_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (h : AOk g S R) (hC : TestR test g S R) :
     AOk (pruneSweep test g) S R := by
   unfold pruneSweep
   split
@@ -610,6 +612,24 @@ theorem sup_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM)
   obtain ⟨hadj, hsm⟩ := adj_famFix sides t g hrc hsmp hpms hsn hv
   exact LinkedChain.sup_self _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm
 
+/-- A support whose pairs the side of `t` carries survives the restriction to that side. -/
+theorem AOk_restFuel (sides : List GPathM) (t : PathNodeId) :
+    ∀ (fuel : Nat) (g : GPathM), AOk g S R → (∀ x v, R x v → restTest sides t g x v = true) →
+      AOk (restFuel sides t fuel g) S R := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h _; exact h
+  | succ n ih =>
+    intro g h hR
+    simp only [restFuel]
+    split
+    · exact ih _ (AOk_pruneSweep _ g h (fun g' _ _ x v hr => hR x v hr)) (fun x v hr => hR x v hr)
+    · exact h
+
+theorem AOk_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM) (h : AOk g S R)
+    (hR : ∀ x v, R x v → restTest sides t g x v = true) : AOk (famFix sides t g) S R :=
+  AnchoredSurvive.AOk_reviewAggFuel _ _ (AOk_restFuel sides t _ g h hR)
+
 /-- **The rule of the top, for one top.** The entry stays alive in the family that `t` names, and that
 family is a live state. -/
 def goodFor (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
@@ -636,7 +656,8 @@ abbrev cimaSweep (sides : List GPathM) : GPathM → GPathM := pruneSweep (cimaOk
 /-- The rule's hypothesis for a chain, and for a support. -/
 abbrev Carried (sides : List GPathM) : GPathM → (Int → PathNodeId) → Prop := TestC (cimaOk sides)
 
-abbrev CarriedR (sides : List GPathM) : GPathM → (PathNodeId → PathNodeId → Prop) → Prop :=
+abbrev CarriedR (sides : List GPathM) : GPathM → (PathNodeId → Prop) →
+    (PathNodeId → PathNodeId → Prop) → Prop :=
   TestR (cimaOk sides)
 
 /-- **The test the rule leaves behind**: every live entry has a good top. -/
@@ -652,12 +673,34 @@ theorem ChainSound_cimaSweep (sides : List GPathM) (g : GPathM) (sel : Int → P
     (h : ChainSound g sel) (hC : Carried sides g sel) : ChainSound (cimaSweep sides g) sel :=
   ChainSound_pruneSweep _ g sel h hC
 
-theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : CarriedR sides g R) :
+theorem AOk_cimaSweep (sides : List GPathM) (g : GPathM) (h : AOk g S R) (hC : CarriedR sides g S R) :
     AOk (cimaSweep sides g) S R := AOk_pruneSweep _ g h hC
 
 theorem cimaOk_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = true)
     (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g) : CimaOk sides g :=
   testOk_of_noProgress _ g hv hnp
+
+/-- **The rule's hypothesis, for a support carried by one side.** If every pair of a support is carried
+by the side of a top `t` of the state — and linked as parent and son where the steps are neighbours —
+then the support passes the rule wherever it is still standing. The reason is the same one the machine
+runs on: the restriction to that side never touches the support, the review keeps it, so the family of
+`t` is a live state that still holds every pair of the support. -/
+theorem carriedR_of_side (sides : List GPathM) (g : GPathM) (t : PathNodeId)
+    (ht : t.id.step = g.current_step - 1) (hSt : S t)
+    (hR : ∀ x v, R x v → restTest sides t g x v = true) :
+    CarriedR sides g S R := by
+  intro g' hk hA x v hr
+  have hcs : g'.current_step = g.current_step := hk.1.step_eq
+  have hA2 : AOk (famFix sides t g') S R := AOk_famFix sides t g' hA (fun a b hab => hR a b hab)
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp (hA.sup.node t hSt)
+  refine List.any_eq_true.mpr ⟨t, mem_line_of_node? g' t nt hnt _ (by rw [hcs]; exact ht), ?_⟩
+  have hown : ∀ a b, R a b → (ownersOf (famFix sides t g') a).contains b = true := by
+    intro a b hab
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hA2.sup.node a (hA2.sup.dom a b hab).1)
+    unfold ownersOf; rw [hn]
+    exact List.contains_iff_mem.mpr (hA2.sup.own a b n hab hn)
+  simp only [goodFor, hown x v hr, hown v x (hA2.sup.sym x v hr),
+    SupportSplit.valid_of_sup _ _ _ hA2.sup t hSt, Bool.and_self]
 
 -- ============================================================
 -- The review of a union: the aggressive review and the rule, to their fixpoint
@@ -843,7 +886,7 @@ theorem ChainSound_reviewCima (sides : List GPathM) (g : GPathM) (sel : Int → 
 
 /-- **A support survives the review of a union**, given the rule's hypothesis along the way. -/
 theorem AOk_reviewCimaFuel (sides : List GPathM) :
-    ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → AOk g S R → CarriedR sides g₀ R →
+    ∀ (fuel : Nat) (g g₀ : GPathM), Keeps g₀ g → AOk g S R → CarriedR sides g₀ S R →
       AOk (reviewCimaFuel sides fuel g) S R := by
   intro fuel
   induction fuel with
@@ -856,14 +899,14 @@ theorem AOk_reviewCimaFuel (sides : List GPathM) :
     split
     · split
       · refine ih _ g₀ (Keeps.trans hk₁ (keeps_cimaSweep sides _)) ?_ hC
-        exact AOk_cimaSweep sides _ h₁ (fun g' hk' x v hr => hC g' (Keeps.trans hk₁ hk') x v hr)
+        exact AOk_cimaSweep sides _ h₁ (fun g' hk' hA x v hr => hC g' (Keeps.trans hk₁ hk') hA x v hr)
       · exact h₁
     · exact h₁
 
 /-- **A support survives the pins and the review of a union.** -/
 theorem AOk_filterAllCima (sides : List GPathM) (g : GPathM) (h : AOk g S R) (reqs : List NodeId)
     (hpin : ∀ r ∈ reqs, ∀ p, S p → p.id.step = r.step → p.id = r)
-    (hC : CarriedR sides g R) : AOk (filterAllCima sides g reqs) S R := by
+    (hC : CarriedR sides g S R) : AOk (filterAllCima sides g reqs) S R := by
   refine AOk_reviewCimaFuel sides _ _ g ?_ ?_ ?_
   · exact ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire reqs g
   · have main : ∀ (l : List NodeId), (∀ r ∈ l, ∀ p, S p → p.id.step = r.step → p.id = r) →
