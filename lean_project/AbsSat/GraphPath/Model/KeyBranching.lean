@@ -52,16 +52,17 @@ theorem keyPure_sent (φ : Cnf) (hwf : WF φ) (g : GPathM) (d : NodeId)
   change q ∈ (upFiltering g (reqOfCnf φ d) d "").gowners at hq
   change r ∈ reqOfCnf φ d at hr
   rw [hshape] at hq
-  have hq' : q ∈ (filterAll g (reqOfCnf φ d)).gowners ++ [newPid (filterAll g (reqOfCnf φ d)) d] := hq
+  have hq' : q ∈ (filterAll g (reqOfCnf φ d)).gowners
+      ++ newRowIds (filterAll g (reqOfCnf φ d)) d := hq
   rcases List.mem_append.mp hq' with hq | hq
   · have hq0 := (pruned_review ((reqOfCnf φ d).foldl filterRequire g)).gowners_sub q hq
     rcases (mem_foldl_filterRequire (reqOfCnf φ d) g q hq0).2 r hr with h | h
     · exact absurd hs h
     · exact h
-  · rcases List.mem_singleton.mp hq with rfl
-    exfalso
+  · exfalso
     have hback := reqOfCnf_backward φ hwf d r hr
-    have hid : (newPid (filterAll g (reqOfCnf φ d)) d).id.step = d.step := rfl
+    have hid : q.id.step = d.step := by
+      rw [mapId_of_mem_newRowIds _ d q hq]
     omega
 
 theorem keyPure_doJoin (φ : Cnf) (key : NodeId) (e g : GPathM)

@@ -54,6 +54,7 @@ structure RCtx (g : GPathM) : Prop where
   shape : Parents.Shape g
   rootz : Sons.RootAtZero g
   pmp   : ParentId.PMP g
+  gpmp  : ParentId.GPMP g
   below : ∀ n ∈ g.nodes, n.id.id.step < g.current_step
   nodup : NodupIds g
 
@@ -66,6 +67,7 @@ theorem RCtx_reachable (g : GPathM) (hnd : NodupIds g) (h : Reachable reqOf g) :
   shape := Parents.Shape_reachable reqOf g h
   rootz := Sons.RootAtZero_reachable reqOf g h
   pmp := ParentId.PMP_reachable reqOf g h
+  gpmp := ParentId.GPMP_reachable reqOf g h
   below := steps_below_current reqOf h
   nodup := hnd
 
@@ -76,6 +78,7 @@ theorem RCtx_filterAll (g : GPathM) (h : RCtx g) (reqs : List NodeId) :
   oos := SelfOwn.OOS_filterAll g reqs h.oos
   snn := SelfOwn.SNN_of_pruned (pruned_filterAll g reqs) h.snn
   gn := GownersNodes.GN_filterAll g reqs h.gn
+  gpmp := ParentId.GPMP_of_pruned (pruned_filterAll g reqs) h.gpmp
   shape := Parents.Shape_of_pruned_pn (pruned_filterAll g reqs)
     (Parents.PN_filterAll g reqs h.shape.pn) h.shape
   rootz := Sons.RootAtZero_of_pruned (pruned_filterAll g reqs) h.rootz
@@ -116,6 +119,7 @@ theorem Ctx_of_readable (g : GPathM) (h : Readable g) (hv : isValid g = true) :
       shape := hshape
       rootz := hrc.rootz
       pmp := hrc.pmp
+      gpmp := hrc.gpmp
       nodeval := fun pid n hn => review_node_valid _ hv pid n hn
       ownGow := fun pid n hn q hq hlo hhi =>
         Candidates.owner_mem_gowners _ hv pid n hn q hq hlo hhi }
@@ -203,26 +207,23 @@ step strictly below `current_step`, and the newcomer sits *at* it. -/
 theorem nodup_addNode (g : GPathM) (d : NodeId) (title : String) (hnd : NodupIds g)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (hd : d.step = g.current_step) :
     NodupIds (addNode g d title) := by
-  have hf : ∀ (ps : List PathNodeId) (n : PNodeM),
-      (if ps.contains n.id
-        then { n with sons := n.sons ++ [({ id := d, parent_id := g.map_parent } : PathNodeId)] }
-        else n).id = n.id := by
-    intro ps n; split <;> rfl
   have hids : NodeIds.Ids (addNode g d title)
-      = NodeIds.Ids g ++ [({ id := d, parent_id := g.map_parent } : PathNodeId)] := by
-    simp only [NodeIds.Ids, addNode, List.map_append, List.map_map, Function.comp_def]
+      = NodeIds.Ids g ++ newRowIds g d := by
+    simp only [NodeIds.Ids, addNode_nodes, List.map_append]
     congr 1
-    exact List.map_congr_left (fun n _ => hf _ n)
+    · exact map_id_of_idpres g.nodes (upMap g d) (upMap_id g d)
+    · show (newRow g d title).map (·.id) = newRowIds g d
+      simp only [newRow, List.map_map, Function.comp_def]
+      show (newRowIds g d).map (fun q => q) = newRowIds g d
+      exact List.map_id _
   show (NodeIds.Ids (addNode g d title)).Nodup
   rw [hids, List.nodup_append]
-  refine ⟨hnd, by simp, ?_⟩
+  refine ⟨hnd, nodup_newRowIds g d, ?_⟩
   intro a ha b hb hab
-  rcases List.mem_singleton.mp hb with rfl
   obtain ⟨n, hn, hnid⟩ := List.mem_map.mp ha
   have hlt := hbelow n hn
   rw [hnid] at hlt
-  rw [hab] at hlt
-  simp only at hlt
+  rw [hab, mapId_of_mem_newRowIds g d b hb, hd] at hlt
   omega
 
 theorem nodup_up (g : GPathM) (d : NodeId) (title : String) (hnd : NodupIds g)
@@ -464,17 +465,19 @@ theorem OwnSymmetric_filterRequire (g : GPathM) (req : NodeId)
     (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (filterRequire g req) :=
   fun p n q m hp hq hqn => h p n q m hp hq hqn
 
-/-- **`addNode` cannot break symmetry.** The newcomer is owned by everything
-and owns every global owner, and a node is always a global owner. -/
+/-- **Symmetry through the row.** With a single new node this was trivial in one
+direction: the new id was appended to *every* table. With the row a node gains a
+row id only when that row node owns it (`its_owners_are_owned_by_me!`), so the
+two directions are the same fact by construction — provided no old table already
+carried a fresh identifier, which is `OwnBelow`. -/
 theorem OwnSymmetric_addNode (g : GPathM) (d : NodeId) (title : String)
     (hd : d.step = g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (hng : Ownership.NodesAreGowners g)
+    (hownb : SelfOwn.OwnBelow g)
     (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (addNode g d title) := by
-  -- every node of the extension is either an old one or the newcomer
   have hcase : ∀ (p : PathNodeId) (n : PNodeM), (addNode g d title).node? p = some n →
       (∃ n₀, g.node? p = some n₀ ∧ n = upMap g d n₀) ∨
-      (p = newPid g d ∧ n.owners = g.gowners ++ [newPid g d]) := by
+      (p ∈ newRowIds g d ∧ n = rowNode g d title p) := by
     intro p n hn
     if hps : p.id.step < g.current_step then
       exact Or.inl (addNode_node?_below g d title hd p n hn hps)
@@ -485,37 +488,55 @@ theorem OwnSymmetric_addNode (g : GPathM) (d : NodeId) (title : String)
       rcases List.mem_append.mp hmem with hl | hr
       · exfalso
         obtain ⟨n₀, hn₀, hEq⟩ := List.mem_map.mp hl
-        have : n.id = n₀.id := by rw [← hEq, upMap_id]
+        have hnn : n.id = n₀.id := by rw [← hEq, upMap_id]
         have := hbelow n₀ hn₀
-        rw [← ‹n.id = n₀.id›, hid] at this
+        rw [← hnn, hid] at this
         omega
-      · rcases List.mem_singleton.mp hr with rfl
-        refine Or.inr ⟨?_, ?_⟩
-        · rw [← hid]; rfl
-        · simp only [addOwner, upNode]
-    -- end hcase
+      · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+        rw [rowNode_id] at hid
+        rw [← hid]
+        exact Or.inr ⟨hpid, rfl⟩
+  -- a row id is never already in an old table
+  have hfresh : ∀ (p : PathNodeId) (n₀ : PNodeM), g.node? p = some n₀ →
+      ∀ r ∈ newRowIds g d, r ∉ n₀.owners := by
+    intro p n₀ hn₀ r hr hmem
+    have h1 := hownb n₀ (List.mem_of_find?_eq_some hn₀) r hmem
+    rw [mapId_of_mem_newRowIds g d r hr, hd] at h1
+    omega
   intro p n q m hp hq hqn
-  rcases hcase p n hp with ⟨n₀, hn₀, rfl⟩ | ⟨rfl, hno⟩
-  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨rfl, hmo⟩
-    · rw [upMap_owners] at hqn ⊢
+  rcases hcase p n hp with ⟨n₀, hn₀, rfl⟩ | ⟨hprow, rfl⟩
+  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨hqrow, rfl⟩
+    · -- both old
+      rw [upMap_owners] at hqn ⊢
       rcases List.mem_append.mp hqn with hq0 | hq1
       · exact List.mem_append_left _ (h p n₀ q m₀ hn₀ hm₀ hq0)
       · exfalso
-        rcases List.mem_singleton.mp hq1 with rfl
-        have hmid : m₀.id = newPid g d := node?_id_eq g _ m₀ hm₀
+        have hmid : m₀.id = q := node?_id_eq g _ m₀ hm₀
         have := hbelow m₀ (List.mem_of_find?_eq_some hm₀)
-        rw [hmid] at this
-        simp only [newPid] at this
+        rw [hmid, mapId_of_mem_newRowIds g d q (gainedOwners_subset g d n₀ q hq1), hd] at this
         omega
-    · rw [hmo]
-      have := hng n₀ (List.mem_of_find?_eq_some hn₀)
-      rw [node?_id_eq g p n₀ hn₀] at this
-      exact List.mem_append_left _ this
-  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨rfl, hmo⟩
-    · rw [upMap_owners]
-      exact List.mem_append_right _ (List.mem_singleton.mpr rfl)
-    · rw [hmo]
-      exact List.mem_append_right _ (List.mem_singleton.mpr rfl)
+    · -- `p` old, `q` a row node: `p` gained `q` exactly because `q` owns `p`
+      rw [upMap_owners] at hqn
+      rw [rowNode_owners]
+      rcases List.mem_append.mp hqn with hq0 | hq1
+      · exact absurd hq0 (hfresh p n₀ hn₀ q hqrow)
+      · have := (List.mem_filter.mp hq1).2
+        rw [node?_id_eq g p n₀ hn₀] at this
+        simpa using this
+  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨hqrow, rfl⟩
+    · -- `p` a row node owning the old `q`: `q` gains it, by the same filter
+      rw [rowNode_owners] at hqn
+      rw [upMap_owners]
+      refine List.mem_append_right _ (List.mem_filter.mpr ⟨hprow, ?_⟩)
+      rw [node?_id_eq g q m₀ hm₀]
+      exact List.elem_eq_true_of_mem hqn
+    · -- both in the row: a row node's only owner at the new step is itself
+      rw [rowNode_owners] at hqn ⊢
+      rcases (mem_rowOwners_iff g d p q).mp hqn with ⟨hinh, _⟩ | rfl
+      · exfalso
+        obtain ⟨r, _, mr, hmr, hqmr⟩ := exists_owner_of_mem_unionOwnersOf g _ q hinh
+        exact hfresh r mr hmr q hqrow hqmr
+      · exact self_mem_rowOwners g d q
 
 /-- info: 'AbsSat.GraphPath.Model.Reader.OwnSymmetric_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

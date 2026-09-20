@@ -106,9 +106,8 @@ theorem ShapeOk_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [hid]
     have := h.1 m hm
     omega
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hid : (addOwner (newPid g d) (upNode g d title)).id.id = d := rfl
-    rw [hid]
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n).mp hmem
+    rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
     omega
 
 theorem ShapeOk_upFilteringWeak (g : GPathM) (ws : List (Int × List NodeId))
@@ -188,11 +187,10 @@ theorem chainSound_up_of_pruned (hwf : WF φ) (g gw : GPathM) (hpr : Pruned g gw
     if he : k = g.current_step then
       have hextend : extend (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
           (selOfAssign φ a g.current_step) sel g.current_step
-          = newPid (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-            (selOfAssign φ a g.current_step) := by
+          = extendPid (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+            (selOfAssign φ a g.current_step) sel := by
         simp only [extend, if_pos (hpf.step_eq.trans hgs).symm]
-      rw [he, hextend]
-      rfl
+      rw [he, hextend, extendPid_mapId]
     else
       rw [extend_below (filterAll gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
         (selOfAssign φ a g.current_step) sel k (by rw [hpf.step_eq, hgs]; omega)]
@@ -211,7 +209,7 @@ def SelParent (w : PathNodeId) : Prop :=
 node's parent is a selected node. -/
 theorem chainSound_up_of_prunedR (R : GPathM → GPathM) [ReviewOk R] (hwf : WF φ) (g gw : GPathM) (hpr : Pruned g gw)
     (hshape : ShapeOk g)
-    (hmp : g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j))
+    (_hmp : g.map_parent = none ∨ ∃ j, g.map_parent = some (selOfAssign φ a j))
     (sel : Int → PathNodeId) (hselw : ChainSound gw sel)
     (hids : ∀ k, 0 ≤ k → k < g.current_step →
       (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k))
@@ -253,16 +251,21 @@ theorem chainSound_up_of_prunedR (R : GPathM → GPathM) [ReviewOk R] (hwf : WF 
     if he : k = g.current_step then
       have hextend : extend (filterAllR R gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
           (selOfAssign φ a g.current_step) sel g.current_step
-          = newPid (filterAllR R gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
-            (selOfAssign φ a g.current_step) := by
+          = extendPid (filterAllR R gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
+            (selOfAssign φ a g.current_step) sel := by
         simp only [extend, if_pos (hpf.step_eq.trans hgs).symm]
       rw [he, hextend]
-      refine ⟨rfl, ?_⟩
-      show (filterAllR R gw (reqOfCnf φ (selOfAssign φ a g.current_step))).map_parent = none ∨
-        ∃ j, (filterAllR R gw (reqOfCnf φ (selOfAssign φ a g.current_step))).map_parent
-          = some (selOfAssign φ a j)
-      rw [hpf.map_parent_eq, hpr.map_parent_eq]
-      exact hmp
+      refine ⟨extendPid_mapId _ _ sel, ?_⟩
+      -- the row node the chain entered records the chain's own last pick
+      unfold extendPid
+      split
+      · rename_i hpos
+        rw [hpf.step_eq, hgs] at hpos ⊢
+        refine Or.inr ⟨g.current_step - 1, ?_⟩
+        show (some (sel (g.current_step - 1)).id : Option NodeId)
+          = some (selOfAssign φ a (g.current_step - 1))
+        rw [(hids (g.current_step - 1) (by omega) (by omega)).1]
+      · exact Or.inl rfl
     else
       rw [extend_below (filterAllR R gw (reqOfCnf φ (selOfAssign φ a g.current_step)))
         (selOfAssign φ a g.current_step) sel k (by rw [hpf.step_eq, hgs]; omega)]

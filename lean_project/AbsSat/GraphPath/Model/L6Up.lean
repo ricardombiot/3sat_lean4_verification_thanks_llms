@@ -344,10 +344,8 @@ theorem SupportedG_addNode (g : GPathM) (d : NodeId) (title : String)
     by_cases hpos : 0 < g.current_step
     · -- it has parents, and any of them carries a chain
       obtain ⟨p, hp⟩ : ∃ p, p ∈ rowParents g d q := by
-        unfold newRowIds at hq
-        rw [if_pos hpos] at hq
-        obtain ⟨r, hr', hrq⟩ := List.mem_map.mp (List.mem_eraseDups.mp hq)
-        exact ⟨r, List.mem_filter.mpr ⟨hr', beq_iff_eq.mpr hrq⟩⟩
+        obtain ⟨r, hr', hrq⟩ := exists_shift_of_mem_newRowIds g d q hpos hq
+        exact ⟨r, List.mem_filter.mpr ⟨hr', beq_iff_eq.mpr hrq.symm⟩⟩
       have hpmem : p ∈ newParents g := rowParents_subset g d q p hp
       have hpline : p ∈ (g.line (g.current_step - 1)).map (·.id) := by
         unfold newParents at hpmem; rwa [if_pos hpos] at hpmem

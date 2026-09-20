@@ -366,13 +366,60 @@ add. Empty before anything has been visited. -/
 def newParents (g : GPathM) : List PathNodeId :=
   if g.current_step > 0 then (g.line (g.current_step - 1)).map (·.id) else []
 
+/-- Deduplication, written so that both `mem` and `Nodup` are one induction.
+`List.eraseDups` would do the same job but core proves neither about it. -/
+def dedupPids : List PathNodeId → List PathNodeId
+  | [] => []
+  | a :: as => a :: (dedupPids as).filter (fun x => x != a)
+
+theorem mem_dedupPids : ∀ (l : List PathNodeId) (a : PathNodeId), a ∈ dedupPids l ↔ a ∈ l := by
+  intro l
+  induction l with
+  | nil => intro a; exact Iff.rfl
+  | cons b bs ih =>
+    intro a
+    simp only [dedupPids, List.mem_cons, List.mem_filter, ih, bne_iff_ne, ne_eq]
+    constructor
+    · rintro (rfl | ⟨h, _⟩)
+      · exact Or.inl rfl
+      · exact Or.inr h
+    · rintro (rfl | h)
+      · exact Or.inl rfl
+      · by_cases hab : a = b
+        · exact Or.inl hab
+        · exact Or.inr ⟨h, hab⟩
+
+theorem nodup_filter_aux {α : Type} (p : α → Bool) :
+    ∀ {l : List α}, l.Nodup → (l.filter p).Nodup := by
+  intro l
+  induction l with
+  | nil => intro _; exact List.nodup_nil
+  | cons b bs ih =>
+    intro h
+    obtain ⟨hb, hbs⟩ := List.nodup_cons.mp h
+    rw [List.filter_cons]
+    split
+    · exact List.nodup_cons.mpr ⟨fun hc => hb ((List.mem_filter.mp hc).1), ih hbs⟩
+    · exact ih hbs
+
+theorem nodup_dedupPids : ∀ (l : List PathNodeId), (dedupPids l).Nodup := by
+  intro l
+  induction l with
+  | nil => exact List.nodup_nil
+  | cons b bs ih =>
+    simp only [dedupPids]
+    refine List.nodup_cons.mpr ⟨?_, nodup_filter_aux _ ih⟩
+    intro hc
+    have := (List.mem_filter.mp hc).2
+    simp at this
+
 /-- **The identifiers of the row `UP` adds**: one per identifier the window shift
 gives to the last row (`group_parents_by_shifted_id`). Nodes of the last row
 that agree on *both* their map id and their parent's shift to the same
 identifier and are merged into one node with several parents. Before anything
 has been visited, the single root id. -/
 def newRowIds (g : GPathM) (d : NodeId) : List PathNodeId :=
-  if g.current_step > 0 then ((newParents g).map (fun q => shiftPid q d)).eraseDups
+  if g.current_step > 0 then dedupPids ((newParents g).map (fun q => shiftPid q d))
   else [{ id := d, parent_id := none, gparent_id := none }]
 
 /-- The nodes of the last row that shift to `pid`: exactly its parents. -/
@@ -464,7 +511,7 @@ theorem mapId_of_mem_newRowIds (g : GPathM) (d : NodeId) (pid : PathNodeId)
     (h : pid ∈ newRowIds g d) : pid.id = d := by
   unfold newRowIds at h
   split at h
-  · obtain ⟨q, _, hq⟩ := List.mem_map.mp (List.mem_eraseDups.mp h)
+  · obtain ⟨q, _, hq⟩ := List.mem_map.mp ((mem_dedupPids _ _).mp h)
     rw [← hq]; rfl
   · rcases List.mem_singleton.mp h with rfl; rfl
 
@@ -504,7 +551,7 @@ theorem exists_shift_of_mem_newRowIds (g : GPathM) (d : NodeId) (pid : PathNodeI
     ∃ q ∈ newParents g, pid = shiftPid q d := by
   unfold newRowIds at h
   rw [if_pos hpos] at h
-  obtain ⟨q, hq, hqp⟩ := List.mem_map.mp (List.mem_eraseDups.mp h)
+  obtain ⟨q, hq, hqp⟩ := List.mem_map.mp ((mem_dedupPids _ pid).mp h)
   exact ⟨q, hq, hqp.symm⟩
 
 /-- A row identifier above step 0 is never a root. -/
@@ -513,6 +560,13 @@ theorem parent_id_ne_none_of_mem_newRowIds (g : GPathM) (d : NodeId) (pid : Path
   obtain ⟨q, _, rfl⟩ := exists_shift_of_mem_newRowIds g d pid hpos h
   show (some q.id : Option NodeId) ≠ none
   simp
+
+/-- **The row has no repeated identifier.** -/
+theorem nodup_newRowIds (g : GPathM) (d : NodeId) : (newRowIds g d).Nodup := by
+  unfold newRowIds
+  split
+  · exact nodup_dedupPids _
+  · exact List.nodup_cons.mpr ⟨List.not_mem_nil, List.nodup_nil⟩
 
 /-- The seed row is a single root. -/
 theorem newRowIds_of_zero (g : GPathM) (d : NodeId) (hz : ¬ 0 < g.current_step) :
@@ -540,7 +594,7 @@ theorem mem_newRowIds_of_mem_newParents (g : GPathM) (d : NodeId) (q : PathNodeI
     (hpos : 0 < g.current_step) (h : q ∈ newParents g) : shiftPid q d ∈ newRowIds g d := by
   unfold newRowIds
   rw [if_pos hpos]
-  exact List.mem_eraseDups.mpr (List.mem_map_of_mem h)
+  exact (mem_dedupPids _ _).mpr (List.mem_map_of_mem h)
 
 /-- And it is then one of the parents of the node it shifts to. -/
 theorem mem_rowParents_of_mem_newParents (g : GPathM) (d : NodeId) (q : PathNodeId)

@@ -61,8 +61,8 @@ theorem TL_addNode (g : GPathM) (d : NodeId) (title : String)
     have hc : (addNode g d title).current_step = g.current_step + 1 := rfl
     rw [hc] at hstep
     omega
-  · rcases List.mem_singleton.mp hmem with rfl
-    show some d = some d
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
     rfl
 
 theorem TL_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
@@ -114,13 +114,19 @@ nodes merged into one row node agree on it.
 Note it needs no `m ∈ h.nodes` side condition: `p` is a `PathNodeId` and
 carries its own `parent_id`. -/
 def GPMP (h : GPathM) : Prop :=
-  ∀ n ∈ h.nodes, ∀ p ∈ n.parents, n.id.gparent_id = p.parent_id
+  (∀ n ∈ h.nodes, ∀ p ∈ n.parents, n.id.gparent_id = p.parent_id) ∧
+  (∀ n ∈ h.nodes, n.id.parent_id = none → n.id.gparent_id = none)
 
 theorem GPMP_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : GPMP g) : GPMP g' := by
-  intro n' hn' p hp
-  obtain ⟨n, hn, hid, _, hpar⟩ := hpr.nodes_derived n' hn'
-  rw [hid]
-  exact h n hn p (hpar p hp)
+  refine ⟨?_, ?_⟩
+  · intro n' hn' p hp
+    obtain ⟨n, hn, hid, _, hpar⟩ := hpr.nodes_derived n' hn'
+    rw [hid]
+    exact h.1 n hn p (hpar p hp)
+  · intro n' hn' hr
+    obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'
+    rw [hid] at hr ⊢
+    exact h.2 n hn hr
 
 theorem PMP_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : PMP g) : PMP g' := by
   intro n' hn' p hp
@@ -128,8 +134,13 @@ theorem PMP_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : PMP g) : PMP g' :
   rw [hid]
   exact h n hn p (hpar p hp)
 
+/-- **`PMP` survives the row, and for free.** With a single new node this needed
+`TL` — that the whole top line carried `map_parent`. With the row it is immediate:
+the parents of a row node are precisely the last-row nodes that *shift* to its
+identifier, and the shift writes their map id into `parent_id`. The `TL`
+hypothesis is kept only so callers do not have to change. -/
 theorem PMP_addNode (g : GPathM) (d : NodeId) (title : String)
-    (htl : TL g) (h : PMP g) : PMP (addNode g d title) := by
+    (_htl : TL g) (h : PMP g) : PMP (addNode g d title) := by
   intro n' hn' p hp
   rw [addNode_nodes] at hn'
   rcases List.mem_append.mp hn' with hmem | hmem
@@ -137,16 +148,87 @@ theorem PMP_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [← hEq, upMap_parents] at hp
     rw [← hEq, upMap_id]
     exact h n hn p hp
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hpar : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-    rw [hpar] at hp
-    show some p.id = g.map_parent
-    unfold newParents at hp
-    split at hp
-    · obtain ⟨m, hm, hmid⟩ := Parents.mem_nodes_of_mem_line g (g.current_step - 1) p hp
-      rw [← hmid]
-      exact htl m hm (by rw [hmid]; exact Parents.mem_line_step g (g.current_step - 1) p hp)
-    · exact absurd hp List.not_mem_nil
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_parents] at hp
+    rw [rowNode_id, ← shiftPid_of_mem_rowParents g d pid p hp]
+    rfl
+
+/-- **`GPMP` holds by construction of the row.** `shiftPid` copies the parent's
+own `parent_id` into the new identifier's `gparent_id`, and a row node's parents
+are exactly the last-row nodes that shift to it — so they all agree on it. This
+is the level of history the window buys, and it costs one line. -/
+theorem GPMP_addNode (g : GPathM) (d : NodeId) (title : String)
+    (h : GPMP g) : GPMP (addNode g d title) := by
+  refine ⟨?_, ?_⟩
+  · intro n' hn' p hp
+    rw [addNode_nodes] at hn'
+    rcases List.mem_append.mp hn' with hmem | hmem
+    · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+      rw [← hEq, upMap_parents] at hp
+      rw [← hEq, upMap_id]
+      exact h.1 n hn p hp
+    · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+      rw [rowNode_parents] at hp
+      rw [rowNode_id, ← shiftPid_of_mem_rowParents g d pid p hp]
+      rfl
+  · intro n' hn' hr
+    rw [addNode_nodes] at hn'
+    rcases List.mem_append.mp hn' with hmem | hmem
+    · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+      rw [← hEq, upMap_id] at hr ⊢
+      exact h.2 n hn hr
+    · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+      rw [rowNode_id] at hr ⊢
+      by_cases hpos : 0 < g.current_step
+      · exact absurd hr (parent_id_ne_none_of_mem_newRowIds g d pid hpos hpid)
+      · rw [newRowIds_of_zero g d hpos] at hpid
+        rcases List.mem_singleton.mp hpid with rfl
+        rfl
+
+theorem GPMP_join (g₁ g₂ : GPathM) (h₁ : GPMP g₁) (h₂ : GPMP g₂) : GPMP (join g₁ g₂) := by
+  have hroot : ∀ n' ∈ (join g₁ g₂).nodes, n'.id.parent_id = none → n'.id.gparent_id = none := by
+    intro n' hn' hr
+    rw [GownersNodes.join_nodes] at hn'
+    rcases List.mem_append.mp hn' with hmem | hmem
+    · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+      cases hg : g₂.node? n.id with
+      | none => rw [← hEq, hg] at hr ⊢; exact h₁.2 n hn hr
+      | some m =>
+        rw [← hEq, hg] at hr ⊢
+        exact h₁.2 n hn hr
+    · exact h₂.2 n' (List.mem_filter.mp hmem).1 hr
+  refine ⟨?_, hroot⟩
+  intro n' hn' p hp
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    cases hg : g₂.node? n.id with
+    | none =>
+      rw [← hEq, hg] at hp ⊢
+      exact h₁.1 n hn p hp
+    | some m =>
+      have hmid : m.id = n.id := node?_id_eq g₂ n.id m hg
+      have hpar : (mergeNode n m).parents =
+          n.parents ++ m.parents.filter (fun r => !n.parents.contains r) := rfl
+      rw [← hEq, hg] at hp ⊢
+      rw [hpar, List.mem_append] at hp
+      show (mergeNode n m).id.gparent_id = p.parent_id
+      rcases hp with hp | hp
+      · exact h₁.1 n hn p hp
+      · have := h₂.1 m (List.mem_of_find?_eq_some hg) p (List.mem_filter.mp hp).1
+        rw [hmid] at this; exact this
+  · exact h₂.1 n' (List.mem_filter.mp hmem).1 p hp
+
+theorem GPMP_initSeed (d : NodeId) (title : String) : GPMP (GPathM.initSeed d title) := by
+  refine ⟨?_, ?_⟩
+  · intro n hn p hp
+    rw [initSeed_nodes] at hn
+    rcases List.mem_singleton.mp hn with rfl
+    exact absurd hp List.not_mem_nil
+  · intro n hn _
+    rw [initSeed_nodes] at hn
+    rcases List.mem_singleton.mp hn with rfl
+    rfl
 
 theorem PMP_join (g₁ g₂ : GPathM) (h₁ : PMP g₁) (h₂ : PMP g₂) : PMP (join g₁ g₂) := by
   intro n' hn' p hp
@@ -208,6 +290,26 @@ theorem PMP_reachable (g : GPathM) (h : Reachable reqOf g) : PMP g := by
     · exact PMP_of_pruned hpr ih
   | join g₁ g₂ _ _ _ ih₁ ih₂ => exact PMP_join g₁ g₂ ih₁ ih₂
 
+theorem GPMP_reachable (g : GPathM) (h : Reachable reqOf g) : GPMP g := by
+  induction h with
+  | seed d title _ _ => exact GPMP_initSeed d title
+  | up g d title _ _ _ _ ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    show GPMP (up (filterAll g (reqOf d)) d title)
+    simp only [GPathM.up]
+    split
+    · exact GPMP_addNode _ d title (GPMP_of_pruned hpr ih)
+    · exact GPMP_of_pruned hpr ih
+  | join g₁ g₂ _ _ _ ih₁ ih₂ => exact GPMP_join g₁ g₂ ih₁ ih₂
+
+theorem GPMP_filterAll (g : GPathM) (reqs : List NodeId) (h : Reachable reqOf g) :
+    GPMP (filterAll g reqs) :=
+  GPMP_of_pruned (pruned_filterAll g reqs) (GPMP_reachable reqOf g h)
+
+/-- info: 'AbsSat.GraphPath.Model.ParentId.GPMP_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms GPMP_reachable
+
 theorem PMP_filterAll (g : GPathM) (reqs : List NodeId) (h : Reachable reqOf g) :
     PMP (filterAll g reqs) :=
   PMP_of_pruned (pruned_filterAll g reqs) (PMP_reachable reqOf g h)
@@ -244,7 +346,7 @@ theorem gparentId_coherent (h : GPathM) (hgpmp : GPMP h) (sel : Int → PathNode
   | some n =>
     rw [hn] at hlink
     have hnid : n.id = sel (k + 1) := node?_id_eq h _ n hn
-    have := hgpmp n (List.mem_of_find?_eq_some hn) (sel k) hlink
+    have := hgpmp.1 n (List.mem_of_find?_eq_some hn) (sel k) hlink
     rw [hnid] at this
     exact this
 

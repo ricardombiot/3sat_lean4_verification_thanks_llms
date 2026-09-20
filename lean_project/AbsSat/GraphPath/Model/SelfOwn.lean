@@ -292,6 +292,90 @@ theorem OOS_initSeed (d : NodeId) (title : String) : OOS (GPathM.initSeed d titl
   rcases List.mem_singleton.mp hn with rfl
   exact List.mem_singleton.mp hq
 
+-- ============================================================
+-- `OwnBelow` — owner entries live below the current step
+-- ============================================================
+
+/-- **Every owner entry sits strictly below `current_step`.** Trivial while the
+`UP` handed the new node `gowners` wholesale; with the row it is what rules out
+an *old* node's table already containing a fresh row identifier, which is the
+hypothesis `Reader.OwnSymmetric_addNode` needs to place the symmetric entry. -/
+def OwnBelow (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ q ∈ n.owners, q.id.step < h.current_step
+
+theorem OwnBelow_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : OwnBelow g) :
+    OwnBelow g' := by
+  intro n' hn' q hq
+  obtain ⟨n, hn, _, hown, _⟩ := hpr.nodes_derived n' hn'
+  rw [hpr.step_eq]
+  exact h n hn q (hown q hq)
+
+theorem OwnBelow_filterRequire (g : GPathM) (req : NodeId) (h : OwnBelow g) :
+    OwnBelow (filterRequire g req) := h
+
+theorem OwnBelow_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (h : OwnBelow g) : OwnBelow (addNode g d title) := by
+  intro n' hn' q hq
+  rw [addNode_current]
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_owners] at hq
+    rcases List.mem_append.mp hq with hq | hq
+    · have := h n hn q hq; omega
+    · rw [mapId_of_mem_newRowIds g d q (gainedOwners_subset g d n q hq), hd]; omega
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_owners] at hq
+    rcases (mem_rowOwners_iff g d pid q).mp hq with ⟨hinh, _⟩ | rfl
+    · obtain ⟨p, _, mp, hmp, hqmp⟩ := exists_owner_of_mem_unionOwnersOf g _ q hinh
+      have := h mp (List.mem_of_find?_eq_some hmp) q hqmp
+      omega
+    · rw [mapId_of_mem_newRowIds g d q hpid, hd]; omega
+
+theorem OwnBelow_up (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (h : OwnBelow g) : OwnBelow (up g d title) := by
+  simp only [GPathM.up]
+  split
+  · exact OwnBelow_addNode g d title hd h
+  · exact h
+
+theorem OwnBelow_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : OwnBelow g₁) (h₂ : OwnBelow g₂) : OwnBelow (join g₁ g₂) := by
+  have hstepeq : g₁.current_step = g₂.current_step :=
+    eq_of_beq ((Bool.and_eq_true _ _).mp ((Bool.and_eq_true _ _).mp
+      ((Bool.and_eq_true _ _).mp hok).1).1).1
+  intro n' hn' q hq
+  show q.id.step < g₁.current_step
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    cases hg : g₂.node? n.id with
+    | none => rw [← hEq, hg] at hq; exact h₁ n hn q hq
+    | some m =>
+      rw [← hEq, hg] at hq
+      have hown : (mergeNode n m).owners =
+          n.owners ++ m.owners.filter (fun r => !n.owners.contains r) := rfl
+      rw [hown, List.mem_append] at hq
+      rcases hq with hq | hq
+      · exact h₁ n hn q hq
+      · rw [hstepeq]
+        exact h₂ m (List.mem_of_find?_eq_some hg) q (List.mem_filter.mp hq).1
+  · rw [hstepeq]
+    exact h₂ n' (List.mem_filter.mp hmem).1 q hq
+
+theorem OwnBelow_empty : OwnBelow empty := by
+  intro n hn; exact absurd hn List.not_mem_nil
+
+theorem OwnBelow_initSeed (d : NodeId) (title : String) (hstep : d.step = 0) :
+    OwnBelow (GPathM.initSeed d title) := by
+  intro n hn q hq
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  rcases List.mem_singleton.mp hq with rfl
+  rw [initSeed_current]
+  show d.step < 1
+  omega
+
 theorem OOS_reachable (g : GPathM) (h : Reachable reqOf g) : OOS g := by
   induction h with
   | seed d title _ _ => exact OOS_initSeed d title
