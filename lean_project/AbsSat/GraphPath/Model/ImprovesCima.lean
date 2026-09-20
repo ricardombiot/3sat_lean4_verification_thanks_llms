@@ -1511,6 +1511,32 @@ theorem pinned_source_validCima (sides : List GPathM) (hwf : WF φ) (k : Int) (k
   exact SupportSplit.valid_of_sup _ _ _
     (AOk_filterAllCima sides G hA _ hpin (carriedR_of_side sides G t ht hSt hR)).sup z hz
 
+/-- **What the descent still asks for, named.** The support the descent hands down — the part of the
+pinned send below its top — must be carried by **one** side of the source, with its top alive in it.
+
+This is the same shape as the property the rule already forces at a union, one line below: there, the
+top names the side and the family is computed, so it holds by construction (`topValid_cima`). Here the
+support comes down from above and the side has to be found. Per entry it is granted (the state passed
+the rule, so every live entry has a good top); what is asked is one single side for the whole support,
+which is the step the review cannot take pair by pair. -/
+def SideSupportAt (sides : List GPathM) (k : Int) (G : GPathM) (d : NodeId) (Q : List NodeId) :
+    Prop :=
+  ∃ t, t.id.step = G.current_step - 1 ∧
+    (EmbeddedSupport.Mem (AggressiveReview.filterAllAgg (sent φ G d) Q) t ∧ t.id.step < k + 1) ∧
+    ∀ x v, (Rel (AggressiveReview.filterAllAgg (sent φ G d) Q) x v ∧ x.id.step < k + 1 ∧
+      v.id.step < k + 1) → restTest sides t G x v = true
+
+/-- **The descent with the rule, under that property alone.** -/
+theorem pinned_source_valid_of_sideSupport (sides : List GPathM) (hwf : WF φ) (k : Int)
+    (key : NodeId) (G : GPathM) (hsG : ConservationFilter.StateOkF φ k (key, G)) (hmG : MInv φ G)
+    (d : NodeId) (hd : d ∈ mapSons φ key.step key.index) (hval : isValid (sent φ G d) = true)
+    (Q : List NodeId) (hvY : isValid (AggressiveReview.filterAllAgg (sent φ G d) Q) = true)
+    (hS : SideSupportAt φ sides k G d Q) :
+    isValid (filterAllCima sides G
+      ((reqOfCnf φ d ++ Q).filter (fun q => decide (q.step < k + 1)))) = true := by
+  obtain ⟨t, ht, hSt, hR⟩ := hS
+  exact pinned_source_validCima φ sides hwf k key G hsG hmG d hd hval Q hvY t ht hSt hR
+
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
 state of the machine's own kind whose entries are entries of that one side. What remains is to read the
