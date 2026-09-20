@@ -1,0 +1,287 @@
+digraph G {
+     compound=true 
+subgraph cluster_line_0 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k0_0__root [label=<1=0<BR /> ID: k0.0__root <BR />>]k0_1__root [label=<1=1<BR /> ID: k0.1__root <BR />>]
+     fontsize="12" 
+     label = "Line 0 " 
+ }
+subgraph cluster_line_1 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k1_0__k0_1 [label=<!1=0<BR /> ID: k1.0__k0.1 <BR />>]k1_1__k0_0 [label=<!1=1<BR /> ID: k1.1__k0.0 <BR />>]
+     fontsize="12" 
+     label = "Line 1 " 
+ }
+subgraph cluster_line_2 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k2_0__k1_0 [label=<2=0<BR /> ID: k2.0__k1.0 <BR />>]k2_1__k1_0 [label=<2=1<BR /> ID: k2.1__k1.0 <BR />>]k2_1__k1_1 [label=<2=1<BR /> ID: k2.1__k1.1 <BR />>]k2_0__k1_1 [label=<2=0<BR /> ID: k2.0__k1.1 <BR />>]
+     fontsize="12" 
+     label = "Line 2 " 
+ }
+subgraph cluster_line_3 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k3_1__k2_0 [label=<!2=1<BR /> ID: k3.1__k2.0 <BR />>]k3_0__k2_1 [label=<!2=0<BR /> ID: k3.0__k2.1 <BR />>]
+     fontsize="12" 
+     label = "Line 3 " 
+ }
+subgraph cluster_line_4 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k4_0__k3_0 [label=<3=0<BR /> ID: k4.0__k3.0 <BR />>]k4_1__k3_0 [label=<3=1<BR /> ID: k4.1__k3.0 <BR />>]k4_1__k3_1 [label=<3=1<BR /> ID: k4.1__k3.1 <BR />>]k4_0__k3_1 [label=<3=0<BR /> ID: k4.0__k3.1 <BR />>]
+     fontsize="12" 
+     label = "Line 4 " 
+ }
+subgraph cluster_line_5 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k5_1__k4_0 [label=<!3=1<BR /> ID: k5.1__k4.0 <BR />>]k5_0__k4_1 [label=<!3=0<BR /> ID: k5.0__k4.1 <BR />>]
+     fontsize="12" 
+     label = "Line 5 " 
+ }
+subgraph cluster_line_6 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k6_0__k5_1 [label=<4=0<BR /> ID: k6.0__k5.1 <BR />>]k6_1__k5_1 [label=<4=1<BR /> ID: k6.1__k5.1 <BR />>]k6_1__k5_0 [label=<4=1<BR /> ID: k6.1__k5.0 <BR />>]k6_0__k5_0 [label=<4=0<BR /> ID: k6.0__k5.0 <BR />>]
+     fontsize="12" 
+     label = "Line 6 " 
+ }
+subgraph cluster_line_7 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k7_0__k6_1 [label=<!4=0<BR /> ID: k7.0__k6.1 <BR />>]k7_1__k6_0 [label=<!4=1<BR /> ID: k7.1__k6.0 <BR />>]
+     fontsize="12" 
+     label = "Line 7 " 
+ }
+subgraph cluster_line_8 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k8_0__k7_1 [label=<5=0<BR /> ID: k8.0__k7.1 <BR />>]k8_1__k7_0 [label=<5=1<BR /> ID: k8.1__k7.0 <BR />>]k8_0__k7_0 [label=<5=0<BR /> ID: k8.0__k7.0 <BR />>]k8_1__k7_1 [label=<5=1<BR /> ID: k8.1__k7.1 <BR />>]
+     fontsize="12" 
+     label = "Line 8 " 
+ }
+subgraph cluster_line_9 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k9_1__k8_0 [label=<!5=1<BR /> ID: k9.1__k8.0 <BR />>]k9_0__k8_1 [label=<!5=0<BR /> ID: k9.0__k8.1 <BR />>]
+     fontsize="12" 
+     label = "Line 9 " 
+ }
+subgraph cluster_line_10 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k10_1__k9_1 [label=<6=1<BR /> ID: k10.1__k9.1 <BR />>]k10_1__k9_0 [label=<6=1<BR /> ID: k10.1__k9.0 <BR />>]k10_0__k9_0 [label=<6=0<BR /> ID: k10.0__k9.0 <BR />>]k10_0__k9_1 [label=<6=0<BR /> ID: k10.0__k9.1 <BR />>]
+     fontsize="12" 
+     label = "Line 10 " 
+ }
+subgraph cluster_line_11 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k11_1__k10_0 [label=<!6=1<BR /> ID: k11.1__k10.0 <BR />>]k11_0__k10_1 [label=<!6=0<BR /> ID: k11.0__k10.1 <BR />>]
+     fontsize="12" 
+     label = "Line 11 " 
+ }
+subgraph cluster_line_12 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k12_0__k11_0 [label=<FusionNode<BR /> ID: k12.0__k11.0 <BR />>]k12_0__k11_1 [label=<FusionNode<BR /> ID: k12.0__k11.1 <BR />>]
+     fontsize="12" 
+     label = "Line 12 " 
+ }
+subgraph cluster_line_13 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k13_6__k12_0 [label=<or0=110<BR /> ID: k13.6__k12.0 <BR />>]k13_3__k12_0 [label=<or0=011<BR /> ID: k13.3__k12.0 <BR />>]k13_4__k12_0 [label=<or0=100<BR /> ID: k13.4__k12.0 <BR />>]k13_5__k12_0 [label=<or0=101<BR /> ID: k13.5__k12.0 <BR />>]k13_2__k12_0 [label=<or0=010<BR /> ID: k13.2__k12.0 <BR />>]k13_7__k12_0 [label=<or0=111<BR /> ID: k13.7__k12.0 <BR />>]k13_1__k12_0 [label=<or0=001<BR /> ID: k13.1__k12.0 <BR />>]
+     fontsize="12" 
+     label = "Line 13 " 
+ }
+subgraph cluster_line_14 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k14_4__k13_5 [label=<or1=100<BR /> ID: k14.4__k13.5 <BR />>]k14_5__k13_5 [label=<or1=101<BR /> ID: k14.5__k13.5 <BR />>]k14_1__k13_1 [label=<or1=001<BR /> ID: k14.1__k13.1 <BR />>]k14_3__k13_1 [label=<or1=011<BR /> ID: k14.3__k13.1 <BR />>]k14_2__k13_7 [label=<or1=010<BR /> ID: k14.2__k13.7 <BR />>]k14_1__k13_7 [label=<or1=001<BR /> ID: k14.1__k13.7 <BR />>]k14_2__k13_4 [label=<or1=010<BR /> ID: k14.2__k13.4 <BR />>]k14_6__k13_5 [label=<or1=110<BR /> ID: k14.6__k13.5 <BR />>]k14_7__k13_5 [label=<or1=111<BR /> ID: k14.7__k13.5 <BR />>]k14_3__k13_3 [label=<or1=011<BR /> ID: k14.3__k13.3 <BR />>]k14_2__k13_1 [label=<or1=010<BR /> ID: k14.2__k13.1 <BR />>]k14_7__k13_1 [label=<or1=111<BR /> ID: k14.7__k13.1 <BR />>]k14_2__k13_6 [label=<or1=010<BR /> ID: k14.2__k13.6 <BR />>]k14_6__k13_7 [label=<or1=110<BR /> ID: k14.6__k13.7 <BR />>]k14_7__k13_2 [label=<or1=111<BR /> ID: k14.7__k13.2 <BR />>]k14_2__k13_2 [label=<or1=010<BR /> ID: k14.2__k13.2 <BR />>]k14_3__k13_2 [label=<or1=011<BR /> ID: k14.3__k13.2 <BR />>]k14_3__k13_6 [label=<or1=011<BR /> ID: k14.3__k13.6 <BR />>]k14_6__k13_3 [label=<or1=110<BR /> ID: k14.6__k13.3 <BR />>]k14_5__k13_6 [label=<or1=101<BR /> ID: k14.5__k13.6 <BR />>]k14_5__k13_2 [label=<or1=101<BR /> ID: k14.5__k13.2 <BR />>]k14_1__k13_4 [label=<or1=001<BR /> ID: k14.1__k13.4 <BR />>]k14_6__k13_6 [label=<or1=110<BR /> ID: k14.6__k13.6 <BR />>]k14_7__k13_3 [label=<or1=111<BR /> ID: k14.7__k13.3 <BR />>]k14_6__k13_2 [label=<or1=110<BR /> ID: k14.6__k13.2 <BR />>]k14_1__k13_3 [label=<or1=001<BR /> ID: k14.1__k13.3 <BR />>]k14_7__k13_6 [label=<or1=111<BR /> ID: k14.7__k13.6 <BR />>]k14_2__k13_5 [label=<or1=010<BR /> ID: k14.2__k13.5 <BR />>]k14_7__k13_4 [label=<or1=111<BR /> ID: k14.7__k13.4 <BR />>]k14_4__k13_1 [label=<or1=100<BR /> ID: k14.4__k13.1 <BR />>]k14_4__k13_2 [label=<or1=100<BR /> ID: k14.4__k13.2 <BR />>]k14_6__k13_1 [label=<or1=110<BR /> ID: k14.6__k13.1 <BR />>]k14_4__k13_3 [label=<or1=100<BR /> ID: k14.4__k13.3 <BR />>]k14_3__k13_5 [label=<or1=011<BR /> ID: k14.3__k13.5 <BR />>]k14_3__k13_7 [label=<or1=011<BR /> ID: k14.3__k13.7 <BR />>]k14_5__k13_3 [label=<or1=101<BR /> ID: k14.5__k13.3 <BR />>]k14_5__k13_1 [label=<or1=101<BR /> ID: k14.5__k13.1 <BR />>]k14_4__k13_7 [label=<or1=100<BR /> ID: k14.4__k13.7 <BR />>]k14_1__k13_5 [label=<or1=001<BR /> ID: k14.1__k13.5 <BR />>]k14_3__k13_4 [label=<or1=011<BR /> ID: k14.3__k13.4 <BR />>]k14_7__k13_7 [label=<or1=111<BR /> ID: k14.7__k13.7 <BR />>]k14_6__k13_4 [label=<or1=110<BR /> ID: k14.6__k13.4 <BR />>]k14_5__k13_7 [label=<or1=101<BR /> ID: k14.5__k13.7 <BR />>]k14_1__k13_6 [label=<or1=001<BR /> ID: k14.1__k13.6 <BR />>]k14_5__k13_4 [label=<or1=101<BR /> ID: k14.5__k13.4 <BR />>]k14_4__k13_4 [label=<or1=100<BR /> ID: k14.4__k13.4 <BR />>]k14_2__k13_3 [label=<or1=010<BR /> ID: k14.2__k13.3 <BR />>]k14_4__k13_6 [label=<or1=100<BR /> ID: k14.4__k13.6 <BR />>]k14_1__k13_2 [label=<or1=001<BR /> ID: k14.1__k13.2 <BR />>]
+     fontsize="12" 
+     label = "Line 14 " 
+ }
+subgraph cluster_line_15 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k15_0__k14_3 [label=<FusionNode<BR /> ID: k15.0__k14.3 <BR />>]k15_0__k14_5 [label=<FusionNode<BR /> ID: k15.0__k14.5 <BR />>]k15_0__k14_1 [label=<FusionNode<BR /> ID: k15.0__k14.1 <BR />>]k15_0__k14_7 [label=<FusionNode<BR /> ID: k15.0__k14.7 <BR />>]k15_0__k14_4 [label=<FusionNode<BR /> ID: k15.0__k14.4 <BR />>]k15_0__k14_2 [label=<FusionNode<BR /> ID: k15.0__k14.2 <BR />>]k15_0__k14_6 [label=<FusionNode<BR /> ID: k15.0__k14.6 <BR />>]
+     fontsize="12" 
+     label = "Line 15 " 
+ }
+k0_0__root -> k1_1__k0_0 
+k0_1__root -> k1_0__k0_1 
+k1_0__k0_1 -> k2_0__k1_0 
+k1_0__k0_1 -> k2_1__k1_0 
+k1_1__k0_0 -> k2_1__k1_1 
+k1_1__k0_0 -> k2_0__k1_1 
+k2_0__k1_0 -> k3_1__k2_0 
+k2_1__k1_0 -> k3_0__k2_1 
+k2_1__k1_1 -> k3_0__k2_1 
+k2_0__k1_1 -> k3_1__k2_0 
+k3_1__k2_0 -> k4_1__k3_1 
+k3_1__k2_0 -> k4_0__k3_1 
+k3_0__k2_1 -> k4_0__k3_0 
+k3_0__k2_1 -> k4_1__k3_0 
+k4_0__k3_0 -> k5_1__k4_0 
+k4_1__k3_0 -> k5_0__k4_1 
+k4_1__k3_1 -> k5_0__k4_1 
+k4_0__k3_1 -> k5_1__k4_0 
+k5_1__k4_0 -> k6_0__k5_1 
+k5_1__k4_0 -> k6_1__k5_1 
+k5_0__k4_1 -> k6_1__k5_0 
+k5_0__k4_1 -> k6_0__k5_0 
+k6_0__k5_1 -> k7_1__k6_0 
+k6_1__k5_1 -> k7_0__k6_1 
+k6_1__k5_0 -> k7_0__k6_1 
+k6_0__k5_0 -> k7_1__k6_0 
+k7_0__k6_1 -> k8_1__k7_0 
+k7_0__k6_1 -> k8_0__k7_0 
+k7_1__k6_0 -> k8_0__k7_1 
+k7_1__k6_0 -> k8_1__k7_1 
+k8_0__k7_1 -> k9_1__k8_0 
+k8_1__k7_0 -> k9_0__k8_1 
+k8_0__k7_0 -> k9_1__k8_0 
+k8_1__k7_1 -> k9_0__k8_1 
+k9_1__k8_0 -> k10_1__k9_1 
+k9_1__k8_0 -> k10_0__k9_1 
+k9_0__k8_1 -> k10_1__k9_0 
+k9_0__k8_1 -> k10_0__k9_0 
+k10_1__k9_1 -> k11_0__k10_1 
+k10_1__k9_0 -> k11_0__k10_1 
+k10_0__k9_0 -> k11_1__k10_0 
+k10_0__k9_1 -> k11_1__k10_0 
+k11_1__k10_0 -> k12_0__k11_1 
+k11_0__k10_1 -> k12_0__k11_0 
+k12_0__k11_0 -> k13_6__k12_0 
+k12_0__k11_0 -> k13_3__k12_0 
+k12_0__k11_0 -> k13_4__k12_0 
+k12_0__k11_0 -> k13_5__k12_0 
+k12_0__k11_0 -> k13_2__k12_0 
+k12_0__k11_0 -> k13_7__k12_0 
+k12_0__k11_0 -> k13_1__k12_0 
+k12_0__k11_1 -> k13_6__k12_0 
+k12_0__k11_1 -> k13_3__k12_0 
+k12_0__k11_1 -> k13_4__k12_0 
+k12_0__k11_1 -> k13_5__k12_0 
+k12_0__k11_1 -> k13_2__k12_0 
+k12_0__k11_1 -> k13_7__k12_0 
+k12_0__k11_1 -> k13_1__k12_0 
+k13_6__k12_0 -> k14_4__k13_6 
+k13_6__k12_0 -> k14_7__k13_6 
+k13_6__k12_0 -> k14_2__k13_6 
+k13_6__k12_0 -> k14_3__k13_6 
+k13_6__k12_0 -> k14_1__k13_6 
+k13_6__k12_0 -> k14_5__k13_6 
+k13_6__k12_0 -> k14_6__k13_6 
+k13_3__k12_0 -> k14_2__k13_3 
+k13_3__k12_0 -> k14_6__k13_3 
+k13_3__k12_0 -> k14_3__k13_3 
+k13_3__k12_0 -> k14_1__k13_3 
+k13_3__k12_0 -> k14_5__k13_3 
+k13_3__k12_0 -> k14_4__k13_3 
+k13_3__k12_0 -> k14_7__k13_3 
+k13_4__k12_0 -> k14_6__k13_4 
+k13_4__k12_0 -> k14_7__k13_4 
+k13_4__k12_0 -> k14_4__k13_4 
+k13_4__k12_0 -> k14_1__k13_4 
+k13_4__k12_0 -> k14_5__k13_4 
+k13_4__k12_0 -> k14_3__k13_4 
+k13_4__k12_0 -> k14_2__k13_4 
+k13_5__k12_0 -> k14_6__k13_5 
+k13_5__k12_0 -> k14_3__k13_5 
+k13_5__k12_0 -> k14_2__k13_5 
+k13_5__k12_0 -> k14_4__k13_5 
+k13_5__k12_0 -> k14_5__k13_5 
+k13_5__k12_0 -> k14_7__k13_5 
+k13_5__k12_0 -> k14_1__k13_5 
+k13_2__k12_0 -> k14_6__k13_2 
+k13_2__k12_0 -> k14_1__k13_2 
+k13_2__k12_0 -> k14_7__k13_2 
+k13_2__k12_0 -> k14_2__k13_2 
+k13_2__k12_0 -> k14_3__k13_2 
+k13_2__k12_0 -> k14_5__k13_2 
+k13_2__k12_0 -> k14_4__k13_2 
+k13_7__k12_0 -> k14_1__k13_7 
+k13_7__k12_0 -> k14_4__k13_7 
+k13_7__k12_0 -> k14_5__k13_7 
+k13_7__k12_0 -> k14_3__k13_7 
+k13_7__k12_0 -> k14_6__k13_7 
+k13_7__k12_0 -> k14_2__k13_7 
+k13_7__k12_0 -> k14_7__k13_7 
+k13_1__k12_0 -> k14_6__k13_1 
+k13_1__k12_0 -> k14_3__k13_1 
+k13_1__k12_0 -> k14_1__k13_1 
+k13_1__k12_0 -> k14_7__k13_1 
+k13_1__k12_0 -> k14_4__k13_1 
+k13_1__k12_0 -> k14_5__k13_1 
+k13_1__k12_0 -> k14_2__k13_1 
+k14_4__k13_5 -> k15_0__k14_4 
+k14_5__k13_5 -> k15_0__k14_5 
+k14_1__k13_1 -> k15_0__k14_1 
+k14_3__k13_1 -> k15_0__k14_3 
+k14_2__k13_7 -> k15_0__k14_2 
+k14_1__k13_7 -> k15_0__k14_1 
+k14_2__k13_4 -> k15_0__k14_2 
+k14_6__k13_5 -> k15_0__k14_6 
+k14_7__k13_5 -> k15_0__k14_7 
+k14_3__k13_3 -> k15_0__k14_3 
+k14_2__k13_1 -> k15_0__k14_2 
+k14_7__k13_1 -> k15_0__k14_7 
+k14_2__k13_6 -> k15_0__k14_2 
+k14_6__k13_7 -> k15_0__k14_6 
+k14_7__k13_2 -> k15_0__k14_7 
+k14_2__k13_2 -> k15_0__k14_2 
+k14_3__k13_2 -> k15_0__k14_3 
+k14_3__k13_6 -> k15_0__k14_3 
+k14_6__k13_3 -> k15_0__k14_6 
+k14_5__k13_6 -> k15_0__k14_5 
+k14_5__k13_2 -> k15_0__k14_5 
+k14_1__k13_4 -> k15_0__k14_1 
+k14_6__k13_6 -> k15_0__k14_6 
+k14_7__k13_3 -> k15_0__k14_7 
+k14_6__k13_2 -> k15_0__k14_6 
+k14_1__k13_3 -> k15_0__k14_1 
+k14_7__k13_6 -> k15_0__k14_7 
+k14_2__k13_5 -> k15_0__k14_2 
+k14_7__k13_4 -> k15_0__k14_7 
+k14_4__k13_1 -> k15_0__k14_4 
+k14_4__k13_2 -> k15_0__k14_4 
+k14_6__k13_1 -> k15_0__k14_6 
+k14_4__k13_3 -> k15_0__k14_4 
+k14_3__k13_5 -> k15_0__k14_3 
+k14_3__k13_7 -> k15_0__k14_3 
+k14_5__k13_3 -> k15_0__k14_5 
+k14_5__k13_1 -> k15_0__k14_5 
+k14_4__k13_7 -> k15_0__k14_4 
+k14_1__k13_5 -> k15_0__k14_1 
+k14_3__k13_4 -> k15_0__k14_3 
+k14_7__k13_7 -> k15_0__k14_7 
+k14_6__k13_4 -> k15_0__k14_6 
+k14_5__k13_7 -> k15_0__k14_5 
+k14_1__k13_6 -> k15_0__k14_1 
+k14_5__k13_4 -> k15_0__k14_5 
+k14_4__k13_4 -> k15_0__k14_4 
+k14_2__k13_3 -> k15_0__k14_2 
+k14_4__k13_6 -> k15_0__k14_4 
+k14_1__k13_2 -> k15_0__k14_1 
+}

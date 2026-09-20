@@ -1,0 +1,7 @@
+name = "AbsSat"
+uuid = "55e03bb8-b41b-4b32-9d92-b56e130c8028"
+authors = ["Ricardo M. Biot "]
+version = "0.1.0"
+
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
