@@ -1538,6 +1538,111 @@ theorem pinned_source_valid_of_sideSupport (sides : List GPathM) (hwf : WF φ) (
   exact pinned_source_validCima φ sides hwf k key G hsG hmG d hd hval Q hvY t ht hSt hR
 
 -- ============================================================
+-- The shape of a family: a cone over its top
+-- ============================================================
+
+/-- **Every node of a family is a node of the side.** A node of the family has, by its own support, a
+partner at every step; the pair is an entry of the side, so the node is one of the side's. -/
+theorem mem_side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hcsg : g.current_step = (m : Int) + 2)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (z : PathNodeId)
+    (hz : EmbeddedSupport.Mem (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) z) :
+    EmbeddedSupport.Mem (sent φ kv.2 p) z := by
+  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+      g.current_step := (keeps_famFix _ _ g).1.step_eq
+  have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
+  have hsup := sup_famFix _ (topOf p kv.1) g hrc hsmp hpms hsn hv
+  have hadj := (adj_famFix _ (topOf p kv.1) g hrc hsmp hpms hsn hv).1
+  obtain ⟨v, hrel, _⟩ := hsup.cov z hz 0 (Int.le_refl 0) (by rw [hcsF, hcsg]; omega)
+  have hbz := EmbeddedSupport.mem_bounds _ hadj hz
+  have hbv := EmbeddedSupport.mem_bounds _ hadj (hsup.dom z v hrel).2
+  rw [hcsF] at hbz hbv
+  obtain ⟨n, hn, _, _⟩ := (side_of_famFix φ hwf P m p hps kv hkv g
+    (ReaderAgg.RCtx_of_keeps (keeps_restAll _ _ _) hrc).nodup hv z v hrel hbz.1 hbz.2 hbv.1
+    hbv.2).1
+  exact ⟨n, hn⟩
+
+set_option maxHeartbeats 1000000 in
+/-- **A family is a cone over its top.** Every node of it owns the top and is owned by the top: the
+node's partner at the last step is a node of the side at that step, and a send has exactly one
+(`sent_top`). So the family is not just a support — it hangs entirely on `t`. -/
+theorem cone_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (hsok : ConservationFilter.StateOkF φ m kv) (hmkv : MInv φ kv.2)
+    (hvS : isValid (sent φ kv.2 p) = true)
+    (g : GPathM) (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hcsg : g.current_step = (m : Int) + 2)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (z : PathNodeId)
+    (hz : EmbeddedSupport.Mem (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) z) :
+    Rel (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) z (topOf p kv.1) := by
+  have hcsF : (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).current_step =
+      g.current_step := (keeps_famFix _ _ g).1.step_eq
+  have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
+  have hsup := sup_famFix _ (topOf p kv.1) g hrc hsmp hpms hsn hv
+  obtain ⟨v, hrel, hvs⟩ := hsup.cov z hz ((m : Int) + 1) (by omega) (by rw [hcsF, hcsg]; omega)
+  obtain ⟨n, hn⟩ := mem_side_of_famFix φ hwf P m p hps kv hkv g hrc hsmp hpms hsn hcsg hv v
+    (hsup.dom z v hrel).2
+  have hid : n.id = v := node?_id_eq _ _ n hn
+  have heq : v = topOf p kv.1 := by
+    rw [← hid]
+    exact sent_top φ m kv hsok hmkv p hvS n (List.mem_of_find?_eq_some hn) (by rw [hid, hvs])
+  rw [heq] at hrel; exact hrel
+
+-- ============================================================
+-- What a chain still asks for, in a state of the machine's kind
+-- ============================================================
+
+/-- **Everything a sound chain asks for, except that its nodes own each other.** In a state of the
+machine's own kind — a review fixpoint with the reader's context — a linked selection is a sound chain
+as soon as it is pairwise owned: the global owners, the self-ownership, the son link and the root all
+come out of the state's own invariants. -/
+theorem chainSound_of_pairwise (F : GPathM) (hadj : AdjacentOwners.Adj F)
+    (hok : AggFixpoint.AggOk F) (hsmp : Sons.SMP F) (hcs : 0 < F.current_step)
+    (sel : Int → PathNodeId)
+    (hic : IsChain F sel) (hpw : PairwiseOwned F sel) : ChainSound F sel := by
+  have hsup := LinkedChain.sup_self F hadj hok hsmp
+  have hnode : ∀ k, 0 ≤ k → k < F.current_step → ∃ n, F.node? (sel k) = some n := by
+    intro k h0 h1; exact Option.isSome_iff_exists.mp (hic.1 k h0 h1).1
+  have hmem : ∀ k, 0 ≤ k → k < F.current_step → EmbeddedSupport.Mem F (sel k) := by
+    intro k h0 h1; obtain ⟨n, hn⟩ := hnode k h0 h1; exact ⟨n, hn⟩
+  have hself : ∀ k, 0 ≤ k → k < F.current_step → sel k ∈ ownersOf F (sel k) := by
+    intro k h0 h1
+    obtain ⟨v, hv, hvs⟩ := hsup.cov (sel k) (hmem k h0 h1) k h0 h1
+    obtain ⟨n, hn, hmemv, _⟩ := hv
+    have hid : n.id = sel k := node?_id_eq F (sel k) n hn
+    have := hadj.rc.oos n (List.mem_of_find?_eq_some hn) v hmemv
+      (by rw [hid, (hic.1 k h0 h1).2]; exact hvs)
+    rw [hid] at this
+    unfold ownersOf; rw [hn, ← this]; exact hmemv
+  refine ⟨⟨hic, hpw, fun k h0 h1 => hsup.gow (sel k) (hmem k h0 h1)⟩, hself, ?_, ?_, ?_⟩
+  · intro k h0 h1
+    obtain ⟨n, hn⟩ := hnode (k + 1) (by omega) h1
+    obtain ⟨n', hn'⟩ := hnode k h0 (by omega)
+    have hpar : sel k ∈ n.parents := by
+      have := hic.2 k h0 h1; rw [hn] at this; simpa using this
+    have := hsmp n (List.mem_of_find?_eq_some hn) (sel k) hpar n'
+      (List.mem_of_find?_eq_some hn') (node?_id_eq F (sel k) n' hn')
+    unfold sonsOf; rw [hn']
+    rw [node?_id_eq F (sel (k + 1)) n hn] at this
+    exact this
+  · obtain ⟨n, hn⟩ := hnode 0 (Int.le_refl 0) hcs
+    have hz : n.id.id.step = 0 := by
+      rw [node?_id_eq F (sel 0) n hn, (hic.1 0 (Int.le_refl 0) hcs).2]
+    have hr := hadj.rc.rootz n (List.mem_of_find?_eq_some hn) hz
+    rw [node?_id_eq F (sel 0) n hn] at hr
+    exact hr
+  · intro k h0 h1
+    obtain ⟨n, hn⟩ := hnode k (by omega) h1
+    have := hadj.rc.shape.notroot n (List.mem_of_find?_eq_some hn)
+      (by rw [node?_id_eq F (sel k) n hn, (hic.1 k (by omega) h1).2]; exact h0)
+    rw [node?_id_eq F (sel k) n hn] at this
+    exact this
+
+-- ============================================================
 -- The verdict, straight from the family
 -- ============================================================
 
@@ -1545,8 +1650,25 @@ theorem pinned_source_valid_of_sideSupport (sides : List GPathM) (hwf : WF φ) (
 obligation on: not any valid state, but the family of a top — a review fixpoint every one of whose
 entries belongs to a single side. -/
 def FamHasChain (sides : List GPathM) : Prop :=
-  ∀ (g : GPathM) (t : PathNodeId), isValid (famFix sides t g) = true →
+  ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
+    0 < g.current_step → isValid (famFix sides t g) = true →
     ∃ sel, ChainSound (famFix sides t g) sel
+
+/-- **And what is left of it**: some linked selection of the family is pairwise owned. Everything else
+a sound chain asks for the family already has (`chainSound_of_pairwise`), and a linked selection through
+any of its entries is free (`LinkedChain.entry_on_linked_chain`). -/
+def FamPairwise (sides : List GPathM) : Prop :=
+  ∀ (g : GPathM) (t : PathNodeId), Reader.RCtx g → Sons.SMP g → Sons.PMS g → Sons.SN g →
+    0 < g.current_step → isValid (famFix sides t g) = true →
+    ∃ sel, IsChain (famFix sides t g) sel ∧ PairwiseOwned (famFix sides t g) sel
+
+theorem famHasChain_of_pairwise (sides : List GPathM) (h : FamPairwise sides) :
+    FamHasChain sides := by
+  intro g t hrc hsmp hpms hsn hcs hv
+  obtain ⟨sel, hic, hpw⟩ := h g t hrc hsmp hpms hsn hcs hv
+  obtain ⟨hadj, hsm⟩ := adj_famFix sides t g hrc hsmp hpms hsn hv
+  refine ⟨sel, chainSound_of_pairwise _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm ?_ sel hic hpw⟩
+  rw [(keeps_famFix sides t g).1.step_eq]; exact hcs
 
 /-- **The verdict of `ImprovesCima`, straight from that.** No induction along the lines and no descent:
 the filtered state of the last line has a live entry, the rule gives it a good top, the family of that
@@ -1562,6 +1684,8 @@ theorem sat_of_famHasChain (sides : List GPathM) (hwf : WF φ) (hF : FamHasChain
     rw [hkJX.1.step_eq, hcs]
   obtain ⟨hadjX, hsupX⟩ := sup_filterAllCima sides J [] hmJ.rctx hmJ.smp hmJ.pms hmJ.sn
     hmJ.rctx.shape.notroot hvX
+  obtain ⟨s1, s2, s3⟩ := sons_filterAllCima sides J [] hmJ.smp hmJ.pms hmJ.sn
+    hmJ.rctx.shape.notroot
   -- a live entry of the filtered state
   have hm0 : (0 : Int) ≤ (m : Int) := Int.natCast_nonneg m
   have hv0 := hvX
@@ -1583,7 +1707,7 @@ theorem sat_of_famHasChain (sides : List GPathM) (hwf : WF φ) (hF : FamHasChain
   have hvF : isValid (famFix sides t (filterAllCima sides J [])) = true := by
     simp only [goodFor, Bool.and_eq_true] at hgood; exact hgood.1.1
   -- the family's chain is a chain of the state, and a chain of a state is a genuine path
-  obtain ⟨sel, hsc⟩ := hF _ t hvF
+  obtain ⟨sel, hsc⟩ := hF _ t hrcX s1 s2 s3 (by rw [hcsX]; omega) hvF
   have hprJ : Pruned J (famFix sides t (filterAllCima sides J [])) :=
     (Keeps.trans hkJX (keeps_famFix sides t _)).1
   have hscJ := SubsetSemantics.ChainSound_of_pruned hprJ hmJ.rctx.nodup hmJ.smp sel hsc
