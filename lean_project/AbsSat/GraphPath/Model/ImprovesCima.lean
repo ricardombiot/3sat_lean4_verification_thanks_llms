@@ -34,101 +34,13 @@ open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview (dropList dropOwnerPair)
 open AbsSat.GraphPath.Model.ReaderAgg (Keeps)
+open AbsSat.GraphPath.Model.AggressiveReview (reviewAgg ChainSound_reviewAgg)
 
 -- ============================================================
--- The chain of common owners, computed
--- ============================================================
-
-/-- The nodes of step `k` that own both `a` and `b`, both ways. -/
-def commonAt (g : GPathM) (a b : PathNodeId) (k : Int) : List PathNodeId :=
-  ((g.line k).map (·.id)).filter (fun c =>
-    (ownersOf g c).contains a && (ownersOf g c).contains b &&
-      (ownersOf g a).contains c && (ownersOf g b).contains c)
-
-/-- One step of the chain: `c` can carry on upwards when one of the nodes already reached is a son of
-`c` — read from that node's parents, which a narrowing only shrinks — and the two own each other. -/
-def climbs (g : GPathM) (up : List PathNodeId) (c : PathNodeId) : Bool :=
-  up.any (fun s => match g.node? s with
-    | some ns => ns.parents.contains c && (ownersOf g c).contains s && (ownersOf g s).contains c
-    | none => false)
-
-/-- The nodes that reach the top `t` by a chain of common owners, `n` steps below the last one. -/
-def climbTo (g : GPathM) (a b t : PathNodeId) : Nat → List PathNodeId
-  | 0 => if (commonAt g a b (g.current_step - 1)).contains t then [t] else []
-  | n + 1 =>
-    (commonAt g a b (g.current_step - 1 - ((n : Int) + 1))).filter
-      (fun c => climbs g (climbTo g a b t n) c)
-
-/-- Does a chain of common owners of `a` and `b` reach the top `t`, starting at `a`? -/
-def reaches (g : GPathM) (a b t : PathNodeId) : Bool :=
-  (climbTo g a b t (g.current_step - 1 - a.id.step).toNat).contains a
-
-/-- The tops such a chain reaches. -/
-def reachTops (g : GPathM) (a b : PathNodeId) : List PathNodeId :=
-  ((g.line (g.current_step - 1)).map (·.id)).filter (fun t => reaches g a b t)
-
--- ============================================================
--- The first bridge: an explicit chain is found by the search
+-- What a side carries
 -- ============================================================
 
 open AbsSat.GraphPath.Model.EmbeddedSupport (Rel)
-open AbsSat.GraphPath.Model.PinDeath (ChainUp2)
-
-theorem mem_commonAt (g : GPathM) (a b c : PathNodeId) (n : PNodeM) (hn : g.node? c = some n)
-    (h1 : Rel g c a) (h2 : Rel g c b) (h3 : Rel g a c) (h4 : Rel g b c) :
-    c ∈ commonAt g a b c.id.step := by
-  have hmem : c ∈ (g.line c.id.step).map (·.id) := mem_line_of_node? g c n hn _ rfl
-  refine List.mem_filter.mpr ⟨hmem, ?_⟩
-  have how : ∀ x y, Rel g x y → (ownersOf g x).contains y = true := by
-    intro x y hxy
-    obtain ⟨m, hm, hy, _⟩ := hxy
-    unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hy
-  simp only [Bool.and_eq_true]
-  exact ⟨⟨⟨how c a h1, how c b h2⟩, how a c h3⟩, how b c h4⟩
-
-/-- **The search finds an explicit chain.** If a chain of common owners of `a` and `b`, linked by
-parents, goes from `c` up to the top `t`, the search the rule runs reaches `t` from `c`. -/
-theorem climbTo_of_chain (g : GPathM) (a b t : PathNodeId) :
-    ∀ (c : PathNodeId), ChainUp2 g a b c t → ∀ nc, g.node? c = some nc →
-      Rel g c a → Rel g c b → Rel g a c → Rel g b c →
-      c ∈ climbTo g a b t (g.current_step - 1 - c.id.step).toNat := by
-  intro c hchain
-  induction hchain with
-  | top t' h =>
-    intro nc hnc h1 h2 h3 h4
-    have hz : (g.current_step - 1 - t'.id.step).toNat = 0 := by rw [h]; simp
-    rw [hz]
-    have hmem : t' ∈ commonAt g a b (g.current_step - 1) := by
-      rw [← h]; exact mem_commonAt g a b t' nc hnc h1 h2 h3 h4
-    show t' ∈ (if (commonAt g a b (g.current_step - 1)).contains t' then [t'] else [])
-    rw [if_pos (List.contains_iff_mem.mpr hmem)]
-    exact List.mem_singleton_self _
-  | link c s t' ns hns hpar hstep hc0 hs1 hc hc' ha hz h1 h2 h3 h4 h3' h4' hrest ih =>
-    intro nc hnc hca hcb hac hbc
-    have hIH := ih ns hns h3 h4 h3' h4'
-    have hidx : (g.current_step - 1 - c.id.step).toNat
-        = (g.current_step - 1 - s.id.step).toNat + 1 := by omega
-    rw [hidx]
-    show c ∈ (commonAt g a b (g.current_step - 1 - (((g.current_step - 1 - s.id.step).toNat : Int) + 1))).filter
-      (fun c' => climbs g (climbTo g a b t' (g.current_step - 1 - s.id.step).toNat) c')
-    refine List.mem_filter.mpr ⟨?_, ?_⟩
-    · have : g.current_step - 1 - (((g.current_step - 1 - s.id.step).toNat : Int) + 1) = c.id.step := by
-        omega
-      rw [this]
-      exact mem_commonAt g a b c nc hnc hca hcb hac hbc
-    · refine List.any_eq_true.mpr ⟨s, hIH, ?_⟩
-      have how : ∀ x y, Rel g x y → (ownersOf g x).contains y = true := by
-        intro x y hxy
-        obtain ⟨m, hm, hy, _⟩ := hxy
-        unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hy
-      simp only [hns, Bool.and_eq_true]
-      exact ⟨⟨List.contains_iff_mem.mpr hpar, how c s h1⟩, how s c h2⟩
-
-/-- **A chain from `a` makes its top reachable.** -/
-theorem reaches_of_chain (g : GPathM) (a b t : PathNodeId) (h : ChainUp2 g a b a t)
-    (na : PNodeM) (hna : g.node? a = some na) (h1 : Rel g a a) (h2 : Rel g a b) (h3 : Rel g b a) :
-    reaches g a b t = true :=
-  List.contains_iff_mem.mpr (climbTo_of_chain g a b t a h na hna h1 h2 h1 h3)
 
 /-- Both directions of an owner table give the pair as a relation of that state. -/
 theorem rel_of_owners (S : GPathM) (a b : PathNodeId)
@@ -144,44 +56,6 @@ theorem rel_of_owners (S : GPathM) (a b : PathNodeId)
       rw [ha] at h1; rw [hb] at h2
       exact ⟨⟨na, ha, List.contains_iff_mem.mp h1, ⟨nb, hb⟩⟩,
         ⟨nb, hb, List.contains_iff_mem.mp h2, ⟨na, ha⟩⟩⟩
-
-/-- **The search is sound at the top**: whatever level a node is found at, the chain's top was a common
-owner of both ends to begin with — the base of the search is what every level hangs on. -/
-theorem climbTo_base (g : GPathM) (a b t : PathNodeId) :
-    ∀ (n : Nat) (c : PathNodeId), c ∈ climbTo g a b t n →
-      t ∈ commonAt g a b (g.current_step - 1) := by
-  intro n
-  induction n with
-  | zero =>
-    intro c hc
-    simp only [climbTo] at hc
-    split at hc
-    · next h =>
-      rw [List.mem_singleton] at hc
-      rw [hc] at *
-      exact List.contains_iff_mem.mp h
-    · next => cases hc
-  | succ k ih =>
-    intro c hc
-    simp only [climbTo] at hc
-    have hcl := (List.mem_filter.mp hc).2
-    simp only [climbs] at hcl
-    obtain ⟨s, hs, _⟩ := List.any_eq_true.mp hcl
-    exact ih s hs
-
-theorem reach_common (g : GPathM) (a b t : PathNodeId) (h : reaches g a b t = true) :
-    t ∈ commonAt g a b (g.current_step - 1) :=
-  climbTo_base g a b t _ a (List.contains_iff_mem.mp h)
-
-/-- **Both ends own the top the rule certifies.** This is what the family of a support asks for, and it
-comes out of the search itself, with no extra clause. -/
-theorem rel_of_reaches (g : GPathM) (a b t : PathNodeId) (h : reaches g a b t = true) :
-    Rel g a t ∧ Rel g t a ∧ Rel g b t ∧ Rel g t b := by
-  have hm := List.mem_filter.mp (reach_common g a b t h)
-  simp only [Bool.and_eq_true] at hm
-  obtain ⟨h1, h2⟩ := rel_of_owners g a t hm.2.1.2 hm.2.1.1.1
-  obtain ⟨h3, h4⟩ := rel_of_owners g b t hm.2.2 hm.2.1.1.2
-  exact ⟨h1, h2, h3, h4⟩
 
 /-- **Does a side of the top carry the entry?** The top of a side exists only in that side, so this asks
 exactly what its own table says about the pair, in both directions. -/
@@ -199,44 +73,11 @@ theorem carries_of_side (sides : List GPathM) (S : GPathM) (hS : S ∈ sides) (t
     unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hy
   exact List.any_eq_true.mpr ⟨S, hS, by simp only [ht, how a b h1, how b a h2, Bool.and_self]⟩
 
-/-- The witness of every step: a common owner of `a` and `b` that the side of `t` carries with both. -/
-def stepOk (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
-  (intRange 0 (g.current_step - 1)).all (fun k =>
-    ((g.line k).map (·.id)).any (fun z =>
-      (ownersOf g a).contains z && (ownersOf g b).contains z &&
-        (ownersOf g z).contains a && (ownersOf g z).contains b &&
-        carries sides t a z && carries sides t b z))
-
-/-- A parent of `a` the side of `t` carries with `a` and with `b`. -/
-def parOk (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
-  a.parent_id.isNone ||
-    (ownersOf g a).any (fun c => c.id.step + 1 == a.id.step &&
-      carries sides t a c && carries sides t c a && carries sides t c b &&
-      (ownersOf g c).contains a)
-
-/-- A son of `a` the side of `t` carries with `a` and with `b`. -/
-def sonOk (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
-  a.id.step == g.current_step - 1 ||
-    (ownersOf g a).any (fun c => a.id.step + 1 == c.id.step &&
-      carries sides t a c && carries sides t c a && carries sides t c b &&
-      (ownersOf g c).contains a)
-
-/-- On neighbouring steps, the side of `t` links the pair as parent and son. -/
-def linkOk (sides : List GPathM) (_g : GPathM) (t a b : PathNodeId) : Bool :=
-  !(b.id.step + 1 == a.id.step) ||
-    sides.any (fun S => (S.node? t).isSome &&
-      (match S.node? a with | none => false | some na => na.parents.contains b))
-
-/-- Is the entry good for the top `t`: a chain of common owners reaches `t`, a side of `t` carries the
-entry, and the closure the verdict asks for holds with witnesses the same side carries. -/
-def goodFor (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
-  reaches g a b t && carries sides t a b && stepOk sides g t a b &&
-    parOk sides g t a b && sonOk sides g t a b && linkOk sides g t a b
-
-/-- **The rule of the top.** An entry stays only if some top is good for it. A genuine path gives one:
-its own top, with its own nodes as witnesses. -/
-def cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId) : Bool :=
-  ((g.line (g.current_step - 1)).map (·.id)).any (fun t => goodFor sides g t a b)
+/-- **Is `b` a parent of `a` in the side that holds `t`?** The top of a side exists only in that side, so
+this reads the parent links of that one side. -/
+def linkedIn (sides : List GPathM) (t a b : PathNodeId) : Bool :=
+  sides.any (fun S => (S.node? t).isSome &&
+    (match S.node? a with | none => false | some na => na.parents.contains b))
 
 -- ============================================================
 -- The sweep, for any test on an entry
@@ -540,6 +381,91 @@ theorem testOk_of_noProgress (test : GPathM → PathNodeId → PathNodeId → Bo
     exact Nat.lt_irrefl _ hlt
 
 -- ============================================================
+-- The family a top names: the union restricted to its side
+-- ============================================================
+
+/-- **The test of the restriction.** The side of `t` carries the entry in both directions, and on
+neighbouring steps it links it as parent and son. It does not look at the state at all, so the sweep
+settles it in one pass. -/
+def restTest (sides : List GPathM) (t : PathNodeId) (_g : GPathM) (a b : PathNodeId) : Bool :=
+  carries sides t a b && carries sides t b a &&
+    (!(b.id.step + 1 == a.id.step) || linkedIn sides t a b) &&
+    (!(a.id.step + 1 == b.id.step) || linkedIn sides t b a)
+
+def restFuel (sides : List GPathM) (t : PathNodeId) : Nat → GPathM → GPathM
+  | 0, g => g
+  | fuel + 1, g =>
+    let g₂ := pruneSweep (restTest sides t) g
+    if GPathM.measure g₂ < GPathM.measure g then restFuel sides t fuel g₂ else g
+
+def restAll (sides : List GPathM) (t : PathNodeId) (g : GPathM) : GPathM :=
+  restFuel sides t (GPathM.measure g + 1) g
+
+/-- **The family the top `t` names**: the union cut down to what the side of `t` carries, and then
+reviewed to its fixpoint. What is left is a state of the machine's own kind — so it has a support
+anchored at its top — whose entries are all entries of that one side. -/
+def famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM) : GPathM :=
+  reviewAgg (restAll sides t g)
+
+theorem keeps_restFuel (sides : List GPathM) (t : PathNodeId) :
+    ∀ (fuel : Nat) (g : GPathM), Keeps g (restFuel sides t fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Keeps.refl g
+  | succ n ih =>
+    intro g
+    simp only [restFuel]
+    split
+    · exact Keeps.trans (keeps_pruneSweep _ g) (ih _)
+    · exact Keeps.refl g
+
+theorem keeps_restAll (sides : List GPathM) (t : PathNodeId) (g : GPathM) :
+    Keeps g (restAll sides t g) := keeps_restFuel sides t _ g
+
+theorem keeps_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM) :
+    Keeps g (famFix sides t g) :=
+  Keeps.trans (keeps_restAll sides t g) (ReaderAggRun.keeps_reviewAggFuel _ _)
+
+/-- **The family keeps a chain the side carries.** The restriction only drops what the side does not
+carry, so a chain that lives in the side is never touched, and the review keeps it too. -/
+theorem ChainSound_restFuel (sides : List GPathM) (t : PathNodeId) (sel : Int → PathNodeId) :
+    ∀ (fuel : Nat) (g : GPathM), ChainSound g sel →
+      (∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
+        restTest sides t g (sel p) (sel q) = true) →
+      ChainSound (restFuel sides t fuel g) sel := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h _; exact h
+  | succ n ih =>
+    intro g h hT
+    simp only [restFuel]
+    split
+    · refine ih _ (ChainSound_pruneSweep _ g sel h (fun g' hk _ p q hp0 hp hq0 hq => ?_)) ?_
+      · exact hT p q hp0 (by rw [← hk.1.step_eq]; exact hp) hq0 (by rw [← hk.1.step_eq]; exact hq)
+      · intro p q hp0 hp hq0 hq
+        have he := (keeps_pruneSweep (restTest sides t) g).1.step_eq
+        exact hT p q hp0 (by rw [← he]; exact hp) hq0 (by rw [← he]; exact hq)
+    · exact h
+
+theorem ChainSound_famFix (sides : List GPathM) (t : PathNodeId) (sel : Int → PathNodeId)
+    (g : GPathM) (h : ChainSound g sel)
+    (hT : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
+      restTest sides t g (sel p) (sel q) = true) :
+    ChainSound (famFix sides t g) sel :=
+  ChainSound_reviewAgg _ sel (ChainSound_restFuel sides t sel _ g h hT)
+
+/-- **The rule of the top, for one top.** The entry stays alive in the family that `t` names, and that
+family is a live state. -/
+def goodFor (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
+  isValid (famFix sides t g) &&
+    (ownersOf (famFix sides t g) a).contains b && (ownersOf (famFix sides t g) b).contains a
+
+/-- **The rule of the top.** An entry stays only if some top is good for it. A genuine path gives one:
+its own top, with its own nodes as witnesses. -/
+def cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId) : Bool :=
+  ((g.line (g.current_step - 1)).map (·.id)).any (fun t => goodFor sides g t a b)
+
+-- ============================================================
 -- The rule of the top as one instance of that sweep
 -- ============================================================
 
@@ -581,7 +507,6 @@ theorem cimaOk_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g 
 -- The review of a union: the aggressive review and the rule, to their fixpoint
 -- ============================================================
 
-open AbsSat.GraphPath.Model.AggressiveReview (reviewAgg ChainSound_reviewAgg)
 open AbsSat.GraphPath.Model.AnchoredSurvive (AOk_filterAllAgg)
 
 /-- The review a union gets: the aggressive review to its fixpoint, one sweep of the rule, and again
@@ -736,66 +661,12 @@ theorem rel_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (h : ChainSoun
     have hmem := List.mem_filter.mp hown
     simpa [ownersOf, hnp] using hmem.1
 
-/-- **A sound chain is a chain of common owners up to its own top.** -/
-theorem chainUp2_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel)
-    (hcs : 0 < g.current_step) (i j : Int) (hi0 : 0 ≤ i) (hj0 : 0 ≤ j) (hj : j < g.current_step) :
-    ∀ (n : Nat) (c : Int), c = g.current_step - 1 - (n : Int) → i ≤ c → 0 ≤ c →
-      ChainUp2 g (sel i) (sel j) (sel c) (sel (g.current_step - 1)) := by
-  intro n
-  induction n with
-  | zero =>
-    intro c hc _ _
-    have : c = g.current_step - 1 := by omega
-    rw [this]
-    exact ChainUp2.top _ (h.chain.1.1 (g.current_step - 1) (by omega) (by omega)).2
-  | succ n ih =>
-    intro c hc hic hc0
-    have hlt : c + 1 = g.current_step - 1 - (n : Int) := by omega
-    have hb : c < g.current_step := by omega
-    have hb1 : c + 1 < g.current_step := by omega
-    have hrest := ih (c + 1) hlt (by omega) (by omega)
-    obtain ⟨ns, hns⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 (c + 1) (by omega) hb1).1
-    have hpar : sel c ∈ ns.parents := by
-      have := h.chain.1.2 c hc0 hb1
-      rw [hns] at this; simpa using this
-    have hstep : (sel c).id.step + 1 = (sel (c + 1)).id.step := by
-      rw [(h.chain.1.1 c hc0 hb).2, (h.chain.1.1 (c + 1) (by omega) hb1).2]
-    have how : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step → p ≠ q →
-        Rel g (sel p) (sel q) := by
-      intro p q hp0 hp hq0 hq hne
-      obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 p hp0 hp).1
-      obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 q hq0 hq).1
-      refine ⟨np, hnp, ?_, nq, hnq⟩
-      have hown := h.chain.2.1 q p hq0 hp0 hq hp (Ne.symm hne)
-      have hmem := List.mem_filter.mp hown
-      simpa [ownersOf, hnp] using hmem.1
-    have hself : ∀ p : Int, 0 ≤ p → p < g.current_step → Rel g (sel p) (sel p) := by
-      intro p hp0 hp
-      obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 p hp0 hp).1
-      refine ⟨np, hnp, ?_, np, hnp⟩
-      have hs := h.self_owned p hp0 hp
-      simpa [ownersOf, hnp] using hs
-    have hrel : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
-        Rel g (sel p) (sel q) := by
-      intro p q hp0 hp hq0 hq
-      by_cases hpq : p = q
-      · rw [hpq]; exact hself q hq0 hq
-      · exact how p q hp0 hp hq0 hq hpq
-    exact ChainUp2.link (sel c) (sel (c + 1)) _ ns hns hpar hstep
-      (by rw [(h.chain.1.1 c hc0 hb).2]; omega) (by rw [(h.chain.1.1 (c+1) (by omega) hb1).2]; omega)
-      (hrel c i hc0 hb hi0 (by omega)) (hrel c j hc0 hb hj0 hj)
-      (hrel i c hi0 (by omega) hc0 hb) (hrel j c hj0 hj hc0 hb)
-      (hrel c (c+1) hc0 hb (by omega) hb1) (hrel (c+1) c (by omega) hb1 hc0 hb)
-      (hrel (c+1) i (by omega) hb1 hi0 (by omega)) (hrel (c+1) j (by omega) hb1 hj0 hj)
-      (hrel i (c+1) hi0 (by omega) (by omega) hb1) (hrel j (c+1) hj0 hj (by omega) hb1)
-      hrest
-
-/-- **A genuine path has a good top.** A chain that is sound in the union and in one of its sides makes
-its own top good for every pair of the chain: the chain itself reaches the top, the side carries all its
-pairs, and its own nodes are the witnesses. -/
+/-- **A genuine path always has a good top**: its own. The chain lives in one side, so the side carries
+all of its pairs and links them as parents and sons; the restriction to that side never touches it, the
+review keeps it, and a state that holds a sound chain is live. -/
 theorem cimaOk_of_chain (sides : List GPathM) (g S : GPathM) (hS : S ∈ sides)
     (hcsS : S.current_step = g.current_step) (sel : Int → PathNodeId) (h : ChainSound g sel)
-    (hSc : ChainSound S sel) (hroot : (sel 0).parent_id.isNone = true) (hcs : 0 < g.current_step)
+    (hSc : ChainSound S sel) (hcs : 0 < g.current_step)
     (i j : Int) (hi0 : 0 ≤ i)
     (hi : i < g.current_step) (hj0 : 0 ≤ j) (hj : j < g.current_step) :
     cimaOk sides g (sel i) (sel j) = true := by
@@ -805,93 +676,74 @@ theorem cimaOk_of_chain (sides : List GPathM) (g S : GPathM) (hS : S ∈ sides)
   have hmemTop : sel (g.current_step - 1) ∈ (g.line (g.current_step - 1)).map (·.id) :=
     mem_line_of_node? g _ nt hnt _ (h.chain.1.1 _ htop0 htop1).2
   refine List.any_eq_true.mpr ⟨sel (g.current_step - 1), hmemTop, ?_⟩
-  -- the side's own relations
+  have hSb : ∀ p : Int, 0 ≤ p → p < g.current_step → p < S.current_step := by
+    intro p hp0 hp; rw [hcsS]; exact hp
+  -- the side carries every pair of the chain
   have hcarS : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
       carries sides (sel (g.current_step - 1)) (sel p) (sel q) = true := by
     intro p q hp0 hp hq0 hq
     refine carries_of_side sides S hS _ _ _ ?_
-      (rel_of_chainSound S sel hSc p q hp0 (by rw [hcsS]; exact hp) hq0 (by rw [hcsS]; exact hq))
-      (rel_of_chainSound S sel hSc q p hq0 (by rw [hcsS]; exact hq) hp0 (by rw [hcsS]; exact hp))
-    exact (hSc.chain.1.1 _ htop0 (by rw [hcsS]; exact htop1)).1
-  -- the chain reaches its own top
-  have hreach : reaches g (sel i) (sel j) (sel (g.current_step - 1)) = true := by
-    obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 i hi0 hi).1
-    refine reaches_of_chain g _ _ _ ?_ ni hni (rel_of_chainSound g sel h i i hi0 hi hi0 hi)
-      (rel_of_chainSound g sel h i j hi0 hi hj0 hj) (rel_of_chainSound g sel h j i hj0 hj hi0 hi)
-    exact chainUp2_of_chainSound g sel h hcs i j hi0 hj0 hj (g.current_step - 1 - i).toNat i
-      (by omega) (Int.le_refl _) hi0
-  have how : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
-      (ownersOf g (sel p)).contains (sel q) = true := by
-    intro p q hp0 hp hq0 hq
-    obtain ⟨np, hnp, hmem, _⟩ := rel_of_chainSound g sel h p q hp0 hp hq0 hq
-    unfold ownersOf; rw [hnp]; exact List.contains_iff_mem.mpr hmem
-  have hsteps : stepOk sides g (sel (g.current_step - 1)) (sel i) (sel j) = true := by
-    refine List.all_eq_true.mpr (fun k hk => ?_)
-    obtain ⟨hk0, hk1⟩ := PickInduction.intRange_bounds hk
-    have hkk : k < g.current_step := by omega
-    obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp (h.chain.1.1 k hk0 hkk).1
-    refine List.any_eq_true.mpr ⟨sel k, mem_line_of_node? g _ nk hnk _ (h.chain.1.1 k hk0 hkk).2, ?_⟩
-    simp only [Bool.and_eq_true]
-    exact ⟨⟨⟨⟨⟨how i k hi0 hi hk0 hkk, how j k hj0 hj hk0 hkk⟩, how k i hk0 hkk hi0 hi⟩,
-      how k j hk0 hkk hj0 hj⟩, hcarS i k hi0 hi hk0 hkk⟩, hcarS j k hj0 hj hk0 hkk⟩
+      (rel_of_chainSound S sel hSc p q hp0 (hSb p hp0 hp) hq0 (hSb q hq0 hq))
+      (rel_of_chainSound S sel hSc q p hq0 (hSb q hq0 hq) hp0 (hSb p hp0 hp))
+    exact (hSc.chain.1.1 _ htop0 (hSb _ htop0 htop1)).1
+  -- and links the neighbouring ones as parent and son
   have hstepEq : ∀ p : Int, 0 ≤ p → p < g.current_step → (sel p).id.step = p :=
     fun p hp0 hp => (h.chain.1.1 p hp0 hp).2
-  have hpar : parOk sides g (sel (g.current_step - 1)) (sel i) (sel j) = true := by
-    by_cases h0 : i = 0
-    · refine (Bool.or_eq_true _ _).mpr (Or.inl ?_)
-      rw [h0]; exact hroot
-    · refine (Bool.or_eq_true _ _).mpr (Or.inr ?_)
-      have hi1 : 0 ≤ i - 1 := by omega
-      have hi2 : i - 1 < g.current_step := by omega
-      obtain ⟨ni, hni, hmem, _⟩ := rel_of_chainSound g sel h i (i - 1) hi0 hi hi1 hi2
-      refine List.any_eq_true.mpr ⟨sel (i - 1), by unfold ownersOf; rw [hni]; exact hmem, ?_⟩
-      simp only [Bool.and_eq_true, beq_iff_eq]
-      exact ⟨⟨⟨⟨by rw [hstepEq (i-1) hi1 hi2, hstepEq i hi0 hi]; omega,
-        hcarS i (i-1) hi0 hi hi1 hi2⟩, hcarS (i-1) i hi1 hi2 hi0 hi⟩,
-        hcarS (i-1) j hi1 hi2 hj0 hj⟩, how (i-1) i hi1 hi2 hi0 hi⟩
-  have hson : sonOk sides g (sel (g.current_step - 1)) (sel i) (sel j) = true := by
-    by_cases hl : i = g.current_step - 1
-    · refine (Bool.or_eq_true _ _).mpr (Or.inl ?_)
-      have he : (sel i).id.step = g.current_step - 1 := by rw [hstepEq i hi0 hi, hl]
-      exact beq_iff_eq.mpr he
-    · refine (Bool.or_eq_true _ _).mpr (Or.inr ?_)
-      have hi1 : 0 ≤ i + 1 := by omega
-      have hi2 : i + 1 < g.current_step := by omega
-      obtain ⟨ni, hni, hmem, _⟩ := rel_of_chainSound g sel h i (i + 1) hi0 hi hi1 hi2
-      refine List.any_eq_true.mpr ⟨sel (i + 1), by unfold ownersOf; rw [hni]; exact hmem, ?_⟩
-      simp only [Bool.and_eq_true, beq_iff_eq]
-      exact ⟨⟨⟨⟨by rw [hstepEq (i+1) hi1 hi2, hstepEq i hi0 hi],
-        hcarS i (i+1) hi0 hi hi1 hi2⟩, hcarS (i+1) i hi1 hi2 hi0 hi⟩,
-        hcarS (i+1) j hi1 hi2 hj0 hj⟩, how (i+1) i hi1 hi2 hi0 hi⟩
-  have hlink : linkOk sides g (sel (g.current_step - 1)) (sel i) (sel j) = true := by
-    by_cases hne : (sel j).id.step + 1 = (sel i).id.step
-    · refine (Bool.or_eq_true _ _).mpr (Or.inr ?_)
-      have hji : j + 1 = i := by
-        rw [hstepEq i hi0 hi, hstepEq j hj0 hj] at hne; omega
-      obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp
-        (hSc.chain.1.1 i hi0 (by rw [hcsS]; exact hi)).1
-      have hpar' : sel j ∈ ni.parents := by
-        have hlink := hSc.chain.1.2 j hj0 (by rw [hcsS]; omega)
-        rw [hji] at hlink
-        rw [hni] at hlink
-        simpa using hlink
-      refine List.any_eq_true.mpr ⟨S, hS, ?_⟩
-      simp only [hni, Bool.and_eq_true]
-      exact ⟨(hSc.chain.1.1 _ htop0 (by rw [hcsS]; exact htop1)).1,
-        List.contains_iff_mem.mpr hpar'⟩
-    · refine (Bool.or_eq_true _ _).mpr (Or.inl ?_)
-      simp only [Bool.not_eq_true', beq_eq_false_iff_ne]
-      exact hne
-  simp only [goodFor, hreach, hcarS i j hi0 hi hj0 hj, hsteps, hpar, hson, hlink, Bool.and_self]
+  have hlinkS : ∀ p : Int, 0 ≤ p → p + 1 < g.current_step →
+      linkedIn sides (sel (g.current_step - 1)) (sel (p + 1)) (sel p) = true := by
+    intro p hp0 hp
+    obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp
+      (hSc.chain.1.1 (p + 1) (by omega) (hSb _ (by omega) hp)).1
+    have hpar : sel p ∈ ni.parents := by
+      have hl := hSc.chain.1.2 p hp0 (by rw [hcsS]; exact hp)
+      rw [hni] at hl; simpa using hl
+    refine List.any_eq_true.mpr ⟨S, hS, ?_⟩
+    simp only [(hSc.chain.1.1 _ htop0 (hSb _ htop0 htop1)).1, hni,
+      List.contains_iff_mem.mpr hpar, Bool.and_self]
+  have hT : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
+      restTest sides (sel (g.current_step - 1)) g (sel p) (sel q) = true := by
+    intro p q hp0 hp hq0 hq
+    have hlk : ∀ u v : Int, 0 ≤ u → u < g.current_step → 0 ≤ v → v < g.current_step →
+        ((sel v).id.step + 1 == (sel u).id.step) = true →
+        linkedIn sides (sel (g.current_step - 1)) (sel u) (sel v) = true := by
+      intro u v hu0 hu hv0 hv he
+      have huv : v + 1 = u := by
+        have := eq_of_beq he
+        rw [hstepEq u hu0 hu, hstepEq v hv0 hv] at this; omega
+      rw [← huv]; exact hlinkS v hv0 (by omega)
+    have c1 : (!((sel q).id.step + 1 == (sel p).id.step) ||
+        linkedIn sides (sel (g.current_step - 1)) (sel p) (sel q)) = true := by
+      cases he : ((sel q).id.step + 1 == (sel p).id.step) with
+      | false => rfl
+      | true => rw [hlk p q hp0 hp hq0 hq he]; rfl
+    have c2 : (!((sel p).id.step + 1 == (sel q).id.step) ||
+        linkedIn sides (sel (g.current_step - 1)) (sel q) (sel p)) = true := by
+      cases he : ((sel p).id.step + 1 == (sel q).id.step) with
+      | false => rfl
+      | true => rw [hlk q p hq0 hq hp0 hp he]; rfl
+    simp only [restTest, hcarS p q hp0 hp hq0 hq, hcarS q p hq0 hq hp0 hp, c1, c2,
+      Bool.and_true]
+  have hCS : ChainSound (famFix sides (sel (g.current_step - 1)) g) sel :=
+    ChainSound_famFix sides _ sel g h hT
+  have hcsF : (famFix sides (sel (g.current_step - 1)) g).current_step = g.current_step :=
+    (keeps_famFix sides _ g).1.step_eq
+  have how : ∀ p q : Int, 0 ≤ p → p < g.current_step → 0 ≤ q → q < g.current_step →
+      (ownersOf (famFix sides (sel (g.current_step - 1)) g) (sel p)).contains (sel q) = true := by
+    intro p q hp0 hp hq0 hq
+    obtain ⟨np, hnp, hmem, _⟩ := rel_of_chainSound _ sel hCS p q hp0 (by rw [hcsF]; exact hp) hq0
+      (by rw [hcsF]; exact hq)
+    unfold ownersOf; rw [hnp]; exact List.contains_iff_mem.mpr hmem
+  simp only [goodFor, PickInduction.isValid_of_ChainG _ sel hCS.chain,
+    how i j hi0 hi hj0 hj, how j i hj0 hj hi0 hi, Bool.and_self]
 
 /-- **The rule's hypothesis holds for a genuine path**: while the path survives, its own top stays
 good. -/
 theorem carried_of_side (sides : List GPathM) (g S : GPathM) (hS : S ∈ sides)
-    (sel : Int → PathNodeId) (hSc : ChainSound S sel) (hroot : (sel 0).parent_id.isNone = true)
+    (sel : Int → PathNodeId) (hSc : ChainSound S sel)
     (hcsS : S.current_step = g.current_step) (hcs : 0 < g.current_step) : Carried sides g sel := by
   intro g' hk hsc i j hi0 hi hj0 hj
   have hstep : g'.current_step = g.current_step := hk.1.step_eq
-  refine cimaOk_of_chain sides g' S hS (by rw [hstep]; exact hcsS) sel hsc hSc hroot ?_ i j hi0 hi hj0 hj
+  refine cimaOk_of_chain sides g' S hS (by rw [hstep]; exact hcsS) sel hsc hSc ?_ i j hi0 hi hj0 hj
   rw [hstep]; exact hcs
 
 /-- **Every valid result of the review of a union passes the rule.** Same shape as the aggressive
@@ -973,9 +825,9 @@ theorem keeps_advanceCima (L : PureLine) (kv : NodeId × GPathM) (hkv : kv ∈ a
 sides survives the pins and the whole review: the rule never touches it, because its own top is good. -/
 theorem ChainSound_reviewCima_of_side (sides : List GPathM) (g S : GPathM) (hS : S ∈ sides)
     (sel : Int → PathNodeId) (h : ChainSound g sel) (hSc : ChainSound S sel)
-    (hroot : (sel 0).parent_id.isNone = true) (hcsS : S.current_step = g.current_step)
+    (hcsS : S.current_step = g.current_step)
     (hcs : 0 < g.current_step) : ChainSound (reviewCima sides g) sel :=
-  ChainSound_reviewCima sides g sel h (carried_of_side sides g S hS sel hSc hroot hcsS hcs)
+  ChainSound_reviewCima sides g sel h (carried_of_side sides g S hS sel hSc hcsS hcs)
 
 -- ============================================================
 -- The invariants of a state survive the rule
@@ -1052,290 +904,11 @@ theorem sons_cimaSweep (sides : List GPathM) (g : GPathM) (hsmp : Sons.SMP g) (h
     Sons.SMP (cimaSweep sides g) ∧ Sons.PMS (cimaSweep sides g) ∧ Sons.SN (cimaSweep sides g) :=
   sons_pruneSweep _ g hsmp hpms hsn
 
-/-- **The family a good top names, at the fixpoint**: the live entries the side of `t` carries. The rule
-leaves it closed under the witness of every step — the `cov` and `agg` rules of a support. -/
-def FamAt (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Prop :=
-  Rel g a b ∧ carries sides t a b = true
-
-/-- **From the fixpoint to the closure.** At a state the sweep no longer shrinks, every entry with a good
-top `t` has, at every step, a witness that the side of `t` carries with both ends — which is what `cov`
-and `agg` of the support ask for. -/
-theorem fam_witness (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
-    (hgood : goodFor sides g t a b = true) (l : Int) (hl0 : 0 ≤ l) (hl1 : l < g.current_step) :
-    ∃ z, z.id.step = l ∧ (ownersOf g a).contains z = true ∧ (ownersOf g b).contains z = true ∧
-      (ownersOf g z).contains a = true ∧ (ownersOf g z).contains b = true ∧
-      carries sides t a z = true ∧ carries sides t b z = true := by
-  simp only [goodFor, Bool.and_eq_true] at hgood
-  have hall : stepOk sides g t a b = true := hgood.1.1.1.2
-  simp only [stepOk] at hall
-  have hk := List.all_eq_true.mp hall l (mem_intRange hl0 (by omega))
-  obtain ⟨z, hz, hcond⟩ := List.any_eq_true.mp hk
-  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hz
-  simp only [Bool.and_eq_true] at hcond
-  exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hcond.1.1.1.1.1, hcond.1.1.1.1.2,
-    hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
-
--- ============================================================
--- The top names the side
--- ============================================================
-
-open AbsSat.GraphPath.Model.ReaderAggRun (MInv)
-open AbsSat.GraphPath.Model.ConservationFilter (StateOkF)
-open AbsSat.GraphPath.Model.PinHistory (branchLine branchLine_inv)
-open AbsSat.GraphPath.Model.PinDeath (topOf)
-
-/-- **The only node a send has at its new step is its own top.** -/
-theorem sent_top (m : Nat) (kv : NodeId × GPathM) (hsok : StateOkF φ m kv)
-    (hmkv : MInv φ kv.2) (d : NodeId) (hv : isValid (sent φ kv.2 d) = true)
-    (n' : PNodeM) (hn' : n' ∈ (sent φ kv.2 d).nodes) (hs : n'.id.id.step = (m : Int) + 1) :
-    n'.id = topOf d kv.1 := by
-  have hvF := ClauseReview.valid_pinned φ kv.2 d hv
-  have heq : sent φ kv.2 d = addNode (ClauseReview.pinnedAt φ kv.2 d) d "" := by
-    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
-  have hprF : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 d) :=
-    Pruned.trans (ConservationCore.pruned_filterWeakAll _ _) (AggressiveReview.pruned_filterAllAgg _ _)
-  have hcsF : (ClauseReview.pinnedAt φ kv.2 d).current_step = (m : Int) + 1 := by
-    rw [hprF.step_eq, hsok.step]
-  have hmpF : (ClauseReview.pinnedAt φ kv.2 d).map_parent = some kv.1 := by
-    rw [hprF.map_parent_eq, hsok.par]
-  have hRF : ReaderAgg.ReadableAgg (ClauseReview.pinnedAt φ kv.2 d) :=
-    ⟨_, _, ReaderAgg.RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx, rfl⟩
-  have hbelow : ∀ x ∈ (ClauseReview.pinnedAt φ kv.2 d).nodes,
-      x.id.id.step < (ClauseReview.pinnedAt φ kv.2 d).current_step :=
-    (ReaderAgg.RCtx_of_readableAgg _ hRF).below
-  rw [heq] at hn'
-  have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d "" hbelow n' hn'
-    (by rw [hcsF]; exact hs)
-  rw [htop, hmpF]; rfl
-
-/-- **The top names the side.** A side of a union that holds the top `⟨p, key⟩` of the key `key` IS the
-send of that key: the send has exactly one node at the new step, its own top, and the keys of a line are
-distinct. This is what lets the rule read one single table: every `carries` a good top grants speaks of
-the same side. -/
-theorem side_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1)
-    (S : GPathM) (hS : S ∈ sidesOf φ (branchLine φ P m) p)
-    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (ht : (S.node? (topOf p kv.1)).isSome = true) :
-    S = sent φ kv.2 p := by
-  have hl := branchLine_inv φ hwf P m
-  obtain ⟨kv', hkv', hfe⟩ := List.mem_filterMap.mp hS
-  by_cases hc : ((mapSons φ kv'.1.step kv'.1.index).contains p && isValid (sent φ kv'.2 p)) = true
-  · rw [if_pos hc] at hfe
-    have hSe : S = sent φ kv'.2 p := by injection hfe with h; exact h.symm
-    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ht
-    have hnid : n.id = topOf p kv.1 := node?_id_eq _ _ n hn
-    have hmem : n ∈ S.nodes := List.mem_of_find?_eq_some hn
-    rw [hSe] at hmem
-    have hstep : n.id.id.step = (m : Int) + 1 := by rw [hnid]; exact hps
-    have hv' : isValid (sent φ kv'.2 p) = true := by
-      simp only [Bool.and_eq_true] at hc; exact hc.2
-    have hkeys : kv'.1 = kv.1 := by
-      have := sent_top φ m kv' (hl.1.2 kv' hkv') (hl.2 kv' hkv') p hv' n hmem hstep
-      rw [hnid] at this
-      have : topOf p kv.1 = topOf p kv'.1 := this
-      simpa [topOf] using this.symm
-    rw [hSe, PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys]
-  · rw [if_neg hc] at hfe; contradiction
-
-/-- **What a good top hands over, in the side's own table.** Because the top names the side, every pair
-the rule certifies with `carries` is a pair of that one side — which is exactly what the support of the
-side's send needs. -/
-theorem carries_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
-    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (a b : PathNodeId)
-    (hc : carries (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) a b = true) :
-    Rel (sent φ kv.2 p) a b ∧ Rel (sent φ kv.2 p) b a := by
-  obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hc
-  simp only [Bool.and_eq_true] at hcond
-  have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1.1
-  rw [hSe] at hcond
-  exact rel_of_owners _ a b hcond.1.2 hcond.2
-
-/-- **When one end is a top, the rule can only certify that top.** The chain the rule follows ends in a
-common owner of both ends, so the certified top is an owner of the side's top; and the only last-step
-node a top hangs on is itself (`tops_unique`). This pins the ∃ of the rule down to the side we are
-reading, which is what the support of that side's send needs. -/
-theorem cert_top_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
-    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
-    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
-    (sides : List GPathM) (x t : PathNodeId) (hts : t.id.step = (m : Int) + 1)
-    (hgood : goodFor sides (filterAllCima sides J Q) t x (topOf p kv.1) = true) :
-    t = topOf p kv.1 := by
-  have hreach : reaches (filterAllCima sides J Q) x (topOf p kv.1) t = true := by
-    simp only [goodFor, Bool.and_eq_true] at hgood; exact hgood.1.1.1.1.1
-  have hrel := (rel_of_reaches _ x (topOf p kv.1) t hreach).2.2.1
-  have hl := branchLine_inv φ hwf P m
-  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
-  have hmJ : MInv φ J := hadv.2 _ hJ
-  have hndA : (((AggressiveReview.filterAllAgg J Q)).nodes.map (·.id)).Nodup :=
-    (ReaderAgg.RCtx_of_readableAgg _
-      (show ReaderAgg.ReadableAgg (AggressiveReview.filterAllAgg J Q) from
-        ⟨J, Q, hmJ.rctx, rfl⟩)).nodup
-  exact PinDeath.tops_unique φ hwf P m p J hJ Q kv hkv hson hvS t
-    (PinDeath.rel_of_pruned _ _ hndA (keeps_agg_filterAllCima sides J Q).1 _ _ hrel) hts
-
-/-- **From the fixpoint to the parent rule.** An entry with a good top whose left end is not a root has a
-parent the side of `t` carries with both ends — which is what `par` of the support asks for. -/
-theorem fam_par (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
-    (hgood : goodFor sides g t a b = true) (hnr : a.parent_id.isNone = false) :
-    ∃ c, c ∈ ownersOf g a ∧ c.id.step + 1 = a.id.step ∧
-      carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
-      (ownersOf g c).contains a = true := by
-  simp only [goodFor, Bool.and_eq_true] at hgood
-  have hpar : parOk sides g t a b = true := hgood.1.1.2
-  simp only [parOk, hnr, Bool.false_or] at hpar
-  obtain ⟨c, hc, hcond⟩ := List.any_eq_true.mp hpar
-  simp only [Bool.and_eq_true] at hcond
-  exact ⟨c, hc, eq_of_beq hcond.1.1.1.1, hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
-
-/-- **From the fixpoint to the son rule.** An entry with a good top whose left end is not at the last step
-has a son the side of `t` carries with both ends — which is what `son` of the support asks for. -/
-theorem fam_son (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
-    (hgood : goodFor sides g t a b = true) (hnt : (a.id.step == g.current_step - 1) = false) :
-    ∃ c, c ∈ ownersOf g a ∧ a.id.step + 1 = c.id.step ∧
-      carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
-      (ownersOf g c).contains a = true := by
-  simp only [goodFor, Bool.and_eq_true] at hgood
-  have hson : sonOk sides g t a b = true := hgood.1.2
-  simp only [sonOk, hnt, Bool.false_or] at hson
-  obtain ⟨c, hc, hcond⟩ := List.any_eq_true.mp hson
-  simp only [Bool.and_eq_true] at hcond
-  exact ⟨c, hc, eq_of_beq hcond.1.1.1.1, hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
-
-/-- **From the fixpoint to the link rule.** On neighbouring steps, the side of a good top holds the left
-end with the right end among its parents — which is what `link` of the support asks for. -/
-theorem fam_link (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
-    (hgood : goodFor sides g t a b = true) (hnb : b.id.step + 1 = a.id.step) :
-    ∃ S ∈ sides, (S.node? t).isSome = true ∧
-      ∃ na, S.node? a = some na ∧ na.parents.contains b = true := by
-  simp only [goodFor, Bool.and_eq_true] at hgood
-  have hlink : linkOk sides g t a b = true := hgood.2
-  have hb : (b.id.step + 1 == a.id.step) = true := by
-    exact beq_iff_eq.mpr hnb
-  simp only [linkOk, hb, Bool.not_true, Bool.false_or] at hlink
-  obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hlink
-  simp only [Bool.and_eq_true] at hcond
-  refine ⟨S, hS, hcond.1, ?_⟩
-  cases hsa : S.node? a with
-  | none => rw [hsa] at hcond; exact Bool.false_ne_true hcond.2 |>.elim
-  | some na => rw [hsa] at hcond; exact ⟨na, rfl, hcond.2⟩
-
-/-- **The whole closure the verdict asks for, from one good top.** Gathering the four extractions: the
-witness of every step, the parent, the son and the parent link. -/
-theorem fam_closure (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
-    (hgood : goodFor sides g t a b = true) :
-    (∀ l : Int, 0 ≤ l → l < g.current_step →
-        ∃ z, z.id.step = l ∧ (ownersOf g a).contains z = true ∧ (ownersOf g b).contains z = true ∧
-          (ownersOf g z).contains a = true ∧ (ownersOf g z).contains b = true ∧
-          carries sides t a z = true ∧ carries sides t b z = true) ∧
-      (a.parent_id.isNone = false →
-        ∃ c, c ∈ ownersOf g a ∧ c.id.step + 1 = a.id.step ∧
-          carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
-          (ownersOf g c).contains a = true) ∧
-      ((a.id.step == g.current_step - 1) = false →
-        ∃ c, c ∈ ownersOf g a ∧ a.id.step + 1 = c.id.step ∧
-          carries sides t a c = true ∧ carries sides t c a = true ∧ carries sides t c b = true ∧
-          (ownersOf g c).contains a = true) ∧
-      (b.id.step + 1 = a.id.step →
-        ∃ S ∈ sides, (S.node? t).isSome = true ∧
-          ∃ na, S.node? a = some na ∧ na.parents.contains b = true) :=
-  ⟨fun l hl0 hl1 => fam_witness sides g t a b hgood l hl0 hl1,
-   fun hnr => fam_par sides g t a b hgood hnr,
-   fun hnt => fam_son sides g t a b hgood hnt,
-   fun hnb => fam_link sides g t a b hgood hnb⟩
-
-/-- **From a live entry at the fixpoint to a good top.** Reading `cimaOk` backwards: the top is a node of
-the last line, and `fam_closure` then gives the whole closure for it. -/
-theorem top_of_cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId)
-    (hok : cimaOk sides g a b = true) :
-    ∃ t, t.id.step = g.current_step - 1 ∧ goodFor sides g t a b = true := by
-  simp only [cimaOk] at hok
-  obtain ⟨t, ht, hgood⟩ := List.any_eq_true.mp hok
-  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp ht
-  exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hgood⟩
-
-/-- **The bridge the verdict asks for.** At a valid state the sweep no longer shrinks, every live entry
-has a top of the last line that is good for it, and hence (`fam_closure`) the whole closure: a witness at
-every step, a parent, a son and the parent link, all carried by the side of that top. -/
-theorem top_of_noProgress (sides : List GPathM) (g : GPathM) (hv : isValid g = true)
-    (hnp : ¬ GPathM.measure (cimaSweep sides g) < GPathM.measure g)
-    (x nx w : _) (hx : g.node? x = some nx) (hw : (g.node? w).isSome = true)
-    (hx1 : 0 ≤ x.id.step) (hx2 : x.id.step < g.current_step)
-    (hw1 : 0 ≤ w.id.step) (hw2 : w.id.step < g.current_step) (hmem : w ∈ nx.owners) :
-    ∃ t, t.id.step = g.current_step - 1 ∧ carries sides t x w = true ∧
-      goodFor sides g t x w = true := by
-  obtain ⟨t, hts, hgood⟩ := top_of_cimaOk sides g x w
-    (cimaOk_of_noProgress sides g hv hnp x nx w hx hw hx1 hx2 hw1 hw2 hmem)
-  refine ⟨t, hts, ?_, hgood⟩
-  simp only [goodFor, Bool.and_eq_true] at hgood
-  exact hgood.1.1.1.1.2
-
-/-- **The cover rule of the support, in general form.** Given the two bridges — the rule can only
-certify the top `t` when one end is `t` (`cert_top_of_top`), and what `t`'s side carries is a pair of
-that side (`carries_in_side`) — every node hanging on `t` has, at every step, a witness that hangs on
-`t` too and that the side carries with it, both ways and with the top. This is the `cov` rule of
-`AnchoredSurvive.Sup`. -/
-theorem cov_gen (sides : List GPathM) (X S : GPathM) (t : PathNodeId)
-    (hok : CimaOk sides X)
-    (hcert : ∀ y t₂, t₂.id.step = X.current_step - 1 → goodFor sides X t₂ y t = true → t₂ = t)
-    (hside : ∀ a b, carries sides t a b = true → Rel S a b ∧ Rel S b a)
-    (ht0 : 0 ≤ t.id.step) (ht1 : t.id.step < X.current_step)
-    (x : PathNodeId) (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < X.current_step)
-    (hx : Rel X x t) (l : Int) (hl0 : 0 ≤ l) (hl1 : l < X.current_step) :
-    ∃ z, z.id.step = l ∧ Rel X x z ∧ Rel X z x ∧ Rel X t z ∧ Rel X z t ∧
-      Rel S x z ∧ Rel S z x ∧ Rel S t z ∧ Rel S z t := by
-  obtain ⟨nx, hnx, hmem, nt, hnt⟩ := hx
-  have hc := hok x nx t hnx (by rw [hnt]; rfl) hx0 hx1 ht0 ht1 hmem
-  obtain ⟨t₂, hts₂, hgood⟩ := top_of_cimaOk sides X x t hc
-  rw [hcert x t₂ hts₂ hgood] at hgood
-  obtain ⟨z, hzs, h1, h2, h3, h4, hc1, hc2⟩ := fam_witness sides X t x t hgood l hl0 hl1
-  obtain ⟨r1, r2⟩ := rel_of_owners X x z h1 h3
-  obtain ⟨r3, r4⟩ := rel_of_owners X t z h2 h4
-  obtain ⟨s1, s2⟩ := hside x z hc1
-  obtain ⟨s3, s4⟩ := hside t z hc2
-  exact ⟨z, hzs, r1, r2, r3, r4, s1, s2, s3, s4⟩
-
-/-- **The cover rule for the new machine.** The two bridges are discharged, so the rule of the top hands
-the support of the side's send its `cov` clause with no hypothesis left. -/
-theorem cov_cima (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
-    (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
-    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
-    (hps : p.step = (m : Int) + 1)
-    (X : GPathM) (hX : X = filterAllCima (sidesOf φ (branchLine φ P m) p) J Q)
-    (hcsX : X.current_step = (m : Int) + 2) (hvX : isValid X = true)
-    (x : PathNodeId) (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < X.current_step)
-    (hx : Rel X x (topOf p kv.1)) (l : Int) (hl0 : 0 ≤ l) (hl1 : l < X.current_step) :
-    ∃ z, z.id.step = l ∧ Rel X x z ∧ Rel X z x ∧ Rel X (topOf p kv.1) z ∧
-      Rel X z (topOf p kv.1) ∧ Rel (sent φ kv.2 p) x z ∧ Rel (sent φ kv.2 p) z x ∧
-      Rel (sent φ kv.2 p) (topOf p kv.1) z ∧ Rel (sent φ kv.2 p) z (topOf p kv.1) := by
-  subst hX
-  refine cov_gen _ _ (sent φ kv.2 p) (topOf p kv.1)
-    (cimaOk_filterAllCima _ J Q hvX)
-    (fun y t₂ hst hg => cert_top_of_top φ hwf P m p J hJ Q kv hkv hson hvS _ y t₂
-      (by rw [hst, hcsX]; omega) hg)
-    (fun a b hc => carries_in_side φ hwf P m p hps kv hkv a b hc)
-    (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps]; omega)
-    (by rw [show (topOf p kv.1).id.step = p.step from rfl, hps, hcsX]; omega)
-    x hx0 hx1 hx l hl0 hl1
-
-/-- **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every entry with a
-good top (`cimaOk_of_noProgress`), so the family the top names is closed. Two bridges are missing:
-
-* `reachTops` accepts an explicit chain: a path's own nodes make its top reachable;
-* a side carries the pairs of the paths that reach its top (branch completeness, already proved for
-  `Improves`, to be carried over).
-
-With them, a genuine path always has a good top, so `Carried` holds and the machine loses no solution;
-and `HereditaryValid.ChainClosureAt` follows from `CimaOk`, which closes the verdict through route C. -/
-def Bridges : Prop :=
-  (∀ (g : GPathM) (a b t : PathNodeId), t.id.step = g.current_step - 1 →
-      PinDeath.ChainUp2 g a b a t → t ∈ reachTops g a b) ∧
-  (∀ (sides : List GPathM) (t a b : PathNodeId), (∃ S ∈ sides, (S.node? t).isSome = true ∧
-      EmbeddedSupport.Rel S a b ∧ EmbeddedSupport.Rel S b a) → carries sides t a b = true)
-
+/-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
+with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
+state of the machine's own kind whose entries are entries of that one side. What remains is to read the
+support out of it — `LinkedChain.sup_self` gives the support of that family, and the restriction test
+carries it over to the side's send — and to close `HereditaryValid.ChainClosureAt` with it. -/
 /-- info: 'AbsSat.GraphPath.Model.ImprovesCima.AOk_filterAllCima' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms AOk_filterAllCima
