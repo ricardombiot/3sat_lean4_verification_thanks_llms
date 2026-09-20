@@ -5226,26 +5226,37 @@ def runTriFam (φ : Cnf) (st0 : TFStat) : TFStat := Id.run do
       let sides := sidesOf φ L p
       if sides.length < 2 then continue
       let J := kv.2
-      let rs := ((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups
+      let rs := (((J.gowners.filter (fun q => q.id.step < lb)).map (·.id)).eraseDups).take 3
       for r in ([] :: rs.map (fun r => [r])) do
-        let X := filterAllCima sides J r
+        let X := filterAllAgg J r
         if !isValid X then continue
         st := { st with unions := st.unions + 1 }
-        let tops := ((X.line (X.current_step - 1)).map (·.id))
-        for t in tops do
+        for t in ((X.line (X.current_step - 1)).map (·.id)) do
           let F := famFix sides t X
           if !isValid F then continue
           st := { st with fams := st.fams + 1 }
+          -- the descent, with fast tables
+          let tF := ownerTable F
+          let rel (a b : PathNodeId) : Bool :=
+            match tF.get? a with | some o => o.contains b | none => false
+          let mut byStep : Std.HashMap Int (List PathNodeId) := {}
+          for n in F.nodes do
+            byStep := byStep.insert n.id.id.step ((byStep.getD n.id.id.step []) ++ [n.id])
+          let mut picks : List PathNodeId := []
           let mut bad := false
           for n in [0:F.current_step.toNat] do
             let l := F.current_step - 1 - (n : Int)
             st := { st with steps := st.steps + 1 }
-            if (commonWith F (triPicks F n) l).isEmpty then
+            let cand := (byStep.getD l []).filter (fun z => picks.all (fun y => rel z y && rel y z))
+            match cand with
+            | [] =>
               bad := true
               st := { st with fails := st.fails + 1 }
               if st.ex.length < 4 then
-                st := { st with ex := st.ex ++ [s!"{cnfS φ} line {m+1} key {p.step}.{p.index} top {pidS t} step {l}: no common node"] }
+                st := { st with ex := st.ex ++
+                  [s!"{cnfS φ} line {m+1} key {p.step}.{p.index} top {pidS t} step {l} after {picks.length} picks"] }
               break
+            | z :: _ => picks := z :: picks
           if bad then st := { st with famFails := st.famFails + 1 }
   return st
 
