@@ -915,6 +915,98 @@ theorem fam_witness (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
   exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hcond.1.1.1.1.1, hcond.1.1.1.1.2,
     hcond.1.1.1.2, hcond.1.1.2, hcond.1.2, hcond.2⟩
 
+-- ============================================================
+-- The top names the side
+-- ============================================================
+
+open AbsSat.GraphPath.Model.ReaderAggRun (MInv)
+open AbsSat.GraphPath.Model.ConservationFilter (StateOkF)
+open AbsSat.GraphPath.Model.PinHistory (branchLine branchLine_inv)
+open AbsSat.GraphPath.Model.PinDeath (topOf)
+
+/-- **The only node a send has at its new step is its own top.** -/
+theorem sent_top (m : Nat) (kv : NodeId × GPathM) (hsok : StateOkF φ m kv)
+    (hmkv : MInv φ kv.2) (d : NodeId) (hv : isValid (sent φ kv.2 d) = true)
+    (n' : PNodeM) (hn' : n' ∈ (sent φ kv.2 d).nodes) (hs : n'.id.id.step = (m : Int) + 1) :
+    n'.id = topOf d kv.1 := by
+  have hvF := ClauseReview.valid_pinned φ kv.2 d hv
+  have heq : sent φ kv.2 d = addNode (ClauseReview.pinnedAt φ kv.2 d) d "" := by
+    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
+  have hprF : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 d) :=
+    Pruned.trans (ConservationCore.pruned_filterWeakAll _ _) (AggressiveReview.pruned_filterAllAgg _ _)
+  have hcsF : (ClauseReview.pinnedAt φ kv.2 d).current_step = (m : Int) + 1 := by
+    rw [hprF.step_eq, hsok.step]
+  have hmpF : (ClauseReview.pinnedAt φ kv.2 d).map_parent = some kv.1 := by
+    rw [hprF.map_parent_eq, hsok.par]
+  have hRF : ReaderAgg.ReadableAgg (ClauseReview.pinnedAt φ kv.2 d) :=
+    ⟨_, _, ReaderAgg.RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx, rfl⟩
+  have hbelow : ∀ x ∈ (ClauseReview.pinnedAt φ kv.2 d).nodes,
+      x.id.id.step < (ClauseReview.pinnedAt φ kv.2 d).current_step :=
+    (ReaderAgg.RCtx_of_readableAgg _ hRF).below
+  rw [heq] at hn'
+  have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d "" hbelow n' hn'
+    (by rw [hcsF]; exact hs)
+  rw [htop, hmpF]; rfl
+
+/-- **The top names the side.** A side of a union that holds the top `⟨p, key⟩` of the key `key` IS the
+send of that key: the send has exactly one node at the new step, its own top, and the keys of a line are
+distinct. This is what lets the rule read one single table: every `carries` a good top grants speaks of
+the same side. -/
+theorem side_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1)
+    (S : GPathM) (hS : S ∈ sidesOf φ (branchLine φ P m) p)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (ht : (S.node? (topOf p kv.1)).isSome = true) :
+    S = sent φ kv.2 p := by
+  have hl := branchLine_inv φ hwf P m
+  obtain ⟨kv', hkv', hfe⟩ := List.mem_filterMap.mp hS
+  by_cases hc : ((mapSons φ kv'.1.step kv'.1.index).contains p && isValid (sent φ kv'.2 p)) = true
+  · rw [if_pos hc] at hfe
+    have hSe : S = sent φ kv'.2 p := by injection hfe with h; exact h.symm
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ht
+    have hnid : n.id = topOf p kv.1 := node?_id_eq _ _ n hn
+    have hmem : n ∈ S.nodes := List.mem_of_find?_eq_some hn
+    rw [hSe] at hmem
+    have hstep : n.id.id.step = (m : Int) + 1 := by rw [hnid]; exact hps
+    have hv' : isValid (sent φ kv'.2 p) = true := by
+      simp only [Bool.and_eq_true] at hc; exact hc.2
+    have hkeys : kv'.1 = kv.1 := by
+      have := sent_top φ m kv' (hl.1.2 kv' hkv') (hl.2 kv' hkv') p hv' n hmem hstep
+      rw [hnid] at this
+      have : topOf p kv.1 = topOf p kv'.1 := this
+      simpa [topOf] using this.symm
+    rw [hSe, PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys]
+  · rw [if_neg hc] at hfe; contradiction
+
+/-- Both directions of an owner table give the pair as a relation of that state. -/
+theorem rel_of_owners (S : GPathM) (a b : PathNodeId)
+    (h1 : (ownersOf S a).contains b = true) (h2 : (ownersOf S b).contains a = true) :
+    Rel S a b ∧ Rel S b a := by
+  unfold ownersOf at h1 h2
+  cases ha : S.node? a with
+  | none => rw [ha] at h1; exact absurd h1 (by rw [List.contains_iff_mem]; exact fun h => nomatch h)
+  | some na =>
+    cases hb : S.node? b with
+    | none => rw [hb] at h2; exact absurd h2 (by rw [List.contains_iff_mem]; exact fun h => nomatch h)
+    | some nb =>
+      rw [ha] at h1; rw [hb] at h2
+      exact ⟨⟨na, ha, List.contains_iff_mem.mp h1, ⟨nb, hb⟩⟩,
+        ⟨nb, hb, List.contains_iff_mem.mp h2, ⟨na, ha⟩⟩⟩
+
+/-- **What a good top hands over, in the side's own table.** Because the top names the side, every pair
+the rule certifies with `carries` is a pair of that one side — which is exactly what the support of the
+side's send needs. -/
+theorem carries_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (a b : PathNodeId)
+    (hc : carries (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) a b = true) :
+    Rel (sent φ kv.2 p) a b ∧ Rel (sent φ kv.2 p) b a := by
+  obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hc
+  simp only [Bool.and_eq_true] at hcond
+  have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1.1
+  rw [hSe] at hcond
+  exact rel_of_owners _ a b hcond.1.2 hcond.2
+
 /-- **From the fixpoint to the parent rule.** An entry with a good top whose left end is not a root has a
 parent the side of `t` carries with both ends — which is what `par` of the support asks for. -/
 theorem fam_par (sides : List GPathM) (g : GPathM) (t a b : PathNodeId)
