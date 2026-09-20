@@ -52,14 +52,83 @@ def climbs (g : GPathM) (up : List PathNodeId) (c : PathNodeId) : Bool :=
     | some ns => ns.parents.contains c && (ownersOf g c).contains s && (ownersOf g s).contains c
     | none => false)
 
-/-- The tops a chain of common owners of `a` and `b` reaches, by stepping down from the last step. -/
+/-- The nodes that reach the top `t` by a chain of common owners, `n` steps below the last one. -/
+def climbTo (g : GPathM) (a b t : PathNodeId) : Nat → List PathNodeId
+  | 0 => if (commonAt g a b (g.current_step - 1)).contains t then [t] else []
+  | n + 1 =>
+    (commonAt g a b (g.current_step - 1 - ((n : Int) + 1))).filter
+      (fun c => climbs g (climbTo g a b t n) c)
+
+/-- Does a chain of common owners of `a` and `b` reach the top `t`, starting at `a`? -/
+def reaches (g : GPathM) (a b t : PathNodeId) : Bool :=
+  (climbTo g a b t (g.current_step - 1 - a.id.step).toNat).contains a
+
+/-- The tops such a chain reaches. -/
 def reachTops (g : GPathM) (a b : PathNodeId) : List PathNodeId :=
-  let top := g.current_step - 1
-  -- from the last step down: the nodes of each step a chain can climb from
-  let climbed := (intRange 0 (top - 1)).reverse.foldl
-    (fun acc k => (commonAt g a b k).filter (fun c => climbs g acc c)) (commonAt g a b top)
-  if a.id.step = top then (commonAt g a b top).filter (fun c => c == a)
-  else if climbs g climbed a then commonAt g a b top else []
+  ((g.line (g.current_step - 1)).map (·.id)).filter (fun t => reaches g a b t)
+
+-- ============================================================
+-- The first bridge: an explicit chain is found by the search
+-- ============================================================
+
+open AbsSat.GraphPath.Model.EmbeddedSupport (Rel)
+open AbsSat.GraphPath.Model.PinDeath (ChainUp2)
+
+theorem mem_commonAt (g : GPathM) (a b c : PathNodeId) (n : PNodeM) (hn : g.node? c = some n)
+    (h1 : Rel g c a) (h2 : Rel g c b) (h3 : Rel g a c) (h4 : Rel g b c) :
+    c ∈ commonAt g a b c.id.step := by
+  have hmem : c ∈ (g.line c.id.step).map (·.id) := mem_line_of_node? g c n hn _ rfl
+  refine List.mem_filter.mpr ⟨hmem, ?_⟩
+  have how : ∀ x y, Rel g x y → (ownersOf g x).contains y = true := by
+    intro x y hxy
+    obtain ⟨m, hm, hy, _⟩ := hxy
+    unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hy
+  simp only [Bool.and_eq_true]
+  exact ⟨⟨⟨how c a h1, how c b h2⟩, how a c h3⟩, how b c h4⟩
+
+/-- **The search finds an explicit chain.** If a chain of common owners of `a` and `b`, linked by
+parents, goes from `c` up to the top `t`, the search the rule runs reaches `t` from `c`. -/
+theorem climbTo_of_chain (g : GPathM) (a b t : PathNodeId) :
+    ∀ (c : PathNodeId), ChainUp2 g a b c t → ∀ nc, g.node? c = some nc →
+      Rel g c a → Rel g c b → Rel g a c → Rel g b c →
+      c ∈ climbTo g a b t (g.current_step - 1 - c.id.step).toNat := by
+  intro c hchain
+  induction hchain with
+  | top t' h =>
+    intro nc hnc h1 h2 h3 h4
+    have hz : (g.current_step - 1 - t'.id.step).toNat = 0 := by rw [h]; simp
+    rw [hz]
+    have hmem : t' ∈ commonAt g a b (g.current_step - 1) := by
+      rw [← h]; exact mem_commonAt g a b t' nc hnc h1 h2 h3 h4
+    show t' ∈ (if (commonAt g a b (g.current_step - 1)).contains t' then [t'] else [])
+    rw [if_pos (List.contains_iff_mem.mpr hmem)]
+    exact List.mem_singleton_self _
+  | link c s t' ns hns hpar hstep hc0 hs1 hc hc' ha hz h1 h2 h3 h4 h3' h4' hrest ih =>
+    intro nc hnc hca hcb hac hbc
+    have hIH := ih ns hns h3 h4 h3' h4'
+    have hidx : (g.current_step - 1 - c.id.step).toNat
+        = (g.current_step - 1 - s.id.step).toNat + 1 := by omega
+    rw [hidx]
+    show c ∈ (commonAt g a b (g.current_step - 1 - (((g.current_step - 1 - s.id.step).toNat : Int) + 1))).filter
+      (fun c' => climbs g (climbTo g a b t' (g.current_step - 1 - s.id.step).toNat) c')
+    refine List.mem_filter.mpr ⟨?_, ?_⟩
+    · have : g.current_step - 1 - (((g.current_step - 1 - s.id.step).toNat : Int) + 1) = c.id.step := by
+        omega
+      rw [this]
+      exact mem_commonAt g a b c nc hnc hca hcb hac hbc
+    · refine List.any_eq_true.mpr ⟨s, hIH, ?_⟩
+      have how : ∀ x y, Rel g x y → (ownersOf g x).contains y = true := by
+        intro x y hxy
+        obtain ⟨m, hm, hy, _⟩ := hxy
+        unfold ownersOf; rw [hm]; exact List.contains_iff_mem.mpr hy
+      simp only [hns, Bool.and_eq_true]
+      exact ⟨⟨List.contains_iff_mem.mpr hpar, how c s h1⟩, how s c h2⟩
+
+/-- **A chain from `a` makes its top reachable.** -/
+theorem reaches_of_chain (g : GPathM) (a b t : PathNodeId) (h : ChainUp2 g a b a t)
+    (na : PNodeM) (hna : g.node? a = some na) (h1 : Rel g a a) (h2 : Rel g a b) (h3 : Rel g b a) :
+    reaches g a b t = true :=
+  List.contains_iff_mem.mpr (climbTo_of_chain g a b t a h na hna h1 h2 h1 h3)
 
 /-- The side a top belongs to, among the sides that built the union: the one whose last step holds it. -/
 def sideOf (sides : List GPathM) (t : PathNodeId) : Option GPathM :=

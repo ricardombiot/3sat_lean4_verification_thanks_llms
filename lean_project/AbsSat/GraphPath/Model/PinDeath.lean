@@ -592,7 +592,11 @@ only where the side itself carries them, satisfies every closure rule of a suppo
 inductive ChainUp2 (X : GPathM) (a z : PathNodeId) : PathNodeId → PathNodeId → Prop where
   | top (t : PathNodeId) (h : t.id.step = X.current_step - 1) : ChainUp2 X a z t t
   | link (c s t : PathNodeId) (ns : PNodeM) (hns : X.node? s = some ns) (hpar : c ∈ ns.parents)
+      (hstep : c.id.step + 1 = s.id.step) (hc0 : 0 ≤ c.id.step)
+      (hs1 : s.id.step ≤ X.current_step - 1)
+      (hc : Rel X c a) (hc' : Rel X c z) (ha : Rel X a c) (hz : Rel X z c)
       (h1 : Rel X c s) (h2 : Rel X s c) (h3 : Rel X s a) (h4 : Rel X s z)
+      (h3' : Rel X a s) (h4' : Rel X z s)
       (hrest : ChainUp2 X a z s t) : ChainUp2 X a z c t
 
 /-- **The family a top names**: pairs the pinned union keeps, that hang on the top `t`, that the side's
