@@ -454,6 +454,49 @@ theorem ChainSound_famFix (sides : List GPathM) (t : PathNodeId) (sel : Int → 
     ChainSound (famFix sides t g) sel :=
   ChainSound_reviewAgg _ sel (ChainSound_restFuel sides t sel _ g h hT)
 
+/-- **The restriction settles.** When the sweep no longer removes anything from a live state, every
+entry left passes the test — it is an entry of the side of `t`, linked as parent and son where the steps
+are neighbours. -/
+theorem restOk_restFuel (sides : List GPathM) (t : PathNodeId) :
+    ∀ (fuel : Nat) (g : GPathM), GPathM.measure g < fuel →
+      isValid (restFuel sides t fuel g) = true →
+      TestOk (restTest sides t) (restFuel sides t fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact absurd h (Nat.not_lt_zero _)
+  | succ n ih =>
+    intro g hm hv
+    simp only [restFuel] at hv ⊢
+    split at hv
+    · next hlt =>
+      rw [if_pos hlt]
+      exact ih _ (Nat.lt_of_lt_of_le hlt (Nat.le_of_lt_succ hm)) hv
+    · next hnlt =>
+      rw [if_neg hnlt]
+      exact testOk_of_noProgress _ g hv hnlt
+
+theorem restOk_restAll (sides : List GPathM) (t : PathNodeId) (g : GPathM)
+    (hv : isValid (restAll sides t g) = true) : TestOk (restTest sides t) (restAll sides t g) :=
+  restOk_restFuel sides t _ g (Nat.lt_succ_self _) hv
+
+/-- **Every entry the family keeps is an entry of the side of `t`.** The review that follows the
+restriction only removes, so what it leaves still passes the test. -/
+theorem restTest_of_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM)
+    (hnd : ((restAll sides t g).nodes.map (·.id)).Nodup)
+    (hv : isValid (famFix sides t g) = true)
+    (a b : PathNodeId) (h : Rel (famFix sides t g) a b)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
+    (hb0 : 0 ≤ b.id.step) (hb1 : b.id.step < g.current_step) :
+    restTest sides t g a b = true := by
+  have hprF : Pruned (restAll sides t g) (famFix sides t g) :=
+    (ReaderAggRun.keeps_reviewAggFuel _ (restAll sides t g)).1
+  have hvR : isValid (restAll sides t g) = true := PinExact.isValid_of_pruned_valid hprF hv
+  have hR : Rel (restAll sides t g) a b := PinDeath.rel_of_pruned _ _ hnd hprF a b h
+  obtain ⟨n, hn, hmem, nb, hnb⟩ := hR
+  have hcs : (restAll sides t g).current_step = g.current_step := (keeps_restAll sides t g).1.step_eq
+  exact restOk_restAll sides t g hvR a n b hn (by rw [hnb]; rfl) ha0 (by rw [hcs]; exact ha1)
+    hb0 (by rw [hcs]; exact hb1) hmem
+
 /-- **The rule of the top, for one top.** The entry stays alive in the family that `t` names, and that
 family is a live state. -/
 def goodFor (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Bool :=
@@ -903,6 +946,129 @@ theorem sons_cimaSweep (sides : List GPathM) (g : GPathM) (hsmp : Sons.SMP g) (h
     (hsn : Sons.SN g) :
     Sons.SMP (cimaSweep sides g) ∧ Sons.PMS (cimaSweep sides g) ∧ Sons.SN (cimaSweep sides g) :=
   sons_pruneSweep _ g hsmp hpms hsn
+
+-- ============================================================
+-- The top names the side
+-- ============================================================
+
+open AbsSat.GraphPath.Model.ReaderAggRun (MInv)
+open AbsSat.GraphPath.Model.ConservationFilter (StateOkF)
+open AbsSat.GraphPath.Model.PinHistory (branchLine branchLine_inv)
+open AbsSat.GraphPath.Model.PinDeath (topOf)
+
+/-- **The only node a send has at its new step is its own top.** -/
+theorem sent_top (m : Nat) (kv : NodeId × GPathM) (hsok : StateOkF φ m kv)
+    (hmkv : MInv φ kv.2) (d : NodeId) (hv : isValid (sent φ kv.2 d) = true)
+    (n' : PNodeM) (hn' : n' ∈ (sent φ kv.2 d).nodes) (hs : n'.id.id.step = (m : Int) + 1) :
+    n'.id = topOf d kv.1 := by
+  have hvF := ClauseReview.valid_pinned φ kv.2 d hv
+  have heq : sent φ kv.2 d = addNode (ClauseReview.pinnedAt φ kv.2 d) d "" := by
+    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
+  have hprF : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 d) :=
+    Pruned.trans (ConservationCore.pruned_filterWeakAll _ _) (AggressiveReview.pruned_filterAllAgg _ _)
+  have hcsF : (ClauseReview.pinnedAt φ kv.2 d).current_step = (m : Int) + 1 := by
+    rw [hprF.step_eq, hsok.step]
+  have hmpF : (ClauseReview.pinnedAt φ kv.2 d).map_parent = some kv.1 := by
+    rw [hprF.map_parent_eq, hsok.par]
+  have hRF : ReaderAgg.ReadableAgg (ClauseReview.pinnedAt φ kv.2 d) :=
+    ⟨_, _, ReaderAgg.RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx, rfl⟩
+  have hbelow : ∀ x ∈ (ClauseReview.pinnedAt φ kv.2 d).nodes,
+      x.id.id.step < (ClauseReview.pinnedAt φ kv.2 d).current_step :=
+    (ReaderAgg.RCtx_of_readableAgg _ hRF).below
+  rw [heq] at hn'
+  have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d "" hbelow n' hn'
+    (by rw [hcsF]; exact hs)
+  rw [htop, hmpF]; rfl
+
+/-- **The top names the side.** A side of a union that holds the top `⟨p, key⟩` of the key `key` IS the
+send of that key: the send has exactly one node at the new step, its own top, and the keys of a line are
+distinct. This is what lets the rule read one single table: every `carries` a good top grants speaks of
+the same side. -/
+theorem side_of_top (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1)
+    (S : GPathM) (hS : S ∈ sidesOf φ (branchLine φ P m) p)
+    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (ht : (S.node? (topOf p kv.1)).isSome = true) :
+    S = sent φ kv.2 p := by
+  have hl := branchLine_inv φ hwf P m
+  obtain ⟨kv', hkv', hfe⟩ := List.mem_filterMap.mp hS
+  by_cases hc : ((mapSons φ kv'.1.step kv'.1.index).contains p && isValid (sent φ kv'.2 p)) = true
+  · rw [if_pos hc] at hfe
+    have hSe : S = sent φ kv'.2 p := by injection hfe with h; exact h.symm
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ht
+    have hnid : n.id = topOf p kv.1 := node?_id_eq _ _ n hn
+    have hmem : n ∈ S.nodes := List.mem_of_find?_eq_some hn
+    rw [hSe] at hmem
+    have hstep : n.id.id.step = (m : Int) + 1 := by rw [hnid]; exact hps
+    have hv' : isValid (sent φ kv'.2 p) = true := by
+      simp only [Bool.and_eq_true] at hc; exact hc.2
+    have hkeys : kv'.1 = kv.1 := by
+      have := sent_top φ m kv' (hl.1.2 kv' hkv') (hl.2 kv' hkv') p hv' n hmem hstep
+      rw [hnid] at this
+      have : topOf p kv.1 = topOf p kv'.1 := this
+      simpa [topOf] using this.symm
+    rw [hSe, PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys]
+  · rw [if_neg hc] at hfe; contradiction
+
+/-- **What a good top hands over, in the side's own table.** Because the top names the side, every pair
+the rule certifies with `carries` is a pair of that one side — which is exactly what the support of the
+side's send needs. -/
+theorem carries_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (a b : PathNodeId)
+    (hc : carries (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) a b = true) :
+    Rel (sent φ kv.2 p) a b ∧ Rel (sent φ kv.2 p) b a := by
+  obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hc
+  simp only [Bool.and_eq_true] at hcond
+  have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1.1
+  rw [hSe] at hcond
+  exact rel_of_owners _ a b hcond.1.2 hcond.2
+
+/-- **From a live entry at the fixpoint to a good top.** Reading `cimaOk` backwards: the top is a node of
+the last line, and `fam_closure` then gives the whole closure for it. -/
+theorem top_of_cimaOk (sides : List GPathM) (g : GPathM) (a b : PathNodeId)
+    (hok : cimaOk sides g a b = true) :
+    ∃ t, t.id.step = g.current_step - 1 ∧ goodFor sides g t a b = true := by
+  simp only [cimaOk] at hok
+  obtain ⟨t, ht, hgood⟩ := List.any_eq_true.mp hok
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp ht
+  exact ⟨n.id, eq_of_beq (List.mem_filter.mp hn).2, hgood⟩
+
+/-- **The parent link the side holds.** Same reading as `carries_in_side`, for the parent lists: what
+the test keeps on neighbouring steps is a parent link of that one side. -/
+theorem linked_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (a b : PathNodeId)
+    (hl : linkedIn (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) a b = true) :
+    ∃ na, (sent φ kv.2 p).node? a = some na ∧ b ∈ na.parents := by
+  obtain ⟨S, hS, hcond⟩ := List.any_eq_true.mp hl
+  simp only [Bool.and_eq_true] at hcond
+  have hSe := side_of_top φ hwf P m p hps S hS kv hkv hcond.1
+  rw [hSe] at hcond
+  cases hsa : (sent φ kv.2 p).node? a with
+  | none => rw [hsa] at hcond; exact (Bool.false_ne_true hcond.2).elim
+  | some na => rw [hsa] at hcond; exact ⟨na, rfl, List.contains_iff_mem.mp hcond.2⟩
+
+/-- **What the family of a top gives, read in the side.** Every entry the family keeps is an entry of
+the side's send, both ways; and on neighbouring steps it is one of its parent links. -/
+theorem side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
+    (hps : p.step = (m : Int) + 1) (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
+    (g : GPathM) (hnd : ((restAll (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g).nodes.map
+      (·.id)).Nodup)
+    (hv : isValid (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) = true)
+    (a b : PathNodeId) (h : Rel (famFix (sidesOf φ (branchLine φ P m) p) (topOf p kv.1) g) a b)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
+    (hb0 : 0 ≤ b.id.step) (hb1 : b.id.step < g.current_step) :
+    Rel (sent φ kv.2 p) a b ∧ Rel (sent φ kv.2 p) b a ∧
+      (b.id.step + 1 = a.id.step → ∃ na, (sent φ kv.2 p).node? a = some na ∧ b ∈ na.parents) := by
+  have ht := restTest_of_famFix _ _ g hnd hv a b h ha0 ha1 hb0 hb1
+  simp only [restTest, Bool.and_eq_true] at ht
+  refine ⟨(carries_in_side φ hwf P m p hps kv hkv a b ht.1.1.1).1,
+    (carries_in_side φ hwf P m p hps kv hkv a b ht.1.1.1).2, fun hstep => ?_⟩
+  have hbe : (b.id.step + 1 == a.id.step) = true := beq_iff_eq.mpr hstep
+  have := ht.1.2
+  rw [hbe] at this
+  exact linked_in_side φ hwf P m p hps kv hkv a b (by simpa using this)
 
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
