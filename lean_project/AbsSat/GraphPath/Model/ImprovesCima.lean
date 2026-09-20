@@ -825,6 +825,73 @@ theorem ChainSound_reviewCima_of_side (sides : List GPathM) (g S : GPathM) (hS :
     (hcs : 0 < g.current_step) : ChainSound (reviewCima sides g) sel :=
   ChainSound_reviewCima sides g sel h (carried_of_side sides g S hS sel hSc hroot hcsS hcs)
 
+-- ============================================================
+-- The invariants of a state survive the rule
+-- ============================================================
+
+theorem PMS_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.PMS g) (x w : PathNodeId) :
+    Sons.PMS (cimaPair sides g x w) := by
+  unfold cimaPair
+  split
+  · split
+    · exact Sons.PMS_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
+        (Sons.PMS_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs)
+    · exact hs
+  · exact hs
+
+theorem SN_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SN g) (x w : PathNodeId) :
+    Sons.SN (cimaPair sides g x w) := by
+  unfold cimaPair
+  split
+  · split
+    · exact Sons.SN_updateAt _ w _ (fun _ => rfl) (fun _ => rfl)
+        (Sons.SN_updateAt g x _ (fun _ => rfl) (fun _ => rfl) hs)
+    · exact hs
+  · exact hs
+
+theorem SMP_cimaNode (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x : PathNodeId) :
+    Sons.SMP (cimaNode sides g x) := by
+  unfold cimaNode
+  split
+  · exact hs
+  · next nx _ =>
+    exact BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w) (fun g' => Sons.SMP g')
+      nx.owners (fun g' w _ hg' => SMP_cimaPair sides g' hg' x w) g hs
+
+theorem PMS_cimaNode (sides : List GPathM) (g : GPathM) (hs : Sons.PMS g) (x : PathNodeId) :
+    Sons.PMS (cimaNode sides g x) := by
+  unfold cimaNode
+  split
+  · exact hs
+  · next nx _ =>
+    exact BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w) (fun g' => Sons.PMS g')
+      nx.owners (fun g' w _ hg' => PMS_cimaPair sides g' hg' x w) g hs
+
+theorem SN_cimaNode (sides : List GPathM) (g : GPathM) (hs : Sons.SN g) (x : PathNodeId) :
+    Sons.SN (cimaNode sides g x) := by
+  unfold cimaNode
+  split
+  · exact hs
+  · next nx _ =>
+    exact BranchLines.foldl_inv (fun g' w => cimaPair sides g' x w) (fun g' => Sons.SN g')
+      nx.owners (fun g' w _ hg' => SN_cimaPair sides g' hg' x w) g hs
+
+theorem sons_cimaSweep (sides : List GPathM) (g : GPathM) (hsmp : Sons.SMP g) (hpms : Sons.PMS g)
+    (hsn : Sons.SN g) :
+    Sons.SMP (cimaSweep sides g) ∧ Sons.PMS (cimaSweep sides g) ∧ Sons.SN (cimaSweep sides g) := by
+  unfold cimaSweep
+  split
+  · refine BranchLines.foldl_inv
+      (fun g' k => ((g'.line k).map (·.id)).foldl (cimaNode sides) g')
+      (fun g' => Sons.SMP g' ∧ Sons.PMS g' ∧ Sons.SN g') _ ?_ g ⟨hsmp, hpms, hsn⟩
+    intro g' k _ hg'
+    refine BranchLines.foldl_inv (cimaNode sides) (fun g'' => Sons.SMP g'' ∧ Sons.PMS g'' ∧ Sons.SN g'')
+      _ ?_ g' hg'
+    intro g'' x _ hg''
+    exact ⟨SMP_cimaNode sides g'' hg''.1 x, PMS_cimaNode sides g'' hg''.2.1 x,
+      SN_cimaNode sides g'' hg''.2.2 x⟩
+  · exact ⟨hsmp, hpms, hsn⟩
+
 /-- **The family a good top names, at the fixpoint**: the live entries the side of `t` carries. The rule
 leaves it closed under the witness of every step — the `cov` and `agg` rules of a support. -/
 def FamAt (sides : List GPathM) (g : GPathM) (t a b : PathNodeId) : Prop :=
