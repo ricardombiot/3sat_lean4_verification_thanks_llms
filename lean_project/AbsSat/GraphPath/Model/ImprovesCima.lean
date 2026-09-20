@@ -381,6 +381,73 @@ theorem testOk_of_noProgress (test : GPathM → PathNodeId → PathNodeId → Bo
     exact Nat.lt_irrefl _ hlt
 
 -- ============================================================
+-- The invariants of a state survive the rule
+-- ============================================================
+
+theorem PMS_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.PMS g) (x w : PathNodeId) :
+    Sons.PMS (prunePair test g x w) := by
+  unfold prunePair
+  split
+  · split
+    · exact Sons.PMS_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
+        (Sons.PMS_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs)
+    · exact hs
+  · exact hs
+
+theorem SN_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SN g) (x w : PathNodeId) :
+    Sons.SN (prunePair test g x w) := by
+  unfold prunePair
+  split
+  · split
+    · exact Sons.SN_updateAt _ w _ (fun _ => rfl) (fun _ => rfl)
+        (Sons.SN_updateAt g x _ (fun _ => rfl) (fun _ => rfl) hs)
+    · exact hs
+  · exact hs
+
+theorem SMP_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SMP g) (x : PathNodeId) :
+    Sons.SMP (pruneNode test g x) := by
+  unfold pruneNode
+  split
+  · exact hs
+  · next nx _ =>
+    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.SMP g')
+      nx.owners (fun g' w _ hg' => SMP_prunePair test g' hg' x w) g hs
+
+theorem PMS_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.PMS g) (x : PathNodeId) :
+    Sons.PMS (pruneNode test g x) := by
+  unfold pruneNode
+  split
+  · exact hs
+  · next nx _ =>
+    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.PMS g')
+      nx.owners (fun g' w _ hg' => PMS_prunePair test g' hg' x w) g hs
+
+theorem SN_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SN g) (x : PathNodeId) :
+    Sons.SN (pruneNode test g x) := by
+  unfold pruneNode
+  split
+  · exact hs
+  · next nx _ =>
+    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.SN g')
+      nx.owners (fun g' w _ hg' => SN_prunePair test g' hg' x w) g hs
+
+theorem sons_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hsmp : Sons.SMP g) (hpms : Sons.PMS g)
+    (hsn : Sons.SN g) :
+    Sons.SMP (pruneSweep test g) ∧ Sons.PMS (pruneSweep test g) ∧ Sons.SN (pruneSweep test g) := by
+  unfold pruneSweep
+  split
+  · refine BranchLines.foldl_inv
+      (fun g' k => ((g'.line k).map (·.id)).foldl (pruneNode test) g')
+      (fun g' => Sons.SMP g' ∧ Sons.PMS g' ∧ Sons.SN g') _ ?_ g ⟨hsmp, hpms, hsn⟩
+    intro g' k _ hg'
+    refine BranchLines.foldl_inv (pruneNode test) (fun g'' => Sons.SMP g'' ∧ Sons.PMS g'' ∧ Sons.SN g'')
+      _ ?_ g' hg'
+    intro g'' x _ hg''
+    exact ⟨SMP_pruneNode test g'' hg''.1 x, PMS_pruneNode test g'' hg''.2.1 x,
+      SN_pruneNode test g'' hg''.2.2 x⟩
+  · exact ⟨hsmp, hpms, hsn⟩
+
+-- ============================================================
 -- The family a top names: the union restricted to its side
 -- ============================================================
 
@@ -496,6 +563,52 @@ theorem restTest_of_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM)
   have hcs : (restAll sides t g).current_step = g.current_step := (keeps_restAll sides t g).1.step_eq
   exact restOk_restAll sides t g hvR a n b hn (by rw [hnb]; rfl) ha0 (by rw [hcs]; exact ha1)
     hb0 (by rw [hcs]; exact hb1) hmem
+
+/-- The sons invariants survive the restriction. -/
+theorem sons_restFuel (sides : List GPathM) (t : PathNodeId) :
+    ∀ (fuel : Nat) (g : GPathM), Sons.SMP g → Sons.PMS g → Sons.SN g →
+      Sons.SMP (restFuel sides t fuel g) ∧ Sons.PMS (restFuel sides t fuel g) ∧
+        Sons.SN (restFuel sides t fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h1 h2 h3; exact ⟨h1, h2, h3⟩
+  | succ n ih =>
+    intro g h1 h2 h3
+    simp only [restFuel]
+    split
+    · obtain ⟨a, b, c⟩ := sons_pruneSweep (restTest sides t) g h1 h2 h3
+      exact ih _ a b c
+    · exact ⟨h1, h2, h3⟩
+
+theorem sons_restAll (sides : List GPathM) (t : PathNodeId) (g : GPathM)
+    (h1 : Sons.SMP g) (h2 : Sons.PMS g) (h3 : Sons.SN g) :
+    Sons.SMP (restAll sides t g) ∧ Sons.PMS (restAll sides t g) ∧ Sons.SN (restAll sides t g) :=
+  sons_restFuel sides t _ g h1 h2 h3
+
+/-- **The family is a state of the machine's own kind.** It is the review of a narrowing, so it carries
+the reader's context and the sons invariants, and therefore the adjacency its support needs. -/
+theorem adj_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM)
+    (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hv : isValid (famFix sides t g) = true) :
+    AdjacentOwners.Adj (famFix sides t g) ∧ Sons.SMP (famFix sides t g) := by
+  obtain ⟨s1, s2, s3⟩ := sons_restAll sides t g hsmp hpms hsn
+  have hrc0 : Reader.RCtx (restAll sides t g) := ReaderAgg.RCtx_of_keeps (keeps_restAll sides t g) hrc
+  have hform : famFix sides t g = AggressiveReview.filterAllAgg (restAll sides t g) [] := rfl
+  refine ⟨AdjacentOwners.adj_of_readable _ ?_ hv ?_ ?_, ?_⟩
+  · exact ⟨restAll sides t g, [], hrc0, hform⟩
+  · rw [hform]; exact AggInvariants.PMS_filterAllAgg _ [] s2
+  · rw [hform]; exact AggInvariants.SN_filterAllAgg _ [] s3
+  · rw [hform]; exact AnchoredSurvive.SMP_filterAllAgg _ s1 hrc0.shape.notroot []
+
+/-- **The family has a support: its own tables.** It is a review fixpoint, so `LinkedChain.sup_self`
+applies with no further hypothesis. -/
+theorem sup_famFix (sides : List GPathM) (t : PathNodeId) (g : GPathM)
+    (hrc : Reader.RCtx g) (hsmp : Sons.SMP g) (hpms : Sons.PMS g) (hsn : Sons.SN g)
+    (hv : isValid (famFix sides t g) = true) :
+    AnchoredSurvive.Sup (famFix sides t g) (EmbeddedSupport.Mem (famFix sides t g))
+      (Rel (famFix sides t g)) := by
+  obtain ⟨hadj, hsm⟩ := adj_famFix sides t g hrc hsmp hpms hsn hv
+  exact LinkedChain.sup_self _ hadj (AggFixpoint.aggOk_reviewAgg _ hv) hsm
 
 /-- **The rule of the top, for one top.** The entry stays alive in the family that `t` names, and that
 family is a live state. -/
@@ -872,73 +985,6 @@ theorem ChainSound_reviewCima_of_side (sides : List GPathM) (g S : GPathM) (hS :
     (hcs : 0 < g.current_step) : ChainSound (reviewCima sides g) sel :=
   ChainSound_reviewCima sides g sel h (carried_of_side sides g S hS sel hSc hcsS hcs)
 
--- ============================================================
--- The invariants of a state survive the rule
--- ============================================================
-
-theorem PMS_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.PMS g) (x w : PathNodeId) :
-    Sons.PMS (prunePair test g x w) := by
-  unfold prunePair
-  split
-  · split
-    · exact Sons.PMS_updateAt _ w _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
-        (Sons.PMS_updateAt g x _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) hs)
-    · exact hs
-  · exact hs
-
-theorem SN_prunePair (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SN g) (x w : PathNodeId) :
-    Sons.SN (prunePair test g x w) := by
-  unfold prunePair
-  split
-  · split
-    · exact Sons.SN_updateAt _ w _ (fun _ => rfl) (fun _ => rfl)
-        (Sons.SN_updateAt g x _ (fun _ => rfl) (fun _ => rfl) hs)
-    · exact hs
-  · exact hs
-
-theorem SMP_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SMP g) (x : PathNodeId) :
-    Sons.SMP (pruneNode test g x) := by
-  unfold pruneNode
-  split
-  · exact hs
-  · next nx _ =>
-    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.SMP g')
-      nx.owners (fun g' w _ hg' => SMP_prunePair test g' hg' x w) g hs
-
-theorem PMS_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.PMS g) (x : PathNodeId) :
-    Sons.PMS (pruneNode test g x) := by
-  unfold pruneNode
-  split
-  · exact hs
-  · next nx _ =>
-    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.PMS g')
-      nx.owners (fun g' w _ hg' => PMS_prunePair test g' hg' x w) g hs
-
-theorem SN_pruneNode (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hs : Sons.SN g) (x : PathNodeId) :
-    Sons.SN (pruneNode test g x) := by
-  unfold pruneNode
-  split
-  · exact hs
-  · next nx _ =>
-    exact BranchLines.foldl_inv (fun g' w => prunePair test g' x w) (fun g' => Sons.SN g')
-      nx.owners (fun g' w _ hg' => SN_prunePair test g' hg' x w) g hs
-
-theorem sons_pruneSweep (test : GPathM → PathNodeId → PathNodeId → Bool) (g : GPathM) (hsmp : Sons.SMP g) (hpms : Sons.PMS g)
-    (hsn : Sons.SN g) :
-    Sons.SMP (pruneSweep test g) ∧ Sons.PMS (pruneSweep test g) ∧ Sons.SN (pruneSweep test g) := by
-  unfold pruneSweep
-  split
-  · refine BranchLines.foldl_inv
-      (fun g' k => ((g'.line k).map (·.id)).foldl (pruneNode test) g')
-      (fun g' => Sons.SMP g' ∧ Sons.PMS g' ∧ Sons.SN g') _ ?_ g ⟨hsmp, hpms, hsn⟩
-    intro g' k _ hg'
-    refine BranchLines.foldl_inv (pruneNode test) (fun g'' => Sons.SMP g'' ∧ Sons.PMS g'' ∧ Sons.SN g'')
-      _ ?_ g' hg'
-    intro g'' x _ hg''
-    exact ⟨SMP_pruneNode test g'' hg''.1 x, PMS_pruneNode test g'' hg''.2.1 x,
-      SN_pruneNode test g'' hg''.2.2 x⟩
-  · exact ⟨hsmp, hpms, hsn⟩
-
 theorem SMP_cimaPair (sides : List GPathM) (g : GPathM) (hs : Sons.SMP g) (x w : PathNodeId) :
     Sons.SMP (cimaPair sides g x w) := SMP_prunePair _ g hs x w
 
@@ -1069,6 +1115,69 @@ theorem side_of_famFix (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
   have := ht.1.2
   rw [hbe] at this
   exact linked_in_side φ hwf P m p hps kv hkv a b (by simpa using this)
+
+-- ============================================================
+-- The support of the side, assembled
+-- ============================================================
+
+/-- **The family is a support of the side's send.** Everything about the family itself — cover,
+aggregation, symmetry — is its own support, because it is a review fixpoint. Everything that speaks of
+the side — that its pairs are the side's, that a parent of the family is a parent of the side — is what
+the restriction test guarantees. Putting the two together gives a support of the send. -/
+theorem sup_of_famSide (Y S : GPathM)
+    (hY : AnchoredSurvive.Sup Y (EmbeddedSupport.Mem Y) (Rel Y))
+    (hadj : AdjacentOwners.Adj Y) (hcs : Y.current_step = S.current_step)
+    (hside : ∀ a b, Rel Y a b → Rel S a b ∧ Rel S b a ∧
+      (b.id.step + 1 = a.id.step → ∃ na, S.node? a = some na ∧ b ∈ na.parents))
+    (hgow : ∀ q n, S.node? q = some n → ∀ z ∈ n.owners, 0 ≤ z.id.step →
+      z.id.step < S.current_step → z ∈ S.gowners) :
+    AnchoredSurvive.Sup S (EmbeddedSupport.Mem Y) (Rel Y) := by
+  have hbnd : ∀ q, EmbeddedSupport.Mem Y q → 0 ≤ q.id.step ∧ q.id.step < S.current_step := by
+    intro q hq
+    have := EmbeddedSupport.mem_bounds Y hadj hq
+    rw [hcs] at this; exact this
+  have hone : ∀ q, EmbeddedSupport.Mem Y q → ∃ v, Rel Y q v := by
+    intro q hq
+    obtain ⟨v, hv, _⟩ := hY.cov q hq 0 (Int.le_refl 0)
+      (by have := EmbeddedSupport.mem_bounds Y hadj hq; omega)
+    exact ⟨v, hv⟩
+  refine ⟨?_, ?_, hbnd, hY.dom, ?_, ?_, ?_, ?_, ?_, hY.sym, ?_⟩
+  · intro q hq
+    obtain ⟨v, hv⟩ := hone q hq
+    obtain ⟨n, hn, hmem, _⟩ := (hside q v hv).2.1
+    exact hgow v n hn q hmem (hbnd q hq).1 (hbnd q hq).2
+  · intro q hq
+    obtain ⟨v, hv⟩ := hone q hq
+    obtain ⟨n, hn, _, _⟩ := (hside q v hv).1
+    rw [hn]; rfl
+  · intro x v n hr hn
+    obtain ⟨n', hn', hmem, _⟩ := (hside x v hr).1
+    rw [hn] at hn'; cases hn'; exact hmem
+  · intro x hx l hl0 hl1
+    exact hY.cov x hx l hl0 (by rw [hcs]; exact hl1)
+  · intro x d hx hn hroot v hr
+    obtain ⟨dY, hdY⟩ := id hx
+    obtain ⟨c, hcpar, h1, h2, h3⟩ := hY.par x dY hx hdY hroot v hr
+    have hstep : c.id.step + 1 = x.id.step := by
+      have hid : dY.id = x := node?_id_eq Y x dY hdY
+      have := hadj.rc.shape.pbelow dY (List.mem_of_find?_eq_some hdY) c hcpar
+      rw [hid] at this; omega
+    obtain ⟨na, hna, hmem⟩ := (hside x c h1).2.2 hstep
+    rw [hn] at hna; cases hna
+    exact ⟨c, hmem, h1, h2, h3⟩
+  · intro x hx hne v hr
+    obtain ⟨c, mY, hmY, hxpar, h1, h2, h3⟩ := hY.son x hx (by rw [hcs]; exact hne) v hr
+    have hstep : x.id.step + 1 = c.id.step := by
+      have hid : mY.id = c := node?_id_eq Y c mY hmY
+      have := hadj.rc.shape.pbelow mY (List.mem_of_find?_eq_some hmY) x hxpar
+      rw [hid] at this; omega
+    obtain ⟨mc, hmc, hmem⟩ := (hside c x h2).2.2 hstep
+    exact ⟨c, mc, hmc, hmem, h1, h2, h3⟩
+  · intro x v hr l hl0 hl1
+    exact hY.agg x v hr l hl0 (by rw [hcs]; exact hl1)
+  · intro x c d h1 h2 hstep hn
+    obtain ⟨na, hna, hmem⟩ := (hside x c h1).2.2 hstep
+    rw [hn] at hna; cases hna; exact hmem
 
 /-! **What is left for the verdict of `ImprovesCima`.** The review of a union leaves every live entry
 with a good top (`cimaOk_filterAllCima`), that is: alive in the family the top names, which is a live
