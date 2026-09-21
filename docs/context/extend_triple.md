@@ -182,9 +182,18 @@ El del §3bis. Es el único que no pelea contra Helly: usa que la obligación na
 pregunta qué la rompe. Encaja con cómo está demostrado todo lo demás del repo, y el caso de
 nacimiento ya está escrito en `mem_rowOwners_iff`.
 
-**Riesgo honesto:** la preservación bajo `reviewAgg` es exactamente donde vive la dificultad,
-y no sé si es más fácil ahí que en la forma de Helly. Pero al menos es una inducción sobre las
-operaciones de la máquina, no una propiedad estática de las tablas.
+**Explorado a fondo en [descenso_por_induccion.md](descenso_por_induccion.md), y el resultado
+fue una sorpresa: la inducción ya está construida.** `DescentUp`, `DescentJoin`,
+`DescentFilter` y `DescentInvariant` hacen los cuatro casos; el `up` está probado sin axiomas
+y sobrevivió al puerto de la ventana; el `join` y el filtro están probados bajo dos hipótesis
+con nombre (`JoinCoveredF`, `ReqCompletion`); y **lo que falta es el ensamblaje**, que nadie
+ha escrito.
+
+**Corrección a lo que escribí arriba en §3bis:** *«`CommonOwner` nace trivialmente cierta»*
+está dicho de más. La inclusión `owners(n) ⊇ owners(padre) ∩ gowners` vale en el instante en
+que `n` se crea, con las tablas de entonces; los reviews posteriores encogen ambos lados. La
+intuición —*el problema está en las eliminaciones, no en el nacimiento*— era correcta; la
+formulación, no.
 
 
 ### (A) Cerrar la terna usando `AggOk` sobre `(u,w)`
