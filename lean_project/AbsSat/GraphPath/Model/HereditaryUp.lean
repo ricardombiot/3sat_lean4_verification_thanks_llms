@@ -180,18 +180,38 @@ theorem drop_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
     exact List.any_eq_true.mpr ⟨q, hA.sup.gow q hqS, hqs⟩
   · obtain ⟨mq, hmq, hmqid⟩ := a.rc.gn q hq
     exact hA.sup.gow q ⟨⟨mq, by rw [← hmqid]; exact node?_of_mem a.rc.nodup mq hmq⟩, hqs⟩
+
+/-- **The row identifiers a support keeps**: one per member of `B` sitting at the top old step.
+Kept as a definition rather than a local `let` on purpose — `omega` zeta-reduces a `let` and then
+case-splits the step equation inside it through `Classical`, which would put `Classical.choice` in
+the axiom closure of every theorem downstream of `hpv_addNode`. -/
+def SupRow (B : GPathM) (cs : Int) (d : NodeId) (z : PathNodeId) : Prop :=
+  ∃ c, Mem B c ∧ c.id.step = cs - 1 ∧ z = shiftPid c d
+
+/-- **What a kept row node is related to**: whatever one of its own surviving parents owns. This is
+the window's half of the support — with a single new node the relation was "every member". -/
+def SupRw (B : GPathM) (cs : Int) (d : NodeId) (z v : PathNodeId) : Prop :=
+  ∃ c, Mem B c ∧ c.id.step = cs - 1 ∧ z = shiftPid c d ∧ Rel B c v
+
 /-- **U2.** If `F` is valid under `C ++ [q]` for an old `q`, and the grown state is valid under `C`, the
-grown state is valid under `C ++ [q]`. -/
+grown state is valid under `C ++ [q]`.
+
+With the window the new step is a whole **row**, so the support that carries `A` is no longer
+"`B` plus one node related to everything". It is `B` **plus the surviving row**: one row node
+`shiftPid c d` for each member `c` of the top old step, related downwards only through *its own*
+parents (`Rw`), and two row nodes related only when they are equal. The piece that closes every
+clause where a row node meets a member of the top old step is `relSame` — by `OOS` an owner at the
+node's own step *is* the node — so a witness forced to that step is the parent it came from. -/
 theorem add_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
-    (rcF : Reader.RCtx F) (hsF : Sons.SMP F) (hpF : Sons.PMS F) (hnF : Sons.SN F) (hmok : MachineOk F)
+    (rcF : Reader.RCtx F) (hsF : Sons.SMP F) (hpF : Sons.PMS F) (hnF : Sons.SN F) (_hmok : MachineOk F)
     (rcA : Reader.RCtx (addNode F d "")) (hsA : Sons.SMP (addNode F d ""))
     (C : Cons) (hvA : isValid (Fw (addNode F d "") C) = true) (q : NodeId) (hqs : q.step < F.current_step)
+    (hpos : 0 < F.current_step)
     (hvF : isValid (Fw F (C ++ [pinC q])) = true) :
     isValid (Fw (addNode F d "") (C ++ [pinC q])) = true := by
   let A := addNode F d ""
   let C' := C ++ [pinC q]
   let B := Fw F C'
-  let new := newPid F d
   obtain ⟨hRB, hsB, hpB, hnB⟩ := Fw_facts F rcF hsF hpF hnF C'
   have a := AdjacentOwners.adj_of_readable B hRB hvF hpB hnB
   have hok : AggOk B := aggOk_reviewAgg _ hvF
@@ -199,19 +219,14 @@ theorem add_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
   have hcsA : A.current_step = F.current_step + 1 := addNode_current F d ""
   have hcsB : B.current_step = F.current_step :=
     (Pruned.trans (ReaderAggRun.keeps_filterWeakAll F C').1 (pruned_filterAllAgg _ [])).step_eq
-  have hnewstep : new.id.step = F.current_step := hd
-  have hcs0 : 0 ≤ F.current_step := hmok.1
-  -- facts about the members of B
+  have hcs0 : (0 : Int) ≤ F.current_step := by omega
+  -- ------------------------------------------------------------------
+  -- the members of `B`
+  -- ------------------------------------------------------------------
   have oldB : ∀ p, Mem B p → Mem F p ∧ p.id.step < F.current_step := by
     intro p hp
-    have hmF := mem_Fw hp
-    obtain ⟨m, hm⟩ := hmF
+    obtain ⟨m, hm⟩ := mem_Fw hp
     exact ⟨⟨m, hm⟩, by rw [← node?_id_eq _ p m hm]; exact rcF.below m (List.mem_of_find?_eq_some hm)⟩
-  have neNew : ∀ p, Mem B p → p ≠ new := by
-    intro p hp he
-    have := (oldB p hp).2
-    rw [he, hnewstep] at this
-    omega
   have gowB : ∀ p, Mem B p → p ∈ F.gowners ∧ ∀ e ∈ C', p.id.step = e.1 → p.id ∈ e.2 := by
     intro p hp
     have hg := gowner_of_mem B a hp
@@ -226,40 +241,6 @@ theorem add_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
   have nodeOld : ∀ x nF, F.node? x = some nF → (filterWeakAll A C').node? x = some (upMap F d nF) := by
     intro x nF hnF
     rw [node?_filterWeakAll]; exact addNode_node?_old F d "" x nF hnF
-  have nodeNew : (filterWeakAll A C').node? new = some (addOwner new (upNode F d "")) := by
-    rw [node?_filterWeakAll]; exact addNode_node?_new F d "" hd rcF.below
-  -- the new node survives `C`
-  have newAllowed : ∀ e ∈ C, new.id.step = e.1 → new.id ∈ e.2 := by
-    intro e he hs
-    simp only [isValid, List.all_eq_true] at hvA
-    have hcsFwA : (Fw A C).current_step = F.current_step + 1 := by
-      rw [← hcsA]; exact (Pruned.trans (ReaderAggRun.keeps_filterWeakAll A C).1 (pruned_filterAllAgg _ [])).step_eq
-    obtain ⟨g, hg, hgs⟩ := List.any_eq_true.mp (hvA F.current_step (mem_intRange hcs0 (by rw [hcsFwA]; omega)))
-    have hgW := (pruned_filterAllAgg (filterWeakAll A C) []).gowners_sub g hg
-    obtain ⟨hgA, hgc⟩ := (mem_filterWeakAll C A g).mp hgW
-    have hgA' : g ∈ F.gowners ++ [new] := hgA
-    have hgnew : g = new := by
-      rcases List.mem_append.mp hgA' with h | h
-      · obtain ⟨m, hm, hmid⟩ := rcF.gn g h
-        have := rcF.below m hm
-        rw [hmid, eq_of_beq hgs] at this
-        omega
-      · exact List.mem_singleton.mp h
-    rw [← hgnew]
-    exact hgc e he (by rw [hgnew]; exact hs)
-  have hcspos : ∀ c, Mem B c → c.id.step = F.current_step - 1 → 0 < F.current_step := by
-    intro c hc hs
-    have := (mem_bounds B a hc).1
-    omega
-  have inParentsNew : ∀ c, Mem B c → c.id.step = F.current_step - 1 → c ∈ newParents F := by
-    intro c hc hs
-    unfold newParents
-    rw [if_pos (hcspos c hc hs)]
-    obtain ⟨mc, hmc⟩ := (oldB c hc).1
-    exact mem_line_of_node? F c mc hmc _ hs
-  let S : PathNodeId → Prop := fun p => Mem B p ∨ p = new
-  let R : PathNodeId → PathNodeId → Prop := fun x v =>
-    S x ∧ S v ∧ (x = new ∨ (Mem B x ∧ (Rel B x v ∨ v = new)))
   have selfRel : ∀ x, Mem B x → Rel B x x := by
     rintro x ⟨m, hm⟩
     exact ⟨m, hm, a.ctx.self x m hm, ⟨m, hm⟩⟩
@@ -273,182 +254,306 @@ theorem add_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
     rintro x ⟨m, hm⟩ l hl0 hl1
     obtain ⟨z, hz, hzs⟩ := owner_at B a x m hm l hl0 (by rw [hcsB]; exact hl1)
     exact ⟨z, ⟨m, hm, hz, mem_of_owner B a x m hm z hz (by omega) (by rw [hcsB]; omega)⟩, hzs⟩
+  have inParentsNew : ∀ c, Mem B c → c.id.step = F.current_step - 1 → c ∈ newParents F := by
+    intro c hc hs
+    unfold newParents
+    rw [if_pos hpos]
+    obtain ⟨mc, hmc⟩ := (oldB c hc).1
+    exact mem_line_of_node? F c mc hmc _ hs
+  -- **an owner at the node's own step is the node** (`OOS`); the pivot of the whole construction
+  have relSame : ∀ x v, Rel B x v → x.id.step = v.id.step → x = v := by
+    rintro x v ⟨m, hm, hv, _⟩ hs
+    have hid : m.id = x := node?_id_eq B x m hm
+    have h := a.rc.oos m (List.mem_of_find?_eq_some hm) v hv (by rw [hid]; exact hs.symm)
+    rw [hid] at h
+    exact h.symm
+  -- the whole row survives `C`: every row id carries the map id `d`
+  have newAllowed : ∀ e ∈ C, F.current_step = e.1 → d ∈ e.2 := by
+    intro e he hs
+    simp only [isValid, List.all_eq_true] at hvA
+    have hcsFwA : (Fw A C).current_step = F.current_step + 1 := by
+      rw [← hcsA]; exact (Pruned.trans (ReaderAggRun.keeps_filterWeakAll A C).1 (pruned_filterAllAgg _ [])).step_eq
+    obtain ⟨g, hg, hgs⟩ := List.any_eq_true.mp (hvA F.current_step (mem_intRange hcs0 (by rw [hcsFwA]; omega)))
+    have hgW := (pruned_filterAllAgg (filterWeakAll A C) []).gowners_sub g hg
+    obtain ⟨hgA, hgc⟩ := (mem_filterWeakAll C A g).mp hgW
+    have hgA' : g ∈ F.gowners ++ newRowIds F d := hgA
+    have hgd : g.id = d := by
+      rcases List.mem_append.mp hgA' with h | h
+      · exfalso
+        obtain ⟨m, hm, hmid⟩ := rcF.gn g h
+        have hb := rcF.below m hm
+        rw [hmid, eq_of_beq hgs] at hb
+        omega
+      · exact mapId_of_mem_newRowIds F d g h
+    rw [← hgd]
+    exact hgc e he (by rw [eq_of_beq hgs]; exact hs)
+  -- ------------------------------------------------------------------
+  -- the row, and the support it builds
+  -- ------------------------------------------------------------------
+  let Row : PathNodeId → Prop := SupRow B F.current_step d
+  let Rw : PathNodeId → PathNodeId → Prop := SupRw B F.current_step d
+  let S : PathNodeId → Prop := fun p => Mem B p ∨ Row p
+  let R : PathNodeId → PathNodeId → Prop := fun x v =>
+    (Mem B x ∧ Mem B v ∧ Rel B x v) ∨ (Rw x v ∧ Mem B v) ∨ (Rw v x ∧ Mem B x) ∨ (Row x ∧ x = v)
+  have rowStep : ∀ z, Row z → z.id.step = F.current_step := by
+    rintro z ⟨c, _, _, rfl⟩; exact hd
+  have rowIds : ∀ z, Row z → z ∈ newRowIds F d := by
+    rintro z ⟨c, hc, hcs, rfl⟩
+    exact mem_newRowIds_of_mem_newParents F d c hpos (inParentsNew c hc hcs)
+  have rowNotMem : ∀ z, Row z → ¬ Mem B z := by
+    intro z hz hm
+    have h1 := rowStep z hz
+    have h2 := (oldB z hm).2
+    omega
+  have rowNodeAt : ∀ z, Row z → (filterWeakAll A C').node? z = some (rowNode F d "" z) := by
+    intro z hz
+    rw [node?_filterWeakAll]
+    exact addNode_node?_new F d "" hd rcF.below z (rowIds z hz)
+  have rwRow : ∀ z v, Rw z v → Row z := by
+    rintro z v ⟨c, hc, hcs, hz, _⟩; exact ⟨c, hc, hcs, hz⟩
+  have rowOwn : ∀ z v, Rw z v → v ∈ rowOwners F d z := by
+    rintro z v ⟨c, hc, hcs, rfl, mB, hmB, hvm, hv⟩
+    obtain ⟨nF', hnF'⟩ := (oldB c hc).1
+    refine (mem_rowOwners_iff F d _ v).mpr (Or.inl ⟨?_, (gowB v hv).1⟩)
+    exact mem_unionOwnersOf F _ c nF' v
+      (mem_rowParents_of_mem_newParents F d c (inParentsNew c hc hcs)) hnF'
+      ((tables c mB hmB nF' hnF').1 v hvm)
+  have gainRow : ∀ z x nF', Rw z x → F.node? x = some nF' → z ∈ gainedOwners F d nF' := by
+    intro z x nF' hrw hnF'
+    refine List.mem_filter.mpr ⟨rowIds z (rwRow z x hrw), ?_⟩
+    rw [node?_id_eq F x nF' hnF']
+    exact List.elem_eq_true_of_mem (rowOwn z x hrw)
+  have rowExists : ∃ z, Row z := by
+    obtain ⟨c, hc, hcs⟩ := gowAt (F.current_step - 1) (by omega) (by omega)
+    exact ⟨shiftPid c d, c, hc, hcs, rfl⟩
   have sup : Sup (filterWeakAll A C') S R := by
-    refine ⟨?_, ?_, ?_, fun x v h => ⟨h.1, h.2.1⟩, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · -- global owners
-      rintro p (hp | rfl)
+      rintro p (hp | hp)
       · obtain ⟨hgF, hc⟩ := gowB p hp
         exact (mem_filterWeakAll C' A p).mpr ⟨List.mem_append_left _ hgF, hc⟩
-      · refine (mem_filterWeakAll C' A new).mpr ⟨List.mem_append_right _ List.mem_cons_self, fun e he hs => ?_⟩
+      · refine (mem_filterWeakAll C' A p).mpr ⟨List.mem_append_right _ (rowIds p hp), fun e he hs => ?_⟩
+        rw [mapId_of_mem_newRowIds F d p (rowIds p hp)]
+        rw [rowStep p hp] at hs
         rcases List.mem_append.mp he with he | he
         · exact newAllowed e he hs
-        · rw [List.mem_singleton.mp he] at hs
+        · exfalso
+          rw [List.mem_singleton.mp he] at hs
           simp only [pinC] at hs
           omega
-    · rintro p (hp | rfl)
+    · -- the node exists
+      rintro p (hp | hp)
       · obtain ⟨m, hm⟩ := (oldB p hp).1
         rw [nodeOld p m hm]; rfl
-      · rw [nodeNew]; rfl
-    · rintro p (hp | rfl)
+      · rw [rowNodeAt p hp]; rfl
+    · -- the step is in range
+      rintro p (hp | hp)
       · rw [(filterWeakAll_frame C' A).2.1, hcsA]
         exact ⟨(mem_bounds B a hp).1, by have := (oldB p hp).2; omega⟩
-      · rw [(filterWeakAll_frame C' A).2.1, hcsA, hnewstep]
+      · rw [(filterWeakAll_frame C' A).2.1, hcsA, rowStep p hp]
         exact ⟨hcs0, by omega⟩
+    · -- domain
+      rintro x v (⟨hx, hv, _⟩ | ⟨hrw, hv⟩ | ⟨hrw, hx⟩ | ⟨hx, rfl⟩)
+      · exact ⟨Or.inl hx, Or.inl hv⟩
+      · exact ⟨Or.inr (rwRow x v hrw), Or.inl hv⟩
+      · exact ⟨Or.inl hx, Or.inr (rwRow v x hrw)⟩
+      · exact ⟨Or.inr hx, Or.inr hx⟩
     · -- owners
-      rintro x v n ⟨_, hSv, hr⟩ hn
-      rcases hr with rfl | ⟨hx, hr⟩
-      · rw [nodeNew] at hn
-        cases hn
-        change v ∈ F.gowners ++ [new]
-        rcases hSv with hv | rfl
-        · exact List.mem_append_left _ (gowB v hv).1
-        · exact List.mem_append_right _ List.mem_cons_self
+      rintro x v n (⟨hx, hv, hr⟩ | ⟨hrw, hv⟩ | ⟨hrw, hx⟩ | ⟨hx, rfl⟩) hn
       · obtain ⟨mF, hmF⟩ := (oldB x hx).1
         rw [nodeOld x mF hmF] at hn
         cases hn
         rw [upMap_owners]
-        rcases hr with ⟨mB, hmB, hvm, _⟩ | rfl
-        · exact List.mem_append_left _ ((tables x mB hmB mF hmF).1 v hvm)
-        · exact List.mem_append_right _ List.mem_cons_self
+        obtain ⟨mB, hmB, hvm, _⟩ := hr
+        exact List.mem_append_left _ ((tables x mB hmB mF hmF).1 v hvm)
+      · rw [rowNodeAt x (rwRow x v hrw)] at hn
+        cases hn
+        rw [rowNode_owners]
+        exact rowOwn x v hrw
+      · obtain ⟨mF, hmF⟩ := (oldB x hx).1
+        rw [nodeOld x mF hmF] at hn
+        cases hn
+        rw [upMap_owners]
+        exact List.mem_append_right _ (gainRow v x mF hrw hmF)
+      · rw [rowNodeAt x hx] at hn
+        cases hn
+        rw [rowNode_owners]
+        exact self_mem_rowOwners F d x
     · -- cover
       intro x hx l hl0 hl1
       rw [(filterWeakAll_frame C' A).2.1, hcsA] at hl1
       by_cases hl : l = F.current_step
-      · refine ⟨new, ⟨hx, Or.inr rfl, ?_⟩, by rw [hnewstep, hl]⟩
-        rcases hx with hx | rfl
-        · exact Or.inr ⟨hx, Or.inr rfl⟩
-        · exact Or.inl rfl
-      · rcases hx with hx | rfl
-        · obtain ⟨z, hz, hzs⟩ := ownerAt x hx l hl0 (by omega)
-          exact ⟨z, ⟨Or.inl hx, Or.inl (supB.dom x z hz).2, Or.inr ⟨hx, Or.inl hz⟩⟩, hzs⟩
-        · obtain ⟨z, hz, hzs⟩ := gowAt l hl0 (by omega)
-          exact ⟨z, ⟨Or.inr rfl, Or.inl hz, Or.inl rfl⟩, hzs⟩
+      · rcases hx with hx | hx
+        · obtain ⟨c, hc, hcs⟩ := ownerAt x hx (F.current_step - 1) (by omega) (by omega)
+          refine ⟨shiftPid c d,
+            Or.inr (Or.inr (Or.inl ⟨⟨c, (supB.dom x c hc).2, hcs, rfl, supB.sym x c hc⟩, hx⟩)), ?_⟩
+          rw [hl]; exact hd
+        · exact ⟨x, Or.inr (Or.inr (Or.inr ⟨hx, rfl⟩)), by rw [rowStep x hx, hl]⟩
+      · have hl' : l < F.current_step := by omega
+        rcases hx with hx | hx
+        · obtain ⟨z, hz, hzs⟩ := ownerAt x hx l hl0 hl'
+          exact ⟨z, Or.inl ⟨hx, (supB.dom x z hz).2, hz⟩, hzs⟩
+        · obtain ⟨c, hc, hcs, rfl⟩ := hx
+          obtain ⟨z, hz, hzs⟩ := ownerAt c hc l hl0 hl'
+          exact ⟨z, Or.inr (Or.inl ⟨⟨c, hc, hcs, rfl, hz⟩, (supB.dom c z hz).2⟩), hzs⟩
     · -- parents
-      intro x dA hx hdA hpid v hxv
-      rcases hx with hx | rfl
-      · obtain ⟨mF, hmF⟩ := (oldB x hx).1
-        rw [nodeOld x mF hmF] at hdA
-        cases hdA
-        obtain ⟨mB, hmB⟩ := hx
+      intro x dx hx hdx hpid v hxv
+      rcases hx with hx | hx
+      · -- an old member: reduce the target to a member of `B`, then use `supB.par`
+        obtain ⟨mF, hmF⟩ := (oldB x hx).1
+        rw [nodeOld x mF hmF] at hdx
+        cases hdx
+        obtain ⟨mB, hmB⟩ := id hx
         have hv0 : ∃ v0, Rel B x v0 ∧ (∀ c, Rel B c v0 → R c v) := by
-          rcases hxv.2.2 with he | ⟨_, hr | rfl⟩
-          · exact absurd he (neNew x ⟨mB, hmB⟩)
-          · exact ⟨v, hr, fun c hc => ⟨Or.inl (supB.dom c v hc).1, hxv.2.1, Or.inr ⟨(supB.dom c v hc).1, Or.inl hc⟩⟩⟩
-          · exact ⟨x, selfRel x ⟨mB, hmB⟩, fun c hc => ⟨Or.inl (supB.dom c x hc).1, Or.inr rfl,
-              Or.inr ⟨(supB.dom c x hc).1, Or.inr rfl⟩⟩⟩
+          rcases hxv with ⟨_, hv, hr⟩ | ⟨hrw, _⟩ | ⟨hrw, _⟩ | ⟨hrow, _⟩
+          · exact ⟨v, hr, fun c hc => Or.inl ⟨(supB.dom c v hc).1, hv, hc⟩⟩
+          · exact absurd hx (rowNotMem x (rwRow x v hrw))
+          · obtain ⟨c0, hc0, hc0s, hveq, hrel⟩ := hrw
+            exact ⟨c0, supB.sym c0 x hrel, fun c hc =>
+              Or.inr (Or.inr (Or.inl ⟨⟨c0, hc0, hc0s, hveq, supB.sym c c0 hc⟩, (supB.dom c c0 hc).1⟩))⟩
+          · exact absurd hx (rowNotMem x hrow)
         obtain ⟨v0, hxv0, hcv⟩ := hv0
-        obtain ⟨c, hc, h1, h2, h3⟩ := supB.par x mB ⟨mB, hmB⟩ hmB hpid v0 hxv0
-        refine ⟨c, ?_, ⟨Or.inl ⟨mB, hmB⟩, Or.inl (supB.dom x c h1).2, Or.inr ⟨⟨mB, hmB⟩, Or.inl h1⟩⟩,
-          ⟨Or.inl (supB.dom x c h1).2, Or.inl ⟨mB, hmB⟩, Or.inr ⟨(supB.dom x c h1).2, Or.inl h2⟩⟩, hcv c h3⟩
+        obtain ⟨c, hc, h1, h2, h3⟩ := supB.par x mB hx hmB hpid v0 hxv0
+        refine ⟨c, ?_, Or.inl ⟨hx, (supB.dom x c h1).2, h1⟩,
+          Or.inl ⟨(supB.dom x c h1).2, hx, h2⟩, hcv c h3⟩
         rw [upMap_parents]
         exact (tables x mB hmB mF hmF).2 c hc
-      · rw [nodeNew] at hdA
-        cases hdA
-        change ∃ c ∈ newParents F, R new c ∧ R c new ∧ R c v
-        rcases hxv.2.1 with hv | rfl
-        · have hvb := mem_bounds B a hv
-          have hvs : 0 ≤ F.current_step - 1 := by omega
-          obtain ⟨c, hc, hcs⟩ := ownerAt v hv (F.current_step - 1) hvs (by omega)
-          have hcm := (supB.dom v c hc).2
-          obtain ⟨mv, hmv, hcmv, _⟩ := hc
-          obtain ⟨mc, hmc⟩ := hcm
-          obtain ⟨hc0, hc1⟩ := mem_bounds B a ⟨mc, hmc⟩
-          have hvc : v ∈ mc.owners := ownSym_of_aggOk B hok v c mv mc hmv hmc hvb.1 hvb.2 hc0 hc1 hcmv
-            (a.ctx.nodeval v mv hmv) (a.ctx.nodeval c mc hmc)
-          exact ⟨c, inParentsNew c ⟨mc, hmc⟩ hcs, ⟨Or.inr rfl, Or.inl ⟨mc, hmc⟩, Or.inl rfl⟩,
-            ⟨Or.inl ⟨mc, hmc⟩, Or.inr rfl, Or.inr ⟨⟨mc, hmc⟩, Or.inr rfl⟩⟩,
-            ⟨Or.inl ⟨mc, hmc⟩, Or.inl hv, Or.inr ⟨⟨mc, hmc⟩, Or.inl ⟨mc, hmc, hvc, hv⟩⟩⟩⟩
-        · have hpos : 0 < F.current_step := by
-            rcases Int.lt_or_eq_of_le hcs0 with h | h
-            · exact h
-            · exfalso
-              apply hpid
-              change F.map_parent = none
-              exact hmok.2.1 h.symm
-          obtain ⟨c, hc, hcs⟩ := gowAt (F.current_step - 1) (by omega) (by omega)
-          exact ⟨c, inParentsNew c hc hcs, ⟨Or.inr rfl, Or.inl hc, Or.inl rfl⟩,
-            ⟨Or.inl hc, Or.inr rfl, Or.inr ⟨hc, Or.inr rfl⟩⟩, ⟨Or.inl hc, Or.inr rfl, Or.inr ⟨hc, Or.inr rfl⟩⟩⟩
+      · -- a row node: its own parent witness
+        rw [rowNodeAt x hx] at hdx
+        cases hdx
+        have hwit : ∃ c, Mem B c ∧ c.id.step = F.current_step - 1 ∧ x = shiftPid c d ∧ R c v := by
+          rcases hxv with ⟨hm, _, _⟩ | ⟨hrw, hv⟩ | ⟨_, hm⟩ | ⟨hrow, hxeq⟩
+          · exact absurd hm (rowNotMem x hx)
+          · obtain ⟨c1, hc1, hc1s, hxeq1, hrel⟩ := hrw
+            exact ⟨c1, hc1, hc1s, hxeq1, Or.inl ⟨hc1, hv, hrel⟩⟩
+          · exact absurd hm (rowNotMem x hx)
+          · obtain ⟨c1, hc1, hc1s, hxeq1⟩ := hrow
+            refine ⟨c1, hc1, hc1s, hxeq1, ?_⟩
+            rw [← hxeq]
+            exact Or.inr (Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hxeq1, selfRel c1 hc1⟩, hc1⟩))
+        obtain ⟨c1, hc1, hc1s, hxeq1, hcv⟩ := hwit
+        refine ⟨c1, ?_, ?_, ?_, hcv⟩
+        · rw [rowNode_parents, hxeq1]
+          exact mem_rowParents_of_mem_newParents F d c1 (inParentsNew c1 hc1 hc1s)
+        · exact Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hxeq1, selfRel c1 hc1⟩, hc1⟩)
+        · exact Or.inr (Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hxeq1, selfRel c1 hc1⟩, hc1⟩))
     · -- sons
       intro x hx hlast v hxv
       rw [(filterWeakAll_frame C' A).2.1, hcsA] at hlast
-      rcases hx with hx | rfl
-      · have hxs := (oldB x hx).2
-        by_cases htop : x.id.step = F.current_step - 1
-        · have hxp : x ∈ newParents F := inParentsNew x hx htop
-          refine ⟨new, addOwner new (upNode F d ""), nodeNew, hxp, ⟨Or.inl hx, Or.inr rfl, Or.inr ⟨hx, Or.inr rfl⟩⟩,
-            ⟨Or.inr rfl, Or.inl hx, Or.inl rfl⟩, ⟨Or.inr rfl, hxv.2.1, Or.inl rfl⟩⟩
-        · have hv0 : ∃ v0, Rel B x v0 ∧ (∀ c, Rel B c v0 → R c v) := by
-            rcases hxv.2.2 with he | ⟨_, hr | rfl⟩
-            · exact absurd he (neNew x hx)
-            · exact ⟨v, hr, fun c hc => ⟨Or.inl (supB.dom c v hc).1, hxv.2.1, Or.inr ⟨(supB.dom c v hc).1, Or.inl hc⟩⟩⟩
-            · exact ⟨x, selfRel x hx, fun c hc => ⟨Or.inl (supB.dom c x hc).1, Or.inr rfl,
-                Or.inr ⟨(supB.dom c x hc).1, Or.inr rfl⟩⟩⟩
-          obtain ⟨v0, hxv0, hcv⟩ := hv0
-          obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := supB.son x hx (by rw [hcsB]; exact htop) v0 hxv0
-          have hcB : Mem B c := ⟨m, hm⟩
-          obtain ⟨mF, hmF⟩ := (oldB c hcB).1
-          refine ⟨c, upMap F d mF, nodeOld c mF hmF, ?_, ⟨Or.inl hx, Or.inl hcB, Or.inr ⟨hx, Or.inl h1⟩⟩,
-            ⟨Or.inl hcB, Or.inl hx, Or.inr ⟨hcB, Or.inl h2⟩⟩, hcv c h3⟩
-          rw [upMap_parents]
-          exact (tables c m hm mF hmF).2 x hxm
-      · exfalso; exact hlast (by rw [hnewstep]; omega)
+      have hlast' : x.id.step ≠ F.current_step := fun h => hlast (by omega)
+      have hxB : Mem B x := by
+        rcases hx with hx | hx
+        · exact hx
+        · exact absurd (rowStep x hx) hlast'
+      have hxs := (oldB x hxB).2
+      by_cases htop : x.id.step = F.current_step - 1
+      · -- the son is the row node `x` shifts to
+        have hrowc : Row (shiftPid x d) := ⟨x, hxB, htop, rfl⟩
+        refine ⟨shiftPid x d, rowNode F d "" (shiftPid x d), rowNodeAt _ hrowc, ?_, ?_, ?_, ?_⟩
+        · rw [rowNode_parents]
+          exact mem_rowParents_of_mem_newParents F d x (inParentsNew x hxB htop)
+        · exact Or.inr (Or.inr (Or.inl ⟨⟨x, hxB, htop, rfl, selfRel x hxB⟩, hxB⟩))
+        · exact Or.inr (Or.inl ⟨⟨x, hxB, htop, rfl, selfRel x hxB⟩, hxB⟩)
+        · rcases hxv with ⟨_, hv, hr⟩ | ⟨hrw, _⟩ | ⟨hrw, _⟩ | ⟨hrow, _⟩
+          · exact Or.inr (Or.inl ⟨⟨x, hxB, htop, rfl, hr⟩, hv⟩)
+          · exact absurd hxB (rowNotMem x (rwRow x v hrw))
+          · -- `v`'s witness sits at `x`'s step, so it *is* `x`: the two row nodes coincide
+            obtain ⟨c1, hc1, hc1s, hveq, hrel⟩ := hrw
+            have hc1x : c1 = x := relSame c1 x hrel (by omega)
+            exact Or.inr (Or.inr (Or.inr ⟨hrowc, by rw [hveq, hc1x]⟩))
+          · exact absurd hxB (rowNotMem x hrow)
+      · -- an ordinary son inside `B`
+        have hv0 : ∃ v0, Rel B x v0 ∧ (∀ c, Rel B c v0 → R c v) := by
+          rcases hxv with ⟨_, hv, hr⟩ | ⟨hrw, _⟩ | ⟨hrw, _⟩ | ⟨hrow, _⟩
+          · exact ⟨v, hr, fun c hc => Or.inl ⟨(supB.dom c v hc).1, hv, hc⟩⟩
+          · exact absurd hxB (rowNotMem x (rwRow x v hrw))
+          · obtain ⟨c1, hc1, hc1s, hveq, hrel⟩ := hrw
+            exact ⟨c1, supB.sym c1 x hrel, fun c hc =>
+              Or.inr (Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hveq, supB.sym c c1 hc⟩, (supB.dom c c1 hc).1⟩))⟩
+          · exact absurd hxB (rowNotMem x hrow)
+        obtain ⟨v0, hxv0, hcv⟩ := hv0
+        obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := supB.son x hxB (by rw [hcsB]; exact htop) v0 hxv0
+        have hcB : Mem B c := ⟨m, hm⟩
+        obtain ⟨mF, hmF⟩ := (oldB c hcB).1
+        refine ⟨c, upMap F d mF, nodeOld c mF hmF, ?_,
+          Or.inl ⟨hxB, hcB, h1⟩, Or.inl ⟨hcB, hxB, h2⟩, hcv c h3⟩
+        rw [upMap_parents]
+        exact (tables c m hm mF hmF).2 x hxm
     · -- pairs
       intro x v hxv l hl0 hl1
       rw [(filterWeakAll_frame C' A).2.1, hcsA] at hl1
-      have toNew : ∀ y, S y → R y new := fun y hy => by
-        rcases hy with hy | rfl
-        · exact ⟨Or.inl hy, Or.inr rfl, Or.inr ⟨hy, Or.inr rfl⟩⟩
-        · exact ⟨Or.inr rfl, Or.inr rfl, Or.inl rfl⟩
       by_cases hl : l = F.current_step
-      · exact ⟨new, toNew x hxv.1, toNew v hxv.2.1, by rw [hnewstep, hl]⟩
-      have hl' : l < F.current_step := by omega
-      have newTo : ∀ z, Mem B z → R new z := fun z hz => ⟨Or.inr rfl, Or.inl hz, Or.inl rfl⟩
-      have oldTo : ∀ y z, Rel B y z → R y z := fun y z h =>
-        ⟨Or.inl (supB.dom y z h).1, Or.inl (supB.dom y z h).2, Or.inr ⟨(supB.dom y z h).1, Or.inl h⟩⟩
-      rcases hxv.2.2 with rfl | ⟨hx, hr | rfl⟩
-      · rcases hxv.2.1 with hv | rfl
-        · obtain ⟨z, hz, hzs⟩ := ownerAt v hv l hl0 hl'
-          exact ⟨z, newTo z (supB.dom v z hz).2, oldTo v z hz, hzs⟩
-        · obtain ⟨z, hz, hzs⟩ := gowAt l hl0 hl'
-          exact ⟨z, newTo z hz, newTo z hz, hzs⟩
-      · obtain ⟨z, h1, h2, hzs⟩ := supB.agg x v hr l hl0 (by rw [hcsB]; exact hl')
-        exact ⟨z, oldTo x z h1, oldTo v z h2, hzs⟩
-      · obtain ⟨z, hz, hzs⟩ := ownerAt x hx l hl0 hl'
-        exact ⟨z, oldTo x z hz, newTo z (supB.dom x z hz).2, hzs⟩
+      · rcases hxv with ⟨hx, hv, hr⟩ | ⟨hrw, hv⟩ | ⟨hrw, hx⟩ | ⟨hrow, hxeq⟩
+        · obtain ⟨z0, hz1, hz2, hz0s⟩ :=
+            supB.agg x v hr (F.current_step - 1) (by omega) (by rw [hcsB]; omega)
+          refine ⟨shiftPid z0 d, ?_, ?_, by rw [hl]; exact hd⟩
+          · exact Or.inr (Or.inr (Or.inl
+              ⟨⟨z0, (supB.dom x z0 hz1).2, hz0s, rfl, supB.sym x z0 hz1⟩, hx⟩))
+          · exact Or.inr (Or.inr (Or.inl
+              ⟨⟨z0, (supB.dom v z0 hz2).2, hz0s, rfl, supB.sym v z0 hz2⟩, hv⟩))
+        · exact ⟨x, Or.inr (Or.inr (Or.inr ⟨rwRow x v hrw, rfl⟩)),
+            Or.inr (Or.inr (Or.inl ⟨hrw, hv⟩)), by rw [rowStep x (rwRow x v hrw), hl]⟩
+        · exact ⟨v, Or.inr (Or.inr (Or.inl ⟨hrw, hx⟩)),
+            Or.inr (Or.inr (Or.inr ⟨rwRow v x hrw, rfl⟩)), by rw [rowStep v (rwRow v x hrw), hl]⟩
+        · refine ⟨x, Or.inr (Or.inr (Or.inr ⟨hrow, rfl⟩)), ?_, by rw [rowStep x hrow, hl]⟩
+          rw [← hxeq]
+          exact Or.inr (Or.inr (Or.inr ⟨hrow, rfl⟩))
+      · have hl' : l < F.current_step := by omega
+        have oldTo : ∀ y z, Rel B y z → R y z := fun y z h =>
+          Or.inl ⟨(supB.dom y z h).1, (supB.dom y z h).2, h⟩
+        rcases hxv with ⟨hx, hv, hr⟩ | ⟨hrw, hv⟩ | ⟨hrw, hx⟩ | ⟨hrow, hxeq⟩
+        · obtain ⟨z, h1, h2, hzs⟩ := supB.agg x v hr l hl0 (by rw [hcsB]; exact hl')
+          exact ⟨z, oldTo x z h1, oldTo v z h2, hzs⟩
+        · obtain ⟨c1, hc1, hc1s, hxeq1, hrel⟩ := hrw
+          obtain ⟨z, h1, h2, hzs⟩ := supB.agg c1 v hrel l hl0 (by rw [hcsB]; exact hl')
+          exact ⟨z, Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hxeq1, h1⟩, (supB.dom c1 z h1).2⟩),
+            oldTo v z h2, hzs⟩
+        · obtain ⟨c1, hc1, hc1s, hveq, hrel⟩ := hrw
+          obtain ⟨z, h1, h2, hzs⟩ := supB.agg c1 x hrel l hl0 (by rw [hcsB]; exact hl')
+          exact ⟨z, oldTo x z h2,
+            Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hveq, h1⟩, (supB.dom c1 z h1).2⟩), hzs⟩
+        · obtain ⟨c1, hc1, hc1s, hxeq1⟩ := hrow
+          obtain ⟨z, hz, hzs⟩ := ownerAt c1 hc1 l hl0 hl'
+          have hR : R x z := Or.inr (Or.inl ⟨⟨c1, hc1, hc1s, hxeq1, hz⟩, (supB.dom c1 z hz).2⟩)
+          exact ⟨z, hR, by rw [← hxeq]; exact hR, hzs⟩
     · -- symmetry
-      rintro x v ⟨hSx, hSv, hr⟩
-      refine ⟨hSv, hSx, ?_⟩
-      rcases hr with hx | ⟨hx, hr | hv⟩
-      · rcases hSv with hv | hv
-        · exact Or.inr ⟨hv, Or.inr hx⟩
-        · exact Or.inl hv
-      · have h' := supB.sym x v hr
-        exact Or.inr ⟨(supB.dom v x h').1, Or.inl h'⟩
-      · exact Or.inl hv
+      rintro x v (⟨hx, hv, hr⟩ | ⟨hrw, hv⟩ | ⟨hrw, hx⟩ | ⟨hrow, hxeq⟩)
+      · exact Or.inl ⟨hv, hx, supB.sym x v hr⟩
+      · exact Or.inr (Or.inr (Or.inl ⟨hrw, hv⟩))
+      · exact Or.inr (Or.inl ⟨hrw, hx⟩)
+      · exact Or.inr (Or.inr (Or.inr ⟨by rw [← hxeq]; exact hrow, hxeq.symm⟩))
     · -- links
-      rintro x c dA ⟨_, hSc, hxc⟩ ⟨_, _, hcx⟩ hs hdA
-      rcases hxc with hxn | ⟨hx, hr | hcn⟩
-      · rw [hxn, nodeNew] at hdA
-        cases hdA
-        change c ∈ newParents F
-        rw [hxn, hnewstep] at hs
-        rcases hSc with hc | hcn
-        · exact inParentsNew c hc (by omega)
-        · rw [hcn, hnewstep] at hs; omega
+      intro x c dx hxc hcx hs hdx
+      rcases hxc with ⟨hx, hc, hr⟩ | ⟨hrw, hc⟩ | ⟨hrw, hx⟩ | ⟨hrow, hxeq⟩
       · obtain ⟨mF, hmF⟩ := (oldB x hx).1
-        rw [nodeOld x mF hmF] at hdA
-        cases hdA
+        rw [nodeOld x mF hmF] at hdx
+        cases hdx
         rw [upMap_parents]
-        have hc := (supB.dom x c hr).2
-        rcases hcx with he | ⟨_, hr' | he⟩
-        · exact absurd he (neNew c hc)
-        · obtain ⟨mB, hmB, _, _⟩ := id hr
-          exact (tables x mB hmB mF hmF).2 c (supB.link x c mB hr hr' hs hmB)
-        · have := (oldB x hx).2
-          rw [he, hnewstep] at this
-          omega
-      · have := (oldB x hx).2
-        rw [hcn, hnewstep] at hs
+        obtain ⟨mB, hmB, _, _⟩ := id hr
+        have hcxr : Rel B c x := by
+          rcases hcx with ⟨_, _, h⟩ | ⟨hrw2, _⟩ | ⟨hrw2, _⟩ | ⟨hrow2, _⟩
+          · exact h
+          · exact absurd hc (rowNotMem c (rwRow c x hrw2))
+          · exact absurd hx (rowNotMem x (rwRow x c hrw2))
+          · exact absurd hc (rowNotMem c hrow2)
+        exact (tables x mB hmB mF hmF).2 c (supB.link x c mB hr hcxr hs hmB)
+      · -- `x` is a row node and `c` sits at the top old step: `c` is one of its parents
+        have hrowx : Row x := rwRow x c hrw
+        rw [rowNodeAt x hrowx] at hdx
+        cases hdx
+        rw [rowNode_parents]
+        obtain ⟨c1, hc1, hc1s, hxeq1, hrel⟩ := hrw
+        have hcs : c.id.step = F.current_step - 1 := by
+          have := rowStep x hrowx; omega
+        have hc1c : c1 = c := relSame c1 c hrel (by omega)
+        rw [hxeq1, ← hc1c]
+        exact mem_rowParents_of_mem_newParents F d c1 (inParentsNew c1 hc1 hc1s)
+      · exfalso
+        have h1 := rowStep c (rwRow c x hrw)
+        have h2 := (oldB x hx).2
+        omega
+      · exfalso
+        rw [hxeq] at hs
         omega
   have hwn := (filterWeakAll_frame C' A).1
   have hsW : Sons.SMP (filterWeakAll A C') := by unfold Sons.SMP; rw [hwn]; exact hsA
@@ -461,9 +566,14 @@ theorem add_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
   rw [hcsFw] at hk
   obtain ⟨hk0, hk1⟩ := PickInduction.intRange_bounds hk
   by_cases hkn : k = F.current_step
-  · exact List.any_eq_true.mpr ⟨new, hAok.sup.gow new (Or.inr rfl), beq_iff_eq.mpr (by rw [hnewstep, hkn])⟩
+  · obtain ⟨z, hz⟩ := rowExists
+    exact List.any_eq_true.mpr ⟨z, hAok.sup.gow z (Or.inr hz), beq_iff_eq.mpr (by rw [rowStep z hz, hkn])⟩
   · obtain ⟨z, hz, hzs⟩ := gowAt k hk0 (by omega)
     exact List.any_eq_true.mpr ⟨z, hAok.sup.gow z (Or.inl hz), beq_iff_eq.mpr hzs⟩
+
+/-- info: 'AbsSat.GraphPath.Model.HereditaryUp.add_new' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms add_new
 
 /-- **UP keeps hereditary pin validity.** -/
 theorem hpv_addNode (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
@@ -474,26 +584,28 @@ theorem hpv_addNode (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
   intro C hv q hq
   have hqW := (pruned_filterAllAgg (filterWeakAll (addNode F d "") C) []).gowners_sub q hq
   have hqA := ((mem_filterWeakAll C _ q).mp hqW).1
-  have hqA' : q ∈ F.gowners ++ [newPid F d] := hqA
+  have hqA' : q ∈ F.gowners ++ newRowIds F d := hqA
   rcases List.mem_append.mp hqA' with hqF | hqn
   · obtain ⟨m, hm, hmid⟩ := rcF.gn q hqF
     have hqs : q.id.step < F.current_step := by rw [← hmid]; exact rcF.below m hm
+    have hq0 : (0 : Int) ≤ q.id.step := by rw [← hmid]; exact rcF.snn m hm
     obtain ⟨hvF, hsub⟩ := drop_new F d hd rcF hsF rcA hsA hpA hnA C hv
     have h1 := hh C hvF q (hsub q hq hqs)
-    exact add_new F d hd rcF hsF hpF hnF hmok rcA hsA C hv q.id hqs h1
-  · have hqn' := List.mem_singleton.mp hqn
+    exact add_new F d hd rcF hsF hpF hnF hmok rcA hsA C hv q.id hqs (by omega) h1
+  · -- `q` is a row id: every row id carries the map id `d`, so the pin on it keeps the whole row
+    have hqd : q.id = d := mapId_of_mem_newRowIds F d q hqn
     have hnoop := filterWeakAll_append_noop (addNode F d "") C (pinC q.id) (fun x hx hs => by
       have hxA := ((mem_filterWeakAll C _ x).mp hx).1
-      have hxA' : x ∈ F.gowners ++ [newPid F d] := hxA
+      have hxA' : x ∈ F.gowners ++ newRowIds F d := hxA
       rcases List.mem_append.mp hxA' with h | h
-      · obtain ⟨m, hm, hmid⟩ := rcF.gn x h
-        have := rcF.below m hm
-        rw [hmid] at this
+      · exfalso
+        obtain ⟨m, hm, hmid⟩ := rcF.gn x h
+        have hb := rcF.below m hm
+        rw [hmid] at hb
         change x.id.step = q.id.step at hs
-        rw [hs, hqn'] at this
-        simp only [newPid, hd] at this
+        rw [hs, hqd, hd] at hb
         omega
-      · rw [List.mem_singleton.mp h, hqn']
+      · rw [mapId_of_mem_newRowIds F d x h, hqd]
         exact List.mem_singleton_self _)
     unfold Fw at hv ⊢
     rw [hnoop]
