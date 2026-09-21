@@ -157,7 +157,7 @@ theorem send_sound_full (hwf : WF φ) (m : Nat) (hE : ∀ Q, LineSoundL Full (br
   have hmkv : MInv φ kv.2 := hl.2 kv hkv
   have ht : SoundAt Full kv.2 := hE P kv hkv
   have hdstep := dstep_of φ m kv hsok d hd
-  refine RunInhabited.soundAt_sent_ofL φ Full trivial m kv hsok hmkv d hd hval (fun hvW => ?_)
+  refine RunInhabited.soundAt_sent_ofL φ Full trivial (fun _ _ => trivial) m kv hsok hmkv d hd hval (fun hvW => ?_)
   refine WeakNoop.soundAt_weak_sendL φ Full hwf m kv hsok hmkv d hd hvW (fun hvA => ?_)
   rcases reqOfCnf_shape φ d with h | h | ⟨c, _, hlb, h⟩
   · rw [h] at hvA ⊢; exact soundAt_review _ kv.2 hmkv.rctx.nodup ht
@@ -224,10 +224,11 @@ def FlipSatAt (m : Nat) : Prop :=
 /-- A path's assignment passes the path's nodes. -/
 theorem canon_of_path (b : Assign) (s : Int → PathNodeId) (K : Int)
     (hb : ∀ k, 0 ≤ k → k < K → (s k).id = selOfAssign φ b k ∧
-      (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1))))
+      (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1))) ∧
+      (s k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ b (k - 2))))
     (k : Int) (h0 : 0 ≤ k) (h1 : k < K) : canon φ b k = s k := by
-  obtain ⟨hi, hp⟩ := hb k h0 h1
-  exact RunNoBorrow.pid_ext hi.symm hp.symm
+  obtain ⟨hi, hp, hg⟩ := hb k h0 h1
+  exact RunNoBorrow.pid_ext hi.symm hp.symm hg.symm
 
 /-- **The pairs come from exactness.** With the union exact, the flip is `FlipAt`. -/
 theorem flipAt_of_sat (hwf : WF φ) (m : Nat)

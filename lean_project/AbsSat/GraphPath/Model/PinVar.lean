@@ -93,7 +93,8 @@ theorem branch_line_complete (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m 
   obtain ⟨a, hs, hsel⟩ := hgen
   have hl := branchLine_inv φ hwf P m
   obtain ⟨g, hmem, hal, hcs⟩ := branch_carries φ hwf P a ((m : Int) + 1) hm hs
-    (agrees_of_sel φ P _ sel a hsel hP) m (Int.le_refl _)
+    (agrees_of_sel φ P _ sel a (fun k h0 h1 => ⟨(hsel k h0 h1).1, (hsel k h0 h1).2.1⟩) hP) m
+      (Int.le_refl _)
   have hkey : selOfAssign φ a (m : Int) = kv.1 := by
     rw [← htop]; exact ((hsel m (by omega) (by omega)).1).symm
   have hsame := key_inj _ hl.1.1 (selOfAssign φ a (m : Int), g) hmem kv hkv hkey
@@ -127,7 +128,7 @@ theorem branch_send_complete (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m 
   have hids : ∀ k, 0 ≤ k → k < kv.2.current_step →
       (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) := by
     intro k h0 h1
-    obtain ⟨hid, hpar⟩ := hsel k h0 (by omega)
+    obtain ⟨hid, hpar, _⟩ := hsel k h0 (by omega)
     refine ⟨hid, ?_⟩
     by_cases hz : k = 0
     · rw [if_pos hz] at hpar; exact Or.inl hpar
@@ -257,7 +258,7 @@ theorem branch_send_chain (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m : I
   have hids : ∀ k, 0 ≤ k → k < kv.2.current_step →
       (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) := by
     intro k h0 h1
-    obtain ⟨hid, hpar⟩ := hsel k h0 (by omega)
+    obtain ⟨hid, hpar, _⟩ := hsel k h0 (by omega)
     refine ⟨hid, ?_⟩
     by_cases hz : k = 0
     · rw [if_pos hz] at hpar; exact Or.inl hpar
@@ -289,7 +290,8 @@ theorem path_facts (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : G
     (hsJ : StateOkF φ ((m : Int) + 1) (p, J)) (hmJ : MInv φ J) (hpins : PinIdsBelow P ((m : Int) + 1) J)
     (hle : (m : Int) + 2 ≤ stepCount φ) (s : Int → PathNodeId) (hsc : ChainSound J s) :
     ∃ b : Assign, (∀ k, 0 ≤ k → k < (m : Int) + 2 → (s k).id = selOfAssign φ b k ∧
-        (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1)))) ∧
+        (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1))) ∧
+        (s k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ b (k - 2)))) ∧
       selOfAssign φ b ((m : Int) + 1) = p ∧
       (∀ r ∈ P, 0 ≤ r.step → r.step < (m : Int) + 1 → selOfAssign φ b r.step = r) ∧
       SatBelow φ b ((m : Int) + 2) := by
@@ -391,7 +393,8 @@ theorem var_glue (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m : Int) + 1 <
   have hlit : ∀ k : Int, k < (m : Int) + 2 → k < litBlock φ := fun k hk => by omega
   have selr : ∀ (s : Int → PathNodeId) (b : Assign) (ρ : PathNodeId), s ρ.id.step = ρ → ρ.id = r →
       ρ.id.step = r.step → (∀ k, 0 ≤ k → k < (m : Int) + 2 → (s k).id = selOfAssign φ b k ∧
-        (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1)))) →
+        (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b (k - 1))) ∧
+        (s k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ b (k - 2)))) →
       selOfAssign φ b r.step = r := by
     intro s b ρ hsρ hρ hρs hb
     rw [← (hb r.step h0r (by omega)).1, ← hρs, hsρ, hρ]
@@ -407,17 +410,20 @@ theorem var_glue (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m : Int) + 1 <
   -- a node on two of the paths is on the glued one
   have onA : ∀ (bb : Assign) (hA : A = glue b1 bb u) (s s' : Int → PathNodeId) (y : PathNodeId),
       (∀ k, 0 ≤ k → k < (m : Int) + 2 → (s k).id = selOfAssign φ b1 k ∧
-        (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b1 (k - 1)))) →
+        (s k).parent_id = (if k = 0 then none else some (selOfAssign φ b1 (k - 1))) ∧
+        (s k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ b1 (k - 2)))) →
       (∀ k, 0 ≤ k → k < (m : Int) + 2 → (s' k).id = selOfAssign φ bb k ∧
-        (s' k).parent_id = (if k = 0 then none else some (selOfAssign φ bb (k - 1)))) →
+        (s' k).parent_id = (if k = 0 then none else some (selOfAssign φ bb (k - 1))) ∧
+        (s' k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ bb (k - 2)))) →
       s y.id.step = y → s' y.id.step = y → 0 ≤ y.id.step → y.id.step < (m : Int) + 2 →
-      (⟨selOfAssign φ A y.id.step, if y.id.step = 0 then none else some (selOfAssign φ A (y.id.step - 1))⟩ :
+      (⟨selOfAssign φ A y.id.step, if y.id.step = 0 then none else some (selOfAssign φ A (y.id.step - 1)),
+        if y.id.step ≤ 1 then none else some (selOfAssign φ A (y.id.step - 2))⟩ :
         PathNodeId) = y := by
     intro bb hA s s' y hs hs' hsy hs'y hy0 hy1
-    obtain ⟨hi1, hp1⟩ := hs y.id.step hy0 hy1
-    obtain ⟨hi2, hp2⟩ := hs' y.id.step hy0 hy1
-    rw [hsy] at hi1 hp1
-    rw [hs'y] at hi2 hp2
+    obtain ⟨hi1, hp1, hg1⟩ := hs y.id.step hy0 hy1
+    obtain ⟨hi2, hp2, hg2⟩ := hs' y.id.step hy0 hy1
+    rw [hsy] at hi1 hp1 hg1
+    rw [hs'y] at hi2 hp2 hg2
     apply RunNoBorrow.pid_ext
     · show selOfAssign φ A y.id.step = y.id
       rw [hA]; exact glue_agree φ b1 bb u _ hy0 (hlit _ hy1) _ hi1.symm hi2.symm
@@ -427,9 +433,17 @@ theorem var_glue (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m : Int) + 1 <
       · rw [if_neg hz]; rw [if_neg hz] at hp1 hp2
         have e := Option.some.inj (hp1.symm.trans hp2)
         rw [hp1, hA, glue_agree φ b1 bb u _ (by omega) (hlit _ (by omega)) _ rfl e.symm]
+    · -- the third component: the two paths agree on the grandparent too
+      show (if y.id.step ≤ 1 then none else some (selOfAssign φ A (y.id.step - 2))) = y.gparent_id
+      by_cases hz : y.id.step ≤ 1
+      · rw [if_pos hz]; rw [if_pos hz] at hg1; exact hg1.symm
+      · rw [if_neg hz]; rw [if_neg hz] at hg1 hg2
+        have e := Option.some.inj (hg1.symm.trans hg2)
+        rw [hg1, hA, glue_agree φ b1 bb u _ (by omega) (hlit _ (by omega)) _ rfl e.symm]
   -- the glued path
   let selA : Int → PathNodeId := fun k =>
-    ⟨selOfAssign φ A k, if k = 0 then none else some (selOfAssign φ A (k - 1))⟩
+    ⟨selOfAssign φ A k, if k = 0 then none else some (selOfAssign φ A (k - 1)),
+      if k ≤ 1 then none else some (selOfAssign φ A (k - 2))⟩
   have hsatA : ∀ K, K ≤ (m : Int) + 2 → SatBelow φ A K := fun K hK => satBelow_var φ A K (Int.le_trans hK hm2)
   have hgenA : Genuine φ ((m : Int) + 2) selA := ⟨A, hsatA _ (Int.le_refl _), fun k _ _ => ⟨rfl, rfl, rfl⟩⟩
   have agP : ∀ r' ∈ P, 0 ≤ r'.step → r'.step < (m : Int) + 1 → selOfAssign φ A r'.step = r' :=
@@ -726,7 +740,9 @@ theorem glue_canon (b₁ b₂ : Assign) (u : Nat) (y : PathNodeId) (h₁ : canon
   have i2 : selOfAssign φ b₂ y.id.step = y.id := congrArg PathNodeId.id h₂
   have p1 := congrArg PathNodeId.parent_id h₁
   have p2 := congrArg PathNodeId.parent_id h₂
-  simp only [canon] at p1 p2
+  have g1 := congrArg PathNodeId.gparent_id h₁
+  have g2 := congrArg PathNodeId.gparent_id h₂
+  simp only [canon] at p1 p2 g1 g2
   apply RunNoBorrow.pid_ext
   · exact glue_agree_all φ b₁ b₂ u _ _ i1 i2
   · show (if y.id.step = 0 then none else some (selOfAssign φ (glue b₁ b₂ u) (y.id.step - 1))) = y.parent_id
@@ -734,6 +750,12 @@ theorem glue_canon (b₁ b₂ : Assign) (u : Nat) (y : PathNodeId) (h₁ : canon
     · rw [if_pos hz]; rw [if_pos hz] at p1; exact p1
     · rw [if_neg hz]; rw [if_neg hz] at p1 p2
       rw [← p1, glue_agree_all φ b₁ b₂ u _ _ rfl (Option.some.inj (p2.trans p1.symm))]
+  · show (if y.id.step ≤ 1 then none else some (selOfAssign φ (glue b₁ b₂ u) (y.id.step - 2)))
+      = y.gparent_id
+    by_cases hz : y.id.step ≤ 1
+    · rw [if_pos hz]; rw [if_pos hz] at g1; exact g1
+    · rw [if_neg hz]; rw [if_neg hz] at g1 g2
+      rw [← g1, glue_agree_all φ b₁ b₂ u _ _ rfl (Option.some.inj (g2.trans g1.symm))]
 
 /-- **The clause stage, reduced to one flip.** For each entry `x → v` of a pinned, reviewed union: a path
 of the union through `x` and `v` (assignment `b₁`), a path through `x` and the pinned value (`b₂`), a path
