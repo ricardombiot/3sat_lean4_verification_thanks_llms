@@ -51,6 +51,11 @@ structure Acc where
   src      : Nat := 0          -- nodes of the line being grouped
   /-- the worst offender, for a pointer back into the corpus -/
   worstAt  : String := "-"
+  /-- the direct `CommonOwner` test, over-approximated -/
+  coNodes  : Nat := 0          -- nodes with ≥2 parents and at least one owner above
+  coOk     : Nat := 0          -- ... where some single parent owns every owner above
+  coFail   : Nat := 0
+  coFailAt : String := "-"
   deriving Repr
 
 def bump (a : Acc) (d : Nat) (lit : Bool) : Acc :=
@@ -68,6 +73,26 @@ def bump (a : Acc) (d : Nat) (lit : Bool) : Acc :=
 def distinctBy {α β : Type} [BEq β] (f : α → β) (l : List α) : Nat :=
   (l.foldl (fun acc x => if acc.contains (f x) then acc else f x :: acc) []).length
 
+/-- **La obligación `extend_triple`, exacta.** Una cadena parcial que termina en `x` tiene sus picks
+entre los owners de `x` por encima de él, y **se poseen mutuamente** (`SoundFrom.owned`). El primer
+caso duro es el de dos picks: `u`, `w` owners de `x`, por encima, que se poseen entre sí. La
+extensión tiene que ser un padre de `x`, y hace falta **uno solo** que posea a los dos.
+
+`some false` es una violación genuina de la terna; `none` es que no hay caso que comprobar. -/
+def tripleAt (g : GPathM) (x : PathNodeId) (n : PNodeM) (cap : Nat) : Option Bool :=
+  if n.parents.length < 2 then none
+  else Id.run do
+    let above := (n.owners.filter (fun u => x.id.step < u.id.step)).take cap
+    let mut seen := false
+    let mut ok := true
+    for u in above do
+      for w in above do
+        if u.id.step < w.id.step && (ownersOf g w).contains u && (ownersOf g u).contains w then
+          seen := true
+          if !(n.parents.any (fun c => (ownersOf g u).contains c && (ownersOf g w).contains c)) then
+            ok := false
+    return (if seen then some ok else none)
+
 def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run do
   let mut a := { a with states := a.states + 1 }
   -- (1) the real in-degree, node by node
@@ -77,6 +102,12 @@ def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run
       if d > a.degMax then
         a := { a with worstAt := s!"{label} step {n.id.id.step} deg {d}" }
       a := bump a d (n.id.id.step < lb)
+      match tripleAt g n.id n 40 with
+      | none => pure ()
+      | some true => a := { a with coNodes := a.coNodes + 1, coOk := a.coOk + 1 }
+      | some false =>
+        a := { a with coNodes := a.coNodes + 1, coFail := a.coFail + 1
+                    , coFailAt := s!"{label} step {n.id.id.step}" }
   -- (2) the counterfactual, line by line
   let mut k : Int := 0
   while k < g.current_step - 1 do
@@ -113,6 +144,10 @@ def report (name : String) (a : Acc) (ms : Nat) : IO Unit := do
   IO.println s!"   SingleParents: {if a.degMore == 0 then "HOLDS" else "fails"}"
   IO.println s!"   grouping of the previous line: {a.src} ids → {a.grp2} groups (w=2), {a.grp3} groups (w=3)"
   if a.degMore > 0 then IO.println s!"   worst: {a.worstAt}"
+  IO.println s!"   extend_triple (nodos con ≥2 padres y algún par de picks): {a.coNodes}"
+  IO.println s!"     un padre sirve para toda pareja : {a.coOk}  ({pct a.coOk a.coNodes})"
+  IO.println s!"     alguna pareja sin padre común  : {a.coFail}"
+  if a.coFail > 0 then IO.println s!"     primero: {a.coFailAt}"
   IO.println s!"   ({ms} ms)"
 
 def loadCnf (path : String) : IO (Option Cnf) := do
