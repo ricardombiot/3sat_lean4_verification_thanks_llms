@@ -97,22 +97,26 @@ theorem sup_weak {B : GPathM} {S : PathNodeId → Prop} {R : PathNodeId → Path
 
 /-- The node the UP adds sits on the new step, and its parents are the nodes one step below. -/
 theorem addNode_top_parents (F : GPathM) (d : NodeId) (t : String) (hd : d.step = F.current_step)
+    (hpos : 0 < F.current_step)
     (hbelow : ∀ n ∈ F.nodes, n.id.id.step < F.current_step) (c : PathNodeId) (m : PNodeM)
     (hc : (addNode F d t).node? c = some m) (hcs : c.id.step = F.current_step) :
     ∀ x ∈ m.parents, x.id.step = F.current_step - 1 := by
-  have hmem : m ∈ (addNode F d t).nodes := List.mem_of_find?_eq_some hc
-  have hid := node?_id_eq _ c m hc
-  have htop := RunNoBorrow.tops_addNode F d t hbelow m hmem (by rw [hid, hcs])
-  have hnew := addNode_node?_new F d t hd hbelow
-  rw [← hid, htop, show (⟨d, F.map_parent, none⟩ : PathNodeId) = newPid F d from rfl, hnew] at hc
+  have hrow : c ∈ newRowIds F d := by
+    rcases BranchRun.mem_addNode ⟨m, hc⟩ with h | ⟨m0, hm0⟩
+    · exact h
+    · exfalso
+      have hb := hbelow m0 (List.mem_of_find?_eq_some hm0)
+      rw [node?_id_eq F c m0 hm0, hcs] at hb
+      omega
+  rw [addNode_node?_new F d t hd hbelow c hrow] at hc
   cases hc
   intro x hx
-  simp only [addOwner, upNode, newParents] at hx
-  split at hx
-  · obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hx
-    have := (List.mem_filter.mp hn).2
-    exact eq_of_beq this
-  · exact absurd hx List.not_mem_nil
+  rw [rowNode_parents] at hx
+  have hxp := rowParents_subset F d c x hx
+  unfold newParents at hxp
+  rw [if_pos hpos] at hxp
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hxp
+  exact eq_of_beq (List.mem_filter.mp hn).2
 
 /-- **Below the new top node, a support of an UP is a support of the state before it.** -/
 theorem sup_below_addNode (F : GPathM) (d : NodeId) (t : String) (hd : d.step = F.current_step)
@@ -126,15 +130,17 @@ theorem sup_below_addNode (F : GPathM) (d : NodeId) (t : String) (hd : d.step = 
   have below : ∀ x m, (addNode F d t).node? x = some m → x.id.step < F.current_step →
       ∃ n, F.node? x = some n ∧ m = upMap F d n :=
     fun x m hx hs => addNode_node?_below F d t hd x m hx hs
-  have notnew : ∀ v : PathNodeId, v.id.step < F.current_step → v ≠ newPid F d := by
-    intro v hv he; rw [he] at hv; simp only [newPid] at hv; omega
+  have notnew : ∀ v : PathNodeId, v.id.step < F.current_step → v ∉ newRowIds F d := by
+    intro v hv he
+    rw [mapId_of_mem_newRowIds F d v he, hd] at hv
+    omega
   have ownF : ∀ x v n, F.node? x = some n → v.id.step < F.current_step → v ∈ (upMap F d n).owners →
       v ∈ n.owners := by
     intro x v n _ hv hm
     rw [upMap_owners] at hm
     rcases List.mem_append.mp hm with h | h
     · exact h
-    · exact absurd (List.mem_singleton.mp h) (notnew v hv)
+    · exact absurd (gainedOwners_subset F d n v h) (notnew v hv)
   have pstep : ∀ x n, F.node? x = some n → ∀ c ∈ n.parents, c.id.step + 1 = x.id.step := by
     intro x n hx c hc
     have := hpb n (List.mem_of_find?_eq_some hx) c hc
@@ -146,7 +152,7 @@ theorem sup_below_addNode (F : GPathM) (d : NodeId) (t : String) (hd : d.step = 
     rw [addNode_gowners] at this
     rcases List.mem_append.mp this with h1 | h1
     · exact h1
-    · exact absurd (List.mem_singleton.mp h1) (notnew p hps)
+    · exact absurd h1 (notnew p hps)
   · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     obtain ⟨n, hn, _⟩ := below p m hm hps
     rw [hn]; rfl
@@ -160,13 +166,14 @@ theorem sup_below_addNode (F : GPathM) (d : NodeId) (t : String) (hd : d.step = 
     exact ⟨c, hc, ⟨h1, hxs, by omega⟩, ⟨h2, by omega, hxs⟩, ⟨h3, by omega, hv⟩⟩
   · intro x ⟨hx, hxs⟩ hst v ⟨hxv, _, hv⟩
     obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son x hx (by rw [hcs]; omega) v hxv
+    have hposF : 0 < F.current_step := by have := (h.step x hx).1; omega
     have hcb : c.id.step < F.current_step := by
       by_cases hlt : c.id.step < F.current_step
       · exact hlt
       · exfalso
         have hcle : c.id.step < F.current_step + 1 := by
           have := (h.step c (h.dom x c h1).2).2; rw [hcs] at this; exact this
-        have := addNode_top_parents F d t hd hbelow c m hm (by omega) x hxm
+        have := addNode_top_parents F d t hd hposF hbelow c m hm (by omega) x hxm
         omega
     obtain ⟨n, hn, rfl⟩ := below c m hm hcb
     rw [upMap_parents] at hxm
@@ -274,26 +281,60 @@ theorem pin_send (hwf : WF φ) (k : Int) (key : NodeId) (G B : GPathM) (hsG : St
   have hRFB : ReadableAgg (pinnedAt φ B d) :=
     ⟨_, _, RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmB.rctx, rfl⟩
   have rcFB := RCtx_of_readableAgg _ hRFB
-  refine ⟨by rw [heqB]; exact ReviewJoin.isValid_addNode _ d "" hvFB (by rw [hdstep, hcsFB]), ?_⟩
+  refine ⟨by rw [heqB]; exact ReviewJoin.isValid_addNode _ d "" hvFB (by rw [hdstep, hcsFB]) rcFB.gn, ?_⟩
   -- the embedding, node by node
-  have hnew : newPid (pinnedAt φ G d) d = newPid (pinnedAt φ B d) d := by
-    simp only [newPid]; rw [hprF.map_parent_eq, hprFB.map_parent_eq, hsG.par, hsB.par]
   have supYY := sup_self _ adY okY smpY
-  have top : ∀ q, Mem Y q → ¬ q.id.step < k + 1 → q = newPid (pinnedAt φ G d) d := by
-    intro q ⟨mq, hmq⟩ hqs
-    obtain ⟨n, hn, _⟩ := eYS.node q mq hmq
-    have hb := (mem_bounds _ adY ⟨mq, hmq⟩).2
-    have hmem := List.mem_of_find?_eq_some hn
-    have htop := RunNoBorrow.tops_addNode (pinnedAt φ G d) d "" rcF.below n hmem
-      (by rw [node?_id_eq _ q n hn, hcsF]; omega)
-    rw [← node?_id_eq _ q n hn, htop]; rfl
+  have selfRelY : ∀ p, Mem Y p → Rel Y p p := by
+    rintro p ⟨mp, hmp⟩; exact ⟨mp, hmp, adY.ctx.self p mp hmp, ⟨mp, hmp⟩⟩
+  have hposF : 0 < (pinnedAt φ G d).current_step := by rw [hcsF]; omega
+  have hposFB : 0 < (pinnedAt φ B d).current_step := by rw [hcsFB]; omega
+  -- a member of `Y` at the top old step is a candidate parent of the row, on both sides
+  have parG : ∀ c, Mem Y c → c.id.step = k → c ∈ newParents (pinnedAt φ G d) := by
+    intro c hc hcs
+    obtain ⟨nc, hnc⟩ := Option.isSome_iff_exists.mp (supF.node c ⟨hc, by omega⟩)
+    unfold newParents
+    rw [if_pos hposF]
+    exact mem_line_of_node? _ c nc hnc _ (by rw [hcsF]; omega)
+  have parB : ∀ c, Mem Y c → c.id.step = k → c ∈ newParents (pinnedAt φ B d) := by
+    intro c hc hcs
+    obtain ⟨nc, hnc⟩ := Option.isSome_iff_exists.mp (supFB.node c ⟨hc, by omega⟩)
+    unfold newParents
+    rw [if_pos hposFB]
+    exact mem_line_of_node? _ c nc hnc _ (by rw [hcsFB]; omega)
+  -- **a member of `Y` above the old steps is a node of the row**, and it reaches down only through
+  -- one of its own parents: this is `supS.par` read at the new step
+  have top : ∀ q, Mem Y q → ¬ q.id.step < k + 1 → ∀ v, Rel Y q v →
+      ∃ c, Mem Y c ∧ c.id.step = k ∧ q = shiftPid c d ∧ Rel Y c v := by
+    intro q hq hqs v hqv
+    have hb := (mem_bounds _ adY hq).2
+    rw [hcsY] at hb
+    have hqk : q.id.step = k + 1 := by omega
+    obtain ⟨mq, hmq⟩ := id hq
+    obtain ⟨n, hn, _, _⟩ := eYS.node q mq hmq
+    have hrow : q ∈ newRowIds (pinnedAt φ G d) d := by
+      rcases BranchRun.mem_addNode ⟨n, hn⟩ with h | h
+      · exact h
+      · exfalso
+        obtain ⟨m0, hm0⟩ := h
+        have hbb := rcF.below m0 (List.mem_of_find?_eq_some hm0)
+        rw [node?_id_eq _ q m0 hm0, hqk, hcsF] at hbb
+        omega
+    have hnG : (addNode (pinnedAt φ G d) d "").node? q = some (rowNode (pinnedAt φ G d) d "" q) :=
+      addNode_node?_new _ d "" (by rw [hdstep, hcsF]) rcF.below q hrow
+    obtain ⟨c, hc, h1, h2, h3⟩ := supS.par q _ hq hnG
+      (parent_id_ne_none_of_mem_newRowIds _ d q hposF hrow) v hqv
+    rw [rowNode_parents] at hc
+    refine ⟨c, (supYY.dom c q h2).1, ?_, (shiftPid_of_mem_rowParents _ d q c hc).symm, h3⟩
+    rw [step_of_mem_newParents _ hposF c (rowParents_subset _ d q c hc), hcsF]
+    omega
   rw [heqB]
   refine ⟨by rw [hcsY]; show _ = (pinnedAt φ B d).current_step + 1; rw [hcsFB]; omega, fun q hq => ?_,
     fun x m hm => ?_⟩
   · rw [addNode_gowners]
     by_cases hqs : q.id.step < k + 1
     · exact List.mem_append_left _ (supFB.gow q ⟨memY q hq, hqs⟩)
-    · rw [top q (memY q hq) hqs, hnew]; exact List.mem_append_right _ List.mem_cons_self
+    · obtain ⟨c, hc, hcs, rfl, _⟩ := top q (memY q hq) hqs q (selfRelY q (memY q hq))
+      exact List.mem_append_right _ (mem_newRowIds_of_mem_newParents _ d c hposFB (parB c hc hcs))
   · have hxm : Mem Y x := ⟨m, hm⟩
     have hpar : ∀ q ∈ m.parents, q.id.step + 1 = x.id.step := by
       intro q hq
@@ -306,24 +347,60 @@ theorem pin_send (hwf : WF φ) (k : Int) (key : NodeId) (G B : GPathM) (hsG : St
       · rw [upMap_owners]
         by_cases hqs : q.id.step < k + 1
         · exact List.mem_append_left _ (supFB.own x q nF ⟨⟨m, hm, hq, hqm⟩, hxs, hqs⟩ hnF)
-        · rw [top q hqm hqs, hnew]; exact List.mem_append_right _ List.mem_cons_self
+        · -- `q` is a row node: `x` gains it exactly because one of `q`'s own parents owns `x`
+          obtain ⟨c, hc, hcs, rfl, hcx⟩ :=
+            top q hqm hqs x (supYY.sym x q ⟨m, hm, hq, hqm⟩)
+          obtain ⟨nc, hnc⟩ := Option.isSome_iff_exists.mp (supFB.node c ⟨hc, by omega⟩)
+          refine List.mem_append_right _ (List.mem_filter.mpr
+            ⟨mem_newRowIds_of_mem_newParents _ d c hposFB (parB c hc hcs), ?_⟩)
+          rw [node?_id_eq _ x nF hnF]
+          refine List.elem_eq_true_of_mem ((mem_rowOwners_iff _ d _ x).mpr
+            (Or.inl ⟨?_, supFB.gow x ⟨hxm, hxs⟩⟩))
+          exact mem_unionOwnersOf _ _ c nc x
+            (mem_rowParents_of_mem_newParents _ d c (parB c hc hcs)) hnc
+            (supFB.own c x nc ⟨hcx, by omega, hxs⟩ hnc)
       · rw [upMap_parents]
         have hqs := hpar q hq
         have hrel : Rel Y x q := ⟨m, hm, (adY.links x m hm).1 q hq, hqm⟩
         exact supFB.link x q nF ⟨hrel, hxs, by omega⟩ ⟨supYY.sym x q hrel, by omega, hxs⟩ hqs hnF
-    · have hxt := top x hxm hxs
-      have hnn := addNode_node?_new (pinnedAt φ B d) d "" (by rw [hdstep, hcsFB]) rcFB.below
-      refine ⟨_, by rw [hxt, hnew]; exact hnn, fun q hq hqm => ?_, fun q hq hqm => ?_⟩
-      · simp only [addOwner, upNode, List.mem_append, List.mem_singleton]
+    · -- `x` is a node of the row: on `B`'s side it is the row node its own parents shift to
+      have hxk : x.id.step = k + 1 := by
+        have := (mem_bounds _ adY hxm).2; rw [hcsY] at this; omega
+      obtain ⟨cx, hcx, hcxs, hxt, _⟩ := top x hxm hxs x (selfRelY x hxm)
+      have hrowG : x ∈ newRowIds (pinnedAt φ G d) d := by
+        rw [hxt]; exact mem_newRowIds_of_mem_newParents _ d cx hposF (parG cx hcx hcxs)
+      have hrowB : x ∈ newRowIds (pinnedAt φ B d) d := by
+        rw [hxt]; exact mem_newRowIds_of_mem_newParents _ d cx hposFB (parB cx hcx hcxs)
+      refine ⟨rowNode (pinnedAt φ B d) d "" x,
+        addNode_node?_new _ d "" (by rw [hdstep, hcsFB]) rcFB.below x hrowB, fun q hq hqm => ?_,
+        fun q hq hqm => ?_⟩
+      · rw [rowNode_owners]
         by_cases hqs : q.id.step < k + 1
-        · exact Or.inl (supFB.gow q ⟨hqm, hqs⟩)
-        · exact Or.inr (by rw [top q hqm hqs, hnew])
-      · have hqs := hpar q hq
-        have hxk : x.id.step = k + 1 := by have := (mem_bounds _ adY hxm).2; rw [hcsY] at this; omega
-        obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (supFB.node q ⟨hqm, by omega⟩)
-        simp only [addOwner, upNode, newParents]
-        rw [if_pos (by rw [hcsFB]; omega)]
-        exact mem_line_of_node? _ q nq hnq _ (by rw [hcsFB]; omega)
+        · obtain ⟨c, hc, hcs, hxeq, hcq⟩ := top x hxm hxs q ⟨m, hm, hq, hqm⟩
+          obtain ⟨nc, hnc⟩ := Option.isSome_iff_exists.mp (supFB.node c ⟨hc, by omega⟩)
+          refine (mem_rowOwners_iff _ d x q).mpr (Or.inl ⟨?_, supFB.gow q ⟨hqm, hqs⟩⟩)
+          refine mem_unionOwnersOf _ _ c nc q ?_ hnc (supFB.own c q nc ⟨hcq, by omega, hqs⟩ hnc)
+          rw [hxeq]
+          exact mem_rowParents_of_mem_newParents _ d c (parB c hc hcs)
+        · -- an owner at the row's own step *is* the node (`OOS` inside `Y`)
+          have hqx : q = x := by
+            have hb := (mem_bounds _ adY hqm).2
+            rw [hcsY] at hb
+            have h := adY.rc.oos m (List.mem_of_find?_eq_some hm) q hq
+              (by rw [node?_id_eq _ x m hm, hxk]; omega)
+            rw [node?_id_eq _ x m hm] at h
+            exact h
+          rw [hqx]
+          exact self_mem_rowOwners _ d x
+      · rw [rowNode_parents]
+        -- a parent inside `Y` is a parent of the row node on `G`'s side, so it shifts to `x`
+        obtain ⟨nG, hnG, _, hparG⟩ := eYS.node x m hm
+        rw [addNode_node?_new _ d "" (by rw [hdstep, hcsF]) rcF.below x hrowG] at hnG
+        cases hnG
+        have hqG := hparG q hq hqm
+        rw [rowNode_parents] at hqG
+        refine List.mem_filter.mpr ⟨parB q hqm (by have := hpar q hq; omega), ?_⟩
+        exact beq_iff_eq.mpr (shiftPid_of_mem_rowParents _ d x q hqG)
 
 /-- **A valid pinned send has a valid pinned source.** The part of the pinned send below its top is a
 support of the pinned source, with a member. -/

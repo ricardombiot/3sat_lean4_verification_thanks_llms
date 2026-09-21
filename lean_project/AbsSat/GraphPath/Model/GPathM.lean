@@ -584,6 +584,14 @@ theorem gainedSons_subset (g : GPathM) (d : NodeId) (n : PNodeM) (pid : PathNode
 theorem rowParents_subset (g : GPathM) (d : NodeId) (pid q : PathNodeId)
     (h : q ∈ rowParents g d pid) : q ∈ newParents g := (List.mem_filter.mp h).1
 
+/-- **A candidate parent of the row sits on the top old step.** -/
+theorem step_of_mem_newParents (g : GPathM) (hpos : 0 < g.current_step) (q : PathNodeId)
+    (h : q ∈ newParents g) : q.id.step = g.current_step - 1 := by
+  unfold newParents at h
+  rw [if_pos hpos] at h
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp h
+  exact eq_of_beq (List.mem_filter.mp hn).2
+
 /-- A parent of a row node shifts to it. -/
 theorem shiftPid_of_mem_rowParents (g : GPathM) (d : NodeId) (pid q : PathNodeId)
     (h : q ∈ rowParents g d pid) : shiftPid q d = pid :=

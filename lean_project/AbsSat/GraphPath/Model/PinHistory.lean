@@ -144,8 +144,8 @@ theorem pinIds_sent (P : List NodeId) (k : Int) (kv : NodeId × GPathM)
     obtain ⟨n1, hn1, hid, _, _⟩ := hpr.nodes_derived n0 hn0
     rw [hid] at hs hrs ⊢
     exact hp n1 hn1 hs r hr hrs
-  · rw [List.mem_singleton.mp h2] at hs
-    simp only [addOwner, upNode, newPid] at hs
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff _ d "" n).mp h2
+    rw [rowNode_id, mapId_of_mem_newRowIds _ d pid hpid, hd] at hs
     omega
 
 theorem pinIds_doJoin (P : List NodeId) (s : Int) (g₁ g₂ : GPathM) (h₁ : PinIdsBelow P s g₁)
