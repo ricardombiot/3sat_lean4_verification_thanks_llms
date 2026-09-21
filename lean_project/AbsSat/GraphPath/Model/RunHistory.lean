@@ -142,14 +142,30 @@ theorem witness_of_soundAt_sent (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ 
   obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp hsome
   have hntid := node?_id_eq _ _ nt hnt
   have hnt' : nt ∈ (addNode F d "").nodes := by rw [← heq]; exact List.mem_of_find?_eq_some hnt
-  have htop := RunNoBorrow.tops_addNode F d "" rcF.below nt hnt' (by rw [hntid, hstep, hstepF])
-  rw [hntid, hkF.1.map_parent_eq, hsok.par] at htop
-  obtain ⟨hid1, hpar1⟩ := hsel ((m : Int) + 1) (by omega) (by omega)
-  rw [if_neg (by omega), htop, show (m : Int) + 1 - 1 = m by omega] at hpar1
+  have hposF : 0 < F.current_step := by rw [hstepF]; omega
+  have htop := RunNoBorrow.tops_addNode F d "" hposF rcF.below nt hnt' (by rw [hntid, hstep, hstepF])
+  rw [hntid] at htop
+  obtain ⟨hdid, r, hr, hrp⟩ := htop
+  -- the top node records *a node of the old top line* as its parent; with `TL` that node is the key
+  have htl : ParentId.TL F := by
+    rw [hFdef]
+    exact ParentId.TL_of_pruned (Pruned.trans (ConservationCore.pruned_filterWeakAll _ _)
+      (AggressiveReview.pruned_filterAllAgg _ _)) hmkv.tl
+  have hrid : some r.id = F.map_parent := by
+    unfold newParents at hr
+    rw [if_pos hposF] at hr
+    obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hr
+    have hh := htl nr (List.mem_filter.mp hnr).1 (eq_of_beq (List.mem_filter.mp hnr).2)
+    rw [hnrid] at hh
+    exact hh
+  rw [hkF.1.map_parent_eq, hsok.par] at hrid
+  obtain ⟨_, hpar1, _⟩ := hsel ((m : Int) + 1) (by omega) (by omega)
+  rw [if_neg (by omega), show (m : Int) + 1 - 1 = m by omega] at hpar1
   obtain ⟨hid0, _⟩ := hsel (m : Int) (by omega) (by omega)
-  refine ⟨sel, ⟨a, hsat, hsel⟩, ?_, by rw [htop], hsx, hsq⟩
-  rw [hid0]
-  exact (Option.some.inj hpar1).symm
+  have hrsel : r.id = selOfAssign φ a (m : Int) := Option.some.inj (hrp.symm.trans hpar1)
+  refine ⟨sel, ⟨a, hsat, hsel⟩, ?_, hdid, hsx, hsq⟩
+  rw [hid0, ← hrsel]
+  exact Option.some.inj hrid
 
 /-- **With the invariant, the tables towards the literals are exact, and they speak of assignments.** In a
 sent state that keeps the invariant, `x` owns the literal-step node `q` iff some partial solution through
