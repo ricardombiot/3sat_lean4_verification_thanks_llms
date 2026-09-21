@@ -1,7 +1,9 @@
 # Plan — la ventana del identificador a 3 en la máquina `Improves` de Lean 4
 
-**Estado: E1–E4 hechos salvo cinco módulos; E5 no empezado.**
+**Estado: E1–E4 hechos; F1 hecho; F2 hecho salvo `PinDeath` + `ImprovesCima`; E5 no empezado.**
 Última actualización: 2026-09-21. Rama `spaik-window3`.
+`lake build AbsSat` llega a 226/231; lo que queda es una decisión de diseño, no
+reparación mecánica (ver F2).
 
 Ricardo: este documento era el plan de puerto del diseño de `julia/improves`
 (`140bc3b`, `bd46899`) a la máquina pura de Lean. Ahora es a la vez el plan y el
@@ -186,72 +188,80 @@ mismo"*, y es la pieza que hace que el rediseño cierre.
 
 ## Lo que falta — al detalle
 
-### F1. `HereditaryUp.add_new` — el único que no es puerto mecánico
+### F1. `HereditaryUp.add_new` ✅ HECHO
 
-**Qué es.** U2 de la validez hereditaria de pines: si `F` es válido bajo
-`C ++ [pin q]` y `A = addNode F d ""` es válido bajo `C`, entonces `A` es válido
-bajo `C ++ [pin q]`. La prueba construye un soporte `Sup (filterWeakAll A C') S R`
-sobre `B = Fw F C'`.
+U2 de la validez hereditaria de pines. El soporte viejo era *`B` más un nodo
+relacionado con todo el mundo*; ahora es **`B` más la fila superviviente**: un
+nodo de fila `shiftPid c d` por cada miembro `c` del paso viejo de arriba
+(`SupRow`), relacionado hacia abajo solo a través de *sus propios* padres
+(`SupRw`), y dos nodos de fila relacionados solo si son iguales.
 
-**Por qué rompe.** El soporte viejo es `S p := Mem B p ∨ p = new` con `R`
-relacionando `new` con **todos** los miembros. Con la fila `new` no posee a todos:
-posee lo que poseen sus padres. La cláusula `cov` (cada miembro tiene un
-relacionado en cada paso) falla para un miembro cuyo owner del paso de arriba no
-sea el padre de `new`.
+La pieza que cierra `son`, `link` y `agg` es la que el plan anticipó y que
+reaparece en todas partes:
 
-**Diseño que sí cierra** (verificado a mano cláusula por cláusula, no escrito aún):
+> `relSame`: por `OOS`, un owner al paso propio *es* el nodo. Un testigo forzado
+> al paso viejo de arriba es el padre del que vino.
+
+`add_new` gana `hpos : 0 < F.current_step`, que su único llamador descarga con
+`SNN`. `hpv_addNode` sale detrás: `newPid` → `newRowIds`, y el pin sobre un id de
+fila es un noop **para toda la fila**, porque todos los ids de fila llevan el
+mismo id de mapa `d`.
+
+**Un aviso que costó una hora y conviene no repetir.** `SupRow` y `SupRw` son
+definiciones de nivel superior, no `let` locales, a propósito: `omega`
+zeta-reduce un `let` y entonces parte por casos la ecuación de pasos que hay
+dentro *usando `Classical`*. Con `let`, `add_new` cerraba con
+`[propext, Classical.choice, Quot.sound]` y eso se habría propagado a todos los
+`#print axioms` de abajo. Como definiciones son opacas a `omega` y el cierre
+vuelve a ser `[propext, Quot.sound]`, ahora con su propio `#guard_msgs`.
+
+### F2. El resto del puerto — hecho salvo dos ficheros
+
+La lista de cuatro ficheros del plan se quedó corta: detrás de `HereditaryUp`
+había más, y no todo era mecánico. Lo hecho, en orden de build:
+
+| fichero | qué hacía falta |
+|---|---|
+| `RunHistory` | `tops_addNode` ya no dice *"el top es `newPid`"* sino *"el top lleva `d` y anota **algún** nodo de la línea vieja como padre"*; el testigo se vuelve a convertir en la clave por `ParentId.TL`, igual que en `sendsOk_send` |
+| `ClauseReview` | `extend_genuine` construye `shiftPid (sel m) d` en vez de `⟨d, some p⟩` (y pierde `p`/`hp`: el identificador se lee de la cadena). En `clauseWitness_of_glue`, un nodo del top ya no lo posee todo: `q` llega a `x` por **un padre propio** `r`, y el testigo es la cadena del pegamento para `r`, cuya extensión aterriza justo en `x` |
+| `PinHistory` | mecánico (`mem_newRow_iff` en vez del singleton) |
+| `PinSend` | el `top` de `pin_send` pasa de *"un miembro por encima **es** el nodo nuevo"* a *"es un nodo de fila, y baja solo por un padre propio"* — literalmente `supS.par` leído al paso nuevo. Con eso el encaje en el envío de `B` sale nodo a nodo |
+| `PinVar`, `PinClause` | el tercer componente allí donde se escribe un id a mano: `path_facts`, `canon_of_path`, `selA`, `onA`, `glue_canon` |
+
+Se añadió `GPathM.step_of_mem_newParents`, que tres de esos argumentos pedían.
+
+**Lo que queda, y por qué no es mecánico: `PinDeath` + `ImprovesCima`.**
 
 ```lean
-Row z   := ∃ c, Mem B c ∧ c.id.step = F.current_step - 1 ∧ z = shiftPid c d
-S p     := Mem B p ∨ Row p
-Rw z v  := ∃ c, Mem B c ∧ c.id.step = F.current_step - 1 ∧ z = shiftPid c d ∧ Rel B c v
-R x v   := (Mem B x ∧ Mem B v ∧ Rel B x v)
-         ∨ (Rw x v ∧ Mem B v)
-         ∨ (Rw v x ∧ Mem B x)
-         ∨ (Row x ∧ x = v)
+/-- El nodo top que un lado deja en la unión: la clave, sobre la clave del lado. -/
+def topOf (p k : NodeId) : PathNodeId := { id := p, parent_id := some k }
 ```
 
-Es decir: **el soporte contiene toda la fila superviviente**, cada nodo de fila
-se relaciona hacia abajo a través de *algún* padre suyo que siga vivo en `B`, y
-**dos nodos de fila se relacionan solo si son iguales**.
+`topOf` es el riesgo nº 2 de la lista de abajo materializado: compila por el
+`:= none` del tercer campo, y significa ventana 2. La suposición que codifica —
+**un lado deja un único nodo top en la unión, nombrado por (id de mapa, clave)** —
+es justo la que rompe la fila: un lado deja ahora *un top por cada nodo
+superviviente de su línea anterior*, y dos de ellos comparten `(p, kv.1)` y
+difieren en el abuelo. Por eso `htopSent` (`PinDeath:666`) es hoy literalmente
+falso, no mal tipado.
 
-La pieza que lo hace funcionar, y que conviene tener presente porque reaparece:
+El puerto pide decidir qué es "el top de un lado" con la ventana, y propagarlo:
+24 usos en `PinDeath`, 50 en `ImprovesCima`. Dos formas obvias:
 
-> `Rel B a b` con `a.id.step = b.id.step` implica `a = b`, por `OOS` (un owner al
-> paso propio *es* el nodo).
+1. `topOf` pasa a ser `shiftPid c p` y todo enunciado sobre *el* top de un lado
+   pasa a ser sobre *un nodo de la fila del lado*. Es lo que hace la máquina, y
+   es lo mismo que se hizo en `pin_send`.
+2. `topOf p k` sobrevive como *clase*: el conjunto de tops de un lado, todos con
+   `id = p` y `parent_id = some k`. Más barato de propagar, pero hay que
+   comprobar que `famFix`/`restTest` de `ImprovesCima` aguantan un cono con
+   varios anclajes — y el riesgo nº 1 del plan (`FamTopSingle`) volvería, esta
+   vez de verdad.
 
-Con ella:
-* `son` para `x` en el paso `cs-1` y `v` un nodo de fila: el hijo es
-  `shiftPid x d`, y el `c'` que testifica `Rw v x` está al mismo paso que `x`,
-  luego `c' = x` y `v = shiftPid x d`. Cierra.
-* `link` para `x` de fila y `c` al paso `cs-1`: el testigo de `Rw x c` está al
-  mismo paso que `c`, luego es `c`, luego `c ∈ rowParents F d x`. Cierra.
-* `agg` para dos miembros a paso `cs`: `supB.agg x v _ (cs-1)` da un owner común
-  `c`; el nodo de fila es `shiftPid c d`. Cierra.
-* `cov` para un miembro a paso `cs`: su owner en `cs-1` da el nodo de fila.
-* `par`/`cov` para un nodo de fila: por su padre testigo.
-
-Trabajo estimado: ~300 líneas de prueba nueva, mecánicas una vez fijado el
-diseño. Es el único punto del puerto donde hay que pensar.
-
-### F2. Cuatro ficheros con reparación mecánica pendiente
-
-Están detrás de `HereditaryUp` en el grafo de build, así que el build no ha
-llegado a ellos; la forma de la reparación es la que ya se aplicó 35 veces.
-
-| fichero | referencias | forma de la reparación |
-|---|---|---|
-| `ClauseReview.lean` | 4 | `newPid F d` → *el nodo de fila que la cadena alcanza*; el `x = newPid` de `htop` pasa a `x ∈ newRowIds` |
-| `PinHistory.lean` | 1 | un `simp only [addOwner, upNode, newPid]` → `rowNode_owners` |
-| `PinSend.lean` | 9 | `notnew`/`top`: "el único nodo del paso nuevo" → "un nodo de la fila"; `newPid G d = newPid B d` → las filas coinciden porque las líneas de arriba coinciden |
-| `PinDeath.lean` | 8 | `addNode_gowners` con `[newPid]` → `newRowIds`; los tres `newOk`/`oldOk` sobre `gowners ++ [newPid]` |
-
-Ninguno debería necesitar una idea nueva: todos son el patrón
-`rcases … with ⟨n, hn, rfl⟩ | ⟨pid, hpid, rfl⟩` más `mapId_of_mem_newRowIds`.
+No se eligió ninguna: es una decisión, no una reparación.
 
 ### F3. Puerta final
 
-* `lake build AbsSat` verde (231 jobs).
+* `lake build AbsSat` verde (231 jobs). **Hoy: 226/231**, parado en `PinDeath`.
 * Los `#print axioms` de los teoremas cabecera sin axiomas nuevos. **Atención**:
   varios `#guard_msgs` se rompen por sí solos cuando un teorema pasa a depender
   de `sorryAx` — sirven de alarma, no los quites.
@@ -314,8 +324,11 @@ y qué clase de fórmulas queda cubierta. `test_window/compare.jl` ya instrument
    `famFix` restringe por `restTest` a nivel de `PathNodeId`, no por id de mapa,
    así que el cono sigue anclado en el nodo `t` que nombra. Era el riesgo nº 1 del
    plan y resultó ser aire.
-2. **El default silencioso** sigue vivo: `{ id, parent_id }` compila y significa
-   ventana 2. Vale la pena un test que recorra un gpath de `W=3` y compruebe que
-   ningún nodo por encima del paso 1 tiene `gparent_id = none`. **No hecho.**
+2. ~~**El default silencioso**~~ — **se materializó**, y es lo que queda de F2:
+   `PinDeath.topOf` estaba escrito `{ id := p, parent_id := some k }`, compiló
+   sin ruido y significa ventana 2. El test propuesto (recorrer un gpath de
+   `W=3` y comprobar que ningún nodo por encima del paso 1 tiene
+   `gparent_id = none`) lo habría cazado meses antes. **Sigue sin hacerse y
+   sigue mereciendo la pena.**
 3. **El coste de `c`** — pendiente de F5.
 4. Lo que v130 avisó no aplica (ventana acotada, no camino), como ya decía v173 §5.
