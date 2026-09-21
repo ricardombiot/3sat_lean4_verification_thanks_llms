@@ -58,7 +58,8 @@ theorem mem_gowner (R : GPathM) (ad : AdjacentOwners.Adj R) {a : PathNodeId} (ha
 /-- Below the root, a node's parent map node is the map node of a node one step down. -/
 theorem parent_of_mem (R : GPathM) (ad : AdjacentOwners.Adj R) (hok : AggOk R) (hsmp : Sons.SMP R)
     {a : PathNodeId} (ha : Mem R a) (hs : 0 < a.id.step) :
-    ∃ v, Mem R v ∧ v.id.step = a.id.step - 1 ∧ a.parent_id = some v.id := by
+    ∃ v, Mem R v ∧ v.id.step = a.id.step - 1 ∧ a.parent_id = some v.id ∧
+      a.gparent_id = v.parent_id := by
   have sup := sup_self R ad hok hsmp
   obtain ⟨m, hm⟩ := ha
   obtain ⟨_, h1⟩ := mem_bounds R ad ⟨m, hm⟩
@@ -66,9 +67,10 @@ theorem parent_of_mem (R : GPathM) (ad : AdjacentOwners.Adj R) (hok : AggOk R) (
   have hva := sup.sym a v hav
   have hp := sup.link a v m hav hva (by omega) hm
   have hpmp := ad.rc.pmp m (List.mem_of_find?_eq_some hm) v hp
-  rw [node?_id_eq R a m hm] at hpmp
+  have hgpmp := ad.rc.gpmp.1 m (List.mem_of_find?_eq_some hm) v hp
+  rw [node?_id_eq R a m hm] at hpmp hgpmp
   obtain ⟨_, _, _, hmv⟩ := hav
-  exact ⟨v, hmv, hvs, hpmp.symm⟩
+  exact ⟨v, hmv, hvs, hpmp.symm, hgpmp⟩
 
 theorem root_of_mem (R : GPathM) (ad : AdjacentOwners.Adj R) {a : PathNodeId} (ha : Mem R a)
     (hz : a.id.step = 0) : a.parent_id = none := by
@@ -78,23 +80,45 @@ theorem root_of_mem (R : GPathM) (ad : AdjacentOwners.Adj R) {a : PathNodeId} (h
   rw [hid] at this
   exact this
 
+/-- And a root records no grandparent either. -/
+theorem groot_of_mem (R : GPathM) (ad : AdjacentOwners.Adj R) {a : PathNodeId} (ha : Mem R a)
+    (hz : a.id.step = 0) : a.gparent_id = none := by
+  obtain ⟨m, hm⟩ := ha
+  have hid := node?_id_eq R a m hm
+  have := ad.rc.gpmp.2 m (List.mem_of_find?_eq_some hm)
+    (by rw [hid]; exact root_of_mem R ad ⟨m, hm⟩ hz)
+  rw [hid] at this
+  exact this
+
 /-- Same map node at every step ⟹ same node at every step. -/
 theorem eq_of_ids (R : GPathM) (ad : AdjacentOwners.Adj R) (hok : AggOk R) (hsmp : Sons.SMP R)
     (hid : ∀ a b, Mem R a → Mem R b → a.id.step = b.id.step → a.id = b.id) :
     ∀ a b, Mem R a → Mem R b → a.id.step = b.id.step → a = b := by
   intro a b ha hb hs
   have h1 := hid a b ha hb hs
+  obtain ⟨h0a, _⟩ := mem_bounds R ad ha
   have h2 : a.parent_id = b.parent_id := by
-    obtain ⟨h0a, _⟩ := mem_bounds R ad ha
     by_cases hz : a.id.step = 0
     · rw [root_of_mem R ad ha hz, root_of_mem R ad hb (by omega)]
-    · obtain ⟨v, hv, hvs, hpa⟩ := parent_of_mem R ad hok hsmp ha (by omega)
-      obtain ⟨w, hw, hws, hpb⟩ := parent_of_mem R ad hok hsmp hb (by omega)
+    · obtain ⟨v, hv, hvs, hpa, _⟩ := parent_of_mem R ad hok hsmp ha (by omega)
+      obtain ⟨w, hw, hws, hpb, _⟩ := parent_of_mem R ad hok hsmp hb (by omega)
       rw [hpa, hpb, hid v w hv hw (by omega)]
+  -- the third component: the parents' own `parent_id`, and they agree one step lower
+  have h3 : a.gparent_id = b.gparent_id := by
+    by_cases hz : a.id.step = 0
+    · rw [groot_of_mem R ad ha hz, groot_of_mem R ad hb (by omega)]
+    · obtain ⟨v, hv, hvs, _, hga⟩ := parent_of_mem R ad hok hsmp ha (by omega)
+      obtain ⟨w, hw, hws, _, hgb⟩ := parent_of_mem R ad hok hsmp hb (by omega)
+      rw [hga, hgb]
+      by_cases hz1 : v.id.step = 0
+      · rw [root_of_mem R ad hv hz1, root_of_mem R ad hw (by omega)]
+      · obtain ⟨x, hx, hxs, hpx, _⟩ := parent_of_mem R ad hok hsmp hv (by omega)
+        obtain ⟨y, hy, hys, hpy, _⟩ := parent_of_mem R ad hok hsmp hw (by omega)
+        rw [hpx, hpy, hid x y hx hy (by omega)]
   cases a
   cases b
   simp only [PathNodeId.mk.injEq]
-  exact ⟨h1, h2⟩
+  exact ⟨h1, h2, h3⟩
 
 /-- **One map node per step: the state is a path.** A valid reviewed state whose nodes at each step
 share their map node holds a sound chain through all of its nodes. No hypothesis. -/

@@ -93,7 +93,8 @@ theorem hpv_initSeed (d : NodeId) : HPV (GPathM.initSeed d "") := by
     intro x hx
     have hx' := ((mem_filterWeakAll C _ x).mp hx).1
     have hg : (GPathM.initSeed d "").gowners = [{ id := d, parent_id := none }] := by
-      unfold GPathM.initSeed GPathM.up GPathM.addNode; simp [GPathM.empty, isValid, intRange]
+      unfold GPathM.initSeed GPathM.up GPathM.addNode
+      simp [GPathM.empty, isValid, intRange, GPathM.newRowIds]
     rw [hg] at hx'
     exact List.mem_singleton.mp hx'
   have hq' := hgw q ((pruned_filterAllAgg _ []).gowners_sub q hq)

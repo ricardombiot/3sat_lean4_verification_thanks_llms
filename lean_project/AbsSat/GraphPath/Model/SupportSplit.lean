@@ -389,15 +389,17 @@ theorem reviewJoin_of_split (_hwf : WF φ) (hS : SupportSplit φ) : ReviewJoin �
       embedded_of_cover _ ad _ _ _ supB hstepB allB⟩)
 
 /-- **The Improves verdict from the split of the review's support.** -/
-theorem sat_of_split (hwf : WF φ) (hS : SupportSplit φ) (kv : NodeId × GPathM)
+theorem sat_of_split (hwf : WF φ) (hS : SupportSplit φ) (hog : ReviewJoin.OwnGowPinned)
+    (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
-  sat_of_reviewJoin φ hwf (reviewJoin_of_split φ hwf hS) kv hkv hv
+  sat_of_reviewJoin φ hwf (reviewJoin_of_split φ hwf hS) hog kv hkv hv
 
 /-- **The Improves verdict from no borrowing**: every entry of a reviewed join lies in a support inside
 one of its sides. -/
-theorem sat_of_cover (hwf : WF φ) (hC : SupportCover φ) (kv : NodeId × GPathM)
+theorem sat_of_cover (hwf : WF φ) (hC : SupportCover φ) (hog : ReviewJoin.OwnGowPinned)
+    (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
-  sat_of_split φ hwf (supportSplit_of_cover φ hC) kv hkv hv
+  sat_of_split φ hwf (supportSplit_of_cover φ hC) hog kv hkv hv
 
 /-- info: 'AbsSat.GraphPath.Model.SupportSplit.sat_of_cover' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

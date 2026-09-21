@@ -54,9 +54,10 @@ theorem derived_Fw {g : GPathM} {C : Cons} (hnd : NodupIds g) {x : PathNodeId} {
 
 theorem old_or_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step) (rcF : Reader.RCtx F)
     {p : PathNodeId} (h : Mem (addNode F d "") p) :
-    (p = newPid F d ∧ p.id.step = F.current_step) ∨ (Mem F p ∧ p.id.step < F.current_step) := by
-  rcases mem_addNode h with rfl | hp
-  · exact Or.inl ⟨rfl, hd⟩
+    (p ∈ newRowIds F d ∧ p.id.step = F.current_step) ∨
+    (Mem F p ∧ p.id.step < F.current_step) := by
+  rcases mem_addNode h with hrow | hp
+  · exact Or.inl ⟨hrow, by rw [mapId_of_mem_newRowIds F d p hrow]; exact hd⟩
   · obtain ⟨m, hm⟩ := hp
     have hmem := List.mem_of_find?_eq_some hm
     refine Or.inr ⟨⟨m, hm⟩, ?_⟩
@@ -91,9 +92,8 @@ theorem drop_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
       rw [upMap_owners] at this
       rcases List.mem_append.mp this with h | h
       · exact h
-      · have hvn := List.mem_singleton.mp h
-        rw [hvn] at hvs
-        exact absurd hvs (by simp only [newPid, hd]; omega)
+      · rw [mapId_of_mem_newRowIds _ d v (gainedOwners_subset _ d _ v h), hd] at hvs
+        omega
     · have := hpa c hc
       rwa [upMap_parents] at this
   let S : PathNodeId → Prop := fun p => Mem B p ∧ p.id.step < F.current_step
@@ -112,12 +112,12 @@ theorem drop_new (F : GPathM) (d : NodeId) (hd : d.step = F.current_step)
       have hg := gowner_of_mem B a hp.1
       have hgW := (pruned_filterAllAgg (filterWeakAll A C) []).gowners_sub p hg
       obtain ⟨hgA, hcomp⟩ := (mem_filterWeakAll C A p).mp hgW
-      have hgA' : p ∈ F.gowners ++ [newPid F d] := hgA
+      have hgA' : p ∈ F.gowners ++ newRowIds F d := hgA
       rcases List.mem_append.mp hgA' with h | h
       · exact (mem_filterWeakAll C F p).mpr ⟨h, hcomp⟩
       · have := hp.2
-        rw [List.mem_singleton.mp h] at this
-        exact absurd this (by simp only [newPid, hd]; omega)
+        rw [mapId_of_mem_newRowIds F d p h, hd] at this
+        omega
     · intro p hp
       obtain ⟨m, hm⟩ := memF p hp
       rw [node?_filterWeakAll, hm]; rfl
