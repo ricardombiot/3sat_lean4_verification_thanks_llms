@@ -1,6 +1,6 @@
 # Plan — la ventana del identificador a 3 en la máquina `Improves` de Lean 4
 
-**Estado: E1–E4 hechos; F1 hecho; F2 hecho salvo `PinDeath` + `ImprovesCima`; E5 no empezado.**
+**Estado: E1–E4 hechos; F1 hecho; F2 hecho salvo `ImprovesCima`; F4 parcial (la clase `SingleParents`, cerrada).**
 Última actualización: 2026-09-21. Rama `spaik-window3`.
 `lake build AbsSat` llega a 226/231; lo que queda es una decisión de diseño, no
 reparación mecánica (ver F2).
@@ -269,47 +269,61 @@ No se eligió ninguna: es una decisión, no una reparación.
   soluciones por instancia. El harness de Julia ya existe
   (`test_window/compare.jl`); falta el lado Lean (`lake exe improves-diff`).
 
-### F4. E5 — cobrar la ventana ❌ NO EMPEZADO
+### F4. E5 — cobrar la ventana ⚠️ PARCIAL: la clase, hecha; el caso general, no
 
-Lo único que no es puerto sino demostración nueva, y va al final a propósito.
+**Lo primero que hay que decir es que el plan miraba al sitio equivocado.** El
+muro ya estaba medio demostrado en el repo, bajo una hipótesis que esta sección
+no nombraba: `ParentWitness.par_witness_triple` cierra exactamente el paso de
+pareja a terna —el `extend_triple` que se proponía enunciar— bajo
+`SingleParent n`, *el nodo que se extiende tiene un solo padre*. Al lado,
+`owners_below_unique` demuestra que con `SingleParents g` el pasado entero de un
+nodo es un camino forzado. Ninguno de los dos lo consumía nadie.
 
-**El muro, con la línea exacta.** `Descent.extend_of_common_owner`
-(`Descent.lean:42`) pide
+**Hecho (`commonOwner_of_singleParents`, `sat_of_singleParents`, sin axiomas).**
+Toda la ruta C cuelga de una sola hipótesis, `Descent.CommonOwner g`. Y:
 
-```lean
-(hown : ∀ k, lo ≤ k → k < g.current_step → c ∈ ownersOf g (sel k))
-```
+> `SingleParents g` ⟹ `CommonOwner g`.
 
-*el nodo que baja debe ser dueño de todos los ya elegidos*. `extend_anchor` lo da
-para uno, `extend_pair` para dos usando `AggOk` (consistencia de **pares**). Para
-tres no hay.
+En ~30 líneas: el pick en `lo` no es raíz, luego tiene un padre `c`, y
+`SingleParents` lo hace *el* padre; para cada pick de arriba la consistencia de
+pares (`shared_owner`) da un owner común en el paso `lo-1`; y un owner **exacto­
+mente un paso por debajo** de un nodo *es* un padre suyo
+(`owners_below_iff_parents`), así que cada uno de esos testigos es `c`. La
+intersección `k`-aria que pide el descenso es la binaria, leída `k` veces en el
+mismo nodo. `NoDeadEndVerdict.sat_of_singleParents` cierra el veredicto para esa
+clase sin ninguna hipótesis abierta.
 
-**Lo que ahora se puede intentar y antes no.** Con `GPMP` demostrado, los picks
-`sel lo`, `sel (lo-1)`, `sel (lo-2)` **dejan de ser tres elecciones
-independientes**: los ids de mapa de los dos de abajo están escritos dentro del
-id del de arriba, y `chain_eq_of_mapIds_eq` dice que la cadena queda determinada
-por su sucesión de ids de mapa. La forma concreta del enunciado a demostrar:
+**Qué compra la ventana, exactamente.** Un nodo tiene varios padres ⟺ dos nodos
+de la línea anterior comparten `(id de mapa, id de mapa del padre)` y difieren en
+el abuelo — es `parents_differ_below` leído al revés. Generalizando a ventana
+`w`: dos padres coinciden en `w-1` componentes y difieren, como mucho, en el más
+viejo. De ahí dos consecuencias:
 
-```lean
-theorem extend_triple (g : GPathM) (a : Adj g) (hok : AggOk g) (hgpmp : GPMP g)
-    (hpos : 3 < g.current_step) … : SoundFrom g (upd sel (lo-1) c) (lo-1)
-```
+* **Ensanchar `w` nunca convierte `SingleParents` en teorema.** El desacuerdo no
+  desaparece, se muda al componente más antiguo. La pregunta de F5 —*¿basta
+  `c=3` o hay que hablar de `c=4`?*— tiene por esta vía respuesta negativa para
+  todo `c`.
+* **Pero ensanchar `w` agranda la clase donde vale**, porque fusionar exige
+  coincidir en `w-1` pasos de historia en vez de `w-2`. Eso, y no otra cosa, es
+  lo que se compra con el +0…18 % de nodos medido en §0.
 
-y su hermano en `SpcSupport.SpcStable` (`SpcSupport.lean:53`), que v173 §4
-identifica como *"la primerísima forma del muro"*: pide un owner común de `x`,
-`y` **y** `v`; con la ventana, `v` es un componente del id de `x`.
-
-**Esto es una hipótesis, no un hecho.** Lo establecido es que antes no se podía
-ni enunciar y ahora sí, y que la pieza que lo hará cerrar —si cierra— es la misma
-que cerró `FabricAdd` y cerrará `add_new`: *un owner al mismo paso es el nodo
-mismo*.
+**Lo que sigue abierto** es el `extend_triple` *sin* `SingleParent`: elegir,
+entre padres que solo difieren en el abuelo, uno que posea a los tres picks. La
+ventana ancla dos de los tres componentes del candidato y deja libre justo el
+tercero, que es donde los padres difieren. No lo cierra. El hermano en
+`SpcSupport.SpcStable` (`SpcSupport.lean:53`) sigue igual: pide un owner común de
+`x`, `y` **y** `v`, y `Spc` recorre parejas arbitrarias, no enlaces de padre, así
+que la determinación por identificador no le llega.
 
 ### F5. Medición pendiente (era E0, se saltó)
 
 No se midió y sigue mereciendo la pena:
 
 * **grado de entrada real de la fila** (cuántos abuelos distintos por fila) — es
-  el factor de crecimiento y el `c` de la §4 de v173;
+  el factor de crecimiento, y **es también la medición de F4**: el grado de
+  entrada de la fila es exactamente el número de veces que `SingleParents` falla,
+  o sea el tamaño del complemento de la clase que F4 ya cierra. Si sale 1 casi
+  siempre, la clase es casi todo; si sale 3, es casi nada;
 * **anchura inducida** de las familias del set sembrado.
 
 Con esos dos números se sabe de golpe si `c = 3` basta o hay que hablar de `c=4`,

@@ -2,6 +2,7 @@
 import AbsSat.GraphPath.Model.NoDeadEnd
 import AbsSat.GraphPath.Model.AdjacentOwners
 import AbsSat.GraphPath.Model.AggFixpoint
+import AbsSat.GraphPath.Model.ParentWitness
 
 /-!
 # The descent, step by step
@@ -260,6 +261,70 @@ def CommonOwner (g : GPathM) : Prop :=
   ∀ (sel : Int → PathNodeId) (lo : Int), 0 < lo → lo ≤ g.current_step - 1 → SoundFrom g sel lo →
     ∃ c nc, g.node? c = some nc ∧ c.id.step = lo - 1 ∧
       ∀ k, lo ≤ k → k < g.current_step → c ∈ ownersOf g (sel k)
+
+/-- **With one parent per node, the common owner is free.** The pick at `lo` is not a root, so it has
+a parent `c`, and `SingleParents` makes it *the* parent. For every pick above, the sweep's pair
+consistency hands a common owner on the step below `lo`; an owner exactly one step below a node **is**
+a parent of it (`owners_below_iff_parents`), so each of those witnesses is `c` itself. The `k`-fold
+intersection the descent asks for is therefore the 2-fold one, read `k` times at the same node.
+
+This is `ParentWitness.par_witness_triple` along the whole partial chain instead of one triple, and it
+is where the window pays: by `ParentWitness.parents_differ_below` two parents of a node agree on their
+map id (`PMP`) and on their own parent (`GPMP`), so `SingleParent` is the statement that the previous
+line holds no two nodes with the same two-step history — one level deeper than what a window of two
+could even say. -/
+theorem commonOwner_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (hsp : ParentWitness.SingleParents g) : CommonOwner g := by
+  intro sel lo hlo0 hlo hs
+  obtain ⟨hsome, hstep⟩ := hs.node lo (Int.le_refl _) (by omega)
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have hmem : n ∈ g.nodes := List.mem_of_find?_eq_some hn
+  have hid : n.id = sel lo := node?_id_eq g _ n hn
+  -- above step 0 the pick is not a root, so it has a parent
+  have hroot : n.id.parent_id.isNone = false := by
+    have hne : (sel lo).parent_id ≠ none := by
+      intro hnone
+      have := (hs.root_shape lo (Int.le_refl _) (by omega)).mp hnone
+      omega
+    rw [hid]
+    cases hp : (sel lo).parent_id with
+    | none => exact absurd hp hne
+    | some _ => rfl
+  obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode g n (a.ctx.nodeval _ n hn) hroot)
+  obtain ⟨mc, hmc, hmcid⟩ := a.rc.shape.pn n hmem c hc
+  have hcnode : g.node? c = some mc := by rw [← hmcid]; exact node?_of_mem a.rc.nodup mc hmc
+  have hcstep : c.id.step = lo - 1 := by
+    have := a.rc.shape.pbelow n hmem c hc
+    rw [hid, hstep] at this
+    omega
+  have hcown : c ∈ n.owners :=
+    (owners_below_iff_parents g a (sel lo) n hn (by rw [hstep]; omega) c
+      (by rw [hcstep, hstep])).mpr hc
+  refine ⟨c, mc, hcnode, hcstep, fun k hk0 hk1 => ?_⟩
+  rcases int_eq_or_ne k lo with rfl | hne
+  · simpa only [ownersOf, hn] using hcown
+  · -- the pick above owns `sel lo`, so pair consistency shares an owner on the step below
+    obtain ⟨hksome, hkstep⟩ := hs.node k hk0 hk1
+    obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp hksome
+    have hkx : sel k ∈ n.owners := by
+      have h := hs.owned k lo hk0 (Int.le_refl _) hk1 (by omega) hne
+      have h' := (List.mem_filter.mp h).1
+      simpa only [ownersOf, hn] using h'
+    obtain ⟨w, hwn, hwk, hws⟩ := ParentWitness.shared_owner a hok hn hnk
+      (by rw [hstep]; omega) (by rw [hstep]; omega)
+      (by rw [hkstep]; omega) (by rw [hkstep]; exact hk1) hkx (lo - 1) (by omega) (by omega)
+    -- and that shared owner is one step below `sel lo`, hence a parent of it, hence `c`
+    have hwp : w ∈ n.parents :=
+      (owners_below_iff_parents g a (sel lo) n hn (by rw [hstep]; omega) w
+        (by rw [hws, hstep])).mp hwn
+    have hwc : w = c := hsp n hmem w hwp c hc
+    rw [hwc] at hwk
+    simpa only [ownersOf, hnk] using hwk
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_singleParents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms commonOwner_of_singleParents
 
 /-- **And with it the state has no dead ends**, so the verdict follows
 (`NoDeadEndVerdict.sat_of_noDeadEnd`). -/

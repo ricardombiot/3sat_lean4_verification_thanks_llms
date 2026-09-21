@@ -96,6 +96,28 @@ theorem sat_of_commonOwner (hwf : WF φ) (kv : NodeId × GPathM)
   exact sat_of_noDeadEnd φ hwf kv hkv hv
     (Descent.noDeadEnd_of_commonOwner _ a hok hco)
 
+/-- **The verdict, with no hypothesis left, on the states whose nodes have one parent.** `SingleParents`
+is the only thing assumed, and it is a property of the state the machine hands over, not a conjecture
+about the review: it says the previous line holds no two nodes with the same two-step history. Where it
+holds the descent is not a search — the past of every node is forced (`ParentWitness.owners_below_unique`)
+— and the verdict follows. -/
+theorem sat_of_singleParents (hwf : WF φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (hsp : ParentWitness.SingleParents (filterAllAgg kv.2 [])) : Satisfiable φ := by
+  obtain ⟨hm, _, _⟩ := ReaderAggRun.pureRunW_state φ hwf kv hkv
+  obtain ⟨hR, _, hp, hn⟩ := Fw_facts kv.2 hm.rctx hm.smp hm.pms hm.sn []
+  have hfw : Fw kv.2 [] = filterAllAgg kv.2 [] := by
+    simp only [Fw, PureDriverImproves.filterWeakAll_nil]
+  rw [hfw] at hR hp hn
+  have a := AdjacentOwners.adj_of_readable _ hR hv hp hn
+  have hok := AggFixpoint.aggOk_reviewAgg _ hv
+  exact sat_of_commonOwner φ hwf kv hkv hv (Descent.commonOwner_of_singleParents _ a hok hsp)
+
+/-- info: 'AbsSat.GraphPath.Model.NoDeadEndVerdict.sat_of_singleParents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_singleParents
+
 /-- info: 'AbsSat.GraphPath.Model.NoDeadEndVerdict.sat_of_commonOwner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms sat_of_commonOwner

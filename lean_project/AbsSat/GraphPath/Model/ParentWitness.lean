@@ -60,7 +60,7 @@ since the map node is fixed by the identifier either way. -/
 def SingleParent (n : PNodeM) : Prop := ∀ c ∈ n.parents, ∀ c' ∈ n.parents, c = c'
 
 /-- The owner pair consistency of the sweep, at one step: a common owner of `x` and `v`. -/
-private theorem shared_owner {g : GPathM} (a : Adj g) (hok : AggOk g)
+theorem shared_owner {g : GPathM} (a : Adj g) (hok : AggOk g)
     {x v : PathNodeId} {n nv : PNodeM} (hx : g.node? x = some n) (hv : g.node? v = some nv)
     (hx0 : 0 ≤ x.id.step) (hxs : x.id.step < g.current_step)
     (hv0 : 0 ≤ v.id.step) (hvs : v.id.step < g.current_step) (hvx : v ∈ n.owners)
