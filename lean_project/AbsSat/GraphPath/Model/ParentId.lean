@@ -41,6 +41,15 @@ open AbsSat.GraphPath.Model.GPathM
 def TL (h : GPathM) : Prop :=
   ∀ n ∈ h.nodes, n.id.id.step = h.current_step - 1 → some n.id.id = h.map_parent
 
+/-- **A candidate parent of the row carries the state's map parent.** The move that turns a row
+node's recorded parent back into the key of the side it came from; `TL` is what makes it work. -/
+theorem mapId_of_mem_newParents (g : GPathM) (hpos : 0 < g.current_step) (htl : TL g)
+    (q : PathNodeId) (h : q ∈ newParents g) : some q.id = g.map_parent := by
+  unfold newParents at h
+  rw [if_pos hpos] at h
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp h
+  exact htl n (List.mem_filter.mp hn).1 (eq_of_beq (List.mem_filter.mp hn).2)
+
 theorem TL_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : TL g) : TL g' := by
   intro n' hn' hstep
   obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'

@@ -174,8 +174,17 @@ theorem sat_of_rowWitness (hwf : WF φ)
 -- The side is chosen by its top
 -- ============================================================
 
-/-- The top node a side leaves in the union: the key, over the side's own key. -/
-def topOf (p k : NodeId) : PathNodeId := { id := p, parent_id := some k }
+/-- **A top node a side leaves in the union**: the key, over the side's own key, over whatever the
+side's own key hangs on. With the window a side no longer leaves *one* top: `ParentId.TL` pins the
+first two components for the whole of the side's top line, and the third — the grandparent — is what
+separates two histories of that line. So `topOf p k` is a family, indexed by `gk`, not a node. -/
+def topOf (p k : NodeId) (gk : Option NodeId) : PathNodeId :=
+  { id := p, parent_id := some k, gparent_id := gk }
+
+/-- Two tops that coincide came from the same side: the key is the second component. -/
+theorem key_of_topOf {p p' k k' : NodeId} {gk gk' : Option NodeId}
+    (h : topOf p k gk = topOf p' k' gk') : k = k' :=
+  Option.some.inj (congrArg PathNodeId.parent_id h)
 
 /-- **The top keeps its side, at line `m`.** In a pinned union, if both ends of an entry own the top node
 of one side, and the entry was already in that side, that side's pinned send keeps the entry. (Probe
@@ -185,8 +194,8 @@ def TopKeepAt (m : Nat) : Prop :=
   ∀ (P : List NodeId) (r : NodeId), 0 ≤ r.step → r.step ≤ m → r.step < litBlock φ →
     ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
       ∀ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index → isValid (sent φ kv.2 p) = true →
-        ∀ x v, Rel (filterAllAgg J [r]) x v →
-          Rel (filterAllAgg J [r]) x (topOf p kv.1) → Rel (filterAllAgg J [r]) v (topOf p kv.1) →
+        ∀ x v, Rel (filterAllAgg J [r]) x v → ∀ gk,
+          Rel (filterAllAgg J [r]) x (topOf p kv.1 gk) → Rel (filterAllAgg J [r]) v (topOf p kv.1 gk) →
           Rel (sent φ kv.2 p) x v →
           isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧ Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
 
@@ -198,8 +207,8 @@ def TopSideAt (m : Nat) : Prop :=
     ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
       ∀ x v, Rel (filterAllAgg J [r]) x v →
         ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-          Rel (filterAllAgg J [r]) x (topOf p kv.1) ∧ Rel (filterAllAgg J [r]) v (topOf p kv.1) ∧
-          Rel (sent φ kv.2 p) x v
+          ∃ gk, Rel (filterAllAgg J [r]) x (topOf p kv.1 gk) ∧
+            Rel (filterAllAgg J [r]) v (topOf p kv.1 gk) ∧ Rel (sent φ kv.2 p) x v
 
 /-- **Every top node of an exact union is the top of a side.** -/
 theorem top_is_side (hwf : WF φ) (P : List NodeId) (m : Nat)
@@ -207,7 +216,7 @@ theorem top_is_side (hwf : WF φ) (P : List NodeId) (m : Nat)
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (x z : PathNodeId) (hxz : Rel J x z)
     (hz : z.id.step = (m : Int) + 1) :
     ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      z = topOf p kv.1 := by
+      ∃ gk, z = topOf p kv.1 gk := by
   have hl := branchLine_inv φ hwf P m
   have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
   have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
@@ -237,22 +246,20 @@ theorem top_is_side (hwf : WF φ) (P : List NodeId) (m : Nat)
   have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl, rfl⟩⟩
   obtain ⟨hvS, _⟩ := PinVar.branch_send_chain φ hwf P m hle (selOfAssign φ b (m : Int), g) hmem p hson
     (canon φ b) hgen rfl hbp hbP
-  refine ⟨(selOfAssign φ b (m : Int), g), hmem, hson, hvS, ?_⟩
-  obtain ⟨h1, h2⟩ := hb ((m : Int) + 1) (by omega) (by omega)
+  refine ⟨(selOfAssign φ b (m : Int), g), hmem, hson, hvS, z.gparent_id, ?_⟩
+  obtain ⟨h1, h2, _⟩ := hb ((m : Int) + 1) (by omega) (by omega)
   have hne : ¬ ((m : Int) + 1 = 0) := by omega
   rw [hz] at hsz
   rw [hsz] at h1 h2
   rw [if_neg hne, show (m : Int) + 1 - 1 = (m : Int) by omega] at h2
-  cases z with
-  | mk zi zp =>
-    simp only at h1 h2
-    simp only [topOf, h1, h2, hbp]
+  -- the first two components are the side; the third is whatever `z` already carries
+  exact RunNoBorrow.pid_ext (by rw [h1]; exact hbp) h2 rfl
 
 /-- **Nothing borrowed, from the top.** -/
 theorem sideKeep_of_top (m : Nat) (hS : TopSideAt φ m) (hT : TopKeepAt φ m) : SideKeepAt φ m := by
   intro P r h0r hrm hrl p J hJ hvX x v hxv
-  obtain ⟨kv, hkv, hson, hvS, hxt, hvt, hS'⟩ := hS P r h0r hrm hrl p J hJ hvX x v hxv
-  obtain ⟨hvY, hrel⟩ := hT P r h0r hrm hrl p J hJ hvX kv hkv hson hvS x v hxv hxt hvt hS'
+  obtain ⟨kv, hkv, hson, hvS, gk, hxt, hvt, hS'⟩ := hS P r h0r hrm hrl p J hJ hvX x v hxv
+  obtain ⟨hvY, hrel⟩ := hT P r h0r hrm hrl p J hJ hvX kv hkv hson hvS x v hxv gk hxt hvt hS'
   exact ⟨kv, hkv, hson, hvS, hvY, hrel⟩
 
 /-- **The verdict from the top.** -/
@@ -573,10 +580,6 @@ open AbsSat.GraphPath.Model.EmbeddedSupport (Mem Rel)
 open AbsSat.GraphPath.Model.PinClause (SideKeepAt)
 open AbsSat.GraphMap.CnfMapImproves (weakReqOfCnf)
 
-/-- The global owners an UP leaves: the old ones and the new top. -/
-theorem addNode_gowners (g : GPathM) (d : NodeId) (t : String) :
-    (addNode g d t).gowners = g.gowners ++ [newPid g d] := rfl
-
 /-- **A chain of common owners, upwards.** From `a` to a node of the last step, every link is a parent
 link of the state, both ends own each other, and every node owns `z`. The identifiers of the chain
 (`map node`, `parent map node`) name a history: at the last step the chain's end is the top of one side
@@ -616,7 +619,7 @@ def ChainSideAt (m : Nat) : Prop :=
     ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ P m) → isValid (filterAllAgg J [r]) = true →
       ∀ x v, Rel (filterAllAgg J [r]) x v →
         ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-          ChainUp (filterAllAgg J [r]) v x (topOf p kv.1) ∧
+          (∃ gk, ChainUp (filterAllAgg J [r]) v x (topOf p kv.1 gk)) ∧
           isValid (filterAllAgg (sent φ kv.2 p) [r]) = true ∧
           Rel (filterAllAgg (sent φ kv.2 p) [r]) x v
 
@@ -626,17 +629,17 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (n : PNodeM) (hn : n ∈ J.nodes)
     (hts : n.id.id.step = (m : Int) + 1) :
     ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      n.id = topOf p kv.1 ∧
+      (∃ gk, n.id = topOf p kv.1 gk) ∧
       ∃ ns, (sent φ kv.2 p).node? n.id = some ns ∧ ∀ q ∈ n.owners, q ∈ ns.owners := by
   have hl := branchLine_inv φ hwf P m
   have step : ∀ kv ∈ branchLine φ P m, ∀ d ∈ mapSons φ kv.1.step kv.1.index, ∀ acc,
       (∀ d' B', (d', B') ∈ acc → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
         ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
-          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1 ∧
+          isValid (sent φ kv'.2 d') = true ∧ (∃ gk, n'.id = topOf d' kv'.1 gk) ∧
           ∃ ns, (sent φ kv'.2 d').node? n'.id = some ns ∧ ∀ q ∈ n'.owners, q ∈ ns.owners) →
       (∀ d' B', (d', B') ∈ sendToW φ kv.2 acc d → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
         ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
-          isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1 ∧
+          isValid (sent φ kv'.2 d') = true ∧ (∃ gk, n'.id = topOf d' kv'.1 gk) ∧
           ∃ ns, (sent φ kv'.2 d').node? n'.id = some ns ∧ ∀ q ∈ n'.owners, q ∈ ns.owners) := by
     intro kv hkv d hd acc hacc
     rw [BranchLines.sendToW_eq]
@@ -659,37 +662,44 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
       have hbelow : ∀ x ∈ (ClauseReview.pinnedAt φ kv.2 d).nodes,
           x.id.id.step < (ClauseReview.pinnedAt φ kv.2 d).current_step :=
         (RCtx_of_readableAgg _ hRF).below
+      have htl : ParentId.TL (ClauseReview.pinnedAt φ kv.2 d) :=
+        ParentId.TL_of_pruned hprF hmkv.tl
+      have hposF : 0 < (ClauseReview.pinnedAt φ kv.2 d).current_step := by rw [hcsF]; omega
+      -- the send's new step is a whole row; `TL` says each of its nodes hangs on this side's key
       have htopSent : ∀ n' ∈ (sent φ kv.2 d).nodes, n'.id.id.step = (m : Int) + 1 →
-          n'.id = topOf d kv.1 := by
+          n'.id = topOf d kv.1 n'.id.gparent_id := by
         intro n' hn' hs
         rw [heq] at hn'
-        have := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d "" hbelow n' hn'
-          (by rw [hcsF]; exact hs)
-        rw [this, hmpF]; rfl
+        obtain ⟨hdid, r, hr, hrp⟩ := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 d) d ""
+          hposF hbelow n' hn' (by rw [hcsF]; exact hs)
+        refine RunNoBorrow.pid_ext hdid ?_ rfl
+        have hkey := ParentId.mapId_of_mem_newParents _ hposF htl r hr
+        rw [hmpF] at hkey
+        rw [hrp, Option.some.inj hkey]
+        rfl
       have hndS : NodupIds (sent φ kv.2 d) :=
         (ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv d hd hv).rctx.nodup
       intro d' B' hB' n' hn' hs'
       rcases BranchLines.insert_src acc d (sent φ kv.2 d) d' B' hB' with ⟨hdd, hcase⟩ | ⟨hmem, _⟩
       · subst hdd
         rcases hcase with rfl | ⟨e, he, rfl⟩
-        · exact ⟨kv, hkv, hd, hv, htopSent n' hn' hs', n',
+        · exact ⟨kv, hkv, hd, hv, ⟨_, htopSent n' hn' hs'⟩, n',
             node?_of_mem hndS n' hn', fun q hq => hq⟩
         · unfold doJoin at hn'
           by_cases hok : okJoin e (sent φ kv.2 d') = true
           · rw [if_pos hok] at hn'
             rcases BranchRun.mem_join_nodes_src hn' with ⟨a, ha, hid, hown, _⟩ | hsent
-            · obtain ⟨kv', hkv', hson', hv', hid', ns, hns, hsub⟩ :=
+            · obtain ⟨kv', hkv', hson', hv', ⟨gk', hid'⟩, ns, hns, hsub⟩ :=
                 hacc _ _ he a ha (by rw [← hid]; exact hs')
-              refine ⟨kv', hkv', hson', hv', by rw [hid]; exact hid', ns, by rw [hid]; exact hns,
-                fun q hq => ?_⟩
+              refine ⟨kv', hkv', hson', hv', ⟨gk', by rw [hid]; exact hid'⟩, ns,
+                by rw [hid]; exact hns, fun q hq => ?_⟩
               rcases hown q hq with hqa | ⟨b, hb, hbid, hqb⟩
               · exact hsub q hqa
               · -- the other side's node with the same id is this side's top, so the sides agree
                 have hbs : b.id.id.step = (m : Int) + 1 := by rw [hbid, ← hid]; exact hs'
-                have hbtop : b.id = topOf d' kv.1 := htopSent b hb hbs
-                have hkeys : kv'.1 = kv.1 := by
-                  have heq : topOf d' kv'.1 = topOf d' kv.1 := by rw [← hid', ← hbid, hbtop]
-                  simpa [topOf] using heq
+                have hbtop : b.id = topOf d' kv.1 b.id.gparent_id := htopSent b hb hbs
+                have hkeys : kv'.1 = kv.1 :=
+                  key_of_topOf (by rw [← hid', ← hbid, hbtop])
                 have hsame : kv' = kv := PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys
                 subst hsame
                 have hb2 : (sent φ kv'.2 d').node? a.id = some b := by
@@ -697,7 +707,7 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
                 rw [hns] at hb2
                 have : ns = b := Option.some.inj hb2
                 rw [this]; exact hqb
-            · exact ⟨kv, hkv, hd, hv, htopSent n' hsent hs', n',
+            · exact ⟨kv, hkv, hd, hv, ⟨_, htopSent n' hsent hs'⟩, n',
                 node?_of_mem hndS n' hsent, fun q hq => hq⟩
           · rw [if_neg hok] at hn'
             exact hacc _ _ he n' hn' hs'
@@ -706,7 +716,7 @@ theorem advance_top_node (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
   exact BranchLines.advance_inv φ
     (fun acc => ∀ d' B', (d', B') ∈ acc → ∀ n' ∈ B'.nodes, n'.id.id.step = (m : Int) + 1 →
       ∃ kv' ∈ branchLine φ P m, d' ∈ mapSons φ kv'.1.step kv'.1.index ∧
-        isValid (sent φ kv'.2 d') = true ∧ n'.id = topOf d' kv'.1 ∧
+        isValid (sent φ kv'.2 d') = true ∧ (∃ gk, n'.id = topOf d' kv'.1 gk) ∧
         ∃ ns, (sent φ kv'.2 d').node? n'.id = some ns ∧ ∀ q ∈ n'.owners, q ∈ ns.owners)
     (branchLine φ P m) step (by intro d B hB; cases hB) p J hJ n hn hts
 
@@ -715,8 +725,8 @@ everything the pinned union hangs on it is a node of that side's send — no uni
 theorem top_owner_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
     (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1) a) :
-    ∃ ns, (sent φ kv.2 p).node? (topOf p kv.1) = some ns ∧ a ∈ ns.owners := by
+    (gk : Option NodeId) (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1 gk) a) :
+    ∃ ns, (sent φ kv.2 p).node? (topOf p kv.1 gk) = some ns ∧ a ∈ ns.owners := by
   have hl := branchLine_inv φ hwf P m
   obtain ⟨n, hn, hao, _⟩ := ha
   obtain ⟨n0, hn0, hid, hown, _⟩ := (pruned_filterAllAgg J Q).nodes_derived n
@@ -725,15 +735,14 @@ theorem top_owner_in_side (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
   have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
   have hps : p.step = (m : Int) + 1 := mapNodes_step φ _ p hsJ.onMap
   have hts : n0.id.id.step = (m : Int) + 1 := by
-    have hnid : n.id = topOf p kv.1 := node?_id_eq _ _ n hn
+    have hnid : n.id = topOf p kv.1 gk := node?_id_eq _ _ n hn
     rw [← hid, hnid]
     show p.step = (m : Int) + 1
     exact hps
-  obtain ⟨kv', hkv', hson', hv', hid', ns, hns, hsub⟩ := advance_top_node φ hwf P m p J hJ n0 hn0 hts
-  have hne : n0.id = topOf p kv.1 := by rw [← hid]; exact node?_id_eq _ _ n hn
-  have hkeys : kv'.1 = kv.1 := by
-    have heq : topOf p kv'.1 = topOf p kv.1 := by rw [← hid', hne]
-    simpa [topOf] using heq
+  obtain ⟨kv', hkv', hson', hv', ⟨gk', hid'⟩, ns, hns, hsub⟩ :=
+    advance_top_node φ hwf P m p J hJ n0 hn0 hts
+  have hne : n0.id = topOf p kv.1 gk := by rw [← hid]; exact node?_id_eq _ _ n hn
+  have hkeys : kv'.1 = kv.1 := key_of_topOf (by rw [← hid', hne])
   have hsame : kv' = kv := PureDriver.key_inj _ hl.1.1 kv' hkv' kv hkv hkeys
   subst hsame
   exact ⟨ns, by rw [← hne]; exact hns, hsub a (hown a hao)⟩
@@ -765,51 +774,48 @@ theorem sent_ownGow (hwf : WF φ) (m : Nat) (kv : NodeId × GPathM) (hsok : Stat
   have hrcF := RCtx_of_readableAgg _
     (show ReadableAgg (ClauseReview.pinnedAt φ kv.2 p) from ⟨_, _, hrcW, rfl⟩)
   have hgow : (sent φ kv.2 p).gowners
-      = (ClauseReview.pinnedAt φ kv.2 p).gowners ++ [newPid (ClauseReview.pinnedAt φ kv.2 p) p] := by
+      = (ClauseReview.pinnedAt φ kv.2 p).gowners ++ newRowIds (ClauseReview.pinnedAt φ kv.2 p) p := by
     rw [heq, addNode_gowners]
   have hcs : (sent φ kv.2 p).current_step = (ClauseReview.pinnedAt φ kv.2 p).current_step + 1 := by
     rw [heq, addNode_current]
   intro pid n hn q hq hq0 hq1
   have hnmem : n ∈ (sent φ kv.2 p).nodes := List.mem_of_find?_eq_some hn
   rw [hgow]
-  -- the new top is always a global owner
-  have newOk : q = newPid (ClauseReview.pinnedAt φ kv.2 p) p → q ∈
-      (ClauseReview.pinnedAt φ kv.2 p).gowners ++ [newPid (ClauseReview.pinnedAt φ kv.2 p) p] := by
-    intro h; exact List.mem_append_right _ (by rw [h]; exact List.mem_singleton_self _)
+  -- a node of the new row is always a global owner
+  have newOk : q ∈ newRowIds (ClauseReview.pinnedAt φ kv.2 p) p → q ∈
+      (ClauseReview.pinnedAt φ kv.2 p).gowners ++ newRowIds (ClauseReview.pinnedAt φ kv.2 p) p :=
+    fun h => List.mem_append_right _ h
   -- an owner below the new step is a global owner of the state under it
   have oldOk : ∀ n0 ∈ (ClauseReview.pinnedAt φ kv.2 p).nodes, q ∈ n0.owners →
-      q ∈ (ClauseReview.pinnedAt φ kv.2 p).gowners ++ [newPid (ClauseReview.pinnedAt φ kv.2 p) p] := by
+      q ∈ (ClauseReview.pinnedAt φ kv.2 p).gowners ++ newRowIds (ClauseReview.pinnedAt φ kv.2 p) p := by
     intro n0 hn0 hq0'
     by_cases hstep : q.id.step < (ClauseReview.pinnedAt φ kv.2 p).current_step
     · exact List.mem_append_left _
         (hFgow n0.id n0 (node?_of_mem hrcF.nodup n0 hn0) q hq0' hq0 hstep)
-    · -- at the new step, the only node is the new top
+    · -- at the new step, the node is one of the row
       obtain ⟨nq, hnq, hnqid⟩ := hmS.own n hnmem q hq
       refine newOk ?_
-      have hqs : nq.id.id.step = (ClauseReview.pinnedAt φ kv.2 p).current_step := by
-        rw [hnqid]; rw [hcs] at hq1; omega
-      have hnq2 : nq ∈ (addNode (ClauseReview.pinnedAt φ kv.2 p) p "").nodes := by
-        rw [← heq]; exact hnq
-      have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 p) p "" hrcF.below nq hnq2 hqs
-      rw [hnqid] at htop
-      exact htop
+      have hqnode : (addNode (ClauseReview.pinnedAt φ kv.2 p) p "").node? q = some nq := by
+        rw [← heq, ← hnqid]; exact node?_of_mem hmS.rctx.nodup nq hnq
+      rcases BranchRun.mem_addNode ⟨nq, hqnode⟩ with hrow | ⟨m0, hm0⟩
+      · exact hrow
+      · exact absurd (hrcF.below m0 (List.mem_of_find?_eq_some hm0))
+          (by rw [node?_id_eq _ q m0 hm0]; omega)
   have hnmem2 : n ∈ ((ClauseReview.pinnedAt φ kv.2 p).nodes.map
       (upMap (ClauseReview.pinnedAt φ kv.2 p) p) ++
-      [addOwner (newPid (ClauseReview.pinnedAt φ kv.2 p) p)
-        (upNode (ClauseReview.pinnedAt φ kv.2 p) p "")]) := by
+      newRow (ClauseReview.pinnedAt φ kv.2 p) p "") := by
     rw [← addNode_nodes, ← heq]; exact hnmem
   rcases List.mem_append.mp hnmem2 with hold | hnew
   · obtain ⟨n0, hn0, rfl⟩ := List.mem_map.mp hold
     rw [upMap_owners] at hq
     rcases List.mem_append.mp hq with hq' | hq'
     · exact oldOk n0 hn0 hq'
-    · exact newOk (List.mem_singleton.mp hq')
-  · rw [List.mem_singleton.mp hnew] at hq
-    show q ∈ _ ++ _
-    simp only [addOwner, upNode] at hq
-    rcases List.mem_append.mp hq with hq' | hq'
-    · exact List.mem_append_left _ hq'
-    · exact newOk (List.mem_singleton.mp hq')
+    · exact newOk (gainedOwners_subset _ p n0 q hq')
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff _ p "" n).mp hnew
+    rw [rowNode_owners] at hq
+    rcases rowOwners_mem_gowners_or_self _ p pid q hq with h | h
+    · exact List.mem_append_left _ h
+    · exact newOk (by rw [h]; exact hpid)
 
 /-- **What hangs on a live top is a global owner and a node of that side.** This is the `gow` and `node`
 part of a support of the side: no closure rule involved. -/
@@ -817,50 +823,36 @@ theorem top_owner_gowner (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) 
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
     (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
     (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
-    (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1) a)
+    (gk : Option NodeId) (a : PathNodeId) (ha : Rel (filterAllAgg J Q) (topOf p kv.1 gk) a)
     (h0 : 0 ≤ a.id.step) (h1 : a.id.step < (sent φ kv.2 p).current_step) :
     a ∈ (sent φ kv.2 p).gowners ∧ Mem (sent φ kv.2 p) a := by
   have hl := branchLine_inv φ hwf P m
   have hsok : StateOkF φ m kv := hl.1.2 kv hkv
   have hmkv : MInv φ kv.2 := hl.2 kv hkv
-  obtain ⟨ns, hns, hmem⟩ := top_owner_in_side φ hwf P m p J hJ Q kv hkv a ha
-  have hg := sent_ownGow φ hwf m kv hsok hmkv p hson hvS (topOf p kv.1) ns hns a hmem h0 h1
+  obtain ⟨ns, hns, hmem⟩ := top_owner_in_side φ hwf P m p J hJ Q kv hkv gk a ha
+  have hg := sent_ownGow φ hwf m kv hsok hmkv p hson hvS (topOf p kv.1 gk) ns hns a hmem h0 h1
   have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
   exact ⟨hg, JoinSide.mem_of_hasNode hmS.rctx.nodup (hmS.rctx.gn a hg)⟩
 
-/-- **The only top a top hangs on is itself.** A side's top owns only its own side's nodes, and that
-side has exactly one node at the last step. -/
+/-- **The only top a top hangs on is itself.** With the row this is no longer "that side has exactly
+one node at the last step" — it has a whole row. It is `OOS` inside the union: an owner at the node's
+own step *is* the node. -/
 theorem tops_unique (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J : GPathM)
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
-    (kv : NodeId × GPathM) (hkv : kv ∈ branchLine φ P m)
-    (hson : p ∈ mapSons φ kv.1.step kv.1.index) (hvS : isValid (sent φ kv.2 p) = true)
-    (t' : PathNodeId) (ht' : Rel (filterAllAgg J Q) (topOf p kv.1) t')
-    (hts : t'.id.step = (m : Int) + 1) : t' = topOf p kv.1 := by
-  have hl := branchLine_inv φ hwf P m
-  have hsok : StateOkF φ m kv := hl.1.2 kv hkv
-  have hmkv : MInv φ kv.2 := hl.2 kv hkv
-  obtain ⟨ns, hns, hmem⟩ := top_owner_in_side φ hwf P m p J hJ Q kv hkv t' ht'
-  have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok hmkv p hson hvS
-  obtain ⟨nq, hnq, hnqid⟩ := hmS.own ns (List.mem_of_find?_eq_some hns) t' hmem
-  have hvF := ClauseReview.valid_pinned φ kv.2 p hvS
-  have heq : sent φ kv.2 p = addNode (ClauseReview.pinnedAt φ kv.2 p) p "" := by
-    rw [ClauseReview.sent_eq]; unfold GPathM.up; rw [hvF]; rfl
-  have hrcW : Reader.RCtx (filterWeakAll kv.2 (weakReqOfCnf φ p)) :=
-    RCtx_of_keeps (ReaderAggRun.keeps_filterWeakAll _ _) hmkv.rctx
-  have hrcF := RCtx_of_readableAgg _
-    (show ReadableAgg (ClauseReview.pinnedAt φ kv.2 p) from ⟨_, _, hrcW, rfl⟩)
-  have hcsF : (ClauseReview.pinnedAt φ kv.2 p).current_step = (m : Int) + 1 := by
-    rw [(Pruned.trans (ConservationCore.pruned_filterWeakAll _ _)
-      (pruned_filterAllAgg _ _) : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 p)).step_eq, hsok.step]
-  have hmpF : (ClauseReview.pinnedAt φ kv.2 p).map_parent = some kv.1 := by
-    rw [(Pruned.trans (ConservationCore.pruned_filterWeakAll _ _)
-      (pruned_filterAllAgg _ _) : Pruned kv.2 (ClauseReview.pinnedAt φ kv.2 p)).map_parent_eq, hsok.par]
-  have hnq2 : nq ∈ (addNode (ClauseReview.pinnedAt φ kv.2 p) p "").nodes := by
-    rw [← heq]; exact hnq
-  have htop := RunNoBorrow.tops_addNode (ClauseReview.pinnedAt φ kv.2 p) p "" hrcF.below nq hnq2
-    (by rw [hnqid, hcsF]; exact hts)
-  rw [hnqid, hmpF] at htop
-  exact htop
+    (kv : NodeId × GPathM) (_hkv : kv ∈ branchLine φ P m)
+    (_hson : p ∈ mapSons φ kv.1.step kv.1.index) (_hvS : isValid (sent φ kv.2 p) = true)
+    (gk : Option NodeId) (t' : PathNodeId) (ht' : Rel (filterAllAgg J Q) (topOf p kv.1 gk) t')
+    (hts : t'.id.step = (m : Int) + 1) : t' = topOf p kv.1 gk := by
+  have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ (branchLine_inv φ hwf P m)
+  have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
+  have hps : p.step = (m : Int) + 1 := mapNodes_step φ _ p hsJ.onMap
+  have hoos := SelfOwn.OOS_of_pruned (pruned_filterAllAgg J Q) (hadv.2 _ hJ).rctx.oos
+  obtain ⟨n, hn, hmem, _⟩ := ht'
+  have hnid : n.id = topOf p kv.1 gk := node?_id_eq _ _ n hn
+  have h := hoos n (List.mem_of_find?_eq_some hn) t' hmem
+    (by rw [hnid, hts]; show (m : Int) + 1 = p.step; rw [hps])
+  rw [hnid] at h
+  exact h
 
 /-- **Nothing borrowed, when the chain names the side.** -/
 theorem sideKeep_of_chainSide (m : Nat) (hC : ChainSideAt φ m) : SideKeepAt φ m := by
