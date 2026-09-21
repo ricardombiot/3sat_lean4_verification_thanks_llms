@@ -89,7 +89,7 @@ theorem owners_below_iff_parents (g : GPathM) (a : Adj g) (x : PathNodeId) (n : 
     | none => exact absurd hp hnr
     | some _ => rfl
   obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
-    (SymTriReview.have_parents_of_isValidNode g n (a.ctx.nodeval x n hx) hroot)
+    (SelfOwn.have_parents_of_isValidNode g n (a.ctx.nodeval x n hx) hroot)
   obtain ⟨mc0, hmc0, hmc0id⟩ := a.rc.shape.pn n hmem c0 hc0
   have hc0node : g.node? c0 = some mc0 := by rw [← hmc0id]; exact node?_of_mem a.rc.nodup mc0 hmc0
   have hc0step : c0.id.step = x.id.step - 1 := by rw [← hid]; exact a.rc.shape.pbelow n hmem c0 hc0
@@ -124,7 +124,7 @@ theorem owners_above_iff_sons (g : GPathM) (a : Adj g) (x : PathNodeId) (n : PNo
   have hnl : (n.id.id.step == g.current_step - 1) = false := by
     rw [hid]; exact beq_false_of_ne (by omega)
   obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
-    (SymTriReview.have_sons_of_isValidNode g n (a.ctx.nodeval x n hx) hnl)
+    (SelfOwn.have_sons_of_isValidNode g n (a.ctx.nodeval x n hx) hnl)
   obtain ⟨mc0, hmc0, hmc0id⟩ := a.sn n hmem c0 hc0
   have hc0node : g.node? c0 = some mc0 := by rw [← hmc0id]; exact node?_of_mem a.rc.nodup mc0 hmc0
   have hk : x.id.step ∈ intRange 0 (g.current_step - 2) := mem_intRange hsnn hxl

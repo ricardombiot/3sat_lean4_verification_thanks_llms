@@ -39,15 +39,21 @@ theorem parents_id_eq {g : GPathM} (hpmp : ParentId.PMP g) {n : PNodeM} (hn : n 
     {c c' : PathNodeId} (hc : c ∈ n.parents) (hc' : c' ∈ n.parents) : c.id = c'.id :=
   Option.some_inj.mp ((hpmp n hn c hc).trans (hpmp n hn c' hc').symm)
 
-/-- **Two parents differ only below.** They name the same map node, so they part company at
-*their* parent — one more step down the chain the identifiers build. -/
-theorem parents_differ_below {g : GPathM} (hpmp : ParentId.PMP g) {n : PNodeM} (hn : n ∈ g.nodes)
+/-- **Two parents of a node differ only in the grandparent.** They share their
+map id by `PMP` and their own parent by `GPMP` — both are written into the
+identifier of the node they are parents of. With a window of two, `parent_id`
+was the only place left for them to differ; with three, it is `gparent_id`, and
+that is exactly the level of history the row `UP` added. -/
+theorem parents_differ_below {g : GPathM} (hpmp : ParentId.PMP g)
+    (hgpmp : ParentId.GPMP g) {n : PNodeM} (hn : n ∈ g.nodes)
     {c c' : PathNodeId} (hc : c ∈ n.parents) (hc' : c' ∈ n.parents) (hne : c ≠ c') :
-    c.id = c'.id ∧ c.parent_id ≠ c'.parent_id := by
-  refine ⟨parents_id_eq hpmp hn hc hc', fun hp => hne ?_⟩
+    c.id = c'.id ∧ c.parent_id = c'.parent_id ∧ c.gparent_id ≠ c'.gparent_id := by
   have hid := parents_id_eq hpmp hn hc hc'
+  have hpar : c.parent_id = c'.parent_id := by
+    rw [← hgpmp.1 n hn c hc, hgpmp.1 n hn c' hc']
+  refine ⟨hid, hpar, fun hg => hne ?_⟩
   cases c; cases c'; simp only [PathNodeId.mk.injEq] at *
-  exact ⟨hid, hp⟩
+  exact ⟨hid, hpar, hg⟩
 
 /-- A node with one parent: by `parents_id_eq` this is the same as having one parent *history*,
 since the map node is fixed by the identifier either way. -/
@@ -118,7 +124,7 @@ private theorem union_entry_below {g : GPathM} (a : Adj g) {x : PathNodeId} {n :
     | none => exact absurd hp hnr
     | some _ => rfl
   obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
-    (SymTriReview.have_parents_of_isValidNode g n (a.ctx.nodeval x n hx) hroot)
+    (SelfOwn.have_parents_of_isValidNode g n (a.ctx.nodeval x n hx) hroot)
   obtain ⟨mc, hmc, hmcid⟩ := a.rc.shape.pn n hmem c hc
   have hcnode : g.node? c = some mc := by rw [← hmcid]; exact node?_of_mem a.rc.nodup mc hmc
   have hent : hasStepEntry mc.owners k = true :=

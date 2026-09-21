@@ -129,7 +129,7 @@ theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.
       | none => exact absurd hp hpid
       | some _ => rfl
     obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
-      (SymTriReview.have_parents_of_isValidNode B m (a.ctx.nodeval x m hm) hroot)
+      (SelfOwn.have_parents_of_isValidNode B m (a.ctx.nodeval x m hm) hroot)
     obtain ⟨mc0, hmc0, hmc0id⟩ := a.rc.shape.pn m hmem c0 hc0
     have hc0node : B.node? c0 = some mc0 := by rw [← hmc0id]; exact node?_of_mem a.rc.nodup mc0 hmc0
     have hbelow := a.rc.shape.pbelow m hmem c0 hc0
@@ -160,7 +160,7 @@ theorem sup_of_embedded (B G : GPathM) (a : Adj B) (hok : AggOk B) (hsmp : Sons.
     have hnl : (m.id.id.step == B.current_step - 1) = false := by
       rw [hid]; exact beq_false_of_ne hlast
     obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
-      (SymTriReview.have_sons_of_isValidNode B m (a.ctx.nodeval x m hm) hnl)
+      (SelfOwn.have_sons_of_isValidNode B m (a.ctx.nodeval x m hm) hnl)
     obtain ⟨mc0, hmc0, hmc0id⟩ := a.sn m hmem c0 hc0
     have hc0node : B.node? c0 = some mc0 := by rw [← hmc0id]; exact node?_of_mem a.rc.nodup mc0 hmc0
     have hk : x.id.step ∈ intRange 0 (B.current_step - 2) := mem_intRange hx0 (by omega)

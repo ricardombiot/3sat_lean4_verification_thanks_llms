@@ -149,7 +149,7 @@ theorem supported_of_spcStable (g : GPathM) (a : Adj g) (hok : AggOk g) (mid : N
       | none => exact absurd hp hpid
       | some _ => rfl
     obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
-      (SymTriReview.have_parents_of_isValidNode g d (a.ctx.nodeval x d hd) hroot)
+      (SelfOwn.have_parents_of_isValidNode g d (a.ctx.nodeval x d hd) hroot)
     obtain ⟨mc0, hmc0, hmc0id⟩ := a.rc.shape.pn d hmem c0 hc0
     have hbelow := a.rc.shape.pbelow d hmem c0 hc0
     have hc0nn := a.rc.snn mc0 hmc0

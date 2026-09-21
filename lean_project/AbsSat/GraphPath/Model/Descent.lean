@@ -171,7 +171,7 @@ theorem extend_anchor (g : GPathM) (a : Adj g) (hok : AggOk g) (hpos : 1 < g.cur
     | none => exact absurd hp hne
     | some _ => rfl
   obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
-    (SymTriReview.have_parents_of_isValidNode g nq (a.ctx.nodeval q nq hnq) hroot)
+    (SelfOwn.have_parents_of_isValidNode g nq (a.ctx.nodeval q nq hnq) hroot)
   obtain ⟨mc, hmc, hmcid⟩ := a.rc.shape.pn nq (List.mem_of_find?_eq_some hnq) c hc
   have hcnode : g.node? c = some mc := by rw [← hmcid]; exact node?_of_mem a.rc.nodup mc hmc
   have hcstep : c.id.step = g.current_step - 2 := by

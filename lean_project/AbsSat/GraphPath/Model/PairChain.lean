@@ -92,7 +92,7 @@ theorem pairChain_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (hnd
   have hmem := List.mem_of_find?_eq_some hn
   have hid := node?_id_eq _ x n hn
   have hcs₁ : (join g₁ g₂).current_step = g₁.current_step := rfl
-  have hcs₂ : g₂.current_step = g₁.current_step := SymTriReview.okJoin_step g₁ g₂ hok
+  have hcs₂ : g₂.current_step = g₁.current_step := SelfOwn.okJoin_step g₁ g₂ hok
   rw [hcs₁] at h1
   rcases ParentOwners.mem_join_nodes' hmem with ⟨a, ha, hida, hown⟩ | hn₂
   · rcases hown w hw with hwa | ⟨b, hb, hbid, hwb⟩
@@ -110,15 +110,30 @@ theorem pairChain_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (hnd
 chain extends through it (`ChainSound_addNode`). -/
 theorem pairChain_addNode (g : GPathM) (d : NodeId) (title : String) (hd : d.step = g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (hmok : MachineOk g)
-    (hself : Ownership.SelfOwned g) (hgn : GownersNodes.GN g) (hnd : NodupIds g)
-    (hsnn : SelfOwn.SNN g) (hinh : ∃ sel, ChainSound g sel)
+    (hself : Ownership.SelfOwned g) (_hgn : GownersNodes.GN g) (hnd : NodupIds g)
+    (hsnn : SelfOwn.SNN g) (_hinh : ∃ sel, ChainSound g sel)
     (hownb : ∀ n ∈ g.nodes, ∀ w ∈ n.owners, w.id.step < g.current_step)
+    (hpos : 0 < g.current_step)
     (h : PairChain g) : PairChain (addNode g d title) := by
+  -- the chain that reaches a row node is the one that reaches one of its parents
+  have hrow : ∀ z ∈ newRowIds g d, ∀ (u : PathNodeId) (mr : PNodeM) (r : PathNodeId),
+      r ∈ rowParents g d z → g.node? r = some mr → u ∈ mr.owners → 0 ≤ u.id.step →
+      ∃ sel, ChainSound (addNode g d title) sel ∧
+        sel z.id.step = z ∧ sel u.id.step = u := by
+    intro z hz u mr r hr hmr hu hu0
+    obtain ⟨_, hrs⟩ := rowParent_node g d hpos hr
+    have hus : u.id.step < g.current_step := hownb mr (List.mem_of_find?_eq_some hmr) u hu
+    obtain ⟨sel, hs, hsr, hsu⟩ := h r mr hmr u hu hu0 hus
+    refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hs, ?_,
+      by rw [extend_below g d sel _ hus]; exact hsu⟩
+    rw [mapId_of_mem_newRowIds g d z hz, hd, extend_top]
+    unfold extendPid
+    rw [if_pos hpos, show g.current_step - 1 = r.id.step from hrs.symm, hsr]
+    exact shiftPid_of_mem_rowParents g d z r hr
   intro x n hn w hw h0 h1
   have hmem := List.mem_of_find?_eq_some hn
   have hid := node?_id_eq _ x n hn
   rw [addNode_current] at h1
-  have hnewstep : (newPid g d).id.step = g.current_step := hd
   rw [addNode_nodes] at hmem
   rcases List.mem_append.mp hmem with hl | hr
   · obtain ⟨n₁, hn₁, hEq⟩ := List.mem_map.mp hl
@@ -131,27 +146,35 @@ theorem pairChain_addNode (g : GPathM) (d : NodeId) (title : String) (hd : d.ste
       obtain ⟨sel, hs, hsx, hsw⟩ := h x n₁ hxn w hwo h0 hws
       exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hs,
         by rw [extend_below g d sel _ hxs]; exact hsx, by rw [extend_below g d sel _ hws]; exact hsw⟩
-    · have hwnew : w = newPid g d := List.mem_singleton.mp hwn
-      obtain ⟨sel, hs, hsx, _⟩ := h x n₁ hxn x (hself x n₁ hxn) (by rw [hx1]; exact hsnn n₁ hn₁) hxs
-      refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hs,
-        by rw [extend_below g d sel _ hxs]; exact hsx, ?_⟩
-      rw [hwnew, hnewstep, extend_top]
-  · have hnew : n = addOwner (newPid g d) (upNode g d title) := List.mem_singleton.mp hr
-    have hxnew : x = newPid g d := by rw [← hid, hnew]; rfl
-    have hw' : w ∈ g.gowners ++ [newPid g d] := by rw [hnew] at hw; exact hw
-    rcases List.mem_append.mp hw' with hwg | hwn
-    · obtain ⟨m, hm, hmid⟩ := hgn w hwg
-      have hwm : g.node? w = some m := by rw [← hmid]; exact node?_of_mem hnd m hm
-      have hws : w.id.step < g.current_step := by rw [← hmid]; exact hbelow m hm
-      obtain ⟨sel, hs, hsw, _⟩ := h w m hwm w (hself w m hwm) h0 hws
-      refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hs, ?_,
-        by rw [extend_below g d sel _ hws]; exact hsw⟩
-      rw [hxnew, hnewstep, extend_top]
-    · have hwnew : w = newPid g d := List.mem_singleton.mp hwn
-      obtain ⟨sel, hs⟩ := hinh
-      refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hs, ?_, ?_⟩
-      · rw [hxnew, hnewstep, extend_top]
-      · rw [hwnew, hnewstep, extend_top]
+    · -- `w` is a row id that owns `x`: go through the parent of `w` that owns `x`
+      have hwrow : w ∈ newRowIds g d := gainedOwners_subset g d n₁ w hwn
+      have hxown : x ∈ rowOwners g d w := by
+        have := (List.mem_filter.mp hwn).2
+        rw [node?_id_eq g x n₁ hxn] at this
+        simpa using this
+      rcases (mem_rowOwners_iff g d w x).mp hxown with ⟨hinh', _⟩ | rfl
+      · obtain ⟨r, hr, mr, hmr, hxr⟩ := exists_owner_of_mem_unionOwnersOf g _ x hinh'
+        have hx0 : 0 ≤ x.id.step := by
+          have := hsnn n₁ hn₁; rwa [← hx1] at this
+        obtain ⟨sel, hs, hsw, hsx⟩ := hrow w hwrow x mr r hr hmr hxr hx0
+        exact ⟨sel, hs, hsx, hsw⟩
+      · exact absurd hxs (by rw [mapId_of_mem_newRowIds g d x hwrow, hd]; omega)
+  · -- `x` is a row node
+    obtain ⟨z, hz, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+    rw [rowNode_id] at hid
+    subst hid
+    rw [rowNode_owners] at hw
+    rcases (mem_rowOwners_iff g d z w).mp hw with ⟨hinh', _⟩ | rfl
+    · obtain ⟨r, hr', mr, hmr, hwr⟩ := exists_owner_of_mem_unionOwnersOf g _ w hinh'
+      exact hrow z hz w mr r hr' hmr hwr h0
+    · obtain ⟨r, hr'⟩ := exists_rowParent g d hpos hz
+      obtain ⟨hrn, _⟩ := rowParent_node g d hpos hr'
+      obtain ⟨mr, hmr⟩ := Option.isSome_iff_exists.mp hrn
+      have hr0 : 0 ≤ r.id.step := by
+        have := hsnn mr (List.mem_of_find?_eq_some hmr)
+        rwa [node?_id_eq g r mr hmr] at this
+      obtain ⟨sel, hs, hsz, _⟩ := hrow w hz r mr r hr' hmr (hself r mr hmr) hr0
+      exact ⟨sel, hs, hsz, hsz⟩
 
 /-- info: 'AbsSat.GraphPath.Model.PairChain.pairChain_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

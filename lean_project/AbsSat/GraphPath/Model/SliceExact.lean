@@ -163,7 +163,7 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
       cases hp : x.parent_id with
       | none => exact absurd hp hpid
       | some _ => rfl
-    obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _ (SymTriReview.have_parents_of_isValidNode _ n' hvalid hroot)
+    obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _ (SelfOwn.have_parents_of_isValidNode _ n' hvalid hroot)
     obtain ⟨mc0, hmc0, hmc0id⟩ := rc'.shape.pn n' hmem' c0 hc0
     have hbelow := rc'.shape.pbelow n' hmem' c0 hc0
     have hc0nn := rc'.snn mc0 hmc0
@@ -193,7 +193,7 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
     have hvalid := ctx'.nodeval x n' hn'
     have hnl : (n'.id.id.step == (filterAllAgg g [mid]).current_step - 1) = false := by
       rw [hid', hcs]; exact beq_false_of_ne hlast
-    obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _ (SymTriReview.have_sons_of_isValidNode _ n' hvalid hnl)
+    obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _ (SelfOwn.have_sons_of_isValidNode _ n' hvalid hnl)
     obtain ⟨mc0, hmc0, hmc0id⟩ := hsn' n' hmem' c0 hc0
     have hc0node : (filterAllAgg g [mid]).node? c0 = some mc0 := by
       rw [← hmc0id]; exact node?_of_mem rc'.nodup mc0 hmc0
@@ -249,7 +249,7 @@ theorem supported_of_pinExact (g : GPathM) (hR : ReadableAgg g) (hsmp : Sons.SMP
       | none => exact absurd hp hnr
       | some _ => rfl
     obtain ⟨c0, hc0p⟩ := List.exists_mem_of_ne_nil _
-      (SymTriReview.have_parents_of_isValidNode _ n' (ctx'.nodeval x n' hn') hroot)
+      (SelfOwn.have_parents_of_isValidNode _ n' (ctx'.nodeval x n' hn') hroot)
     obtain ⟨mc0, hmc0, hmc0id⟩ := rc'.shape.pn n' hmem' c0 hc0p
     have hc0node : (filterAllAgg g [mid]).node? c0 = some mc0 := by
       rw [← hmc0id]; exact node?_of_mem rc'.nodup mc0 hmc0

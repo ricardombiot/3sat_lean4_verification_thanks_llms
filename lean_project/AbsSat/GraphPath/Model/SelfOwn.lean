@@ -293,6 +293,25 @@ theorem OOS_initSeed (d : NodeId) (title : String) : OOS (GPathM.initSeed d titl
   exact List.mem_singleton.mp hq
 
 -- ============================================================
+-- `isValidNode` gives the two "there is one" fields
+-- ============================================================
+
+/-! Lifted out of `SymTriReview.lean` when that module was removed; they say
+nothing about any review, only how `isValidNode` reads. -/
+
+theorem have_parents_of_isValidNode (g : GPathM) (n : PNodeM) (h : isValidNode g n = true)
+    (hroot : n.id.parent_id.isNone = false) : n.parents ≠ [] := by
+  intro hnil
+  simp only [isValidNode, hroot, hnil] at h
+  split at h <;> simp_all
+
+theorem have_sons_of_isValidNode (g : GPathM) (n : PNodeM) (h : isValidNode g n = true)
+    (hlast : (n.id.id.step == g.current_step - 1) = false) : n.sons ≠ [] := by
+  intro hnil
+  simp only [isValidNode, hlast, hnil] at h
+  split at h <;> simp_all
+
+-- ============================================================
 -- `Below` — nodes sit at a step the state actually has
 -- ============================================================
 
@@ -301,6 +320,11 @@ theorem OOS_initSeed (d : NodeId) (title : String) : OOS (GPathM.initSeed d titl
 the machine does not perform — was removed. -/
 def Below (g : GPathM) : Prop :=
   ∀ n ∈ g.nodes, 0 ≤ n.id.id.step ∧ n.id.id.step < g.current_step
+
+theorem okJoin_step (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) :
+    g₂.current_step = g₁.current_step := by
+  simp only [okJoin, Bool.and_eq_true, beq_iff_eq] at hok
+  exact hok.1.1.1.symm
 
 theorem Below_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : Below g) : Below g' := by
   intro n' hn'
