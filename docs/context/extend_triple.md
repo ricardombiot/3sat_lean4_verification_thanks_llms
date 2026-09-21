@@ -125,8 +125,16 @@ Así que buscar la cadena decide la disyuntiva. `chainThrough` la busca hacia ar
 picks enlazados por `sons`, todos poseyéndose entre sí, todos owners globales, forzando `u` y
 `w` en sus pasos.
 
-**Resultado (semilla 777, el primero resuelto):** `x@4, u@6, w@12` → **no hay cadena**, con
-presupuesto sobrante (no es un indeciso). El par no es realizable. `CommonOwner` sobrevive.
+**Resultados:**
+
+| corpus | el par que falla | veredicto |
+|---|---|---|
+| `20 4 777` | `x@4, u@6, w@12` | **no hay cadena** (presupuesto sobrante) |
+| `20 4 11` | `x@6, u@8, w@12` | **no hay cadena** (presupuesto sobrante) |
+| `20 4 90210` | `x@?, u@?, w@?` | *(corriendo)* |
+
+Ninguno es «indeciso»: la búsqueda terminó sin agotar presupuesto, así que los veredictos
+son definitivos. Los pares no son realizables. **`CommonOwner` sobrevive a los dos.**
 
 ### Lo que sale de ahí, y creo que es lo más útil de toda la nota
 
