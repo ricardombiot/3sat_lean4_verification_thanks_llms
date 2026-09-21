@@ -55,6 +55,7 @@ structure RCtx (g : GPathM) : Prop where
   rootz : Sons.RootAtZero g
   pmp   : ParentId.PMP g
   gpmp  : ParentId.GPMP g
+  ownb  : SelfOwn.OwnBelow g
   below : ∀ n ∈ g.nodes, n.id.id.step < g.current_step
   nodup : NodupIds g
 
@@ -68,6 +69,7 @@ theorem RCtx_reachable (g : GPathM) (hnd : NodupIds g) (h : Reachable reqOf g) :
   rootz := Sons.RootAtZero_reachable reqOf g h
   pmp := ParentId.PMP_reachable reqOf g h
   gpmp := ParentId.GPMP_reachable reqOf g h
+  ownb := SelfOwn.OwnBelow_reachable reqOf g h
   below := steps_below_current reqOf h
   nodup := hnd
 
@@ -79,6 +81,7 @@ theorem RCtx_filterAll (g : GPathM) (h : RCtx g) (reqs : List NodeId) :
   snn := SelfOwn.SNN_of_pruned (pruned_filterAll g reqs) h.snn
   gn := GownersNodes.GN_filterAll g reqs h.gn
   gpmp := ParentId.GPMP_of_pruned (pruned_filterAll g reqs) h.gpmp
+  ownb := SelfOwn.OwnBelow_of_pruned (pruned_filterAll g reqs) h.ownb
   shape := Parents.Shape_of_pruned_pn (pruned_filterAll g reqs)
     (Parents.PN_filterAll g reqs h.shape.pn) h.shape
   rootz := Sons.RootAtZero_of_pruned (pruned_filterAll g reqs) h.rootz

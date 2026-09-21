@@ -46,6 +46,24 @@ The definitions `newParents`, `newRowIds`, `rowParents`, `rowOwners`, `rowNode`,
 -/
 
 
+/-- An identifier the row does not contain has no parents there. -/
+theorem rowParents_of_not_mem (g : GPathM) (d : NodeId) (p : PathNodeId)
+    (hpos : 0 < g.current_step) (h : p ∉ newRowIds g d) : rowParents g d p = [] := by
+  rcases hr : rowParents g d p with _ | ⟨r, rest⟩
+  · rfl
+  · exfalso
+    have hmem : r ∈ rowParents g d p := by rw [hr]; exact List.mem_cons_self
+    have := shiftPid_of_mem_rowParents g d p r hmem
+    exact h (this ▸ mem_newRowIds_of_mem_newParents g d r hpos
+      (rowParents_subset g d p r hmem))
+
+/-- And so it owns only itself: `rowOwners` collapses to the singleton. -/
+theorem rowOwners_of_not_mem (g : GPathM) (d : NodeId) (p : PathNodeId)
+    (hpos : 0 < g.current_step) (h : p ∉ newRowIds g d) : rowOwners g d p = [p] := by
+  unfold rowOwners
+  rw [rowParents_of_not_mem g d p hpos h]
+  rfl
+
 /-- Every row node has a parent (above step 0). -/
 theorem exists_rowParent (g : GPathM) (d : NodeId) (hpos : 0 < g.current_step)
     {z : PathNodeId} (hz : z ∈ newRowIds g d) : ∃ r, r ∈ rowParents g d z := by

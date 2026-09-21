@@ -254,7 +254,8 @@ theorem embedded_send (k : Int) (kvb kvf : NodeId × GPathM) (hsb : StateOkF φ 
   have hdstep : d.step = k + 1 := mapNodes_step φ (k + 1) d hsok.onMap
   have hdF : d.step = (filterAllAgg (filterWeakAll kvb.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)).current_step := by
     rw [hkb.1.step_eq, hsb.step, hdstep]
-  have hup := embedded_up _ _ d "" hFe hvF hmp hdF rcFb.below rcFf.below rcFb.shape.pbelow rcFb.nodup
+  have hup := embedded_up _ _ d "" hFe hvF hmp hdF rcFb.below rcFf.below rcFb.shape.pbelow
+    rcFb.nodup rcFb.gn rcFb.ownb
   exact ⟨hup, isValid_of_embedded hup hv⟩
 
 -- ============================================================

@@ -450,6 +450,23 @@ theorem OwnBelow_initSeed (d : NodeId) (title : String) (hstep : d.step = 0) :
   show d.step < 1
   omega
 
+theorem OwnBelow_filterAll (g : GPathM) (reqs : List NodeId) (h : OwnBelow g) :
+    OwnBelow (filterAll g reqs) :=
+  OwnBelow_of_pruned (pruned_filterAll g reqs) h
+
+theorem OwnBelow_reachable (g : GPathM) (h : Reachable reqOf g) : OwnBelow g := by
+  induction h with
+  | seed d title hstep _ => exact OwnBelow_initSeed d title hstep
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    show OwnBelow (up (filterAll g (reqOf d)) d title)
+    simp only [GPathM.up]
+    split
+    · exact OwnBelow_addNode _ d title (by rw [hpr.step_eq]; exact hstep)
+        (OwnBelow_filterAll g (reqOf d) ih)
+    · exact OwnBelow_filterAll g (reqOf d) ih
+  | join g₁ g₂ hok _ _ ih₁ ih₂ => exact OwnBelow_join g₁ g₂ hok ih₁ ih₂
+
 theorem OOS_reachable (g : GPathM) (h : Reachable reqOf g) : OOS g := by
   induction h with
   | seed d title _ _ => exact OOS_initSeed d title

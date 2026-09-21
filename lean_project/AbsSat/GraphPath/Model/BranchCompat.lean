@@ -101,12 +101,12 @@ theorem keyShape_sent (P : List NodeId) (g : GPathM) (d : NodeId) (hc : Compat P
     rw [if_pos hvF]
   rw [heq]
   refine ⟨fun p hp hs => ?_, fun r hr hne p hp hs => ?_⟩
-  · rcases mem_addNode hp with rfl | hpF
-    · rfl
+  · rcases mem_addNode hp with hrow | hpF
+    · exact mapId_of_mem_newRowIds _ d p hrow
     · have := hbelow p (mem_of_pruned hk.1 hpF)
       omega
-  · rcases mem_addNode hp with rfl | hpF
-    · exact absurd hs.symm hne
+  · rcases mem_addNode hp with hrow | hpF
+    · exact absurd (by rw [← mapId_of_mem_newRowIds _ d p hrow]; exact hs.symm) hne
     · exact hc r hr p (mem_of_pruned hk.1 hpF) hs
 
 /-- The nodes of a line state lie below its current step, which is one past the line. -/

@@ -121,6 +121,7 @@ theorem RCtx_of_keeps {g g' : GPathM} (hk : Keeps g g') (h : RCtx g) : RCtx g' w
   rootz := Sons.RootAtZero_of_pruned hk.1 h.rootz
   pmp := ParentId.PMP_of_pruned hk.1 h.pmp
   gpmp := ParentId.GPMP_of_pruned hk.1 h.gpmp
+  ownb := SelfOwn.OwnBelow_of_pruned hk.1 h.ownb
   below := Certifies.nodes_below_of_pruned hk.1 h.below
   nodup := List.Sublist.nodup hk.2.2.2 h.nodup
 
