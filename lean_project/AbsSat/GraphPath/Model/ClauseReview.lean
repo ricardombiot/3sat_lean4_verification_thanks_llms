@@ -99,12 +99,12 @@ theorem litVal_true_of_bit {a : Assign} {l : Lit} (h : bit (litVal a l) = 1) : l
 
 /-- **A partial solution with the row's values passes the row.** Extend it by `(d, p)` at step `m + 1`: the
 assignment satisfies the row's clause (the map builds no all-false row) and selects `d` there. -/
-theorem extend_genuine (hwf : WF φ) (m : Nat) (p d : NodeId) (hd : d ∈ mapNodes φ ((m : Int) + 1))
+theorem extend_genuine (hwf : WF φ) (m : Nat) (d : NodeId) (hd : d ∈ mapNodes φ ((m : Int) + 1))
     (hlb : litBlock φ < (m : Int) + 1) (hne : reqOfCnf φ d ≠ [])
-    (sel : Int → PathNodeId) (hgen : Genuine φ ((m : Int) + 1) sel) (hp : (sel (m : Int)).id = p)
+    (sel : Int → PathNodeId) (hgen : Genuine φ ((m : Int) + 1) sel)
     (hpin : ∀ r ∈ reqOfCnf φ d, (sel r.step).id = r) :
     Genuine φ ((m : Int) + 2)
-      (fun k => if k = (m : Int) + 1 then ⟨d, some p⟩ else sel k) := by
+      (fun k => if k = (m : Int) + 1 then shiftPid (sel (m : Int)) d else sel k) := by
   obtain ⟨a, hsat, hsel⟩ := hgen
   have hdstep : d.step = (m : Int) + 1 := mapNodes_step φ ((m : Int) + 1) d hd
   obtain ⟨j, hj, hjs⟩ := clause_of_row φ d (by rw [hdstep]; exact hlb) hne
@@ -144,9 +144,17 @@ theorem extend_genuine (hwf : WF φ) (m : Nat) (p d : NodeId) (hd : d ∈ mapNod
       subst this; exact hsatj
   · dsimp only
     by_cases hk : k = (m : Int) + 1
-    · rw [if_pos hk, hk, hseld, if_neg (by omega), show (m : Int) + 1 - 1 = m by omega,
-        ← (hsel (m : Int) (by omega) (by omega)).1, hp]
-      exact ⟨rfl, rfl⟩
+    · -- the extension is the shift of the chain's own top: `d`, its id, and its parent
+      rw [if_pos hk, hk]
+      refine ⟨hseld.symm, ?_, ?_⟩
+      · show (some (sel (m : Int)).id : Option NodeId) = _
+        rw [if_neg (by omega), show (m : Int) + 1 - 1 = (m : Int) by omega,
+          (hsel (m : Int) (by omega) (by omega)).1]
+      · show (sel (m : Int)).parent_id = _
+        rw [(hsel (m : Int) (by omega) (by omega)).2.1]
+        by_cases hm0 : (m : Int) = 0
+        · rw [if_pos hm0, if_pos (by omega)]
+        · rw [if_neg hm0, if_neg (by omega), show (m : Int) + 1 - 2 = (m : Int) - 1 by omega]
     · rw [if_neg hk]; exact hsel k h0 (by omega)
 
 /-- **The core without the row.** At a send to a clause row, every entry of the pinned, reviewed state
@@ -211,27 +219,33 @@ theorem clauseWitness_of_glue (hwf : WF φ) (hG : ClauseGlue φ) : ClauseWitness
     · rw [hdstep] at hlb; omega
     · omega
   -- every entry of `F` towards `q` gives the witness
+  -- the chain the glue gives, extended by the row node that its own top shifts to
   have main : ∀ x' n', (pinnedAt φ kv.2 d).node? x' = some n' → q ∈ n'.owners →
-      ∃ sel, Genuine φ ((m : Int) + 2) sel ∧ (sel (m : Int)).id = kv.1 ∧ (sel ((m : Int) + 1)).id = d ∧
+      ∃ sel, Genuine φ ((m : Int) + 2) sel ∧ (sel (m : Int)).id = kv.1 ∧
+        sel ((m : Int) + 1) = shiftPid (sel (m : Int)) d ∧
         sel x'.id.step = x' ∧ sel q.id.step = q := by
     intro x' n' hx' hqn'
     have hx'lt : x'.id.step < (m : Int) + 1 := by
       rw [← hstepF, ← node?_id_eq _ x' n' hx']; exact rcF.below n' (List.mem_of_find?_eq_some hx')
     obtain ⟨sel, hgen, hp, hsx, hsq, hpin⟩ :=
       hG m kv hkv hm ht d hd hlb hne hvF x' n' hx' q hq0 hqlt hL hqn'
-    refine ⟨_, extend_genuine φ hwf m kv.1 d hd' (by rw [← hdstep]; exact hlb) hne sel hgen hp hpin,
+    refine ⟨_, extend_genuine φ hwf m d hd' (by rw [← hdstep]; exact hlb) hne sel hgen hpin,
       ?_, ?_, ?_, ?_⟩
     · show (if (m : Int) = (m : Int) + 1 then _ else sel (m : Int)).id = kv.1
       rw [if_neg (by omega)]; exact hp
-    · show (if (m : Int) + 1 = (m : Int) + 1 then (⟨d, some kv.1⟩ : PathNodeId)
-        else sel ((m : Int) + 1)).id = d
-      rw [if_pos rfl]
+    · show (if (m : Int) + 1 = (m : Int) + 1 then shiftPid (sel (m : Int)) d else sel ((m : Int) + 1))
+        = shiftPid (if (m : Int) = (m : Int) + 1 then shiftPid (sel (m : Int)) d
+            else sel (m : Int)) d
+      rw [if_pos rfl, if_neg (by omega)]
     · show (if x'.id.step = (m : Int) + 1 then _ else sel x'.id.step) = x'
       rw [if_neg (by omega)]; exact hsx
     · show (if q.id.step = (m : Int) + 1 then _ else sel q.id.step) = q
       rw [if_neg (by omega)]; exact hsq
-  have hnew : newPid (pinnedAt φ kv.2 d) d ≠ q := by
-    intro h; rw [← h] at hqlt; simp only [newPid] at hqlt; omega
+  have hposF : 0 < (pinnedAt φ kv.2 d).current_step := by rw [hstepF]; omega
+  have hnew : ∀ z ∈ newRowIds (pinnedAt φ kv.2 d) d, z ≠ q := by
+    intro z hz h
+    rw [← h, mapId_of_mem_newRowIds _ d z hz, hdstep] at hqlt
+    omega
   by_cases hxt : x.id.step < (m : Int) + 1
   · -- below the top: an entry of `F`
     rw [heq] at hx
@@ -239,53 +253,40 @@ theorem clauseWitness_of_glue (hwf : WF φ) (hG : ClauseGlue φ) : ClauseWitness
       (by rw [hstepF]; exact hxt)
     rw [upMap_owners] at hqn
     rcases List.mem_append.mp hqn with h | h
-    · exact main x n0 hn0 h
-    · exact absurd (List.mem_singleton.mp h).symm hnew
-  · -- the new top: it owns `F`'s global owners
+    · obtain ⟨sel, hgen, hp, htd, hsx, hsq⟩ := main x n0 hn0 h
+      exact ⟨sel, hgen, hp, by rw [htd]; rfl, hsx, hsq⟩
+    · exact absurd rfl (hnew q (gainedOwners_subset _ d n0 q h))
+  · -- the new top: a node of the row, owned only through *its own* parents
     have hxs : x.id.step = (m : Int) + 1 := by rw [hcsS] at hx1; omega
     rw [heq] at hx
-    have hmem : n ∈ (addNode (pinnedAt φ kv.2 d) d "").nodes := List.mem_of_find?_eq_some hx
-    have hxid := node?_id_eq _ x n hx
-    have htop := RunNoBorrow.tops_addNode _ d "" rcF.below n hmem (by rw [hxid, hxs, hstepF])
-    have hxnew : x = newPid (pinnedAt φ kv.2 d) d := by rw [← hxid, htop]; rfl
-    have hnn := addNode_node?_new (pinnedAt φ kv.2 d) d "" (by rw [hstepF, hdstep]) rcF.below
-    rw [← hxnew, hx] at hnn
-    cases hnn
-    have hqg : q ∈ (pinnedAt φ kv.2 d).gowners := by
-      simp only [addOwner, upNode, List.mem_append, List.mem_singleton] at hqn
-      rcases hqn with h | h
+    have hxrow : x ∈ newRowIds (pinnedAt φ kv.2 d) d := by
+      rcases BranchRun.mem_addNode ⟨n, hx⟩ with h | h
       · exact h
-      · exact absurd h.symm (by rw [hxnew]; exact hnew)
-    obtain ⟨nq, hnq, hnqid⟩ := ctxF.gn q hqg
-    have hq' : (pinnedAt φ kv.2 d).node? q = some nq := by
-      rw [← hnqid]; exact node?_of_mem rcF.nodup nq hnq
-    obtain ⟨sel, hgen, hp, htd, _, hsq⟩ := main q nq hq' (ctxF.self q nq hq')
-    refine ⟨fun k => if k = (m : Int) + 1 then x else sel k, ?_, ?_, ?_, ?_, ?_⟩
-    · obtain ⟨a, hsat, hsel⟩ := hgen
-      refine ⟨a, hsat, fun k h0 h1 => ?_⟩
-      dsimp only
-      by_cases hk : k = (m : Int) + 1
-      · rw [if_pos hk]
-        have := hsel k h0 h1
-        rw [hk] at this ⊢
-        have hsk : sel ((m : Int) + 1) = x := by
-          rw [hxnew]
-          apply RunNoBorrow.pid_ext
-          · rw [htd]; rfl
-          · rw [(hsel _ (by omega) (by omega)).2, if_neg (by omega), show (m : Int) + 1 - 1 = m by omega,
-              ← (hsel (m : Int) (by omega) (by omega)).1, hp]
-            show _ = (pinnedAt φ kv.2 d).map_parent
-            rw [hmp]
-        rw [← hsk]; exact this
-      · rw [if_neg hk]; exact hsel k h0 h1
-    · show (if (m : Int) = (m : Int) + 1 then x else sel (m : Int)).id = kv.1
-      rw [if_neg (by omega)]; exact hp
-    · show (if (m : Int) + 1 = (m : Int) + 1 then x else sel ((m : Int) + 1)).id = d
-      rw [if_pos rfl, hxnew]; rfl
-    · show (if x.id.step = (m : Int) + 1 then x else _) = x
-      rw [if_pos hxs]
-    · show (if q.id.step = (m : Int) + 1 then x else sel q.id.step) = q
-      rw [if_neg (by omega)]; exact hsq
+      · exfalso
+        obtain ⟨mm, hmm⟩ := h
+        have hb := rcF.below mm (List.mem_of_find?_eq_some hmm)
+        rw [node?_id_eq _ x mm hmm, hxs, hstepF] at hb
+        omega
+    have hnn := addNode_node?_new (pinnedAt φ kv.2 d) d "" (by rw [hstepF, hdstep]) rcF.below x hxrow
+    rw [hx] at hnn
+    cases hnn
+    rw [rowNode_owners] at hqn
+    rcases (mem_rowOwners_iff _ d x q).mp hqn with ⟨hun, _⟩ | rfl
+    · -- `q` comes from one of `x`'s parents, and that parent is where the chain passes at step `m`
+      obtain ⟨r, hr, nr, hnr, hqnr⟩ := exists_owner_of_mem_unionOwnersOf _ _ q hun
+      have hrstep : r.id.step = (m : Int) := by
+        have hrp := rowParents_subset _ d x r hr
+        unfold newParents at hrp
+        rw [if_pos hposF] at hrp
+        obtain ⟨nr', hnr', hnrid⟩ := List.mem_map.mp hrp
+        rw [← hnrid, eq_of_beq (List.mem_filter.mp hnr').2, hstepF]
+        omega
+      obtain ⟨sel, hgen, hp, htd, hsr, hsq⟩ := main r nr hnr hqnr
+      rw [hrstep] at hsr
+      refine ⟨sel, hgen, hp, by rw [htd]; rfl, ?_, hsq⟩
+      rw [hxs, htd, hsr]
+      exact shiftPid_of_mem_rowParents _ d x r hr
+    · exfalso; omega
 
 /-- **The verdict from the glue.** -/
 theorem sat_of_clauseGlue (hwf : WF φ) (hG : ClauseGlue φ) (kv : NodeId × GPathM)
