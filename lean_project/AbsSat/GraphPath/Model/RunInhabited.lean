@@ -80,13 +80,17 @@ theorem extend_old' (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) {y : Pa
 /-- **An `up` keeps it.** Old entries keep their paths, extended by the new node; the new node's entries
 towards old global owners are realized by the path through each owner; and every entry towards the new
 node, by the path through the old node — found through the node's owner at step `0`. -/
-theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (g : GPathM) (d : NodeId) (title : String)
+theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (hLdown : ∀ s, L s → L (s - 1))
+    (g : GPathM) (d : NodeId) (title : String)
+    (hsym : ∀ y m z mz, g.node? y = some m → g.node? z = some mz →
+      0 ≤ y.id.step → y.id.step < g.current_step → 0 ≤ z.id.step → z.id.step < g.current_step →
+      z ∈ m.owners → y ∈ mz.owners)
     (hd : d.step = g.current_step) (hpos : 0 < g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (hmok : MachineOk g) (hnd : NodupIds g) (hv : isValid g = true)
-    (hself : ∀ y m, g.node? y = some m → y ∈ m.owners)
+    (hmok : MachineOk g) (_hnd : NodupIds g) (_hv : isValid g = true)
+    (_hself : ∀ y m, g.node? y = some m → y ∈ m.owners)
     (hownBelow : ∀ y m, g.node? y = some m → ∀ w ∈ m.owners, w.id.step < g.current_step)
-    (hgn : GownersNodes.GN g)
+    (_hgn : GownersNodes.GN g)
     (hcov0 : ∀ y m, g.node? y = some m → ∃ w ∈ m.owners, w.id.step = 0)
     (h : SoundAt L g) : SoundAt L (addNode g d title) := by
   have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
@@ -178,8 +182,12 @@ theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (g : GPathM) (d : NodeId)
       rcases (mem_rowOwners_iff g d q x).mp hxown with ⟨hinh, _⟩ | rfl
       · obtain ⟨r, hr, mr, hmr, hxmr⟩ := exists_owner_of_mem_unionOwnersOf g _ x hinh
         obtain ⟨_, _, hrs⟩ := hparent q hqrow r hr
-        obtain ⟨sel, hcs, hrsel, hxs⟩ :=
-          h r mr hmr (by omega) (by omega) x hx0 hxstep hL hxmr
+        -- the pair is `(x, r)`: `r` sits one step below the row, and `L` reaches it
+        have hrm : r ∈ m.owners :=
+          hsym r mr x m hmr hm (by omega) (by omega) hx0 hxstep hxmr
+        obtain ⟨sel, hcs, hxs, hrsel⟩ :=
+          h x m hm hx0 hxstep r (by omega) (by omega)
+            (by have := hLdown _ hL; rw [hqstep] at this; rw [hrs]; exact this) hrm
         exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs,
           extend_old' g d sel hxstep hxs,
           htopRow sel q r hr (by rw [← hrs]; exact hrsel) hqstep⟩
@@ -254,7 +262,7 @@ theorem cov0 (F : GPathM) (hR : ReadableAgg F) (hv : isValid F = true) (hpos : 0
   exact ⟨z, hz, eq_of_beq hzs⟩
 
 /-- **A send keeps it** when its filter does: the `up` by `soundAt_addNode`. -/
-theorem soundAt_sent_ofL (L : Int → Prop) (hL0 : L 0) (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
+theorem soundAt_sent_ofL (L : Int → Prop) (hL0 : L 0) (hLdown : ∀ s, L s → L (s - 1)) (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (hval : isValid (sent φ kv.2 d) = true)
     (hFs0 : isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true →
       SoundAt L (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))) :
@@ -285,7 +293,15 @@ theorem soundAt_sent_ofL (L : Int → Prop) (hL0 : L 0) (k : Int) (kv : NodeId �
     rw [hFdef]; rw [hFdef] at hvF
     exact hFs0 hvF
   rw [heq]
-  refine soundAt_addNode L hL0 F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
+  have hok : AggFixpoint.AggOk F := by
+    have : F = reviewAgg ((reqOfCnf φ d).foldl filterRequire
+        (filterWeakAll kv.2 (weakReqOfCnf φ d))) := hFdef
+    rw [this]
+    exact AggFixpoint.aggOk_reviewAgg _ (by rw [← this]; exact hvF)
+  refine soundAt_addNode L hL0 hLdown F d ""
+    (fun y m z mz hy hz hy0 hy1 hz0 hz1 hzm =>
+      (hok y m z mz hy hz hy0 hy1 hz0 hz1 hzm (ctxF.nodeval y m hy) (ctxF.nodeval z mz hz)).1)
+    (by rw [hstepF, hdstep]) (by rw [hstepF]; omega)
     rcF.below ?_ rcF.nodup hvF (fun y m hy => ctxF.self y m hy) ?_ rcF.gn
     (cov0 F hRF hvF (by rw [hstepF]; omega)) hFs
   · have hmo := hm.mok
@@ -304,7 +320,12 @@ theorem soundAt_sent_of (k : Int) (kv : NodeId × GPathM) (hkv : StateOkF φ k k
     (hFs0 : isValid (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)) = true →
       SoundAt (LitStep φ) (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))) :
     SoundAt (LitStep φ) (sent φ kv.2 d) :=
-  soundAt_sent_ofL φ (LitStep φ) (Or.inr rfl) k kv hkv hm d hd hval hFs0
+  soundAt_sent_ofL φ (LitStep φ) (Or.inr rfl)
+    (fun s hs => by
+      rcases hs with h | h
+      · exact Or.inl (by omega)
+      · exact Or.inl (by rw [h]; unfold litBlock; omega))
+    k kv hkv hm d hd hval hFs0
 
 /-- **A send keeps it**: the filter by hypothesis, the `up` by `soundAt_addNode`. -/
 theorem soundAt_sent (hF : FilterSoundAt φ) (k : Int) (kv : NodeId × GPathM)

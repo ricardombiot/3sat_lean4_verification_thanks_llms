@@ -174,7 +174,7 @@ theorem weak_member (hwf : WF φ) (d : NodeId) (hrq : rq = reqOfCnf φ d)
           by_cases hz : p.id.step = 0
           · rw [PinExtends.root_of_mem A ad hp hz] at hpp; cases hpp
           · omega
-        obtain ⟨v, hv, _, hpv'⟩ := PinExtends.parent_of_mem A ad hok hsmp hp hpos
+        obtain ⟨v, hv, _, hpv', _⟩ := PinExtends.parent_of_mem A ad hok hsmp hp hpos
         rw [hpp] at hpv'
         have hqv : q = v.id := Option.some.inj hpv'
         rw [hqv] at hpar
