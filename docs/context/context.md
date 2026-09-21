@@ -466,8 +466,17 @@ Todo lo que separa al proyecto de un teorema sin hipótesis cabe en una frase:
 
 La dirección contraria (no se pierde ninguna solución) **está cerrada**:
 `ConservationImproves.pureRunW_ne_nil`. Y la corrección de las respuestas también, porque
-`answer` devuelve certificado. Lo que falta es solo la **completitud** del SAT: que el
-lector no se atasque.
+`answer` devuelve certificado.
+
+**Y esa frase es una sola, no dos.** Las dos formas de responder `unknown` son las dos
+caras de ella:
+
+* sobre `φ` satisfacible, el lector se atasca ⇒ falta *"válido ⇒ inhabitado"*;
+* sobre `φ` insatisfacible, sobrevive un estado válido ⇒ ese estado es un **fantasma**, un
+  válido sin cadena, que es la negación de la misma frase.
+
+Por eso `DeclaredVerdict.verdict_iff` sale entera de una hipótesis: no hay una mitad SAT y
+otra UNSAT que atacar por separado.
 
 ### 5.2 Por qué es difícil: el muro
 
@@ -498,15 +507,18 @@ compra con el +0…18 % de nodos.
 
 Todas son intentos del mismo salto. Cada una es una hipótesis con nombre, medida por sondas:
 
-| ruta | hipótesis | dónde |
+| familia | hipótesis raíz | dónde |
 |---|---|---|
-| descenso | `Descent.CommonOwner` — cerrada bajo `SingleParents` | `Descent.lean` |
-| lector | `ReaderExec.ProgressAgg` — el lector no se atasca | `ReaderExec.lean` |
-| veredicto UNSAT completo | `RoundInvariant.GhostsLine` | `RoundInvariant.lean` |
-| soporte de rebanada | `SpcSupport.SpcStable` | `SpcSupport.lean` |
-| clausura de la cadena | `HereditaryValid.ChainClosureAt` | `HereditaryValid.lean` |
-| regla del top | `ImprovesCima.FamTopSingle` + `FamTriOkCone` | `ImprovesCima.lean` |
-| nada prestado | `PinDeath.TopKeepAt`, `TopSideAt`, `ChainSideAt` | `PinDeath.lean` |
+| **A** fantasmas | `RoundInvariant.GhostsLine` — *la hipótesis declarada actual* | `RoundInvariant.lean` |
+| **B** nada prestado | `PinClause.SideKeepAt` y sus seis entradas | `PinDeath.lean`, `PinClause.lean` |
+| **C** validez hereditaria | `HereditaryValid.ChainClosureAt` / `OwnSupportAt` | `HereditaryValid.lean` |
+| **C'** regla del top | `ImprovesCima.FamTopSingle` + `FamTriOkCone` | `ImprovesCima.lean` |
+| **D** descenso | `Descent.CommonOwner` — cerrada bajo `SingleParents` | `Descent.lean` |
+| **E** lector | `ReaderExec.ProgressAgg` | `ReaderExec.lean` |
+| **F** rebanada | `SpcSupport.SpcStable` | `SpcSupport.lean` |
+
+El mapa de dependencias entre ellas está en §5.6; la lectura corta es que **son seis
+cortes distintos de la misma frase**, no seis problemas.
 
 ### 5.5 Qué mediría yo a continuación
 
@@ -516,3 +528,120 @@ mapa del padre)`. No es una métrica lateral: **es exactamente el número de vec
 sale 1 casi siempre, la clase cubre casi todo y el resultado de §5.3 es el resultado
 principal; si sale 3, cubre casi nada. `test_window/compare.jl` ya instrumenta `peak_row` y
 `peak_nodes`; falta contar abuelos distintos por fila.
+
+### 5.6 Mapa de dependencias entre las rutas
+
+Trazado leyendo los teoremas de implicación, no supuesto. La convención `X_of_Y` del repo
+hace el grafo rastreable: cada flecha de abajo es un teorema con nombre.
+
+#### El objetivo, único
+
+```
+                    ┌────────────────────────────────────────┐
+                    │  «un estado válido está inhabitado»    │
+                    │  (Certifies.ValidHasChain, en los      │
+                    │   estados que la máquina construye)    │
+                    └────────────────────────────────────────┘
+                         ↓                          ↓
+        DeclaredVerdict.verdict_iff        Answer.answer_unsat_of_unsat
+        (la máquina decide)                (nunca dice «unknown»)
+```
+
+#### Las seis familias
+
+```
+A  GhostsLine ──tablesSound_of_ghosts──▶ TablesSound
+                filterSlices_of_ghosts ─▶ FilterSlices ──sat_of_ghosts──▶ ★
+                                                            │
+                                            DeclaredVerdict.sat_sound
+                                            Answer.answer_unsat_of_unsat
+
+B  SideKeepFarAt ──sideKeep_of_far───┐
+   RowWitnessAt  ──sideKeep_of_row───┤
+   SemWitnessFarAt ─semWitness_of_far─▶ SemWitnessAt ─rowWitness_of_sem─┤
+   TopSideAt + TopKeepAt ─sideKeep_of_top─┤
+   ClosedWitnessAt ──sideKeep_of_closed──┤
+   ChainSideAt ──sideKeep_of_chainSide───┤
+                                         ▼
+                                  ★ SideKeepAt ──flipSat_of_sideKeep──▶ FlipSatAt
+                                         │                                  │
+                                    sat_of_sideKeep                    flipAt_of_sat
+                                                                            ▼
+                                                                         FlipAt
+                                                                    pathAt_of_flip
+                                                                            ▼
+                                                                         PathAt
+                                                          pinJoinAt_of_paths│
+                                                                            ▼
+                                       PinJoinVar (PROBADO) ──┐         PinJoinAt
+                                       PinJoinClause ─────────┴─pinJoin_of_stages─▶ PinJoin
+                                                                      sat_of_pinJoin
+
+C  ChainClosureAt ─topValid_of_chainClosure─▶ TopValidAt ─validSide_of_topValid─┐
+   OwnSupportAt ──validSide_of_ownSupport───────────────────────────────────────┤
+   RulePreservesValidity ─validSide_of_rulePreserves────────────────────────────┤
+                                                                                ▼
+                                   ValidSideAt ──(+ ValidWitAt, SendPinAt)──▶ sat_of_validSide
+                                                                              sat_of_validSideOnly
+
+C' FamTopSingle + FamTriOkCone ──famTriOk_of_cone──▶ FamTriOk ──sat_of_famTriOk──▶ ★
+   SideChainAt ─chainSide_of_sideChain─▶ ChainSideAt ─pairSide_of_chainSide─┐
+   SideSupportAt ──pairSide_of_sideSupport───────────────────────────────────▶ PairSideAt
+                                                        pinned_source_valid_of_pairSide
+
+D  SingleParents ──commonOwner_of_singleParents──▶ CommonOwner
+                                    noDeadEnd_of_commonOwner│
+                                                            ▼
+                                                        NoDeadEnd ──sat_of_noDeadEnd──▶ ★
+
+E  ProgressAgg ──readerVerdictW_complete──▶ el lector termina ──readerVerdictW_sound──▶ ★
+
+F  SpcStable ──supported_of_spcStable──▶ soporte de la rebanada ─sat_of_someSpcStable─▶ ★
+```
+
+#### Lo que el mapa enseña
+
+**1. Seis de las «rutas» eran una.** La familia B tiene **un tronco**
+(`SideKeepAt → FlipSatAt → veredicto`) y **seis puertas de entrada** distintas, todas
+probadas. `TopKeepAt`, `TopSideAt`, `ChainSideAt`, `RowWitnessAt`, `SemWitnessAt`,
+`ClosedWitnessAt` y `SideKeepFarAt` **no son siete problemas**: son siete maneras de decir
+lo mismo, y basta cerrar una cualquiera. Eso reduce el inventario real de frases abiertas
+de ~15 a **6**.
+
+**2. La mitad de la corrida ya está cerrada.** `PinVar.pinJoinVar` es incondicional (solo
+pide `hwf`): **el estadio de las variables no necesita hipótesis**. Solo queda el estadio
+de las cláusulas (`PinJoinClause`), que `pinJoinClause_of_paths` reduce a `PathAt`. Es el
+recorte más concreto que hay sobre la mesa.
+
+**3. No hay flechas entre familias.** Ninguna de A–F implica a otra. Son **condiciones
+suficientes independientes** para el mismo objetivo, cada una cortando el problema por un
+sitio distinto. Así que no hay que elegir «la correcta»: basta con que **una** cierre.
+
+**4. El eje para elegir es la localidad**, no la fuerza. Ordenadas de más local a más global:
+
+| familia | sobre qué habla | tamaño del cuantificador |
+|---|---|---|
+| **A** `GhostsLine` | **una pasada de una operación** sobre un estado pinchado | el más pequeño |
+| **E** `ProgressAgg` | la trayectoria que el lector recorre, no todos los estados | pequeño |
+| **B** `SideKeepAt` | las uniones pinchadas de una línea | medio |
+| **C/C'** | los lados y sus familias en una unión | medio |
+| **F** `SpcStable` | las parejas `Spc` de una rebanada, en todos los pasos | grande |
+| **D** `CommonOwner` | **toda cadena parcial de todo estado** | el más grande |
+
+Esa es la razón documentada de que `GhostsLine` sustituyera a `CommonOwner` (v133) como
+hipótesis declarada: dice menos y basta igual. Medida sin excepción (sonda `helly ghosts`,
+3,02 M entradas fantasma sobre K4 y paridad).
+
+**5. D es la única con descarga parcial probada.** `commonOwner_of_singleParents` cierra la
+familia D entera para la clase `SingleParents`. Ninguna otra familia tiene todavía una
+clase nombrada donde su raíz sea teorema. Si el grado de entrada de la fila (§5.5) resulta
+ser 1 casi siempre, D deja de ser la más cara y pasa a ser la más barata.
+
+#### Rutas muertas o superadas, para no reabrirlas
+
+* `Descent.CommonOwner` como *hipótesis declarada* está superada por `GhostsLine` (v133).
+  Sigue viva como **teorema bajo `SingleParents`**, que es otra cosa.
+* `ImprovesCima.FamTopSingle` **era** teorema y la ventana lo devolvió a hipótesis
+  (§3.5). No es una ruta nueva: es una regresión conocida y localizada.
+* `SymTriReview` (1.757 líneas) se borró: modelaba una revisión triangular abstracta que la
+  máquina no ejecuta.
