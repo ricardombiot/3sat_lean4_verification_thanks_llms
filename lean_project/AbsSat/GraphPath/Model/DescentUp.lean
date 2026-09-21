@@ -31,10 +31,11 @@ open AbsSat.GraphPath.Model.NoDeadEnd (SoundFrom upd NoDeadEnd)
 
 variable (g : GPathM) (d : NodeId) (title : String)
 
-/-- What a node of `addNode g d title` can be: the new one, or an old one with the new id added. -/
+/-- What a node of `addNode g d title` can be: one of the new row, or an old one
+with the row ids that own it added. -/
 theorem node_addNode_cases (hnd : NodupIds g)
     {y : PathNodeId} {n : PNodeM} (hn : (addNode g d title).node? y = some n) :
-    (y = newPid g d ∧ n = addOwner (newPid g d) (upNode g d title)) ∨
+    (y ∈ newRowIds g d ∧ n = rowNode g d title y) ∨
       ∃ m, g.node? y = some m ∧ n = upMap g d m := by
   have hnB : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hn
   have hid : n.id = y := node?_id_eq _ y n hn
@@ -46,42 +47,48 @@ theorem node_addNode_cases (hnd : NodupIds g)
     have := node?_of_mem hnd n₀ hn₀
     rw [hid₀] at this
     exact this
-  · have hsing : n = addOwner (newPid g d) (upNode g d title) := List.eq_of_mem_singleton hr
-    refine Or.inl ⟨?_, hsing⟩
-    rw [hsing] at hid
-    exact hid.symm
+  · obtain ⟨z, hz, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+    rw [rowNode_id] at hid
+    rw [← hid]
+    exact Or.inl ⟨hz, rfl⟩
 
-/-- The new node's table: the state's global owners, plus itself. -/
+/-- A row node's table: what its parents own, cut to the global owners, plus itself. -/
 theorem owners_new (hd : d.step = g.current_step)
-    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) :
-    ownersOf (addNode g d title) (newPid g d) = g.gowners ++ [newPid g d] := by
-  simp only [ownersOf, addNode_node?_new g d title hd hbelow]
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    {z : PathNodeId} (hz : z ∈ newRowIds g d) :
+    ownersOf (addNode g d title) z = rowOwners g d z := by
+  simp only [ownersOf, addNode_node?_new g d title hd hbelow z hz]
   rfl
 
-/-- An old node's table: its own, plus the new node. -/
+/-- An old node's table: its own, plus the row ids that own it. -/
 theorem owners_old {y : PathNodeId} {m : PNodeM} (hm : g.node? y = some m) :
-    ownersOf (addNode g d title) y = m.owners ++ [newPid g d] := by
+    ownersOf (addNode g d title) y = m.owners ++ gainedOwners g d m := by
   simp only [ownersOf, addNode_node?_old g d title y m hm]
   exact upMap_owners g d m
 
-/-- The step of the new node. -/
-theorem newPid_step (hd : d.step = g.current_step) : (newPid g d).id.step = g.current_step := by
-  simp only [newPid]; exact hd
+/-- The step of a row node. -/
+theorem row_step (hd : d.step = g.current_step) {z : PathNodeId} (hz : z ∈ newRowIds g d) :
+    z.id.step = g.current_step := by
+  rw [mapId_of_mem_newRowIds g d z hz]; exact hd
 
 /-- **Below the new step, a partial chain of the extended state is one of the state.** -/
 theorem soundFrom_g_of_A (hnd : NodupIds g) (hd : d.step = g.current_step)
     {sel : Int → PathNodeId} {lo : Int}
     (hs : SoundFrom (addNode g d title) sel lo) : SoundFrom g sel lo := by
   have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
-  have hnp := newPid_step g d hd
   -- an old pick is a node of `g`
   have hold : ∀ k, lo ≤ k → k < g.current_step → ∃ m, g.node? (sel k) = some m := by
     intro k hk0 hk1
     obtain ⟨hsome, hstep⟩ := hs.node k hk0 (by rw [hcsA]; omega)
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
     rcases node_addNode_cases g d title hnd hn with ⟨hy, _⟩ | ⟨m, hm, _⟩
-    · exfalso; rw [hy, hnp] at hstep; omega
+    · exfalso; rw [row_step g d hd hy] at hstep; omega
     · exact ⟨m, hm⟩
+  have hnerow : ∀ k, lo ≤ k → k < g.current_step → sel k ∉ newRowIds g d := by
+    intro k hk0 hk1 hmem
+    obtain ⟨_, hstep⟩ := hs.node k hk0 (by rw [hcsA]; omega)
+    rw [row_step g d hd hmem] at hstep
+    omega
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro k hk0 hk1
     obtain ⟨m, hm⟩ := hold k hk0 hk1
@@ -99,97 +106,91 @@ theorem soundFrom_g_of_A (hnd : NodupIds g) (hd : d.step = g.current_step)
     have how := hs.owned i j hi0 hj0 (by rw [hcsA]; omega) (by rw [hcsA]; omega) hij
     rw [owners_old g d title hm] at how
     obtain ⟨hmem, hstep⟩ := List.mem_filter.mp how
-    have hne : sel i ≠ newPid g d := by
-      intro hc
-      rw [hc, hnp] at hstep
-      have : i = g.current_step := (eq_of_beq hstep).symm
-      omega
     rcases List.mem_append.mp hmem with hl | hr
     · rw [ownersOf, hm]
       exact List.mem_filter.mpr ⟨hl, hstep⟩
-    · exact absurd (List.mem_singleton.mp hr) hne
+    · exact absurd (gainedOwners_subset g d m _ hr) (hnerow i hi0 hi1)
   · intro k hk0 hk1
     have hg := hs.gowner k hk0 (by rw [hcsA]; omega)
-    obtain ⟨_, hstep⟩ := hs.node k hk0 (by rw [hcsA]; omega)
-    have hgA : (addNode g d title).gowners = g.gowners ++ [newPid g d] := rfl
-    rw [hgA] at hg
+    rw [addNode_gowners] at hg
     rcases List.mem_append.mp hg with hl | hr
     · exact hl
-    · exfalso
-      have := List.mem_singleton.mp hr
-      rw [this, hnp] at hstep
-      omega
+    · exact absurd hr (hnerow k hk0 hk1)
   · intro k hk0 hk1
     obtain ⟨m, hm⟩ := hold k hk0 hk1
     have hso := hs.self_owned k hk0 (by rw [hcsA]; omega)
     rw [owners_old g d title hm] at hso
-    obtain ⟨_, hstep⟩ := hs.node k hk0 (by rw [hcsA]; omega)
     rcases List.mem_append.mp hso with hl | hr
     · rw [ownersOf, hm]; exact hl
-    · exfalso
-      have := List.mem_singleton.mp hr
-      rw [this, hnp] at hstep
-      omega
+    · exact absurd (gainedOwners_subset g d m _ hr) (hnerow k hk0 hk1)
   · intro k hk0 hk1
     obtain ⟨m, hm⟩ := hold k hk0 (by omega)
     have hsl := hs.son_link k hk0 (by rw [hcsA]; omega)
-    simp only [sonsOf, addNode_node?_old g d title (sel k) m hm] at hsl
-    obtain ⟨_, hstep⟩ := hs.node (k + 1) (by omega) (by rw [hcsA]; omega)
-    have hne : sel (k + 1) ≠ newPid g d := by
-      intro hc
-      rw [hc, hnp] at hstep
-      omega
-    simp only [upMap, addOwner, upSons] at hsl
-    split at hsl
-    · simp only at hsl
-      rcases List.mem_append.mp hsl with hl | hr
-      · simp only [sonsOf, hm]; exact hl
-      · exact absurd (List.mem_singleton.mp hr) hne
-    · simp only [sonsOf, hm]; exact hsl
+    simp only [sonsOf, addNode_node?_old g d title (sel k) m hm, upMap_sons] at hsl
+    rcases List.mem_append.mp hsl with hl | hr
+    · simp only [sonsOf, hm]; exact hl
+    · exact absurd (gainedSons_subset g d m _ hr) (hnerow (k + 1) (by omega) hk1)
   · intro k hk0 hk1
     exact hs.root_shape k hk0 (by rw [hcsA]; omega)
 
-/-- **And back: a partial chain of the state whose top pick is the new node is one of the extended
-state.** This is where the new node's birth table does the work: it owns every global owner, so the
-picks below it are all in its table, and it is in theirs because `addNode` appends it. -/
-theorem soundFrom_A_of_g (hmok : MachineOk g)
+/-- **And back: a partial chain of the state, continued into the row node its own
+last pick shifts to, is a partial chain of the extended state.** This is where the
+row's birth table does the work — and where it differs from the single new node:
+the row node owns only what *its* parents owned, so the chain that reaches it must
+be the one that came up through one of them. -/
+theorem soundFrom_A_of_g (_hmok : MachineOk g)
     (hd : d.step = g.current_step) (hpos : 0 < g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    {sel : Int → PathNodeId} {lo : Int}
-    (htop : sel g.current_step = newPid g d)
+    {sel : Int → PathNodeId} {lo : Int} (hlocs : lo ≤ g.current_step - 1)
+    (htop : sel g.current_step = shiftPid (sel (g.current_step - 1)) d)
     (hs : SoundFrom g sel lo) : SoundFrom (addNode g d title) sel lo := by
   have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
-  have hnp := newPid_step g d hd
-  have hnodeA := addNode_node?_new g d title hd hbelow
-  -- the old picks, as nodes of `g`
+  -- the chain's last pick is a parent of the row node it reaches
+  obtain ⟨hsomeL, hstepL⟩ := hs.node (g.current_step - 1) (by omega) (by omega)
+  obtain ⟨nL, hnL⟩ := Option.isSome_iff_exists.mp hsomeL
+  have hLmem : sel (g.current_step - 1) ∈ newParents g := by
+    simp only [newParents, if_pos hpos]
+    exact mem_line_of_node? g _ nL hnL (g.current_step - 1) hstepL
+  have hzrow : sel g.current_step ∈ newRowIds g d := by
+    rw [htop]; exact mem_newRowIds_of_mem_newParents g d _ hpos hLmem
+  have hzpar : sel (g.current_step - 1) ∈ rowParents g d (sel g.current_step) := by
+    rw [htop]; exact mem_rowParents_of_mem_newParents g d _ hLmem
+  have hnp : (sel g.current_step).id.step = g.current_step := row_step g d hd hzrow
+  have hownNew : ownersOf (addNode g d title) (sel g.current_step)
+      = rowOwners g d (sel g.current_step) := owners_new g d title hd hbelow hzrow
   have hold : ∀ k, lo ≤ k → k < g.current_step → ∃ m, g.node? (sel k) = some m := by
     intro k hk0 hk1
     obtain ⟨hsome, _⟩ := hs.node k hk0 hk1
     exact Option.isSome_iff_exists.mp hsome
-  have hownNew : ownersOf (addNode g d title) (newPid g d) = g.gowners ++ [newPid g d] :=
-    owners_new g d title hd hbelow
+  -- everything the chain picked below is owned by the row node it reaches
+  have hpicks : ∀ i, lo ≤ i → i < g.current_step →
+      sel i ∈ rowOwners g d (sel g.current_step) := by
+    intro i hi1 hi2
+    have hmem : sel i ∈ nL.owners := by
+      rcases int_eq_or_ne i (g.current_step - 1) with hii | hii
+      · have := hs.self_owned (g.current_step - 1) (by omega) (by omega)
+        simp only [ownersOf, hnL] at this
+        rw [hii]; exact this
+      · have := hs.owned i (g.current_step - 1) hi1 (by omega) hi2 (by omega) hii
+        simp only [ownersAt, List.mem_filter, ownersOf, hnL] at this
+        exact this.1
+    refine (mem_rowOwners_iff g d _ _).mpr (Or.inl ⟨?_, hs.gowner i hi1 hi2⟩)
+    exact mem_unionOwnersOf g _ _ nL _ hzpar hnL hmem
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · -- node
     intro k hk0 hk1
     rcases int_eq_or_ne k g.current_step with rfl | hne
-    · rw [htop]
-      exact ⟨by rw [hnodeA]; rfl, hnp⟩
+    · exact ⟨by rw [addNode_node?_new g d title hd hbelow _ hzrow]; rfl, hnp⟩
     · obtain ⟨m, hm⟩ := hold k hk0 (by rw [hcsA] at hk1; omega)
       obtain ⟨_, hstep⟩ := hs.node k hk0 (by rw [hcsA] at hk1; omega)
       exact ⟨by rw [addNode_node?_old g d title (sel k) m hm]; rfl, hstep⟩
   · -- parent link
     intro k hk0 hk1
     rcases int_eq_or_ne (k + 1) g.current_step with heq | hne
-    · -- the new node's parents are the top line of `g`
-      rw [heq, htop, hnodeA]
-      simp only [Option.map_some, Option.getD_some, addOwner, upNode, newParents, if_pos hpos]
-      obtain ⟨m, hm⟩ := hold k hk0 (by omega)
-      obtain ⟨_, hstep⟩ := hs.node k hk0 (by omega)
-      refine List.mem_map.mpr ⟨m, ?_, node?_id_eq g (sel k) m hm⟩
-      refine List.mem_filter.mpr ⟨List.mem_of_find?_eq_some hm, ?_⟩
-      have hid := node?_id_eq g (sel k) m hm
-      rw [hid, hstep]
-      exact beq_iff_eq.mpr (by omega)
+    · rw [heq, addNode_node?_new g d title hd hbelow _ hzrow]
+      simp only [Option.map_some, Option.getD_some, rowNode_parents]
+      rw [show k = g.current_step - 1 by omega]
+      exact hzpar
     · obtain ⟨m, hm⟩ := hold (k + 1) (by omega) (by rw [hcsA] at hk1; omega)
       have hpl := hs.parent_link k hk0 (by rw [hcsA] at hk1; omega)
       rw [hm] at hpl
@@ -199,18 +200,17 @@ theorem soundFrom_A_of_g (hmok : MachineOk g)
   · -- pairwise ownership
     intro i j hi0 hj0 hi1 hj1 hij
     rcases int_eq_or_ne j g.current_step with rfl | hnej
-    · -- `j` is the new node: it owns every global owner
-      rw [htop, hownNew]
-      have hgi := hs.gowner i hi0 (by rw [hcsA] at hi1; omega)
+    · rw [hownNew]
       obtain ⟨_, hstep⟩ := hs.node i hi0 (by rw [hcsA] at hi1; omega)
-      exact List.mem_filter.mpr ⟨List.mem_append_left _ hgi, beq_iff_eq.mpr hstep⟩
+      exact List.mem_filter.mpr
+        ⟨hpicks i hi0 (by rw [hcsA] at hi1; omega), beq_iff_eq.mpr hstep⟩
     · obtain ⟨m, hm⟩ := hold j hj0 (by rw [hcsA] at hj1; omega)
       rw [owners_old g d title hm]
       rcases int_eq_or_ne i g.current_step with rfl | hnei
-      · -- `i` is the new node: every table gains it
-        rw [htop]
-        exact List.mem_filter.mpr ⟨List.mem_append_right _ (List.mem_singleton_self _),
+      · refine List.mem_filter.mpr ⟨List.mem_append_right _ (List.mem_filter.mpr ⟨hzrow, ?_⟩),
           beq_iff_eq.mpr hnp⟩
+        rw [node?_id_eq g _ m hm]
+        exact List.elem_eq_true_of_mem (hpicks j hj0 (by rw [hcsA] at hj1; omega))
       · have how := hs.owned i j hi0 hj0 (by rw [hcsA] at hi1; omega)
           (by rw [hcsA] at hj1; omega) hij
         rw [ownersOf, hm] at how
@@ -218,16 +218,14 @@ theorem soundFrom_A_of_g (hmok : MachineOk g)
         exact List.mem_filter.mpr ⟨List.mem_append_left _ hmem, hstep⟩
   · -- global owner
     intro k hk0 hk1
-    have hgA : (addNode g d title).gowners = g.gowners ++ [newPid g d] := rfl
-    rw [hgA]
+    rw [addNode_gowners]
     rcases int_eq_or_ne k g.current_step with rfl | hne
-    · rw [htop]; exact List.mem_append_right _ (List.mem_singleton_self _)
+    · exact List.mem_append_right _ hzrow
     · exact List.mem_append_left _ (hs.gowner k hk0 (by rw [hcsA] at hk1; omega))
   · -- self ownership
     intro k hk0 hk1
     rcases int_eq_or_ne k g.current_step with rfl | hne
-    · rw [htop, hownNew]
-      exact List.mem_append_right _ (List.mem_singleton_self _)
+    · rw [hownNew]; exact self_mem_rowOwners g d _
     · obtain ⟨m, hm⟩ := hold k hk0 (by rw [hcsA] at hk1; omega)
       rw [owners_old g d title hm]
       have hso := hs.self_owned k hk0 (by rw [hcsA] at hk1; omega)
@@ -236,44 +234,23 @@ theorem soundFrom_A_of_g (hmok : MachineOk g)
   · -- son link
     intro k hk0 hk1
     obtain ⟨m, hm⟩ := hold k hk0 (by rw [hcsA] at hk1; omega)
-    simp only [sonsOf, addNode_node?_old g d title (sel k) m hm, upMap, addOwner, upSons]
+    simp only [sonsOf, addNode_node?_old g d title (sel k) m hm, upMap_sons]
     rcases int_eq_or_ne (k + 1) g.current_step with heq | hne
-    · -- the new node is a son of every node of the top line
-      have hid := node?_id_eq g (sel k) m hm
-      obtain ⟨_, hstep⟩ := hs.node k hk0 (by omega)
-      have hmemtop : (newParents g).contains (sel k) = true := by
-        simp only [newParents, if_pos hpos]
-        refine List.elem_eq_true_of_mem (List.mem_map.mpr ⟨m, ?_, hid⟩)
-        refine List.mem_filter.mpr ⟨List.mem_of_find?_eq_some hm, ?_⟩
-        rw [hid, hstep]
-        exact beq_iff_eq.mpr (by omega)
-      rw [hid]
-      simp only [hmemtop, if_pos]
-      rw [heq, htop]
-      exact List.mem_append_right _ (List.mem_singleton_self _)
+    · refine List.mem_append_right _ (List.mem_filter.mpr ⟨by rw [heq]; exact hzrow, ?_⟩)
+      rw [node?_id_eq g _ m hm, show k = g.current_step - 1 by omega]
+      rw [show g.current_step - 1 + 1 = g.current_step by omega]
+      exact List.elem_eq_true_of_mem hzpar
     · have hsl := hs.son_link k hk0 (by rw [hcsA] at hk1; omega)
       simp only [sonsOf, hm] at hsl
-      have hid := node?_id_eq g (sel k) m hm
-      rw [hid]
-      split
-      · exact List.mem_append_left _ hsl
-      · exact hsl
+      exact List.mem_append_left _ hsl
   · -- root shape
     intro k hk0 hk1
     rcases int_eq_or_ne k g.current_step with rfl | hne
-    · rw [htop]
-      constructor
+    · constructor
       · intro hroot
-        exfalso
-        have hmp : (newPid g d).parent_id = g.map_parent := rfl
-        rw [hmp] at hroot
-        obtain ⟨_, _, hsome⟩ := hmok
-        have := hsome hpos
-        rw [hroot] at this
-        exact absurd this (by simp)
+        exact absurd hroot (parent_id_ne_none_of_mem_newRowIds g d _ hpos hzrow)
       · intro hz; omega
     · exact hs.root_shape k hk0 (by rw [hcsA] at hk1; omega)
-
 
 /-- **The seed has nothing to descend**: its only step is the top one. -/
 theorem noDeadEnd_initSeed (e : NodeId) (t : String) : NoDeadEnd (initSeed e t) := by
@@ -283,19 +260,19 @@ theorem noDeadEnd_initSeed (e : NodeId) (t : String) : NoDeadEnd (initSeed e t) 
   rw [hcs] at hlo
   omega
 
-/-- **An `up` keeps the descent.** The extension the state provides is owned by the new node
-because it is a global owner there, and it owns the new node because `addNode` appends the new id
-to every table. The first step, from the new node alone, is any node of the top line. -/
+/-- **An `up` keeps the descent.** With a single new node the first step down
+could be *any* node of the top line; with the row it must be a parent of the row
+node the chain reached — which is what the row node's table allows, and there is
+always one. -/
 theorem noDeadEnd_addNode (ctx : Pinned.Ctx g) (hnd : NodupIds g) (hmok : MachineOk g)
-    (hd : d.step = g.current_step) (hpos : 0 < g.current_step) (hv : isValid g = true)
+    (hd : d.step = g.current_step) (hpos : 0 < g.current_step) (_hv : isValid g = true)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
     (h : NoDeadEnd g) : NoDeadEnd (addNode g d title) := by
   intro sel lo hlo0 hlo hs
   have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
-  have hnp := newPid_step g d hd
   rw [hcsA] at hlo
-  -- the pick at the new step is the new node: nothing else lives there
-  have htop : sel g.current_step = newPid g d := by
+  -- the pick at the new step is one of the row
+  have hzrow : sel g.current_step ∈ newRowIds g d := by
     obtain ⟨hsome, hstep⟩ := hs.node g.current_step (by omega) (by rw [hcsA]; omega)
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
     rcases node_addNode_cases g d title hnd hn with ⟨hy, _⟩ | ⟨m, hm, _⟩
@@ -306,12 +283,12 @@ theorem noDeadEnd_addNode (ctx : Pinned.Ctx g) (hnd : NodupIds g) (hmok : Machin
       rw [hidm, hstep] at hb
       omega
   rcases int_eq_or_ne lo g.current_step with rfl | hne
-  · -- the chain is the new node alone
-    have hent := hasStepEntry_of_isValid g hv (g.current_step - 1) (by omega) (by omega)
-    simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
-    obtain ⟨q, hq, hqs⟩ := hent
-    obtain ⟨t, ht, htid⟩ := ctx.gn q hq
-    have htnode : g.node? q = some t := by rw [← htid]; exact node?_of_mem hnd t ht
+  · -- the chain is the row node alone: descend into one of *its* parents
+    obtain ⟨q, hq⟩ := exists_rowParent g d hpos hzrow
+    obtain ⟨hqn, hqs⟩ := rowParent_node g d hpos hq
+    obtain ⟨t, ht⟩ := Option.isSome_iff_exists.mp hqn
+    have hqgow : q ∈ g.gowners :=
+      ctx.ownGow q t ht q (ctx.self q t ht) (by rw [hqs]; omega) (by rw [hqs]; omega)
     have hupd : upd sel (g.current_step - 1) q (g.current_step - 1) = q := by
       show (if (g.current_step - 1) = g.current_step - 1 then q else sel (g.current_step - 1)) = q
       rw [if_pos rfl]
@@ -321,19 +298,18 @@ theorem noDeadEnd_addNode (ctx : Pinned.Ctx g) (hnd : NodupIds g) (hmok : Machin
         have hk : k = g.current_step - 1 := by omega
         subst hk
         rw [hupd]
-        exact ⟨by rw [htnode]; rfl, hqs⟩
+        exact ⟨by rw [ht]; rfl, hqs⟩
       · intro k _ hk1; omega
-      · intro i j hi0 hj0 hi1 hj1 hij
-        exfalso; omega
+      · intro i j hi0 hj0 hi1 hj1 hij; exfalso; omega
       · intro k hk0 hk1
         have hk : k = g.current_step - 1 := by omega
         subst hk
-        rw [hupd]; exact hq
+        rw [hupd]; exact hqgow
       · intro k hk0 hk1
         have hk : k = g.current_step - 1 := by omega
         subst hk
         rw [hupd]
-        simpa only [ownersOf, htnode] using ctx.self q t htnode
+        simpa only [ownersOf, ht] using ctx.self q t ht
       · intro k _ hk1; omega
       · intro k hk0 hk1
         have hk : k = g.current_step - 1 := by omega
@@ -344,26 +320,34 @@ theorem noDeadEnd_addNode (ctx : Pinned.Ctx g) (hnd : NodupIds g) (hmok : Machin
           by_cases h0 : q.id.step = 0
           · omega
           · exfalso
-            have hnr := ctx.shape.notroot t (List.mem_of_find?_eq_some htnode)
-              (by rw [node?_id_eq g q t htnode]; omega)
-            rw [node?_id_eq g q t htnode] at hnr
+            have hnr := ctx.shape.notroot t (List.mem_of_find?_eq_some ht)
+              (by rw [node?_id_eq g q t ht]; omega)
+            rw [node?_id_eq g q t ht] at hnr
             exact hnr hroot
         · intro hz
-          have := ctx.rootz t (List.mem_of_find?_eq_some htnode)
-            (by rw [node?_id_eq g q t htnode]; omega)
-          rw [node?_id_eq g q t htnode] at this
+          have := ctx.rootz t (List.mem_of_find?_eq_some ht)
+            (by rw [node?_id_eq g q t ht]; omega)
+          rw [node?_id_eq g q t ht] at this
           exact this
-    refine ⟨q, soundFrom_A_of_g g d title hmok hd hpos hbelow ?_ hsg⟩
-    show (if g.current_step = g.current_step - 1 then q else sel g.current_step) = newPid g d
+    refine ⟨q, soundFrom_A_of_g g d title hmok hd hpos hbelow (by omega) ?_ hsg⟩
+    rw [hupd]
+    show (if g.current_step = g.current_step - 1 then q else sel g.current_step)
+      = shiftPid q d
     rw [if_neg (show ¬(g.current_step = g.current_step - 1) from by omega)]
-    exact htop
+    exact (shiftPid_of_mem_rowParents g d _ q hq).symm
   · -- the chain has picks in the state, and the state extends it
     have hsg : SoundFrom g sel lo := soundFrom_g_of_A g d title hnd hd hs
     obtain ⟨c, hc⟩ := h sel lo hlo0 (by omega) hsg
-    refine ⟨c, soundFrom_A_of_g g d title hmok hd hpos hbelow ?_ hc⟩
-    show (if g.current_step = lo - 1 then c else sel g.current_step) = newPid g d
-    rw [if_neg (show ¬(g.current_step = lo - 1) from by omega)]
-    exact htop
+    have hlink := hs.parent_link (g.current_step - 1) (by omega) (by rw [hcsA]; omega)
+    rw [show g.current_step - 1 + 1 = g.current_step by omega,
+      addNode_node?_new g d title hd hbelow _ hzrow] at hlink
+    simp only [Option.map_some, Option.getD_some, rowNode_parents] at hlink
+    refine ⟨c, soundFrom_A_of_g g d title hmok hd hpos hbelow (by omega) ?_ hc⟩
+    show (if g.current_step = lo - 1 then c else sel g.current_step)
+      = shiftPid (if g.current_step - 1 = lo - 1 then c else sel (g.current_step - 1)) d
+    rw [if_neg (show ¬(g.current_step = lo - 1) from by omega),
+      if_neg (show ¬(g.current_step - 1 = lo - 1) from by omega)]
+    exact (shiftPid_of_mem_rowParents g d _ _ hlink).symm
 
 /-- info: 'AbsSat.GraphPath.Model.DescentUp.noDeadEnd_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

@@ -178,7 +178,7 @@ theorem embedded_filterAllAgg (B G : GPathM) (reqs : List NodeId) (h : Embedded 
 
 /-- A node of the grown state is the new node or a node of the state it grew from. -/
 theorem mem_addNode {g : GPathM} {d : NodeId} {title : String} {q : PathNodeId}
-    (h : Mem (addNode g d title) q) : q = newPid g d ∨ Mem g q := by
+    (h : Mem (addNode g d title) q) : q ∈ newRowIds g d ∨ Mem g q := by
   obtain ⟨m, hm⟩ := h
   have hmem := List.mem_of_find?_eq_some hm
   have hid := node?_id_eq _ q m hm
@@ -189,18 +189,63 @@ theorem mem_addNode {g : GPathM} {d : NodeId} {title : String} {q : PathNodeId}
     have hs := node?_isSome_of_mem g n hn
     rw [hnid] at hs
     exact Or.inr (Option.isSome_iff_exists.mp hs)
-  · left
-    rw [← hid, List.mem_singleton.mp hr]; rfl
+  · obtain ⟨z, hz, rfl⟩ := (mem_newRow_iff g d title m).mp hr
+    rw [rowNode_id] at hid
+    exact Or.inl (by rw [← hid]; exact hz)
 
-/-- **UP of the same map node on both sides.** -/
+/-- **UP of the same map node on both sides.** The row of the inner state is a
+sub-row of the outer one: both shift the same way, and the inner top line sits
+inside the outer's. -/
 theorem embedded_addNode (B G : GPathM) (d : NodeId) (title : String) (h : Embedded B G)
-    (hmp : B.map_parent = G.map_parent) (hd : d.step = B.current_step)
-    (hbB : ∀ n ∈ B.nodes, n.id.id.step < B.current_step) (hbG : ∀ n ∈ G.nodes, n.id.id.step < G.current_step)
-    (hpbB : Parents.PBelow B) (hndB : NodupIds B) :
+    (_hmp : B.map_parent = G.map_parent) (hd : d.step = B.current_step)
+    (hbB : ∀ n ∈ B.nodes, n.id.id.step < B.current_step)
+    (hbG : ∀ n ∈ G.nodes, n.id.id.step < G.current_step)
+    (hpbB : Parents.PBelow B) (hndB : NodupIds B) (hgnB : GownersNodes.GN B)
+    (hownbB : SelfOwn.OwnBelow B) :
     Embedded (addNode B d title) (addNode G d title) := by
-  have hnew : newPid B d = newPid G d := by simp only [newPid, hmp]
   have hdG : d.step = G.current_step := hd.trans h.step
-  have memB : ∀ q, Mem (addNode B d title) q → q ≠ newPid B d → Mem B q := by
+  -- the inner top line sits inside the outer one
+  have hpar : ∀ q ∈ newParents B, q ∈ newParents G := by
+    intro q hq
+    unfold newParents at hq ⊢
+    by_cases hpos : 0 < B.current_step
+    · rw [if_pos hpos] at hq
+      rw [if_pos (show 0 < G.current_step from by rw [← h.step]; exact hpos)]
+      obtain ⟨nq, hnq, hnqid⟩ := List.mem_map.mp hq
+      have hnqB : B.node? q = some nq := by
+        rw [← hnqid]; exact node?_of_mem hndB nq (List.mem_filter.mp hnq).1
+      have hqs : q.id.step = B.current_step - 1 := by
+        rw [← hnqid]; exact eq_of_beq (List.mem_filter.mp hnq).2
+      obtain ⟨nG, hnG, _, _⟩ := h.node q nq hnqB
+      rw [h.step] at hqs
+      exact mem_line_of_node? G q nG hnG (G.current_step - 1) hqs
+    · rw [if_neg hpos] at hq
+      exact absurd hq List.not_mem_nil
+  have hrow : ∀ z ∈ newRowIds B d, z ∈ newRowIds G d := by
+    intro z hz
+    by_cases hpos : 0 < B.current_step
+    · obtain ⟨r, hr, rfl⟩ := exists_shift_of_mem_newRowIds B d z hpos hz
+      exact mem_newRowIds_of_mem_newParents G d r (by rw [← h.step]; exact hpos) (hpar r hr)
+    · rw [newRowIds_of_zero B d hpos] at hz
+      rw [newRowIds_of_zero G d (by rw [← h.step]; exact hpos)]
+      exact hz
+  have hrpar : ∀ z q, q ∈ rowParents B d z → q ∈ rowParents G d z := by
+    intro z q hq
+    exact List.mem_filter.mpr ⟨hpar q (rowParents_subset B d z q hq), (List.mem_filter.mp hq).2⟩
+  -- and so is each row node's table
+  have hrown : ∀ z w, w ∈ rowOwners B d z → Mem (addNode B d title) w →
+      w ∈ rowOwners G d z := by
+    intro z w hw hmem
+    rcases (mem_rowOwners_iff B d z w).mp hw with ⟨hin, hgw⟩ | rfl
+    · obtain ⟨r, hr, nr, hnr, hwr⟩ := exists_owner_of_mem_unionOwnersOf B _ w hin
+      obtain ⟨x, hx, hxid⟩ := hgnB w hgw
+      have hmemB : Mem B w := by
+        rw [← hxid]; exact ⟨_, node?_of_mem hndB x hx⟩
+      obtain ⟨nG, hnG, hno, _⟩ := h.node r nr hnr
+      refine (mem_rowOwners_iff G d z w).mpr (Or.inl ⟨?_, h.gow w hgw⟩)
+      exact mem_unionOwnersOf G _ r nG w (hrpar z r hr) hnG (hno w hwr hmemB)
+    · exact self_mem_rowOwners G d w
+  have memB : ∀ q, Mem (addNode B d title) q → q ∉ newRowIds B d → Mem B q := by
     intro q hq hne
     rcases mem_addNode hq with he | hm
     · exact absurd he hne
@@ -211,7 +256,7 @@ theorem embedded_addNode (B G : GPathM) (d : NodeId) (title : String) (h : Embed
     rw [addNode_gowners] at hp ⊢
     rcases List.mem_append.mp hp with hp | hp
     · exact List.mem_append_left _ (h.gow p hp)
-    · rw [List.mem_singleton.mp hp, hnew]; exact List.mem_append_right _ List.mem_cons_self
+    · exact List.mem_append_right _ (hrow p hp)
   · intro p m hm
     have hmem := List.mem_of_find?_eq_some hm
     have hid := node?_id_eq _ p m hm
@@ -222,56 +267,45 @@ theorem embedded_addNode (B G : GPathM) (d : NodeId) (title : String) (h : Embed
       have hpid : n₀.id = p := by rw [← hid, ← hEq, upMap_id]
       have hBp : B.node? p = some n₀ := by rw [← hpid]; exact node?_of_mem hndB n₀ hn₀
       obtain ⟨nG, hnG, hno, hnp⟩ := h.node p n₀ hBp
-      have hGmem := List.mem_of_find?_eq_some hnG
-      have hGp : (addNode G d title).node? p = some (upMap G d nG) := by
-        have := addNode_node?_old G d title p nG hnG
-        exact this
-      refine ⟨upMap G d nG, hGp, fun q hq hqm => ?_, fun q hq hqm => ?_⟩
+      refine ⟨upMap G d nG, addNode_node?_old G d title p nG hnG, fun q hq hqm => ?_,
+        fun q hq hqm => ?_⟩
       · rw [← hEq, upMap_owners] at hq
         rw [upMap_owners]
-        by_cases hqn : q = newPid B d
-        · rw [hqn, hnew]; exact List.mem_append_right _ List.mem_cons_self
-        · rcases List.mem_append.mp hq with hq | hq
-          · exact List.mem_append_left _ (hno q hq (memB q hqm hqn))
-          · exact absurd (List.mem_singleton.mp hq) hqn
+        rcases List.mem_append.mp hq with hq | hq
+        · have hqn : q ∉ newRowIds B d := by
+            intro he
+            have := hownbB n₀ hn₀ q hq
+            rw [mapId_of_mem_newRowIds B d q he, hd] at this
+            omega
+          exact List.mem_append_left _ (hno q hq (memB q hqm hqn))
+        · -- a row id that owns `p`: it owns `p` in `G` too
+          refine List.mem_append_right _ (List.mem_filter.mpr
+            ⟨hrow q (gainedOwners_subset B d n₀ q hq), ?_⟩)
+          rw [node?_id_eq G p nG hnG]
+          have hpown : p ∈ rowOwners B d q := by
+            have := (List.mem_filter.mp hq).2
+            rw [node?_id_eq B p n₀ hBp] at this
+            simpa using this
+          exact List.elem_eq_true_of_mem (hrown q p hpown ⟨m, hm⟩)
       · rw [← hEq, upMap_parents] at hq
         rw [upMap_parents]
         have hqs : q.id.step = p.id.step - 1 := by rw [← hpid]; exact hpbB n₀ hn₀ q hq
         have hps : p.id.step < B.current_step := by rw [← hpid]; exact hbB n₀ hn₀
-        have hqn : q ≠ newPid B d := by
+        have hqn : q ∉ newRowIds B d := by
           intro he
-          have : q.id.step = d.step := by rw [he]; rfl
+          rw [mapId_of_mem_newRowIds B d q he, hd] at hqs
           omega
         exact hnp q hq (memB q hqm hqn)
-    · -- the new node
-      have hmeq : m = addOwner (newPid B d) (upNode B d title) := List.mem_singleton.mp hr
-      have hpnew : p = newPid B d := by rw [← hid, hmeq]; rfl
-      refine ⟨addOwner (newPid G d) (upNode G d title), ?_, fun q hq _ => ?_, fun q hq _ => ?_⟩
-      · rw [hpnew, hnew]; exact addNode_node?_new G d title hdG hbG
-      · rw [hmeq] at hq
-        change q ∈ B.gowners ++ [newPid B d] at hq
-        change q ∈ G.gowners ++ [newPid G d]
-        rcases List.mem_append.mp hq with hq | hq
-        · exact List.mem_append_left _ (h.gow q hq)
-        · rw [List.mem_singleton.mp hq, hnew]; exact List.mem_append_right _ List.mem_cons_self
-      · rw [hmeq] at hq
-        change q ∈ newParents B at hq
-        change q ∈ newParents G
-        unfold newParents at hq ⊢
-        rw [← h.step]
-        split
-        · next hpos =>
-          rw [if_pos hpos] at hq
-          obtain ⟨nq, hnq, hnqid⟩ := List.mem_map.mp hq
-          have hnqB : B.node? q = some nq := by rw [← hnqid]; exact node?_of_mem hndB nq (List.mem_filter.mp hnq).1
-          have hqs : q.id.step = B.current_step - 1 := by
-            rw [← hnqid]; exact eq_of_beq (List.mem_filter.mp hnq).2
-          obtain ⟨nG, hnG, _, _⟩ := h.node q nq hnqB
-          rw [h.step] at hqs ⊢
-          exact mem_line_of_node? G q nG hnG _ hqs
-        · next hpos =>
-          rw [if_neg hpos] at hq
-          exact absurd hq List.not_mem_nil
+    · -- a node of the row
+      obtain ⟨z, hz, rfl⟩ := (mem_newRow_iff B d title m).mp hr
+      rw [rowNode_id] at hid
+      subst hid
+      refine ⟨rowNode G d title z, addNode_node?_new G d title hdG hbG z (hrow z hz),
+        fun q hq hqm => ?_, fun q hq _ => ?_⟩
+      · rw [rowNode_owners] at hq ⊢
+        exact hrown z q hq hqm
+      · rw [rowNode_parents] at hq ⊢
+        exact hrpar z q hq
 
 /-- A valid inner state makes the outer one valid: its global owners are the outer's. -/
 theorem isValid_of_embedded {B G : GPathM} (h : Embedded B G) (hv : isValid B = true) :
@@ -286,10 +320,11 @@ theorem isValid_of_embedded {B G : GPathM} (h : Embedded B G) (hv : isValid B = 
 theorem embedded_up (B G : GPathM) (d : NodeId) (title : String) (h : Embedded B G)
     (hv : isValid B = true) (hmp : B.map_parent = G.map_parent) (hd : d.step = B.current_step)
     (hbB : ∀ n ∈ B.nodes, n.id.id.step < B.current_step) (hbG : ∀ n ∈ G.nodes, n.id.id.step < G.current_step)
-    (hpbB : Parents.PBelow B) (hndB : NodupIds B) :
+    (hpbB : Parents.PBelow B) (hndB : NodupIds B) (hgnB : GownersNodes.GN B)
+    (hownbB : SelfOwn.OwnBelow B) :
     Embedded (up B d title) (up G d title) := by
   simp only [GPathM.up, hv, isValid_of_embedded h hv, if_pos]
-  exact embedded_addNode B G d title h hmp hd hbB hbG hpbB hndB
+  exact embedded_addNode B G d title h hmp hd hbB hbG hpbB hndB hgnB hownbB
 
 /-- info: 'AbsSat.GraphPath.Model.BranchRun.embedded_filterAllAgg' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
