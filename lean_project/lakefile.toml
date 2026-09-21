@@ -117,3 +117,7 @@ root = "Probes.JoinBorrow"
 [[lean_exe]]
 name = "helly"
 root = "Probes.Helly"
+
+[[lean_exe]]
+name = "row-degree"
+root = "Probes.RowDegree"
