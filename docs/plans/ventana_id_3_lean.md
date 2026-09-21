@@ -1,9 +1,11 @@
 # Plan — la ventana del identificador a 3 en la máquina `Improves` de Lean 4
 
-**Estado: E1–E4 hechos; F1 hecho; F2 hecho salvo `ImprovesCima`; F4 parcial (la clase `SingleParents`, cerrada).**
+**Estado: E1–E4 hechos; F1 y F2 hechos — `lake build AbsSat` verde, 231/231; F4 parcial (la clase `SingleParents`, cerrada).**
 Última actualización: 2026-09-21. Rama `spaik-window3`.
-`lake build AbsSat` llega a 226/231; lo que queda es una decisión de diseño, no
-reparación mecánica (ver F2).
+El puerto está cerrado: build verde, `runTests` verde con la cross-validation
+contra `ExhaustiveSolver`, y todo teorema tocado en `[propext, Quot.sound]` bajo
+su propio `#guard_msgs`. Lo que queda es E5/F4, y una hipótesis que el puerto
+devolvió a su sitio (`FamTopSingle`, ver F2).
 
 Ricardo: este documento era el plan de puerto del diseño de `julia/improves`
 (`140bc3b`, `bd46899`) a la máquina pura de Lean. Ahora es a la vez el plan y el
@@ -230,38 +232,50 @@ había más, y no todo era mecánico. Lo hecho, en orden de build:
 
 Se añadió `GPathM.step_of_mem_newParents`, que tres de esos argumentos pedían.
 
-**Lo que queda, y por qué no es mecánico: `PinDeath` + `ImprovesCima`.**
+**`PinDeath` + `ImprovesCima`, cerrados — y lo que costaron.**
 
-```lean
-/-- El nodo top que un lado deja en la unión: la clave, sobre la clave del lado. -/
-def topOf (p k : NodeId) : PathNodeId := { id := p, parent_id := some k }
-```
+`topOf p k` nombraba *el* top que un lado deja en la unión. Era el riesgo nº 2
+—el default silencioso— materializado: compilaba por el `:= none` del tercer
+campo y significaba ventana 2. Ahora es una **familia**, `topOf p k gk`:
+`ParentId.TL` sigue fijando los dos primeros componentes para toda la línea
+superior del lado, y el tercero —el abuelo— es justo lo que separa dos historias
+que convergen en la misma clave. Existencial donde se produce un top
+(`top_is_side`, `advance_top_node`, `TopSideAt`, `ChainSideAt`, `side_top_alive`),
+universal donde se consume (`TopKeepAt`, `top_owner_gowner`, `tops_unique`,
+`ChainClosureAt`, `OwnSupportAt`). `key_of_topOf` dice en una línea lo que las
+identificaciones de lado necesitaban: la clave es el segundo componente.
 
-`topOf` es el riesgo nº 2 de la lista de abajo materializado: compila por el
-`:= none` del tercer campo, y significa ventana 2. La suposición que codifica —
-**un lado deja un único nodo top en la unión, nombrado por (id de mapa, clave)** —
-es justo la que rompe la fila: un lado deja ahora *un top por cada nodo
-superviviente de su línea anterior*, y dos de ellos comparten `(p, kv.1)` y
-difieren en el abuelo. Por eso `htopSent` (`PinDeath:666`) es hoy literalmente
-falso, no mal tipado.
+Dos enunciados no sobrevivieron al enhebrado, y se resolvieron de las dos
+maneras que merecían:
 
-El puerto pide decidir qué es "el top de un lado" con la ventana, y propagarlo:
-24 usos en `PinDeath`, 50 en `ImprovesCima`. Dos formas obvias:
+* **`tops_unique` se acortó.** Su prueba descansaba en *"ese lado tiene
+  exactamente un nodo en el último paso"*, que la fila hace falsa; el enunciado
+  sigue siendo cierto por `OOS` dentro de la unión —un owner al paso propio *es*
+  el nodo—, que es el mismo movimiento que cerró `add_new` y `pin_send`.
+* **`cert_top_of_top` se debilitó.** Decía *"la regla no puede certificar otro
+  top"*; lo cierto con la fila es *"certifica **un** top del mismo lado"*
+  (`∃ gk₂, t₂ = topOf p kv.1 gk₂`). Para que baste, `valid_pinned_of_goodFor`
+  toma ahora el ancla de la familia y el par que certifica **por separado** —
+  solo los necesitaba en el mismo lado, no iguales— y `topValid_cima` arrastra la
+  familia en la que la regla ancló de verdad.
 
-1. `topOf` pasa a ser `shiftPid c p` y todo enunciado sobre *el* top de un lado
-   pasa a ser sobre *un nodo de la fila del lado*. Es lo que hace la máquina, y
-   es lo mismo que se hizo en `pin_send`.
-2. `topOf p k` sobrevive como *clase*: el conjunto de tops de un lado, todos con
-   `id = p` y `parent_id = some k`. Más barato de propagar, pero hay que
-   comprobar que `famFix`/`restTest` de `ImprovesCima` aguantan un cono con
-   varios anclajes — y el riesgo nº 1 del plan (`FamTopSingle`) volvería, esta
-   vez de verdad.
+**Y uno no sobrevivió: `FamTopSingle` (riesgo nº 1, de verdad esta vez).**
+`coneAt_famFix` decía *"el único nodo de una familia real en el último paso es su
+top"*. Es falso: `restTest` lee el ancla **solo** para elegir qué lado puede
+avalar, así que dos tops de un mismo lado se quedan los dos dentro de la familia.
+`FamTopSingle` vuelve a ser hipótesis con nombre de los dos veredictos, al lado
+de `FamTriOkCone`; `famTopSingle_sides` desaparece y `topOfSide_famFix` registra
+lo que la fila sí sigue dando gratis: un miembro de la familia en el último paso
+es un top del mismo lado. La identificación final es lo que falta.
 
-No se eligió ninguna: es una decisión, no una reparación.
+Una nota para quien retome: **`ConeAt` tiene dos cláusulas y las dos dependen de
+`FamTopSingle`**, no solo la segunda — la primera (*todo miembro está relacionado
+con el centro*) se deriva de la segunda vía `hsup.cov`. Quien intente debilitar el
+cono en vez de demostrar la hipótesis tiene que atacar las dos.
 
 ### F3. Puerta final
 
-* `lake build AbsSat` verde (231 jobs). **Hoy: 226/231**, parado en `PinDeath`.
+* ✅ `lake build AbsSat` verde (231 jobs), y `lake exe runTests` verde.
 * Los `#print axioms` de los teoremas cabecera sin axiomas nuevos. **Atención**:
   varios `#guard_msgs` se rompen por sí solos cuando un teorema pasa a depender
   de `sorryAx` — sirven de alarma, no los quites.
