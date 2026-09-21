@@ -520,14 +520,43 @@ Todas son intentos del mismo salto. Cada una es una hipótesis con nombre, medid
 El mapa de dependencias entre ellas está en §5.6; la lectura corta es que **son seis
 cortes distintos de la misma frase**, no seis problemas.
 
-### 5.5 Qué mediría yo a continuación
+### 5.5 El grado de entrada de la fila, medido
 
-**El grado de entrada de la fila** — cuántos abuelos distintos por grupo `(id de mapa, id de
-mapa del padre)`. No es una métrica lateral: **es exactamente el número de veces que
-`SingleParents` falla**, o sea el tamaño del complemento de la clase que §5.3 ya cierra. Si
-sale 1 casi siempre, la clase cubre casi todo y el resultado de §5.3 es el resultado
-principal; si sale 3, cubre casi nada. `test_window/compare.jl` ya instrumenta `peak_row` y
-`peak_nodes`; falta contar abuelos distintos por fila.
+`lake exe row-degree` (sonda `Probes/RowDegree.lean`) mide `SingleParents` directamente:
+el histograma de `n.parents.length` sobre **todo nodo de todo estado de toda línea**. Por
+`parents_differ_below`, el grado de entrada de un nodo es exactamente el número de
+historias de dos pasos distintas que convergen en él.
+
+`random 20 3 31337` — 20 fórmulas, 1.241 estados, 23.758 nodos por encima del paso 0:
+
+| | |
+|---|---|
+| grado 1 | **92,7 %** |
+| grado ≥2 | **7,2 %** — máximo **3**, media **1,07** |
+| en el bloque de literales | 9,8 % |
+| en el bloque de cláusulas | 4,0 % |
+
+Y el contrafactual, agrupando la línea anterior por sus primeros `w-1` componentes:
+
+| ventana | 23.365 ids → grupos | padres por grupo |
+|---|---|---|
+| `w = 2` | 19.714 | 1,185 |
+| `w = 3` | 21.833 | **1,070** |
+
+**Tres lecturas, y la tercera es la que cambia el plan.**
+
+1. **`SingleParents` no vale.** Falla en el 7,2 % de los nodos, así que la clase que
+   `commonOwner_of_singleParents` cierra **no es «casi todo»**. El resultado de §5.3 es
+   real pero no es el resultado principal.
+2. **El tercer componente se cobró el 62 % del exceso.** De 0,185 padres extra por grupo a
+   0,070. Eso es lo que compra el +0…18 % de nodos, cuantificado.
+3. **El residuo es pequeño y acotado: máximo 3.** Esto es lo importante. El
+   `extend_triple` abierto no es *«elegir entre los nodos del paso de abajo»*: es **elegir
+   entre ≤3 candidatos que coinciden en dos de sus tres componentes** y difieren solo en el
+   abuelo. Un enunciado acotado, no uno cuantificado sobre todo el paso.
+
+> Medido sobre fórmulas aleatorias pequeñas (3+ variables). Las instancias estructuradas
+> (Tseitin, coloreo) están sin medir — la sonda las aguanta pero tarda.
 
 ### 5.6 Mapa de dependencias entre las rutas
 
@@ -645,3 +674,57 @@ ser 1 casi siempre, D deja de ser la más cara y pasa a ser la más barata.
   (§3.5). No es una ruta nueva: es una regresión conocida y localizada.
 * `SymTriReview` (1.757 líneas) se borró: modelaba una revisión triangular abstracta que la
   máquina no ejecuta.
+
+### 5.7 A qué rutas le llega el tercer componente
+
+La ventana no es uniformemente buena: **paga donde el argumento es «identificar un nodo
+desde su historia» y cuesta donde era «un nodo por paso»**. Por familia, y con el teorema
+concreto en cada caso:
+
+#### Paga, y ya está cobrado
+
+* **D — descenso.** `commonOwner_of_singleParents`. Y, con §5.5, el residuo abierto deja de
+  ser *«un nodo cualquiera del paso de abajo»* y pasa a ser *«≤3 candidatos que coinciden en
+  dos de tres componentes»*.
+* **C — validez hereditaria.** El mismo residuo, literalmente. La cláusula `par` de un
+  soporte pide un padre de `x` enlazado a `x` **y** a un segundo miembro; restringida a una
+  rebanada hace falta un testigo de **terna**, que la consistencia de pares no da. Por
+  `parents_id_eq` los dos testigos que sí da llevan el **mismo nodo de mapa**, y
+  `par_witness_triple` los identifica en cuanto el nodo tiene un padre.
+
+  > Esto corrige a la baja mi «no hay flechas entre familias» de §5.6: C y D **no se
+  > implican**, pero **tocan fondo en el mismo lema**. Cerrar `extend_triple` cierra las dos.
+
+* **A — fantasmas, por la vía de la identificación.** La cadena
+  `PinExtends.eq_of_ids` → `chain_of_ids` → `PairPins.realizes_of_entryPins` →
+  `tablesSound_of_entryPins` produce `TablesSound`, que es **hipótesis de `GhostsLine`**. La
+  ventana obligó a `eq_of_ids` a levantar la igualdad de ids de mapa a los **tres**
+  componentes, y lo hace.
+* **B — nada prestado.** `RunNoBorrow.Genuine` y `canon` llevan ya los tres componentes, y
+  `glue_canon` demuestra que dos asignaciones que coinciden en un nodo coinciden también en
+  su **abuelo**. Con el estadio de variables ya cerrado (`pinJoinVar`), eso cae entero del
+  lado abierto, el de las cláusulas.
+
+#### Cuesta
+
+* **C' — regla del top.** Un lado ya no deja *un* top sino una **familia**: `FamTopSingle`
+  dejó de ser teorema, `cert_top_of_top` se debilitó a «un top del mismo lado», y
+  `tops_unique` hubo que rehacerlo por `OOS`. Es el precio, y está pagado y localizado (§3.5).
+* **`PairPins.entryPins` crece.** Identificar un nodo pide fijar sus `w` ids de mapa, así
+  que pasa de dos pines por extremo a tres: la hipótesis `EntryPin` —*que fijarlos mantenga
+  el estado válido*— es ahora **más fuerte**. La conclusión a cambio es correcta, que con
+  ventana 2 sobre una máquina de ventana 3 no lo sería.
+
+#### Ni paga ni cuesta
+
+* **F — `SpcStable`.** `Spc` recorre **parejas arbitrarias** a pasos arbitrarios, no enlaces
+  de padre. La determinación por identificador no le llega. Es la que menos se beneficia y
+  la que más global es (§5.6): dos razones para no atacarla primero.
+* **E — el lector.** Pincha **ids de mapa**, y la ventana afina los nodos sin cambiar el
+  conjunto de decisiones del lector. El beneficio sería indirecto —tablas más finas ⇒ menos
+  fantasmas ⇒ la validez es un test más afilado— y no hay teorema que lo diga.
+
+#### La regla, en una frase
+
+> El tercer componente paga exactamente donde el argumento necesitaba **identificar un nodo
+> por su pasado**, y no paga donde el argumento cuantifica sobre **parejas cualesquiera**.
