@@ -115,30 +115,44 @@ theorem extend_son (hwf : WF φ) (m : Nat) (hlt : (m : Int) + 1 < stepCount φ) 
     (hk : k.step = m) (hp : p ∈ mapSons φ k.step k.index) (sel : Int → PathNodeId)
     (hgen : Genuine φ ((m : Int) + 1) sel) (htop : (sel m).id = k)
     (hreq : ∀ r ∈ reqOfCnf φ p, (sel r.step).id = r) :
-    Genuine φ ((m : Int) + 2) (fun j => if j = (m : Int) + 1 then ⟨p, some k⟩ else sel j) := by
+    Genuine φ ((m : Int) + 2)
+      (fun j => if j = (m : Int) + 1 then shiftPid (sel (m : Int)) p else sel j) := by
   rw [hk] at hp
   obtain ⟨a, hsat, hsel⟩ := id hgen
   have hka : selOfAssign φ a m = k := by rw [← htop]; exact ((hsel m (by omega) (by omega)).1).symm
   have finish : ∀ a' : Assign, SatBelow φ a' ((m : Int) + 2) →
       (∀ j, 0 ≤ j → j ≤ (m : Int) → selOfAssign φ a' j = selOfAssign φ a j) →
       selOfAssign φ a' ((m : Int) + 1) = p →
-      Genuine φ ((m : Int) + 2) (fun j => if j = (m : Int) + 1 then ⟨p, some k⟩ else sel j) := by
+      Genuine φ ((m : Int) + 2)
+        (fun j => if j = (m : Int) + 1 then shiftPid (sel (m : Int)) p else sel j) := by
     intro a' hs hag hap
     refine ⟨a', hs, fun j h0 h1 => ?_⟩
     dsimp only
     by_cases hj : j = (m : Int) + 1
     · rw [if_pos hj]
       have hj0 : ¬ (j = 0) := by omega
-      refine ⟨by rw [hj]; exact hap.symm, ?_⟩
-      show some k = _
-      rw [if_neg hj0, show j - 1 = (m : Int) by omega, hag m (by omega) (Int.le_refl _), hka]
+      refine ⟨by rw [hj]; exact hap.symm, ?_, ?_⟩
+      · show some (sel (m : Int)).id = _
+        rw [htop, if_neg hj0, show j - 1 = (m : Int) by omega,
+          hag m (by omega) (Int.le_refl _), hka]
+      · -- the third component is the chain's own parent, one step further back
+        show (sel (m : Int)).parent_id = _
+        rw [(hsel (m : Int) (by omega) (by omega)).2.1]
+        by_cases hm0 : (m : Int) = 0
+        · rw [if_pos hm0, if_pos (by omega)]
+        · rw [if_neg hm0, if_neg (by omega), show j - 2 = (m : Int) - 1 by omega,
+            hag ((m : Int) - 1) (by omega) (by omega)]
     · rw [if_neg hj]
-      obtain ⟨e1, e2⟩ := hsel j h0 (by omega)
-      refine ⟨by rw [e1, hag j h0 (by omega)], ?_⟩
-      rw [e2]
-      by_cases hj0 : j = 0
-      · rw [if_pos hj0, if_pos hj0]
-      · rw [if_neg hj0, if_neg hj0, hag (j - 1) (by omega) (by omega)]
+      obtain ⟨e1, e2, e3⟩ := hsel j h0 (by omega)
+      refine ⟨by rw [e1, hag j h0 (by omega)], ?_, ?_⟩
+      · rw [e2]
+        by_cases hj0 : j = 0
+        · rw [if_pos hj0, if_pos hj0]
+        · rw [if_neg hj0, if_neg hj0, hag (j - 1) (by omega) (by omega)]
+      · rw [e3]
+        by_cases hj1 : j ≤ 1
+        · rw [if_pos hj1, if_pos hj1]
+        · rw [if_neg hj1, if_neg hj1, hag (j - 2) (by omega) (by omega)]
   have grow : (∀ i (hi : i < φ.clauses.length), clauseStep φ i ≠ (m : Int) + 1) →
       SatBelow φ a ((m : Int) + 2) := by
     intro hno i hi hs
@@ -158,7 +172,7 @@ theorem extend_son (hwf : WF φ) (m : Nat) (hlt : (m : Int) + 1 < stepCount φ) 
       rw [reqOfCnf_clause φ p _ φ.clauses[((m : Int) + 1 - litBlock φ - 1).toNat] hj
         (List.getElem?_eq_getElem hj) hjs]
       simp
-    exact ClauseReview.extend_genuine φ hwf m k p hd hcl.1 hne sel hgen htop hreq
+    exact ClauseReview.extend_genuine φ hwf m p hd hcl.1 hne sel hgen hreq
   · by_cases hvar : (m : Int) + 1 < litBlock φ
     · by_cases hev : ((m : Int) + 1) % 2 = 0
       · -- a new variable: its value is the son's
@@ -271,12 +285,13 @@ theorem validWit_zero (hwf : WF φ) : ValidWitAt φ 0 := by
       have h2' : (0 : Int) ≤ litBlock φ := by omega
       simp only [selOfAssign, if_neg (show ¬ ((0 : Int) < 0) by omega), if_neg h1', if_pos h2', h]
   obtain ⟨a, ha⟩ := hsel
-  refine ⟨fun _ => ⟨kv.1, none⟩, ⟨a, fun i hi hs => ?_, fun k h0 h1 => ?_⟩, rfl, fun q hq => ?_⟩
+  refine ⟨fun _ => ⟨kv.1, none, none⟩, ⟨a, fun i hi hs => ?_, fun k h0 h1 => ?_⟩, rfl,
+    fun q hq => ?_⟩
   · have : clauseStep φ i = 2 * (φ.nVars : Int) + 1 + (i : Int) := rfl
     exfalso; omega
   · have hk : k = 0 := by omega
     subst hk
-    exact ⟨ha.symm, by rw [if_pos rfl]⟩
+    exact ⟨ha.symm, by rw [if_pos rfl], by rw [if_pos (by omega)]⟩
   · obtain ⟨hq0, hq1, _⟩ := hQ q hq
     exact (topPin_keyL φ 0 kv hsok hm Q q hq (by omega) hv).symm
 
@@ -316,9 +331,10 @@ theorem validWit_succ (hwf : WF φ) (m : Nat) (hW : ValidWitAt φ m) (hVS : Vali
     exact hpass r (inQ' r (List.mem_append_left _ hr) (by omega))
   have hext := extend_son φ hwf m hlt kv.1 p hk hson sel hgen htop hreq
   refine ⟨_, by push_cast; exact hext, ?_, fun q hq => ?_⟩
-  · show (if ((m + 1 : Nat) : Int) = (m : Int) + 1 then (⟨p, some kv.1⟩ : PathNodeId)
+  · show (if ((m + 1 : Nat) : Int) = (m : Int) + 1 then shiftPid (sel (m : Int)) p
       else sel ((m + 1 : Nat) : Int)).id = p
     rw [if_pos (by push_cast; rfl)]
+    rfl
   by_cases hqs : q.step < (m : Int) + 1
   · have hne : q.step ≠ (m : Int) + 1 := by omega
     simp only [if_neg hne]
@@ -326,8 +342,9 @@ theorem validWit_succ (hwf : WF φ) (m : Nat) (hW : ValidWitAt φ m) (hVS : Vali
   · have hqe : q.step = (m : Int) + 1 := by have := (hQ q hq).2.1; push_cast at this; omega
     have hqp : q = p := topPin_keyL φ ((m : Int) + 1) (p, J) hsJ hmJ Q q hq hqe hvJ
     subst hqp
-    show (if q.step = (m : Int) + 1 then (⟨q, some kv.1⟩ : PathNodeId) else sel q.step).id = q
+    show (if q.step = (m : Int) + 1 then shiftPid (sel (m : Int)) q else sel q.step).id = q
     rw [if_pos hqe]
+    rfl
 
 theorem validWit_all (hwf : WF φ) (hVS : ∀ m, ValidSideAt φ m) (hSP : ∀ m, SendPinAt φ m) :
     ∀ m, ValidWitAt φ m := by
@@ -426,8 +443,8 @@ theorem pinned_source_support (hwf : WF φ) (k : Int) (key : NodeId) (G : GPathM
       rw [heqG] at hpS
       rcases List.mem_append.mp hpS with hpF | hpT
       · exact cleanF r hreq p hpF hs
-      · have e := List.mem_singleton.mp hpT
-        have : p.id.step = k + 1 := by rw [e]; exact hdstep
+      · have : p.id.step = k + 1 := by
+          rw [mapId_of_mem_newRowIds _ d p hpT]; exact hdstep
         omega
     · exact cleanY r hq p (gowS p hp.1) hs
   refine ⟨⟨supG, hmG.smp, hmG.rctx.shape.notroot⟩, hpin, ?_⟩
@@ -487,23 +504,24 @@ def OwnSupportAt (m : Nat) : Prop :=
   ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ [] m) → ∀ Q, LitPins φ Q ((m : Int) + 2) →
     isValid (filterAllAgg J Q) = true →
     ∃ kv ∈ branchLine φ [] m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      Rel (filterAllAgg J Q) (topOf p kv.1) (topOf p kv.1) ∧
-      Sup (sent φ kv.2 p)
-        (fun a => Rel (filterAllAgg J Q) a (topOf p kv.1))
-        (fun a b => Rel (filterAllAgg J Q) a b ∧ Rel (filterAllAgg J Q) a (topOf p kv.1) ∧
-          Rel (filterAllAgg J Q) b (topOf p kv.1) ∧ Rel (sent φ kv.2 p) a b)
+      ∃ gk, Rel (filterAllAgg J Q) (topOf p kv.1 gk) (topOf p kv.1 gk) ∧
+        Sup (sent φ kv.2 p)
+          (fun a => Rel (filterAllAgg J Q) a (topOf p kv.1 gk))
+          (fun a b => Rel (filterAllAgg J Q) a b ∧ Rel (filterAllAgg J Q) a (topOf p kv.1 gk) ∧
+            Rel (filterAllAgg J Q) b (topOf p kv.1 gk) ∧ Rel (sent φ kv.2 p) a b)
 
 /-- **Validity is not borrowed, from the side's own support.** The support agrees with the pins (its nodes
 are nodes of the pinned union), so it survives pinning the side's send (`AOk_filterAllAgg`), and the top
 is a member of it. -/
 theorem validSide_of_ownSupport (hwf : WF φ) (m : Nat) (hO : OwnSupportAt φ m) : ValidSideAt φ m := by
   intro p J hJ Q hQ hvX
-  obtain ⟨kv, hkv, hson, hvS, htop, hsup⟩ := hO p J hJ Q hQ hvX
+  obtain ⟨kv, hkv, hson, hvS, gk, htop, hsup⟩ := hO p J hJ Q hQ hvX
   refine ⟨kv, hkv, hson, hvS, ?_⟩
   have hl := branchLine_inv φ hwf [] m
   have hsok : StateOkF φ m kv := hl.1.2 kv hkv
   have hmS := ReaderAggRun.MInv_sent φ hwf m kv hsok (hl.2 kv hkv) p hson hvS
-  have hpin : ∀ r ∈ Q, ∀ a, Rel (filterAllAgg J Q) a (topOf p kv.1) → a.id.step = r.step → a.id = r := by
+  have hpin : ∀ r ∈ Q, ∀ a, Rel (filterAllAgg J Q) a (topOf p kv.1 gk) → a.id.step = r.step →
+      a.id = r := by
     intro r hr a ha hs
     obtain ⟨n, hn, _, _⟩ := ha
     have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
@@ -516,7 +534,7 @@ theorem validSide_of_ownSupport (hwf : WF φ) (m : Nat) (hO : OwnSupportAt φ m)
     have hgow : a ∈ (filterAllAgg J Q).gowners := supX.gow a ⟨n, hn⟩
     exact ReaderAggRun.filterAllAgg_cleans J Q r hr a hgow hs
   have hA := AOk_filterAllAgg (sent φ kv.2 p) ⟨hsup, hmS.smp, hmS.rctx.shape.notroot⟩ Q hpin
-  exact SupportSplit.valid_of_sup _ _ _ hA.sup (topOf p kv.1) htop
+  exact SupportSplit.valid_of_sup _ _ _ hA.sup (topOf p kv.1 gk) htop
 
 /-- **The verdict of route C from the side's own support.** -/
 theorem sat_of_ownSupport (hwf : WF φ) (hO : ∀ m, OwnSupportAt φ m)
@@ -546,7 +564,7 @@ theorem side_top_alive_of (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (X : GPathM) (hprX : Pruned J X)
     (hRX : ReadableAgg X) (hv : isValid X = true) :
     ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      Mem X (topOf p kv.1) := by
+      ∃ gk, Mem X (topOf p kv.1 gk) := by
   have hl := branchLine_inv φ hwf P m
   have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
   have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
@@ -562,10 +580,10 @@ theorem side_top_alive_of (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId)
   have hzs' : z.id.step = (m : Int) + 1 := eq_of_beq hzs
   -- the node of the pinned union is a node of the union
   obtain ⟨n0, hn0, hid, _, _⟩ := hprX.nodes_derived n hn
-  obtain ⟨kv, hkv, hson, hvS, htop, _⟩ := advance_top_node φ hwf P m p J hJ n0 hn0
+  obtain ⟨kv, hkv, hson, hvS, ⟨gk, htop⟩, _⟩ := advance_top_node φ hwf P m p J hJ n0 hn0
     (by rw [← hid, hnid]; exact hzs')
-  refine ⟨kv, hkv, hson, hvS, n, ?_⟩
-  rw [show topOf p kv.1 = n.id from by rw [← htop, hid]]
+  refine ⟨kv, hkv, hson, hvS, gk, n, ?_⟩
+  rw [show topOf p kv.1 gk = n.id from by rw [← htop, hid]]
   exact node?_of_mem (RCtx_of_readableAgg _ hRX).nodup n hn
 
 /-- **Some side has its top alive in a live pinned union.** -/
@@ -573,7 +591,7 @@ theorem side_top_alive (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J
     (hJ : (p, J) ∈ pureAdvanceW φ (branchLine φ P m)) (Q : List NodeId)
     (hv : isValid (filterAllAgg J Q) = true) :
     ∃ kv ∈ branchLine φ P m, p ∈ mapSons φ kv.1.step kv.1.index ∧ isValid (sent φ kv.2 p) = true ∧
-      Mem (filterAllAgg J Q) (topOf p kv.1) := by
+      ∃ gk, Mem (filterAllAgg J Q) (topOf p kv.1 gk) := by
   have hl := branchLine_inv φ hwf P m
   have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
   exact side_top_alive_of φ hwf P m p J hJ _ (pruned_filterAllAgg J Q)
@@ -585,12 +603,12 @@ def TopValidAt (m : Nat) : Prop :=
   ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ [] m) → ∀ Q, LitPins φ Q ((m : Int) + 2) →
     isValid (filterAllAgg J Q) = true →
     ∀ kv ∈ branchLine φ [] m, p ∈ mapSons φ kv.1.step kv.1.index → isValid (sent φ kv.2 p) = true →
-      Mem (filterAllAgg J Q) (topOf p kv.1) → isValid (filterAllAgg (sent φ kv.2 p) Q) = true
+      ∀ gk, Mem (filterAllAgg J Q) (topOf p kv.1 gk) → isValid (filterAllAgg (sent φ kv.2 p) Q) = true
 
 theorem validSide_of_topValid (hwf : WF φ) (m : Nat) (hT : TopValidAt φ m) : ValidSideAt φ m := by
   intro p J hJ Q hQ hvX
-  obtain ⟨kv, hkv, hson, hvS, hmem⟩ := side_top_alive φ hwf [] m p J hJ Q hvX
-  exact ⟨kv, hkv, hson, hvS, hT p J hJ Q hQ hvX kv hkv hson hvS hmem⟩
+  obtain ⟨kv, hkv, hson, hvS, gk, hmem⟩ := side_top_alive φ hwf [] m p J hJ Q hvX
+  exact ⟨kv, hkv, hson, hvS, hT p J hJ Q hQ hvX kv hkv hson hvS gk hmem⟩
 
 /-- **The verdict from the sides with a live top.** -/
 theorem sat_of_topValid (hwf : WF φ) (hT : ∀ m, TopValidAt φ m)
@@ -620,8 +638,8 @@ def ChainClosureAt (m : Nat) : Prop :=
   ∀ p J, (p, J) ∈ pureAdvanceW φ (branchLine φ [] m) → ∀ Q, LitPins φ Q ((m : Int) + 2) →
     isValid (filterAllAgg J Q) = true →
     ∀ kv ∈ branchLine φ [] m, p ∈ mapSons φ kv.1.step kv.1.index → isValid (sent φ kv.2 p) = true →
-      Mem (filterAllAgg J Q) (topOf p kv.1) →
-      (let X := filterAllAgg J Q; let S := sent φ kv.2 p; let t := topOf p kv.1
+      ∀ gk, Mem (filterAllAgg J Q) (topOf p kv.1 gk) →
+      (let X := filterAllAgg J Q; let S := sent φ kv.2 p; let t := topOf p kv.1 gk
        (∀ x, Rel X x t → ∀ l, 0 ≤ l → l < S.current_step → ∃ v, ChainFam X S t x v ∧ v.id.step = l) ∧
        (∀ x d, Rel X x t → S.node? x = some d → x.parent_id ≠ none → ∀ v, ChainFam X S t x v →
          ∃ c ∈ d.parents, ChainFam X S t x c ∧ ChainFam X S t c x ∧ ChainFam X S t c v) ∧
@@ -638,7 +656,7 @@ send: its nodes are the side's (`top_owner_gowner`), its pairs are the side's ow
 closure rules are the hypothesis. A support survives the pins (`AOk_filterAllAgg`), so the side's pinned
 send is valid. -/
 theorem topValid_of_chainClosure (hwf : WF φ) (m : Nat) (hC : ChainClosureAt φ m) : TopValidAt φ m := by
-  intro p J hJ Q hQ hvX kv hkv hson hvS hmem
+  intro p J hJ Q hQ hvX kv hkv hson hvS gk hmem
   have hl := branchLine_inv φ hwf [] m
   have hadv := ReaderAggRun.LineInv_pureAdvanceW φ hwf m _ hl
   have hsJ : StateOkF φ ((m : Int) + 1) (p, J) := hadv.1.2 _ hJ
@@ -656,20 +674,20 @@ theorem topValid_of_chainClosure (hwf : WF φ) (m : Nat) (hC : ChainClosureAt φ
     (AnchoredSurvive.SMP_filterAllAgg J hmJ.smp hmJ.rctx.shape.notroot Q)
   have hcsX : (filterAllAgg J Q).current_step = (m : Int) + 2 := by
     rw [(pruned_filterAllAgg J Q).step_eq, hsJ.step]; omega
-  obtain ⟨hcov, hpar, hson', hagg, hlink⟩ := hC p J hJ Q hQ hvX kv hkv hson hvS hmem
+  obtain ⟨hcov, hpar, hson', hagg, hlink⟩ := hC p J hJ Q hQ hvX kv hkv hson hvS gk hmem
   -- the family is a support of the side's send
-  have hbnd : ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1) → 0 ≤ x.id.step ∧
+  have hbnd : ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1 gk) → 0 ≤ x.id.step ∧
       x.id.step < (sent φ kv.2 p).current_step := by
     intro x hx
     have := mem_bounds _ adX (supX.dom x _ hx).1
     rw [hcsX] at this; rw [hcsS]; exact this
-  have hgn : ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1) →
+  have hgn : ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1 gk) →
       x ∈ (sent φ kv.2 p).gowners ∧ Mem (sent φ kv.2 p) x := by
     intro x hx
-    exact top_owner_gowner φ hwf [] m p J hJ Q kv hkv hson hvS x (supX.sym _ _ hx)
+    exact top_owner_gowner φ hwf [] m p J hJ Q kv hkv hson hvS gk x (supX.sym _ _ hx)
       (hbnd x hx).1 (hbnd x hx).2
-  have hsup : Sup (sent φ kv.2 p) (fun x => Rel (filterAllAgg J Q) x (topOf p kv.1))
-      (ChainFam (filterAllAgg J Q) (sent φ kv.2 p) (topOf p kv.1)) := by
+  have hsup : Sup (sent φ kv.2 p) (fun x => Rel (filterAllAgg J Q) x (topOf p kv.1 gk))
+      (ChainFam (filterAllAgg J Q) (sent φ kv.2 p) (topOf p kv.1 gk)) := by
     refine ⟨fun x hx => (hgn x hx).1, fun x hx => ?_, fun x hx => hbnd x hx, ?_, ?_, hcov, hpar,
       hson', hagg, ?_, hlink⟩
     · obtain ⟨n, hn⟩ := (hgn x hx).2; rw [hn]; rfl
@@ -680,13 +698,13 @@ theorem topValid_of_chainClosure (hwf : WF φ) (m : Nat) (hC : ChainClosureAt φ
     · intro x v h
       exact ⟨supX.sym _ _ h.1, h.2.2.1, h.2.1, h.2.2.2.2.1, h.2.2.2.1, h.2.2.2.2.2.symm⟩
   -- it survives the pins
-  have hpin : ∀ r ∈ Q, ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1) → x.id.step = r.step →
+  have hpin : ∀ r ∈ Q, ∀ x, Rel (filterAllAgg J Q) x (topOf p kv.1 gk) → x.id.step = r.step →
       x.id = r := by
     intro r hr x hx hs
     exact ReaderAggRun.filterAllAgg_cleans J Q r hr x (supX.gow x (supX.dom x _ hx).1) hs
   have hA := AOk_filterAllAgg (sent φ kv.2 p) ⟨hsup, hmS.smp, hmS.rctx.shape.notroot⟩ Q hpin
   obtain ⟨nt, hnt⟩ := hmem
-  exact SupportSplit.valid_of_sup _ _ _ hA.sup (topOf p kv.1)
+  exact SupportSplit.valid_of_sup _ _ _ hA.sup (topOf p kv.1 gk)
     ⟨nt, hnt, (AdjacentOwners.adj_of_readable _ hRX hvX (AggInvariants.PMS_filterAllAgg J Q hmJ.pms)
       (AggInvariants.SN_filterAllAgg J Q hmJ.sn)).ctx.self _ nt hnt, nt, hnt⟩
 
