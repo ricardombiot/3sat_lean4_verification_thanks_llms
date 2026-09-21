@@ -131,10 +131,16 @@ picks enlazados por `sons`, todos poseyéndose entre sí, todos owners globales,
 |---|---|---|
 | `20 4 777` | `x@4, u@6, w@12` | **no hay cadena** (presupuesto sobrante) |
 | `20 4 11` | `x@6, u@8, w@12` | **no hay cadena** (presupuesto sobrante) |
-| `20 4 90210` | `x@?, u@?, w@?` | *(corriendo)* |
+| `20 4 90210` | `x@6, u@8, w@13` | **no hay cadena** (presupuesto sobrante) |
 
-Ninguno es «indeciso»: la búsqueda terminó sin agotar presupuesto, así que los veredictos
-son definitivos. Los pares no son realizables. **`CommonOwner` sobrevive a los dos.**
+**Los tres, negativos, y ninguno indeciso**: la búsqueda terminó en los tres sin agotar
+presupuesto, así que los veredictos son definitivos. Los pares que fallan la terna **no son
+realizables** como picks de una cadena parcial sana. **`CommonOwner` sobrevive a los tres**,
+y lo que estaba mal era la relajación, no la ruta.
+
+Nótese además el patrón: en los tres, `u` está **dos pasos** por encima de `x` y `w` mucho
+más arriba. Con `n = 3` no es un dato, pero es la forma que tendría un contraejemplo si lo
+hubiera, y es dónde miraría primero quien quiera buscarlo en serio.
 
 ### Lo que sale de ahí, y creo que es lo más útil de toda la nota
 
