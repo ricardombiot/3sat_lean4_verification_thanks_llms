@@ -234,7 +234,7 @@ theorem top_is_side (hwf : WF φ) (P : List NodeId) (m : Nat)
   have hson : p ∈ mapSons φ (selOfAssign φ b (m : Int)).step (selOfAssign φ b (m : Int)).index := by
     rw [selOfAssign_step, ← hbp]
     exact ConservationPrefix.selOfAssign_son_below φ b m hsat hm0 hlt1
-  have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl⟩⟩
+  have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl, rfl⟩⟩
   obtain ⟨hvS, _⟩ := PinVar.branch_send_chain φ hwf P m hle (selOfAssign φ b (m : Int), g) hmem p hson
     (canon φ b) hgen rfl hbp hbP
   refine ⟨(selOfAssign φ b (m : Int), g), hmem, hson, hvS, ?_⟩
@@ -300,7 +300,7 @@ theorem union_complete (hwf : WF φ) (P : List NodeId) (m : Nat) (p : NodeId) (J
   have hson : p ∈ mapSons φ (selOfAssign φ b (m : Int)).step (selOfAssign φ b (m : Int)).index := by
     rw [selOfAssign_step, ← hbp]
     exact ConservationPrefix.selOfAssign_son_below φ b m hsat hm0 hlt1
-  have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl⟩⟩
+  have hgen : RunNoBorrow.Genuine φ ((m : Int) + 2) (canon φ b) := ⟨b, hsat, fun k _ _ => ⟨rfl, rfl, rfl⟩⟩
   obtain ⟨hvS, hsc⟩ := PinVar.branch_send_chain φ hwf P m hle (selOfAssign φ b (m : Int), g) hmem p hson
     (canon φ b) hgen rfl hbp hag
   obtain ⟨J', hJ', hg⟩ := BranchLines.full_reach φ hwf m _ hl _ hmem p hson hvS

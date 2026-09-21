@@ -366,9 +366,10 @@ theorem supportSplit_of_survivors (h : RunSurvivors φ) : SupportSplit φ := by
     (own e hme) (own g hmg) (bnd e hme) (bnd g hmg) hA hB)
 
 /-- **The Improves verdict from the paths of the sides at every union.** -/
-theorem sat_of_survivors (hwf : WF φ) (h : RunSurvivors φ) (kv : NodeId × GPathM)
+theorem sat_of_survivors (hwf : WF φ) (h : RunSurvivors φ)
+    (hog : ReviewJoin.OwnGowPinned) (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
-  sat_of_split φ hwf (supportSplit_of_survivors φ h) kv hkv hv
+  sat_of_split φ hwf (supportSplit_of_survivors φ h) hog kv hkv hv
 
 /-- **At every union the machine reviews, every entry lies on a path of one of the pinned sides.** -/
 def RunPaths : Prop :=
@@ -415,9 +416,10 @@ theorem supportSplit_of_paths (h : RunPaths φ) : SupportSplit φ := by
 
 /-- **The Improves verdict from paths at every union**: every entry of the reviewed union lies on a
 path of one of the two pinned branches. -/
-theorem sat_of_paths (hwf : WF φ) (h : RunPaths φ) (kv : NodeId × GPathM)
+theorem sat_of_paths (hwf : WF φ) (h : RunPaths φ)
+    (hog : ReviewJoin.OwnGowPinned) (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) (hv : isValid (filterAllAgg kv.2 []) = true) : Satisfiable φ :=
-  sat_of_split φ hwf (supportSplit_of_paths φ h) kv hkv hv
+  sat_of_split φ hwf (supportSplit_of_paths φ h) hog kv hkv hv
 
 /-- info: 'AbsSat.GraphPath.Model.PartSplitReal.sat_of_paths' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

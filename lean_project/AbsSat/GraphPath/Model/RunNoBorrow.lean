@@ -41,10 +41,12 @@ below `K`, with the parent links the map dictates. -/
 def Genuine (K : Int) (sel : Int → PathNodeId) : Prop :=
   ∃ a, SatBelow φ a K ∧ ∀ k, 0 ≤ k → k < K →
     (sel k).id = selOfAssign φ a k ∧
-      (sel k).parent_id = (if k = 0 then none else some (selOfAssign φ a (k - 1)))
+      (sel k).parent_id = (if k = 0 then none else some (selOfAssign φ a (k - 1))) ∧
+      (sel k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ a (k - 2)))
 
-theorem pid_ext {x y : PathNodeId} (h1 : x.id = y.id) (h2 : x.parent_id = y.parent_id) : x = y := by
-  cases x; cases y; cases h1; cases h2; rfl
+theorem pid_ext {x y : PathNodeId} (h1 : x.id = y.id) (h2 : x.parent_id = y.parent_id)
+    (h3 : x.gparent_id = y.gparent_id) : x = y := by
+  cases x; cases y; cases h1; cases h2; cases h3; rfl
 
 /-- A sound chain depends only on its nodes inside the steps. -/
 theorem chainSound_congr (g : GPathM) (sel sel' : Int → PathNodeId) (h : ChainSound g sel')
@@ -80,16 +82,47 @@ theorem along_parents (g : GPathM) (hpmp : ParentId.PMP g) (sel : Int → PathNo
     rw [node?_id_eq g (sel k) m hm, hids (k - 1) (by omega) (by omega)] at this
     exact this.symm
 
-/-- A genuine path and a chain following the same assignment coincide. -/
-theorem eq_of_along (g : GPathM) (hpmp : ParentId.PMP g) (sel sel' : Int → PathNodeId)
+/-- **A genuine path and a chain following the same assignment coincide.** The
+third component costs nothing extra: `GPMP` reads it off the chain's own parent,
+whose `parent_id` the previous step already fixed. -/
+theorem eq_of_along (g : GPathM) (hpmp : ParentId.PMP g) (hgpmp : ParentId.GPMP g)
+    (sel sel' : Int → PathNodeId)
     (h' : ChainSound g sel') (a : Assign)
     (hids' : ∀ k, 0 ≤ k → k < g.current_step → (sel' k).id = selOfAssign φ a k)
     (hsel : ∀ k, 0 ≤ k → k < g.current_step → (sel k).id = selOfAssign φ a k ∧
-      (sel k).parent_id = (if k = 0 then none else some (selOfAssign φ a (k - 1)))) :
+      (sel k).parent_id = (if k = 0 then none else some (selOfAssign φ a (k - 1))) ∧
+      (sel k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ a (k - 2)))) :
     ∀ k, 0 ≤ k → k < g.current_step → sel k = sel' k := by
+  -- the chain's grandparent record, read off its parent
+  have hgp' : ∀ k, 0 ≤ k → k < g.current_step →
+      (sel' k).gparent_id = (if k ≤ 1 then none else some (selOfAssign φ a (k - 2))) := by
+    intro k h0 h1
+    by_cases hz : k = 0
+    · subst hz
+      rw [if_pos (by omega)]
+      obtain ⟨hsome, _⟩ := h'.chain.1.1 0 (by omega) h1
+      obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+      have hnid : n.id = sel' 0 := node?_id_eq g _ n hn
+      have := hgpmp.2 n (List.mem_of_find?_eq_some hn)
+        (by rw [hnid, along_parents φ g hpmp sel' h' a hids' 0 (by omega) h1, if_pos rfl])
+      rw [hnid] at this
+      exact this
+    · have hlink := h'.chain.1.2 (k - 1) (by omega) (by rw [show k - 1 + 1 = k by omega]; exact h1)
+      rw [show k - 1 + 1 = k by omega] at hlink
+      cases hn : g.node? (sel' k) with
+      | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
+      | some n =>
+        rw [hn] at hlink
+        have := hgpmp.1 n (List.mem_of_find?_eq_some hn) (sel' (k - 1)) hlink
+        rw [node?_id_eq g _ n hn] at this
+        rw [this, along_parents φ g hpmp sel' h' a hids' (k - 1) (by omega) (by omega)]
+        by_cases hz1 : k - 1 = 0
+        · rw [if_pos hz1, if_pos (by omega)]
+        · rw [if_neg hz1, if_neg (by omega), show k - 1 - 1 = k - 2 by omega]
   intro k h0 h1
   exact pid_ext ((hsel k h0 h1).1.trans (hids' k h0 h1).symm)
-    ((hsel k h0 h1).2.trans (along_parents φ g hpmp sel' h' a hids' k h0 h1).symm)
+    ((hsel k h0 h1).2.1.trans (along_parents φ g hpmp sel' h' a hids' k h0 h1).symm)
+    ((hsel k h0 h1).2.2.trans (hgp' k h0 h1).symm)
 
 -- ============================================================
 -- Every state of a line holds the genuine paths ending at its key
@@ -112,7 +145,7 @@ theorem line_complete (hwf : WF φ) (m : Nat) (hm : (m : Int) + 1 ≤ stepCount 
   rw [← hg]
   have hmg := hl.2 _ hmem
   have hpos : 0 < g.current_step := by rw [hcs]; omega
-  refine chainSound_congr g sel sel' hsc hpos (eq_of_along φ g hmg.rctx.pmp sel sel' hsc a
+  refine chainSound_congr g sel sel' hsc hpos (eq_of_along φ g hmg.rctx.pmp hmg.rctx.gpmp sel sel' hsc a
     (fun k h0 h1 => (hids k h0 (by rw [← hcs]; exact h1)).1)
     (fun k h0 h1 => hsel k h0 (by rw [← hcs]; exact h1)))
 
@@ -150,7 +183,7 @@ theorem send_complete_of (hwf : WF φ) (m : Nat) (_hm : (m : Int) + 2 ≤ stepCo
   have hids : ∀ k, 0 ≤ k → k < kv.2.current_step →
       (sel k).id = selOfAssign φ a k ∧ SelParent φ a (sel k) := by
     intro k h0 h1
-    obtain ⟨hid, hpar⟩ := hsel k h0 (by omega)
+    obtain ⟨hid, hpar, _⟩ := hsel k h0 (by omega)
     refine ⟨hid, ?_⟩
     by_cases hz : k = 0
     · rw [if_pos hz] at hpar; exact Or.inl hpar
@@ -173,7 +206,7 @@ theorem send_complete_of (hwf : WF φ) (m : Nat) (_hm : (m : Int) + 2 ≤ stepCo
   have hpos : 0 < (AggressiveReview.upFilteringR AggressiveReview.reviewAgg (Fsac φ 0 d kv.2)
       (reqOfCnf φ (selOfAssign φ a kv.2.current_step)) (selOfAssign φ a kv.2.current_step) "").current_step := by
     rw [hcur]; omega
-  refine chainSound_congr _ sel sel' hs' hpos (eq_of_along φ _ hmh.rctx.pmp sel sel' hs' a
+  refine chainSound_congr _ sel sel' hs' hpos (eq_of_along φ _ hmh.rctx.pmp hmh.rctx.gpmp sel sel' hs' a
     (fun k h0 h1 => (hids' k h0 (by rw [← hcur]; exact h1)).1)
     (fun k h0 h1 => hsel k h0 (by rw [hcur, hcs] at h1; exact h1)))
 
@@ -204,21 +237,27 @@ theorem send_complete (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount 
 a list `S`, and it contains every genuine path through `d` whose previous map node is in `S`. -/
 def SendsOk (m : Nat) (d : NodeId) (g : GPathM) : Prop :=
   ∃ S : List NodeId,
-    (∀ n ∈ g.nodes, n.id.id.step = (m : Int) + 1 → ∃ p ∈ S, n.id = ⟨d, some p⟩) ∧
+    (∀ n ∈ g.nodes, n.id.id.step = (m : Int) + 1 →
+      ∃ p ∈ S, n.id.id = d ∧ n.id.parent_id = some p) ∧
     ∀ sel, Genuine φ ((m : Int) + 2) sel → (sel ((m : Int) + 1)).id = d → (sel (m : Int)).id ∈ S →
       ChainSound g sel
 
-/-- The top nodes of `addNode`: only the new node sits at the old current step. -/
-theorem tops_addNode (g : GPathM) (d : NodeId) (t : String)
+/-- **The top nodes of `addNode` are the row**: each carries the map id the `UP`
+visited, and records as its parent a node of the old top line. -/
+theorem tops_addNode (g : GPathM) (d : NodeId) (t : String) (hpos : 0 < g.current_step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) :
-    ∀ n ∈ (addNode g d t).nodes, n.id.id.step = g.current_step → n.id = ⟨d, g.map_parent, none⟩ := by
+    ∀ n ∈ (addNode g d t).nodes, n.id.id.step = g.current_step →
+      n.id.id = d ∧ ∃ r ∈ newParents g, n.id.parent_id = some r.id := by
   intro n hn hs
   rw [addNode_nodes] at hn
   rcases List.mem_append.mp hn with h1 | h2
   · obtain ⟨n0, hn0, rfl⟩ := List.mem_map.mp h1
     rw [upMap_id] at hs
     exact absurd hs (by have := hbelow n0 hn0; omega)
-  · rw [List.mem_singleton.mp h2]; rfl
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d t n).mp h2
+    rw [rowNode_id]
+    obtain ⟨r, hr, rfl⟩ := exists_shift_of_mem_newRowIds g d pid hpos hpid
+    exact ⟨rfl, r, hr, rfl⟩
 
 /-- **A send knows its source.** -/
 theorem sendsOk_send (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount φ)
@@ -255,9 +294,23 @@ theorem sendsOk_send (hwf : WF φ) (m : Nat) (hm : (m : Int) + 2 ≤ stepCount �
     intro n hn hs
     rw [hup] at hn
     have hcsF : F.current_step = (m : Int) + 1 := hpr.step_eq.trans hsok.step
-    have := tops_addNode F d "" hbelow n hn (by rw [hcsF]; exact hs)
-    rw [hpr.map_parent_eq, hsok.par] at this
-    exact ⟨kv.1, List.mem_singleton_self _, this⟩
+    have hposF : 0 < F.current_step := by rw [hcsF]; omega
+    obtain ⟨hdid, r, hr, hrp⟩ := tops_addNode F d "" hposF hbelow n hn (by rw [hcsF]; exact hs)
+    -- every node of the old top line carries `map_parent`, which is the key
+    have htl : ParentId.TL F := by
+      rw [hF]
+      exact ParentId.TL_of_pruned (Pruned.trans (ConservationCore.pruned_filterWeakAll _ _)
+        (AggressiveReview.pruned_filterAllAgg _ _)) (hl.2 kv hkv).tl
+    have hrid : some r.id = F.map_parent := by
+      unfold newParents at hr
+      rw [if_pos hposF] at hr
+      obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hr
+      have := htl nr (List.mem_filter.mp hnr).1 (eq_of_beq (List.mem_filter.mp hnr).2)
+      rw [hnrid] at this
+      exact this
+    rw [hpr.map_parent_eq, hsok.par] at hrid
+    refine ⟨kv.1, List.mem_singleton_self _, hdid, ?_⟩
+    rw [hrp, Option.some.inj hrid]
   · exact send_complete φ hwf m hm kv hkv d hd hval sel hgen (List.mem_singleton.mp hsrc) htop
 
 /-- **A union knows the sources of both sides.** -/
@@ -271,8 +324,8 @@ theorem sendsOk_join (m : Nat) (d : NodeId) (g₁ g₂ : GPathM) (hok : okJoin g
     rcases join_node?_source g₁ g₂ n.id n hjn with h1 | h2
     · obtain ⟨n1, hn1⟩ := Option.isSome_iff_exists.mp h1
       have hid := node?_id_eq g₁ n.id n1 hn1
-      obtain ⟨p, hp, hpe⟩ := ht₁ n1 (List.mem_of_find?_eq_some hn1) (by rw [hid]; exact hs)
-      exact ⟨p, List.mem_append_left _ hp, by rw [← hid]; exact hpe⟩
+      obtain ⟨p, hp, hpe1, hpe2⟩ := ht₁ n1 (List.mem_of_find?_eq_some hn1) (by rw [hid]; exact hs)
+      exact ⟨p, List.mem_append_left _ hp, by rw [← hid]; exact hpe1, by rw [← hid]; exact hpe2⟩
     · obtain ⟨n2, hn2⟩ := Option.isSome_iff_exists.mp h2
       have hid := node?_id_eq g₂ n.id n2 hn2
       obtain ⟨p, hp, hpe⟩ := ht₂ n2 (List.mem_of_find?_eq_some hn2) (by rw [hid]; exact hs)
@@ -303,7 +356,32 @@ theorem genuine_of_chain (hwf : WF φ) (m : Nat) (J : GPathM) (hmJ : MInv φ J)
   · exact PrefixDecode.satClause_of_reqSat_prefix φ J sel hwf hsc.chain.1 hrs hcm j hj _
       (List.getElem?_eq_getElem hj) (by rw [hcs]; exact hjs)
   · rw [← hcs] at h1
-    exact ⟨hids k h0 h1, along_parents φ J hmJ.rctx.pmp sel hsc (decode sel) hids k h0 h1⟩
+    refine ⟨hids k h0 h1, along_parents φ J hmJ.rctx.pmp sel hsc (decode sel) hids k h0 h1, ?_⟩
+    -- the third component, read off the chain's own parent by `GPMP`
+    by_cases hz : k = 0
+    · subst hz
+      rw [if_pos (by omega)]
+      obtain ⟨hsome, _⟩ := hsc.chain.1.1 0 (by omega) h1
+      obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+      have hnid : n.id = sel 0 := node?_id_eq J _ n hn
+      have := hmJ.rctx.gpmp.2 n (List.mem_of_find?_eq_some hn)
+        (by rw [hnid, along_parents φ J hmJ.rctx.pmp sel hsc (decode sel) hids 0 (by omega) h1,
+          if_pos rfl])
+      rw [hnid] at this
+      exact this
+    · have hlink := hsc.chain.1.2 (k - 1) (by omega) (by rw [show k - 1 + 1 = k by omega]; exact h1)
+      rw [show k - 1 + 1 = k by omega] at hlink
+      cases hn : J.node? (sel k) with
+      | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
+      | some n =>
+        rw [hn] at hlink
+        have := hmJ.rctx.gpmp.1 n (List.mem_of_find?_eq_some hn) (sel (k - 1)) hlink
+        rw [node?_id_eq J _ n hn] at this
+        rw [this, along_parents φ J hmJ.rctx.pmp sel hsc (decode sel) hids (k - 1)
+          (by omega) (by omega)]
+        by_cases hz1 : k - 1 = 0
+        · rw [if_pos hz1, if_pos (by omega)]
+        · rw [if_neg hz1, if_neg (by omega), show k - 1 - 1 = k - 2 by omega]
 
 /-- What a pinned path satisfies: its nodes passed the weak and the hard requirements. -/
 theorem pinned_conds (J : GPathM) (ws : List (Int × List NodeId)) (rq : List NodeId) (sel : Int → PathNodeId)
@@ -358,7 +436,7 @@ theorem noBorrow_union (hwf : WF φ) (m : Nat) (d : NodeId) (e h : GPathM)
   -- the source of the path's top
   have hsrc : (sel ((m : Int) + 1)).parent_id = some (sel (m : Int)).id := by
     obtain ⟨a, _, hsel⟩ := hgen
-    rw [(hsel _ (by omega) (by omega)).2, if_neg (by omega), (hsel m (by omega) (by omega)).1,
+    rw [(hsel _ (by omega) (by omega)).2.1, if_neg (by omega), (hsel m (by omega) (by omega)).1,
       show (m : Int) + 1 - 1 = m by omega]
   have htopR : Mem (join e h) (sel ((m : Int) + 1)) :=
     PartSplitReal.mem_of_chain _ sel hscJ ((m : Int) + 1) (by omega) (by rw [hcsJ]; omega)
@@ -368,11 +446,11 @@ theorem noBorrow_union (hwf : WF φ) (m : Nat) (d : NodeId) (e h : GPathM)
       Mem g (sel ((m : Int) + 1)) → ChainSound (pinned g ws rq) sel := by
     intro g hsg ⟨S, htops, hcomp⟩ ⟨ng, hng⟩
     have hngid := node?_id_eq g _ ng hng
-    obtain ⟨p, hp, hpe⟩ := htops ng (List.mem_of_find?_eq_some hng) (by rw [hngid]; exact hst)
-    rw [hngid] at hpe
-    have hpd : (sel ((m : Int) + 1)).id = d := by rw [hpe]
+    obtain ⟨p, hp, hpe1, hpe2⟩ := htops ng (List.mem_of_find?_eq_some hng) (by rw [hngid]; exact hst)
+    rw [hngid] at hpe1 hpe2
+    have hpd : (sel ((m : Int) + 1)).id = d := hpe1
     have hpp : (sel (m : Int)).id = p := by
-      have := hsrc; rw [hpe] at this; exact (Option.some.inj this).symm
+      have := hsrc; rw [hpe2] at this; exact (Option.some.inj this).symm
     have hg := hcomp sel hgen hpd (by rw [hpp]; exact hp)
     have hcsg : g.current_step = (join e h).current_step := by rw [hsg.step, hcsJ]; omega
     exact pinBack g ws rq sel hg (fun w hw' k h0 h1 hk => hwk w hw' k h0 (by rw [← hcsg]; exact h1) hk)

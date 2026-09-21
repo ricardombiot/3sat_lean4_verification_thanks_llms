@@ -73,7 +73,7 @@ theorem soundAt_join (L : Int → Prop) (g₁ g₂ : GPathM) (hok : okJoin g₁ 
 theorem extend_old' (g : GPathM) (d : NodeId) (sel : Int → PathNodeId) {y : PathNodeId}
     (hy : y.id.step < g.current_step) (hsel : sel y.id.step = y) :
     extend g d sel y.id.step = y := by
-  show (if y.id.step = g.current_step then newPid g d else sel y.id.step) = y
+  show (if y.id.step = g.current_step then extendPid g d sel else sel y.id.step) = y
   rw [if_neg (show ¬(y.id.step = g.current_step) from by omega)]
   exact hsel
 
@@ -90,15 +90,11 @@ theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (g : GPathM) (d : NodeId)
     (hcov0 : ∀ y m, g.node? y = some m → ∃ w ∈ m.owners, w.id.step = 0)
     (h : SoundAt L g) : SoundAt L (addNode g d title) := by
   have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
-  have hnp : (newPid g d).id.step = g.current_step := by simp only [newPid]; exact hd
-  have hnodeA := addNode_node?_new g d title hd hbelow
   have hlift : ∀ (y q : PathNodeId), y.id.step < g.current_step → q.id.step < g.current_step →
       Realizes g y q → Realizes (addNode g d title) y q := by
     intro y q hy hq ⟨sel, hcs, hys, hqs⟩
     exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs,
       extend_old' g d sel hy hys, extend_old' g d sel hq hqs⟩
-  have htop : ∀ (sel : Int → PathNodeId), extend g d sel (newPid g d).id.step = newPid g d := by
-    intro sel; rw [hnp]; exact extend_top g d sel
   -- a path through any node of `g`, found through its owner at step 0
   have through : ∀ y m, g.node? y = some m → 0 ≤ y.id.step → y.id.step < g.current_step →
       ∃ sel, ChainSound g sel ∧ sel y.id.step = y := by
@@ -106,29 +102,45 @@ theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (g : GPathM) (d : NodeId)
     obtain ⟨w, hw, hws⟩ := hcov0 y m hy
     obtain ⟨sel, hcs, hys, _⟩ := h y m hy hy0 hy1 w (by omega) (by omega) (by rw [hws]; exact hL0) hw
     exact ⟨sel, hcs, hys⟩
+  -- and the row node the chain through a parent reaches
+  have htopRow : ∀ (sel : Int → PathNodeId) (z r : PathNodeId), r ∈ rowParents g d z →
+      sel (g.current_step - 1) = r → z.id.step = g.current_step →
+      extend g d sel z.id.step = z := by
+    intro sel z r hr hsel hzs
+    rw [hzs, extend_top]
+    unfold extendPid
+    rw [if_pos hpos, hsel]
+    exact shiftPid_of_mem_rowParents g d z r hr
+  -- every parent of a row node carries a path
+  have hparent : ∀ z ∈ newRowIds g d, ∀ r ∈ rowParents g d z,
+      ∃ mr, g.node? r = some mr ∧ r.id.step = g.current_step - 1 :=
+    fun z _ r hr => by
+      obtain ⟨hrn, hrs⟩ := rowParent_node g d hpos hr
+      obtain ⟨mr, hmr⟩ := Option.isSome_iff_exists.mp hrn
+      exact ⟨mr, hmr, hrs⟩
   intro x n hx hx0 hx1 q hq0 hq1 hL hqn
   rw [hcsA] at hx1 hq1
-  by_cases hxnew : x = newPid g d
-  · subst hxnew
-    rw [hnodeA] at hx
-    have hn' : n = addOwner (newPid g d) (upNode g d title) := (Option.some_inj.mp hx).symm
-    have how : n.owners = g.gowners ++ [newPid g d] := by rw [hn']; rfl
-    have hqn' : q ∈ g.gowners ++ [newPid g d] := by rw [← how]; exact hqn
-    rcases List.mem_append.mp hqn' with hgow | hnew
-    · obtain ⟨mq, hmq, hmqid⟩ := hgn q hgow
-      have hqnode : g.node? q = some mq := by rw [← hmqid]; exact node?_of_mem hnd mq hmq
-      have hqstep : q.id.step < g.current_step := by
-        have := hbelow mq hmq; rw [hmqid] at this; exact this
-      obtain ⟨sel, hcs, _, hqs⟩ := h q mq hqnode hq0 hqstep q hq0 hqstep hL (hself q mq hqnode)
-      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, htop sel,
+  by_cases hxnew : x ∈ newRowIds g d
+  · have hxstep : x.id.step = g.current_step := by
+      rw [mapId_of_mem_newRowIds g d x hxnew]; exact hd
+    rw [addNode_node?_new g d title hd hbelow x hxnew] at hx
+    have hqn' : q ∈ rowOwners g d x := by rw [← Option.some_inj.mp hx] at hqn; exact hqn
+    rcases (mem_rowOwners_iff g d x q).mp hqn' with ⟨hinh, hgw⟩ | rfl
+    · -- an inherited entry: the parent that owns `q` carries the path
+      obtain ⟨r, hr, mr, hmr, hqmr⟩ := exists_owner_of_mem_unionOwnersOf g _ q hinh
+      obtain ⟨_, _, hrs⟩ := hparent x hxnew r hr
+      have hqstep : q.id.step < g.current_step := hownBelow r mr hmr q hqmr
+      obtain ⟨sel, hcs, hrsel, hqs⟩ :=
+        h r mr hmr (by omega) (by omega) q hq0 hqstep hL hqmr
+      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs,
+        htopRow sel x r hr (by rw [← hrs]; exact hrsel) hxstep,
         extend_old' g d sel hqstep hqs⟩
-    · have hqeq : q = newPid g d := List.mem_singleton.mp hnew
-      subst hqeq
-      obtain ⟨t, htg, hts⟩ := gowner_of_isValid g hv 0 (Int.le_refl _) hpos
-      obtain ⟨mt, hmt, hmtid⟩ := hgn t htg
-      have htnode : g.node? t = some mt := by rw [← hmtid]; exact node?_of_mem hnd mt hmt
-      obtain ⟨sel, hcs, _⟩ := through t mt htnode (by rw [hts]; exact Int.le_refl _) (by rw [hts]; exact hpos)
-      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, htop sel, htop sel⟩
+    · -- the row node itself: any parent's path will do
+      obtain ⟨r, hr⟩ := exists_rowParent g d hpos hxnew
+      obtain ⟨mr, hmr, hrs⟩ := hparent q hxnew r hr
+      obtain ⟨sel, hcs, hrsel⟩ := through r mr hmr (by omega) (by omega)
+      have htp := htopRow sel q r hr (by rw [← hrs]; exact hrsel) hxstep
+      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs, htp, htp⟩
   · have hold : ∃ m, g.node? x = some m := by
       have hnB : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hx
       have hid : n.id = x := node?_id_eq _ x n hx
@@ -140,9 +152,8 @@ theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (g : GPathM) (d : NodeId)
         rw [hid₀] at hm
         exact ⟨m, hm⟩
       · exfalso
-        have hsing : n = addOwner (newPid g d) (upNode g d title) := List.eq_of_mem_singleton hr
-        rw [hsing] at hid
-        exact hxnew (by rw [← hid]; rfl)
+        obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n).mp hr
+        exact hxnew (by rw [← hid]; exact hpid)
     obtain ⟨m, hm⟩ := hold
     have hxstep : x.id.step < g.current_step := by
       have hid := node?_id_eq g x m hm
@@ -151,16 +162,28 @@ theorem soundAt_addNode (L : Int → Prop) (hL0 : L 0) (g : GPathM) (d : NodeId)
       exact this
     rw [addNode_node?_old g d title x m hm] at hx
     have hn' : n = upMap g d m := (Option.some_inj.mp hx).symm
-    have how : n.owners = m.owners ++ [newPid g d] := by rw [hn']; exact upMap_owners g d m
-    have hqn' : q ∈ m.owners ++ [newPid g d] := by rw [← how]; exact hqn
+    have how : n.owners = m.owners ++ gainedOwners g d m := by rw [hn']; exact upMap_owners g d m
+    have hqn' : q ∈ m.owners ++ gainedOwners g d m := by rw [← how]; exact hqn
     rcases List.mem_append.mp hqn' with hq | hnew
     · have hqstep : q.id.step < g.current_step := hownBelow x m hm q hq
       exact hlift x q hxstep hqstep (h x m hm hx0 hxstep q hq0 hqstep hL hq)
-    · have hqeq : q = newPid g d := List.mem_singleton.mp hnew
-      subst hqeq
-      obtain ⟨sel, hcs, hxs⟩ := through x m hm hx0 hxstep
-      exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs,
-        extend_old' g d sel hxstep hxs, htop sel⟩
+    · -- the entry is a row id that owns `x`: go through the parent that owns `x`
+      have hqrow : q ∈ newRowIds g d := gainedOwners_subset g d m q hnew
+      have hxown : x ∈ rowOwners g d q := by
+        have := (List.mem_filter.mp hnew).2
+        rw [node?_id_eq g x m hm] at this
+        simpa using this
+      have hqstep : q.id.step = g.current_step := by
+        rw [mapId_of_mem_newRowIds g d q hqrow]; exact hd
+      rcases (mem_rowOwners_iff g d q x).mp hxown with ⟨hinh, _⟩ | rfl
+      · obtain ⟨r, hr, mr, hmr, hxmr⟩ := exists_owner_of_mem_unionOwnersOf g _ x hinh
+        obtain ⟨_, _, hrs⟩ := hparent q hqrow r hr
+        obtain ⟨sel, hcs, hrsel, hxs⟩ :=
+          h r mr hmr (by omega) (by omega) x hx0 hxstep hL hxmr
+        exact ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hcs,
+          extend_old' g d sel hxstep hxs,
+          htopRow sel q r hr (by rw [← hrs]; exact hrsel) hqstep⟩
+      · exact absurd hxstep (by rw [hqstep]; omega)
 
 -- ============================================================
 -- The run

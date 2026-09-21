@@ -103,7 +103,7 @@ theorem branch_line_complete (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m 
   obtain ⟨sel', hsc, hids⟩ := chainSound_alongF_below φ a (Fsac φ 0) reviewAgg hwf (prunes_Fsac φ 0)
     ((m : Int) + 1) (keepsBranch_Fsac_below φ a _ hs 0) g hal (by rw [hcs]; exact Int.le_refl _)
   have hpos : 0 < g.current_step := by rw [hcs]; omega
-  exact chainSound_congr g sel sel' hsc hpos (eq_of_along φ g hmg.rctx.pmp sel sel' hsc a
+  exact chainSound_congr g sel sel' hsc hpos (eq_of_along φ g hmg.rctx.pmp hmg.rctx.gpmp sel sel' hsc a
     (fun k h0 h1 => (hids k h0 h1).1) (fun k h0 h1 => hsel k h0 (by rw [← hcs]; exact h1)))
 
 open AbsSat.GraphPath.Model.ConservationCore (chainSound_up_of_prunedR SelParent)
@@ -150,7 +150,7 @@ theorem branch_send_complete (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m 
   have hpos : 0 < (AggressiveReview.upFilteringR AggressiveReview.reviewAgg (Fsac φ 0 d kv.2)
       (reqOfCnf φ (selOfAssign φ a kv.2.current_step)) (selOfAssign φ a kv.2.current_step) "").current_step := by
     rw [hcur]; omega
-  refine chainSound_congr _ sel sel' hs' hpos (eq_of_along φ _ hmh.rctx.pmp sel sel' hs' a
+  refine chainSound_congr _ sel sel' hs' hpos (eq_of_along φ _ hmh.rctx.pmp hmh.rctx.gpmp sel sel' hs' a
     (fun k h0 h1 => (hids' k h0 (by rw [← hcur]; exact h1)).1)
     (fun k h0 h1 => hsel k h0 (by rw [hcur, hcs] at h1; exact h1)))
 
@@ -431,7 +431,7 @@ theorem var_glue (hwf : WF φ) (P : List NodeId) (m : Nat) (hm : (m : Int) + 1 <
   let selA : Int → PathNodeId := fun k =>
     ⟨selOfAssign φ A k, if k = 0 then none else some (selOfAssign φ A (k - 1))⟩
   have hsatA : ∀ K, K ≤ (m : Int) + 2 → SatBelow φ A K := fun K hK => satBelow_var φ A K (Int.le_trans hK hm2)
-  have hgenA : Genuine φ ((m : Int) + 2) selA := ⟨A, hsatA _ (Int.le_refl _), fun k _ _ => ⟨rfl, rfl⟩⟩
+  have hgenA : Genuine φ ((m : Int) + 2) selA := ⟨A, hsatA _ (Int.le_refl _), fun k _ _ => ⟨rfl, rfl, rfl⟩⟩
   have agP : ∀ r' ∈ P, 0 ≤ r'.step → r'.step < (m : Int) + 1 → selOfAssign φ A r'.step = r' :=
     fun r' hr' h0 h1 => glue_agree φ b1 b2 u _ h0 (hlit _ (Int.lt_trans h1 hlt12)) _ (hb1P r' hr' h0 h1)
       (hb2P r' hr' h0 h1)
@@ -539,7 +539,8 @@ theorem sat_of_pinJoinClause (hwf : WF φ) (hC : PinSend.PinJoinClause φ) (kv :
 
 /-- The node an assignment's branch passes at step `k`. -/
 def canon (a : Assign) (k : Int) : PathNodeId :=
-  ⟨selOfAssign φ a k, if k = 0 then none else some (selOfAssign φ a (k - 1))⟩
+  ⟨selOfAssign φ a k, if k = 0 then none else some (selOfAssign φ a (k - 1)),
+    if k ≤ 1 then none else some (selOfAssign φ a (k - 2))⟩
 
 theorem lt_of_mapNodes (k : Int) (d : NodeId) (h : d ∈ mapNodes φ k) : k < stepCount φ := by
   unfold mapNodes at h
@@ -571,7 +572,7 @@ theorem side_of_path (hwf : WF φ) (P : List NodeId) (m : Nat) (hm2 : (m : Int) 
   have hlt1 : (m : Int) + 1 < stepCount φ := by omega
   have hm0 : (0 : Int) ≤ (m : Int) := by omega
   have hm1m2 : (m : Int) + 1 ≤ (m : Int) + 2 := by omega
-  have hgen : Genuine φ ((m : Int) + 2) (canon φ a) := ⟨a, hsat, fun k _ _ => ⟨rfl, rfl⟩⟩
+  have hgen : Genuine φ ((m : Int) + 2) (canon φ a) := ⟨a, hsat, fun k _ _ => ⟨rfl, rfl, rfl⟩⟩
   obtain ⟨g, hmem, _, _⟩ := branch_carries φ hwf P a ((m : Int) + 1) hle1 (satBelow_mono hsat hm1m2) hag m
     (Int.le_refl _)
   have hson : p ∈ mapSons φ (selOfAssign φ a (m : Int)).step (selOfAssign φ a (m : Int)).index := by

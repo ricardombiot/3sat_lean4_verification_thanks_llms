@@ -58,9 +58,12 @@ theorem noBorrow_of_plain (a b : GPathM) (hnd : NodupIds (join a b)) (hsmp : Son
 -- The pair level as validity
 -- ============================================================
 
-/-- The pins of an entry: the map nodes of both ends and of their parents. -/
+/-- The map ids the two ends of an entry name: their own, their parents' and —
+since the window widened — their grandparents'. One more level of pinning is
+exactly what the third component of the identifier asks for. -/
 def entryPins (x q : PathNodeId) : List NodeId :=
   [x.id, q.id] ++ x.parent_id.toList ++ q.parent_id.toList
+    ++ x.gparent_id.toList ++ q.gparent_id.toList
 
 /-- Pinning one by one from a reader's state, ending valid, stays a reader's state. -/
 theorem readFrom_pinOneByOne {g₀ : GPathM} (h0 : RF g₀) : ∀ (P : List NodeId) (S : GPathM),
@@ -82,17 +85,18 @@ theorem readFrom_pinOneByOne {g₀ : GPathM} (h0 : RF g₀) : ∀ (P : List Node
 theorem eq_of_pins (F : GPathM) (ad : AdjacentOwners.Adj F) (hok : AggFixpoint.AggOk F) (hsmp : Sons.SMP F)
     (x g : PathNodeId) (hg : Mem F g) (hs : g.id.step = x.id.step) (hid : g.id = x.id)
     (hroot : x.id.step = 0 → x.parent_id = none)
-    (hpar : ∀ w, Mem F w → w.id.step = x.id.step - 1 → 0 < x.id.step → x.parent_id = some w.id) : g = x := by
+    (hpar : ∀ w, Mem F w → w.id.step = x.id.step - 1 → 0 < x.id.step → x.parent_id = some w.id)
+    (hgp : g.gparent_id = x.gparent_id) : g = x := by
   have h2 : g.parent_id = x.parent_id := by
     obtain ⟨h0, _⟩ := mem_bounds F ad hg
     by_cases hz : x.id.step = 0
     · rw [root_of_mem F ad hg (by rw [hs]; exact hz), hroot hz]
-    · obtain ⟨w, hw, hws, hgw⟩ := parent_of_mem F ad hok hsmp hg (by omega)
+    · obtain ⟨w, hw, hws, hgw, _⟩ := parent_of_mem F ad hok hsmp hg (by omega)
       rw [hgw, hpar w hw (by rw [hws, hs]) (by omega)]
   cases g
   cases x
   simp only [PathNodeId.mk.injEq]
-  exact ⟨hid, h2⟩
+  exact ⟨hid, h2, hgp⟩
 
 variable (φ : Cnf)
 
@@ -126,33 +130,52 @@ theorem realizes_of_entryPins (hwf : WF φ) {g₀ : GPathM} (hB : Base φ g₀) 
     intro w hw r hr hs
     exact OraclePath.pinned_ids (entryPins x q) S r hr w (hprF.gowners_sub w (mem_gowner F adF hw)) hs
   -- the node of `F` at the step of an end `y ∈ {x, q}` is `y`
-  have atEnd : ∀ y, Mem S y → y.id ∈ entryPins x q → (∀ p, y.parent_id = some p → p ∈ entryPins x q) →
-      Mem F y := by
-    intro y hy hyP hyPar
+  have atEnd : ∀ y, Mem S y → y.id ∈ entryPins x q →
+      (∀ p, y.parent_id = some p → p ∈ entryPins x q) →
+      (∀ p, y.gparent_id = some p → p ∈ entryPins x q) → Mem F y := by
+    intro y hy hyP hyPar hyGPar
     obtain ⟨h0, h1⟩ := mem_bounds S adS hy
     obtain ⟨g, hg, hgs⟩ := gowner_of_isValid F hvF y.id.step h0 (by rw [hcsF, ← hcsS]; exact h1)
     have hgm := mem_of_hasNode' F adF (adF.ctx.gn g hg)
+    -- the third component: the parents' own parent, pinned one level deeper
+    have hgp : g.gparent_id = y.gparent_id := by
+      by_cases hz : y.id.step = 0
+      · rw [groot_of_mem F adF hgm (by rw [hgs]; exact hz), groot_of_mem S adS hy hz]
+      · obtain ⟨w, hw, hws, _, hgw⟩ := parent_of_mem F adF okF hrfF.smp hgm (by omega)
+        obtain ⟨v, hv', hvs, _, hgv⟩ := parent_of_mem S adS okS hrfS.smp hy (by omega)
+        rw [hgw, hgv]
+        by_cases hz1 : v.id.step = 0
+        · rw [root_of_mem F adF hw (by rw [hws, hgs, ← hvs]; exact hz1),
+            root_of_mem S adS hv' hz1]
+        · obtain ⟨w2, hw2, hw2s, hpw2, _⟩ := parent_of_mem F adF okF hrfF.smp hw
+            (by rw [hws, hgs, ← hvs]; omega)
+          obtain ⟨v2, hv2, hv2s, hpv2, _⟩ := parent_of_mem S adS okS hrfS.smp hv' (by omega)
+          rw [hpw2, hpv2]
+          have hv2pin : v2.id ∈ entryPins x q := by
+            refine hyGPar v2.id ?_
+            rw [hgv, hpv2]
+          rw [pinF w2 hw2 v2.id hv2pin (by rw [hw2s, hws, hgs, ← hvs, hv2s])]
     have heq := eq_of_pins F adF okF hrfF.smp y g hgm hgs (pinF g hgm y.id hyP hgs)
       (fun hz => root_of_mem S adS hy hz)
       (fun w hw hws hpos => by
-        obtain ⟨v, hv', hvs, hyv⟩ := parent_of_mem S adS okS hrfS.smp hy hpos
+        obtain ⟨v, hv', hvs, hyv, _⟩ := parent_of_mem S adS okS hrfS.smp hy hpos
         rw [hyv, pinF w hw v.id (hyPar v.id hyv) (by rw [hws, hvs])])
+      hgp
     rw [← heq]; exact hgm
   obtain ⟨mx, hmxm, _, hmq⟩ := hxq
   have hmx : Mem S x := ⟨mx, hmxm⟩
-  have inX : x.id ∈ entryPins x q := List.mem_append_left _ (List.mem_append_left _ List.mem_cons_self)
-  have inQ : q.id ∈ entryPins x q :=
-    List.mem_append_left _ (List.mem_append_left _ (List.mem_cons_of_mem _ List.mem_cons_self))
+  have inX : x.id ∈ entryPins x q := by unfold entryPins; simp
+  have inQ : q.id ∈ entryPins x q := by unfold entryPins; simp
   have inXP : ∀ p, x.parent_id = some p → p ∈ entryPins x q := by
-    intro p hp
-    refine List.mem_append_left _ (List.mem_append_right _ ?_)
-    rw [hp]; exact List.mem_singleton_self p
+    intro p hp; unfold entryPins; simp [hp]
   have inQP : ∀ p, q.parent_id = some p → p ∈ entryPins x q := by
-    intro p hp
-    refine List.mem_append_right _ ?_
-    rw [hp]; exact List.mem_singleton_self p
-  have hxF := atEnd x hmx inX inXP
-  have hqF := atEnd q hmq inQ inQP
+    intro p hp; unfold entryPins; simp [hp]
+  have inXG : ∀ p, x.gparent_id = some p → p ∈ entryPins x q := by
+    intro p hp; unfold entryPins; simp [hp]
+  have inQG : ∀ p, q.gparent_id = some p → p ∈ entryPins x q := by
+    intro p hp; unfold entryPins; simp [hp]
+  have hxF := atEnd x hmx inX inXP inXG
+  have hqF := atEnd q hmq inQ inQP inQG
   exact ⟨sel, SubsetSemantics.ChainSound_of_pruned hpr ncS.nodup hrfS.smp sel hsc, hsel x hxF, hsel q hqF⟩
 
 /-- **Every state the reader reaches is exact**, under `LivePinUp` and `EntryPin`: pinning the ends of an
