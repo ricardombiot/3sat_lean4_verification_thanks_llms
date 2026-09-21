@@ -106,13 +106,35 @@ theorem noZombie_addNode (F : GPathM) (d : NodeId) (title : String) (h : NoZombi
       by rw [addNode_current]; omega, ?_⟩
     rw [extend_below F d sel k hk1]
     exact hk
-  · rw [List.mem_singleton.mp h1] at hid
-    obtain ⟨p, hp⟩ := hne
-    obtain ⟨sel, hs, _⟩ := h p hp
-    refine ⟨extend F d sel, ChainSound_addNode F d title hd hbelow hmok sel hs, F.current_step,
-      hmok.1, by rw [addNode_current]; omega, ?_⟩
-    rw [extend_top, ← hid]
-    rfl
+  · -- a node of the new row: the chain that carries one of its parents
+    obtain ⟨z, hz, rfl⟩ := (mem_newRow_iff F d title n).mp h1
+    rw [rowNode_id] at hid
+    subst hid
+    by_cases hpos : 0 < F.current_step
+    · obtain ⟨r, hr⟩ := exists_rowParent F d hpos hz
+      obtain ⟨hrn, hrs⟩ := rowParent_node F d hpos hr
+      obtain ⟨sel, hs, k, hk0, hk1, hk⟩ := h r hrn
+      -- the chain that reaches `r` reaches it at the top old step
+      have hselr : sel (F.current_step - 1) = r := by
+        have hstep := (hs.chain.1.1 k hk0 hk1).2
+        rw [hk, hrs] at hstep
+        rw [hstep]
+        exact hk
+      refine ⟨extend F d sel, ChainSound_addNode F d title hd hbelow hmok sel hs,
+        F.current_step, hmok.1, by rw [addNode_current]; omega, ?_⟩
+      rw [extend_top]
+      unfold extendPid
+      rw [if_pos hpos, hselr]
+      exact shiftPid_of_mem_rowParents F d _ r hr
+    · obtain ⟨p, hp⟩ := hne
+      obtain ⟨sel, hs, _⟩ := h p hp
+      refine ⟨extend F d sel, ChainSound_addNode F d title hd hbelow hmok sel hs,
+        F.current_step, hmok.1, by rw [addNode_current]; omega, ?_⟩
+      rw [extend_top]
+      unfold extendPid
+      rw [if_neg hpos]
+      rw [newRowIds_of_zero F d hpos] at hz
+      exact (List.mem_singleton.mp hz).symm
 
 /-- **The filter step.** Under `NoZombieOutside` for the pinned state, the filtered state has no
 zombies. -/

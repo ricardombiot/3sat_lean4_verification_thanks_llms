@@ -57,6 +57,12 @@ theorem Within_mono {E E' : Env} {g : GPathM} (hsub : ∀ y, ∀ w ∈ E y, w �
     (h : Within E g) : Within E' g :=
   fun y n hn w hw => hsub y w (h y n hn w hw)
 
+private theorem contains_false_of_not_mem {l : List PathNodeId} {y : PathNodeId}
+    (h : y ∉ l) : l.contains y = false := by
+  cases hb : l.contains y with
+  | true => exact absurd (List.mem_of_elem_eq_true hb) h
+  | false => rfl
+
 /-- **Every pruning stays inside the bound.** The filters and the reviews only remove. -/
 theorem Within_of_pruned {E : Env} {g g' : GPathM} (hpr : Pruned g g') (hnd : NodupIds g)
     (h : Within E g) : Within E g' := by
@@ -87,34 +93,22 @@ theorem Within_join {E : Env} {g₁ g₂ : GPathM} (h₁ : Within E g₁) (h₂ 
 /-- The bound `addNode` needs: every old node gains the new id, and the new node gains the state's
 global owners. -/
 def upEnv (E : Env) (g : GPathM) (d : NodeId) : Env := fun y =>
-  if y == newPid g d then g.gowners ++ [newPid g d] else E y ++ [newPid g d]
-
-/-- The record `addNode` gives the new node. -/
-private theorem addNode_node?_new (g : GPathM) (d : NodeId) (title : String)
-    (hnone : g.node? (newPid g d) = none) :
-    (addNode g d title).node? (newPid g d) = some (addOwner (newPid g d) (upNode g d title)) := by
-  have hp : (fun x : PNodeM => (upMap g d x).id == newPid g d)
-      = (fun x : PNodeM => x.id == newPid g d) := by
-    funext x; rw [upMap_id]
-  have hnodes : g.nodes.find? (fun x : PNodeM => x.id == newPid g d) = none := hnone
-  simp only [node?, addNode_nodes, List.find?_append, List.find?_map, Function.comp_def, hp,
-    hnodes, Option.map_none, Option.none_or, List.find?_cons]
-  have hid : (addOwner (newPid g d) (upNode g d title)).id = newPid g d := rfl
-  simp only [hid, beq_self_eq_true]
+  if (newRowIds g d).contains y then g.gowners ++ newRowIds g d else E y ++ newRowIds g d
 
 /-- **An `up` stays inside the extended bound.** -/
 theorem Within_addNode {E : Env} (g : GPathM) (d : NodeId) (title : String)
-    (hnone : g.node? (newPid g d) = none) (h : Within E g) :
+    (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (h : Within E g) :
     Within (upEnv E g d) (addNode g d title) := by
   intro y n hn w hw
-  by_cases hy : y = newPid g d
-  · subst hy
-    rw [addNode_node?_new g d title hnone] at hn
-    have hn' : n = addOwner (newPid g d) (upNode g d title) := (Option.some_inj.mp hn).symm
-    have how : n.owners = g.gowners ++ [newPid g d] := by rw [hn']; rfl
+  by_cases hy : y ∈ newRowIds g d
+  · rw [addNode_node?_new g d title hd hbelow y hy] at hn
+    have how : n.owners = rowOwners g d y := by rw [← Option.some_inj.mp hn]; rfl
     rw [how] at hw
-    simp only [upEnv, beq_self_eq_true, if_pos]
-    exact hw
+    simp only [upEnv, if_pos (List.elem_eq_true_of_mem hy)]
+    rcases rowOwners_mem_gowners_or_self g d y w hw with hg | rfl
+    · exact List.mem_append_left _ hg
+    · exact List.mem_append_right _ hy
   · have hold : ∃ m, g.node? y = some m := by
       have hnB : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hn
       have hid : n.id = y := node?_id_eq _ y n hn
@@ -125,23 +119,17 @@ theorem Within_addNode {E : Env} (g : GPathM) (d : NodeId) (title : String)
         obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (node?_isSome_of_mem g n₀ hn₀)
         rw [hid₀] at hm
         exact ⟨m, hm⟩
-      · exfalso
-        have hsing : n = addOwner (newPid g d) (upNode g d title) := List.eq_of_mem_singleton hr
-        rw [hsing] at hid
-        exact hy (by rw [← hid]; rfl)
+      · exact absurd ((mem_newRow_iff g d title n).mp hr |>.elim
+          (fun z hz => by rw [← hid, hz.2, rowNode_id]; exact hz.1)) hy
     obtain ⟨m, hm⟩ := hold
     rw [addNode_node?_old g d title y m hm] at hn
     have hn' : n = upMap g d m := (Option.some_inj.mp hn).symm
-    have how : n.owners = m.owners ++ [newPid g d] := by rw [hn']; exact upMap_owners g d m
+    have how : n.owners = m.owners ++ gainedOwners g d m := by rw [hn']; exact upMap_owners g d m
     rw [how] at hw
-    simp only [upEnv, show (y == newPid g d) = false from by
-      cases hb : (y == newPid g d) with
-      | true => exact absurd (eq_of_beq hb) hy
-      | false => rfl]
+    simp only [upEnv, contains_false_of_not_mem hy, Bool.false_eq_true, if_false]
     rcases List.mem_append.mp hw with hl | hr
     · exact List.mem_append_left _ (h y m hm w hl)
-    · exact List.mem_append_right _ hr
-
+    · exact List.mem_append_right _ (gainedOwners_subset g d m w hr)
 
 -- ============================================================
 -- The stable form: bound only the past
@@ -177,7 +165,7 @@ theorem WithinBelow_join {E : Env} {g₁ g₂ : GPathM} (h₁ : WithinBelow E g�
 
 /-- The bound at birth: the new node's past is the state's global owners, plus itself. -/
 def bornEnv (E : Env) (g : GPathM) (d : NodeId) : Env := fun y =>
-  if y == newPid g d then g.gowners ++ [newPid g d] else E y
+  if (newRowIds g d).contains y then g.gowners ++ newRowIds g d else E y
 
 /-- **An `up` keeps the bound on the past**, extended only at the node it creates. The old nodes
 gain the new top node, which lies *above* them, so their bound is untouched — that is what makes
@@ -186,24 +174,29 @@ theorem WithinBelow_addNode {E : Env} (g : GPathM) (d : NodeId) (title : String)
     (hd : g.current_step ≤ d.step)
     (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
     (h : WithinBelow E g) : WithinBelow (bornEnv E g d) (addNode g d title) := by
-  have hnp : (newPid g d).id.step = d.step := rfl
-  have hnone : g.node? (newPid g d) = none := by
-    rcases node?_cases g (newPid g d) with hc | ⟨m, hm⟩
+  have hrowstep : ∀ z ∈ newRowIds g d, z.id.step = d.step := by
+    intro z hz; rw [mapId_of_mem_newRowIds g d z hz]
+  -- a row identifier is never an old node: it sits at or above `current_step`
+  have hnone : ∀ z ∈ newRowIds g d, g.node? z = none := by
+    intro z hz
+    rcases node?_cases g z with hc | ⟨m, hm⟩
     · exact hc
     · exfalso
       have hmem := List.mem_of_find?_eq_some hm
       have hid := node?_id_eq g _ m hm
       have hb := hbelow m hmem
-      rw [hid, hnp] at hb
+      rw [hid, hrowstep z hz] at hb
       omega
   intro y n hn w hw hstep
-  by_cases hy : y = newPid g d
-  · subst hy
-    rw [addNode_node?_new g d title hnone] at hn
-    have hn' : n = addOwner (newPid g d) (upNode g d title) := (Option.some_inj.mp hn).symm
-    have how : n.owners = g.gowners ++ [newPid g d] := by rw [hn']; rfl
+  by_cases hy : y ∈ newRowIds g d
+  · have hdstep : d.step = g.current_step ∨ g.current_step < d.step := by omega
+    rw [addNode_node?_new_of g d title y hy (hnone y hy)] at hn
+    have how : n.owners = rowOwners g d y := by rw [← Option.some_inj.mp hn]; rfl
     rw [how] at hw
-    simpa only [bornEnv, beq_self_eq_true, if_pos] using hw
+    simp only [bornEnv, if_pos (List.elem_eq_true_of_mem hy)]
+    rcases rowOwners_mem_gowners_or_self g d y w hw with hg | rfl
+    · exact List.mem_append_left _ hg
+    · exact List.mem_append_right _ hy
   · have hold : ∃ m, g.node? y = some m := by
       have hnB : n ∈ (addNode g d title).nodes := List.mem_of_find?_eq_some hn
       have hid : n.id = y := node?_id_eq _ y n hn
@@ -214,10 +207,8 @@ theorem WithinBelow_addNode {E : Env} (g : GPathM) (d : NodeId) (title : String)
         obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (node?_isSome_of_mem g n₀ hn₀)
         rw [hid₀] at hm
         exact ⟨m, hm⟩
-      · exfalso
-        have hsing : n = addOwner (newPid g d) (upNode g d title) := List.eq_of_mem_singleton hr
-        rw [hsing] at hid
-        exact hy (by rw [← hid]; rfl)
+      · exact absurd ((mem_newRow_iff g d title n).mp hr |>.elim
+          (fun z hz => by rw [← hid, hz.2, rowNode_id]; exact hz.1)) hy
     obtain ⟨m, hm⟩ := hold
     have hybelow : y.id.step < g.current_step := by
       have hmem := List.mem_of_find?_eq_some hm
@@ -227,17 +218,13 @@ theorem WithinBelow_addNode {E : Env} (g : GPathM) (d : NodeId) (title : String)
       exact this
     rw [addNode_node?_old g d title y m hm] at hn
     have hn' : n = upMap g d m := (Option.some_inj.mp hn).symm
-    have how : n.owners = m.owners ++ [newPid g d] := by rw [hn']; exact upMap_owners g d m
+    have how : n.owners = m.owners ++ gainedOwners g d m := by rw [hn']; exact upMap_owners g d m
     rw [how] at hw
-    simp only [bornEnv, show (y == newPid g d) = false from by
-      cases hb : (y == newPid g d) with
-      | true => exact absurd (eq_of_beq hb) hy
-      | false => rfl]
+    simp only [bornEnv, contains_false_of_not_mem hy, Bool.false_eq_true, if_false]
     rcases List.mem_append.mp hw with hl | hr
     · exact h y m hm w hl hstep
     · exfalso
-      have hwe := List.mem_singleton.mp hr
-      rw [hwe, hnp] at hstep
+      rw [hrowstep w (gainedOwners_subset g d m w hr)] at hstep
       omega
 
 /-- A wider bound on the past is still a bound. -/
@@ -248,12 +235,9 @@ theorem WithinBelow_mono {E E' : Env} {g : GPathM} (hsub : ∀ y, ∀ w ∈ E y,
 /-- **The birth of a node touches the bound of no other node.** With the keys of a line unique,
 an `up` is tied to one pair (destination, origin), so the extensions of different sends never
 collide: this is what lets the bound be carried along the whole run. -/
-theorem bornEnv_ne {E : Env} (g : GPathM) (d : NodeId) {y : PathNodeId} (hy : y ≠ newPid g d) :
-    bornEnv E g d y = E y := by
-  simp only [bornEnv, show (y == newPid g d) = false from by
-    cases hb : (y == newPid g d) with
-    | true => exact absurd (eq_of_beq hb) hy
-    | false => rfl, Bool.false_eq_true, if_false]
+theorem bornEnv_ne {E : Env} (g : GPathM) (d : NodeId) {y : PathNodeId}
+    (hy : y ∉ newRowIds g d) : bornEnv E g d y = E y := by
+  simp only [bornEnv, contains_false_of_not_mem hy, Bool.false_eq_true, if_false]
 
 /-- Every state of a line is bounded on its past by one common bound. -/
 def LineWithinBelow (E : Env) (L : List (NodeId × GPathM)) : Prop :=
@@ -307,15 +291,12 @@ theorem WithinBelow_send {E : Env} (φ : Cnf) (g : GPathM) (d : NodeId) (hok : S
   | false =>
     simp only [Bool.false_eq_true, if_false]
     intro y n hn w hw hstep
-    by_cases hy : y = newPid (Filt' φ g d) d
+    by_cases hy : y ∈ newRowIds (Filt' φ g d) d
     · exfalso
-      subst hy
       have hmem := List.mem_of_find?_eq_some hn
       have hid := node?_id_eq _ _ n hn
       have hb := hok.below n hmem
-      rw [hid] at hb
-      have hnp : (newPid (Filt' φ g d) d).id.step = d.step := rfl
-      rw [hnp] at hb
+      rw [hid, mapId_of_mem_newRowIds _ d y hy] at hb
       have := hok.step
       omega
     · rw [bornEnv_ne _ d hy]
@@ -325,7 +306,9 @@ theorem WithinBelow_send {E : Env} (φ : Cnf) (g : GPathM) (d : NodeId) (hok : S
 def advEnv (φ : Cnf) (E : Env) (L : PureLine) : Env := fun y =>
   E y ++ L.flatMap (fun kv =>
     (mapSons φ kv.1.step kv.1.index).flatMap (fun d =>
-      if y == newPid (Filt' φ kv.2 d) d then (Filt' φ kv.2 d).gowners ++ [y] else []))
+      if (newRowIds (Filt' φ kv.2 d) d).contains y then
+        (Filt' φ kv.2 d).gowners ++ newRowIds (Filt' φ kv.2 d) d
+      else []))
 
 theorem mem_advEnv_of_mem {φ : Cnf} {E : Env} {L : PureLine} {y : PathNodeId} {w : PathNodeId}
     (h : w ∈ E y) : w ∈ advEnv φ E L y :=
@@ -336,7 +319,7 @@ theorem bornEnv_sub_advEnv {φ : Cnf} {E : Env} {L : PureLine} (kv : NodeId × G
     (hkv : kv ∈ L) (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (y : PathNodeId)
     (w : PathNodeId) (h : w ∈ bornEnv E (Filt' φ kv.2 d) d y) : w ∈ advEnv φ E L y := by
   simp only [bornEnv] at h
-  cases hb : (y == newPid (Filt' φ kv.2 d) d) with
+  cases hb : (newRowIds (Filt' φ kv.2 d) d).contains y with
   | false => rw [hb] at h; simp only [Bool.false_eq_true, if_false] at h; exact mem_advEnv_of_mem h
   | true =>
     rw [hb] at h
@@ -345,11 +328,7 @@ theorem bornEnv_sub_advEnv {φ : Cnf} {E : Env} {L : PureLine} (kv : NodeId × G
     refine List.mem_flatMap.mpr ⟨d, hd, ?_⟩
     rw [hb]
     simp only [if_pos]
-    rcases List.mem_append.mp h with hl | hr
-    · exact List.mem_append_left _ hl
-    · exact List.mem_append_right _ (by
-        rw [List.mem_singleton.mp hr, ← eq_of_beq hb]
-        exact List.mem_singleton_self y)
+    exact h
 
 
 /-- **`insertPure` keeps the bound**: it either appends the new state or joins it with the one
@@ -483,15 +462,20 @@ theorem withinBelow_initSeed (d : NodeId) (hd : 0 ≤ d.step) :
   refine WithinBelow_mono ?_ hmain
   intro y w hw
   simp only [bornEnv] at hw
-  cases hb : (y == newPid empty d) with
+  cases hb : (newRowIds empty d).contains y with
   | true =>
     rw [hb] at hw
     simp only [if_pos] at hw
     have hgow : empty.gowners = [] := rfl
     rw [hgow, List.nil_append] at hw
+    have hrow : newRowIds empty d = [{ id := d, parent_id := none, gparent_id := none }] :=
+      newRowIds_of_zero empty d (by show ¬ (0:Int) < 0; omega)
+    rw [hrow] at hw hb
+    have hy : y = { id := d, parent_id := none, gparent_id := none } :=
+      List.mem_singleton.mp (List.mem_of_elem_eq_true hb)
     show w ∈ [y]
-    rw [List.mem_singleton.mp hw, ← eq_of_beq hb]
-    exact List.mem_singleton_self y
+    rw [List.mem_singleton.mp hw, hy]
+    exact List.mem_singleton_self _
   | false =>
     rw [hb] at hw
     simp only [Bool.false_eq_true, if_false] at hw

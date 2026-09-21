@@ -161,6 +161,7 @@ theorem MInv_addNode (hwf : WF φ) (F : GPathM) (d : NodeId) (title : String)
       ⟨Parents.PN_addNode F d title hc.shape.pn, Parents.PBelow_addNode F d title hd hc.shape.pbelow,
         Parents.NotRoot_addNode F d title hd h.mok hc.shape.notroot⟩,
       Sons.RootAtZero_addNode F d title hd h.mok hc.rootz, ParentId.PMP_addNode F d title h.tl hc.pmp,
+      ParentId.GPMP_addNode F d title hc.gpmp,
       fun n hn => (SelfOwn.Below_addNode F d title hd h.mok hBelow n hn).2,
       Reader.nodup_addNode F d title hc.nodup hc.below hd⟩,
     MachineOk_addNode F d title h.mok, ParentId.TL_addNode F d title hd hc.below, ?_, ?_,
@@ -168,48 +169,51 @@ theorem MInv_addNode (hwf : WF φ) (F : GPathM) (d : NodeId) (title : String)
     Sons.SMP_addNode F d title hd hc.below hc.shape.pbelow h.smp,
     Sons.PMS_addNode F d title hd hc.below h.sn h.pms, Sons.SN_addNode F d title h.sn, ?_⟩
   · intro n' hn' req hreq q hq hstepq
-    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_id] at hreq
       rw [upMap_owners] at hq
       rcases List.mem_append.mp hq with hq | hq
       · exact h.rf m hm req hreq q hq hstepq
-      · have hq' := List.mem_singleton.mp hq
-        exfalso
+      · exfalso
         have h1 := h.back m hm req hreq
         have h2 := hc.below m hm
-        have h3 : q.id.step = d.step := by rw [hq']; rfl
+        have h3 : q.id.step = d.step := by
+          rw [mapId_of_mem_newRowIds F d q (gainedOwners_subset F d m q hq)]
         omega
-    · have hreq' : req ∈ reqOfCnf φ d := hreq
-      have hq' : q ∈ F.gowners ++ [newPid F d] := hq
-      rcases List.mem_append.mp hq' with hq | hq
+    · rw [rowNode_id, mapId_of_mem_newRowIds F d pid hpid] at hreq
+      rw [rowNode_owners] at hq
+      have hreq' : req ∈ reqOfCnf φ d := hreq
+      rcases rowOwners_mem_gowners_or_self F d pid q hq with hq | rfl
       · exact hcl req hreq' q hq hstepq
       · exfalso
         have h1 := reqOfCnf_backward φ hwf d req hreq'
-        have h3 : q.id.step = d.step := by rw [List.mem_singleton.mp hq]; rfl
+        have h3 : q.id.step = d.step := by rw [mapId_of_mem_newRowIds F d q hpid]
         omega
   · intro n' hn' req hreq
-    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_id] at hreq ⊢
       exact h.back m hm req hreq
-    · exact reqOfCnf_backward φ hwf d req hreq
+    · rw [rowNode_id, mapId_of_mem_newRowIds F d pid hpid] at hreq ⊢
+      exact reqOfCnf_backward φ hwf d req hreq
   · -- owners are nodes
     have hup_old : ∀ q, GownersNodes.HasNode F q → GownersNodes.HasNode (addNode F d title) q := by
       rintro q ⟨m, hmm, hmid⟩
       refine ⟨upMap F d m, ?_, by rw [upMap_id]; exact hmid⟩
       rw [addNode_nodes]; exact List.mem_append_left _ (List.mem_map.mpr ⟨m, hmm, rfl⟩)
-    have hup_new : GownersNodes.HasNode (addNode F d title) (newPid F d) := by
-      refine ⟨addOwner (newPid F d) (upNode F d title), ?_, rfl⟩
-      rw [addNode_nodes]; exact List.mem_append_right _ List.mem_cons_self
+    have hup_new : ∀ z ∈ newRowIds F d, GownersNodes.HasNode (addNode F d title) z := by
+      intro z hz
+      refine ⟨rowNode F d title z, ?_, rfl⟩
+      rw [addNode_nodes]; exact List.mem_append_right _ (List.mem_map_of_mem hz)
     intro n' hn' q hq
-    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | rfl
+    rcases ParentOwners.mem_addNode_nodes hn' with ⟨m, hm, rfl⟩ | ⟨pid, hpid, rfl⟩
     · rw [upMap_owners] at hq
       rcases List.mem_append.mp hq with hq | hq
       · exact hup_old q (h.own m hm q hq)
-      · rw [List.mem_singleton.mp hq]; exact hup_new
-    · have hq' : q ∈ F.gowners ++ [newPid F d] := hq
-      rcases List.mem_append.mp hq' with hq | hq
+      · exact hup_new q (gainedOwners_subset F d m q hq)
+    · rw [rowNode_owners] at hq
+      rcases rowOwners_mem_gowners_or_self F d pid q hq with hq | rfl
       · exact hup_old q (hc.gn q hq)
-      · rw [List.mem_singleton.mp hq]; exact hup_new
+      · exact hup_new q hpid
 
 theorem MInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : MInv φ g₁) (h₂ : MInv φ g₂) :
     MInv φ (join g₁ g₂) := by
@@ -223,6 +227,7 @@ theorem MInv_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : M
         Parents.PBelow_join g₁ g₂ c₁.shape.pbelow c₂.shape.pbelow,
         Parents.NotRoot_join g₁ g₂ c₁.shape.notroot c₂.shape.notroot⟩,
       Sons.RootAtZero_join g₁ g₂ c₁.rootz c₂.rootz, ParentId.PMP_join g₁ g₂ c₁.pmp c₂.pmp,
+      ParentId.GPMP_join g₁ g₂ c₁.gpmp c₂.gpmp,
       fun n hn => (SelfOwn.Below_join g₁ g₂ hok hB₁ hB₂ n hn).2,
       Reader.nodup_join g₁ g₂ c₁.nodup c₂.nodup⟩,
     Certifies.MachineOk_join g₁ g₂ h₁.mok, ParentId.TL_join g₁ g₂ hok h₁.tl h₂.tl,
@@ -259,7 +264,8 @@ theorem MInv_initSeed (hwf : WF φ) (d : NodeId) (hd : d ∈ mapNodes φ 0) :
     rw [List.mem_singleton.mp hn]
   refine ⟨⟨SelfOwn.OOS_initSeed d "", SelfOwn.SNN_initSeed d "" hstep, GownersNodes.GN_initSeed d "",
       ⟨Parents.PN_initSeed d "", Parents.PBelow_initSeed d "", Parents.NotRoot_initSeed d "" hstep⟩,
-      Sons.RootAtZero_initSeed d "", ParentId.PMP_initSeed d "", ?_, ?_⟩,
+      Sons.RootAtZero_initSeed d "", ParentId.PMP_initSeed d "",
+      ParentId.GPMP_initSeed d "", ?_, ?_⟩,
     Certifies.MachineOk_initSeed d "", ParentId.TL_initSeed d "" hstep,
     initSeed_ReqFiltered (reqOfCnf φ) d "" hstep (reqOfCnf_backward φ hwf d), ?_,
     NodesOnMap_initSeed φ d "" (by rw [hstep]; exact hd), Sons.SMP_initSeed d "",

@@ -108,21 +108,11 @@ theorem find?_beq_self {α : Type} [BEq α] [LawfulBEq α] (l : List α) (a : α
       · rw [beq_self_eq_true] at hb; exact absurd hb (by simp)
       · exact h'
 
-/-- **Looking up a node of the new row.** -/
-theorem addNode_node?_new (g : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = g.current_step)
-    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
-    (pid : PathNodeId) (hpid : pid ∈ newRowIds g d) :
+/-- **Looking up a node of the new row**, given only that no old node carries its
+identifier. -/
+theorem addNode_node?_new_of (g : GPathM) (d : NodeId) (title : String)
+    (pid : PathNodeId) (hpid : pid ∈ newRowIds g d) (hnone : g.node? pid = none) :
     (addNode g d title).node? pid = some (rowNode g d title pid) := by
-  have hstep : pid.id.step = g.current_step := by
-    rw [mapId_of_mem_newRowIds g d pid hpid]; exact hd
-  have hnone : g.nodes.find? (fun x : PNodeM => x.id == pid) = none := by
-    rw [List.find?_eq_none]
-    intro x hx hbeq
-    have hxid : x.id = pid := eq_of_beq hbeq
-    have := hbelow x hx
-    rw [hxid, hstep] at this
-    omega
   have hp : (fun x : PNodeM => (upMap g d x).id == pid)
       = (fun x : PNodeM => x.id == pid) := by funext x; rw [upMap_id]
   have hrow : (newRow g d title).find? (fun x : PNodeM => x.id == pid)
@@ -132,9 +122,25 @@ theorem addNode_node?_new (g : GPathM) (d : NodeId) (title : String)
     show ((newRowIds g d).find? (fun q => q == pid)).map (rowNode g d title) = _
     rw [find?_beq_self _ pid hpid]
     rfl
+  have hnodes : g.nodes.find? (fun x : PNodeM => x.id == pid) = none := hnone
   simp only [node?, addNode_nodes, List.find?_append, List.find?_map, Function.comp_def, hp,
-    hnone, Option.map_none, Option.none_or]
+    hnodes, Option.map_none, Option.none_or]
   exact hrow
+
+/-- **Looking up a node of the new row.** -/
+theorem addNode_node?_new (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (pid : PathNodeId) (hpid : pid ∈ newRowIds g d) :
+    (addNode g d title).node? pid = some (rowNode g d title pid) := by
+  refine addNode_node?_new_of g d title pid hpid ?_
+  show g.nodes.find? (fun x : PNodeM => x.id == pid) = none
+  rw [List.find?_eq_none]
+  intro x hx hbeq
+  have hxid : x.id = pid := eq_of_beq hbeq
+  have := hbelow x hx
+  rw [hxid, mapId_of_mem_newRowIds g d pid hpid, hd] at this
+  omega
 
 theorem mem_line_of_node? (g : GPathM) (pid : PathNodeId) (n : PNodeM)
     (hn : g.node? pid = some n) (k : Int) (hstep : pid.id.step = k) :
