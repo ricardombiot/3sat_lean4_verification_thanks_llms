@@ -56,6 +56,11 @@ structure Acc where
   coOk     : Nat := 0          -- ... where some single parent owns every owner above
   coFail   : Nat := 0
   coFailAt : String := "-"
+  huntTried : Nat := 0
+  huntChain : Nat := 0         -- el par SÍ es realizable ⇒ contraejemplo de CommonOwner
+  huntNone  : Nat := 0         -- no hay cadena que pase por los dos
+  huntOut   : Nat := 0         -- presupuesto agotado, indeciso
+  huntNote  : String := "-"
   deriving Repr
 
 def bump (a : Acc) (d : Nat) (lit : Bool) : Acc :=
@@ -93,6 +98,47 @@ def tripleAt (g : GPathM) (x : PathNodeId) (n : PNodeM) (cap : Nat) : Option Boo
             ok := false
     return (if seen then some ok else none)
 
+-- ============================================================
+-- La caza: ¿el par que falla se realiza como picks de una cadena?
+-- ============================================================
+
+/-- Una cadena parcial sana desde `x` hacia arriba, forzada a pasar por `u` y `w`.
+
+Los picks tienen que estar enlazados por links de padre (`sons`), poseerse **todos** entre sí,
+y ser owners globales — es `SoundFrom` leído hacia arriba. Si esta búsqueda encuentra una, el par
+que falló **sí** son picks de una cadena, y entonces esa cadena no extiende al paso de abajo: un
+contraejemplo de `CommonOwner`. Si no encuentra ninguna, el par no era realizable y la relajación
+era demasiado débil. -/
+partial def chainThrough (g : GPathM) (u w : PathNodeId) (budget : Nat)
+    (picks : List PathNodeId) (k : Int) : Nat × Option (List PathNodeId) :=
+  if budget == 0 then (0, none)
+  else if k ≥ g.current_step then (budget, some picks)
+  else
+    let prev := picks.headD u
+    let cands := (sonsOf g prev).filter (fun c =>
+      c.id.step == k
+      && (if k == u.id.step then c == u else true)
+      && (if k == w.id.step then c == w else true)
+      && g.gowners.contains c
+      && picks.all (fun p => (ownersOf g c).contains p && (ownersOf g p).contains c))
+    cands.foldl (fun (st : Nat × Option (List PathNodeId)) c =>
+      match st.2 with
+      | some _ => st
+      | none => chainThrough g u w (st.1 - 1) (c :: picks) (k + 1)) (budget, none)
+
+/-- Devuelve el primer par `(u,w)` que falla la terna en `x`, si lo hay. -/
+def failingPair (g : GPathM) (x : PathNodeId) (n : PNodeM) (cap : Nat) :
+    Option (PathNodeId × PathNodeId) :=
+  if n.parents.length < 2 then none
+  else Id.run do
+    let above := (n.owners.filter (fun u => x.id.step < u.id.step)).take cap
+    for u in above do
+      for w in above do
+        if u.id.step < w.id.step && (ownersOf g w).contains u && (ownersOf g u).contains w then
+          if !(n.parents.any (fun c => (ownersOf g u).contains c && (ownersOf g w).contains c)) then
+            return some (u, w)
+    return none
+
 def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run do
   let mut a := { a with states := a.states + 1 }
   -- (1) the real in-degree, node by node
@@ -108,6 +154,22 @@ def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run
       | some false =>
         a := { a with coNodes := a.coNodes + 1, coFail := a.coFail + 1
                     , coFailAt := s!"{label} step {n.id.id.step}" }
+        match failingPair g n.id n 40 with
+        | none => pure ()
+        | some (u, w) =>
+          a := { a with huntTried := a.huntTried + 1 }
+          let (left, res) := chainThrough g u w 200000 [n.id] (n.id.id.step + 1)
+          match res with
+          | some _ =>
+            a := { a with huntChain := a.huntChain + 1
+                        , huntNote := s!"{label} x@{n.id.id.step} u@{u.id.step} w@{w.id.step} CADENA" }
+          | none =>
+            if left == 0 then
+              a := { a with huntOut := a.huntOut + 1
+                          , huntNote := s!"{label} x@{n.id.id.step} presupuesto agotado" }
+            else
+              a := { a with huntNone := a.huntNone + 1
+                          , huntNote := s!"{label} x@{n.id.id.step} u@{u.id.step} w@{w.id.step} sin cadena" }
   -- (2) the counterfactual, line by line
   let mut k : Int := 0
   while k < g.current_step - 1 do
@@ -148,6 +210,12 @@ def report (name : String) (a : Acc) (ms : Nat) : IO Unit := do
   IO.println s!"     un padre sirve para toda pareja : {a.coOk}  ({pct a.coOk a.coNodes})"
   IO.println s!"     alguna pareja sin padre común  : {a.coFail}"
   if a.coFail > 0 then IO.println s!"     primero: {a.coFailAt}"
+  if a.huntTried > 0 then
+    IO.println s!"   caza sobre los fallos ({a.huntTried}):"
+    IO.println s!"     el par ES picks de una cadena (contraejemplo) : {a.huntChain}"
+    IO.println s!"     no hay cadena por los dos (relajacion debil)  : {a.huntNone}"
+    IO.println s!"     indeciso (presupuesto agotado)                : {a.huntOut}"
+    IO.println s!"     ultimo: {a.huntNote}"
   IO.println s!"   ({ms} ms)"
 
 def loadCnf (path : String) : IO (Option Cnf) := do

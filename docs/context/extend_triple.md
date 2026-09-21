@@ -112,9 +112,68 @@ que esa configuración **no se da**: 0 de 1.267.
 
 ---
 
-## 4. Tres ángulos, valorados
+## 3bis. La caza, y lo que enseñó
 
-### (A) Cerrar la terna usando `AggOk` sobre `(u,w)` — el que yo intentaría
+Con la relajación falsa, la pregunta pasó a ser: **¿esos pares se realizan como picks de una
+cadena parcial sana?** El test es exacto, y la razón de que lo sea merece escribirse:
+
+> si existiera una cadena sana desde el paso `s-1` pasando por `x`, `u` y `w`, su pick en
+> `s-1` sería un **padre de `x`** (link de padre) que **posee a todos los picks** (posesión
+> mutua) — justo lo que el fallo dice que no existe.
+
+Así que buscar la cadena decide la disyuntiva. `chainThrough` la busca hacia arriba desde `x`:
+picks enlazados por `sons`, todos poseyéndose entre sí, todos owners globales, forzando `u` y
+`w` en sus pasos.
+
+**Resultado (semilla 777, el primero resuelto):** `x@4, u@6, w@12` → **no hay cadena**, con
+presupuesto sobrante (no es un indeciso). El par no es realizable. `CommonOwner` sobrevive.
+
+### Lo que sale de ahí, y creo que es lo más útil de toda la nota
+
+Si el par que falla no se realiza, lo que falta en mi relajación es **la contigüidad**: una
+cadena tiene picks en *todos* los pasos, enlazados por links de padre. Y con eso el problema
+se reordena entero:
+
+```
+A_k := { c ∈ parents(x) : c ∈ owners(sel k) }     el objetivo es  ⋂ₖ A_k ≠ ∅
+```
+
+**Al nacer, `A_k` es creciente en `k`.** Por `mem_rowOwners_iff`, los owners de un nodo de
+fila son los de **sus padres** cortados contra `gowners`, más él mismo. Como `sel k` es padre
+de `sel (k+1)`:
+
+> `c ∈ owners(sel k)` y `c ∈ gowners`  ⟹  `c ∈ owners(sel (k+1))`.
+
+Y `A_lo = parents(x)` entero, porque todo padre posee a su hijo. Luego **⋂ₖ A_k = parents(x) ≠ ∅
+en el momento del nacimiento**: `CommonOwner` es *trivialmente cierta* recién construido el
+estado.
+
+**Todo el contenido está en las eliminaciones de la revisión.** Eso reencuadra el problema:
+deja de ser un enunciado de Helly sobre tablas y pasa a ser un enunciado de **preservación**,
+que es el idioma en el que este repo demuestra todo lo demás:
+
+1. `CommonOwner (addNode g d t)` — el caso de nacimiento, por la monotonía de arriba;
+2. `CommonOwner` se conserva por `filterRequire`, `review`, `reviewAgg` y `join`.
+
+(2) es lo difícil, pero es hermana de `ChainSound_reviewAgg` —*la criba no pierde ninguna
+cadena sana*, ya demostrada— con «cadena completa» sustituido por «cadena parcial más su
+extensión». La única dependencia lateral es `Ownership.NodesAreGowners` (*todo nodo es owner
+global*), medida sin violaciones sobre 259.187 nodos y no demostrada.
+
+## 4. Cuatro ángulos, valorados
+
+### (0) Nacimiento + preservación — **el que yo intentaría ahora**
+
+El del §3bis. Es el único que no pelea contra Helly: usa que la obligación nace cierta y
+pregunta qué la rompe. Encaja con cómo está demostrado todo lo demás del repo, y el caso de
+nacimiento ya está escrito en `mem_rowOwners_iff`.
+
+**Riesgo honesto:** la preservación bajo `reviewAgg` es exactamente donde vive la dificultad,
+y no sé si es más fácil ahí que en la forma de Helly. Pero al menos es una inducción sobre las
+operaciones de la máquina, no una propiedad estática de las tablas.
+
+
+### (A) Cerrar la terna usando `AggOk` sobre `(u,w)`
 
 Es el único que la medición señala directamente. El testigo `z ∈ owners(u) ∩ owners(w)` al
 paso `s-1` existe y **no se usa**. Si se demostrara que `z` es padre de `x`, se acaba.
@@ -133,7 +192,7 @@ ver con `x`. Nada de lo que he leído lo impide, y los 3 fallos del §2 son exac
 pasando. Así que este ángulo **no puede cerrarse solo con el clique**: necesita además la
 estructura de cadena (links de padre, un pick por paso) que mi test no impuso.
 
-### (B) Descender solo por las aristas de requisito — el que más cambia el problema
+### (B) Descender solo por las aristas de requisito
 
 `SoundFrom` exige posesión entre **todos** los pares de picks. El decodificador no necesita
 tanto: `MapChain.reqSatisfying_of_pairwiseOwned` consume `PairwiseOwned` **únicamente** en
