@@ -733,7 +733,7 @@ concreto en cada caso:
 
 Exploración aparte en [extend_triple.md](extend_triple.md): la obligación acotada, la
 medición que dice que **lo que hace casi todo el trabajo no es la cota ≤3 sino que los picks
-formen un clique** (566 fallos de 1.457 sin la condición, 2 de 8.261 con ella — y esos 2
+formen un clique** (566 fallos de 1.457 sin la condición, 3 de 16.364 con ella — y esos 3
 abren una disyuntiva sin resolver), la
 reformulación a *«el owner común de dos picks un paso más abajo, ¿posee al nodo?»*, y tres
 ángulos de ataque valorados.

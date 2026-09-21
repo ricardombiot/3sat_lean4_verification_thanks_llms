@@ -33,15 +33,24 @@ Dos tests sobre el mismo corpus, con la misma sonda (`lake exe row-degree`):
 | test | picks considerados | casos | fallos |
 |---|---|---|---|
 | sobre-aproximado | **todos** los owners de `x` por encima | 1.457 | **566** (39 %) |
-| clique (`tripleAt`) | pares de owners que **se poseen entre sí** | 8.261 | **2** (0,024 %) |
+| clique (`tripleAt`) | pares de owners que **se poseen entre sí** | 16.364 | **3** (0,018 %) |
 
-Desglose del segundo, por semilla:
+Desglose del segundo, corpus por corpus (barrido completo):
 
-| corpus | casos | fallos |
-|---|---|---|
-| `random 20 3 31337` | 1.267 | 0 |
-| `random 20 4 11` | 4.229 | 1 — `line 21 key ⟨21,0⟩ step 6` |
-| `random 20 4 777` | 2.765 | 1 — `line 22 key ⟨22,0⟩ step 4` |
+| corpus | grado máx. | casos | fallos |
+|---|---|---|---|
+| `random 20 3 31337` | 3 | 1.267 | **0** |
+| `random 20 4 2026` | **2** | 4.267 | **0** |
+| `random 20 4 11` | 4 | 4.229 | 1 — `line 21 key ⟨21,0⟩ step 6` |
+| `random 20 4 777` | 4 | 2.765 | 1 — `line 22 key ⟨22,0⟩ step 4` |
+| `random 20 4 90210` | 4 | 3.836 | 1 — `line 25 key ⟨25,6⟩ step 6` |
+| **total** | | **16.364** | **3** (0,018 %) |
+
+**Una correlación que conviene no sobreleer.** Los tres fallos salen de los tres corpus cuyo
+grado de entrada llega a **4**; los dos corpus con grado máximo ≤3 no tienen ninguno. Con
+`n = 5` eso es una sugerencia, no un dato — pero es **comprobable** y es exactamente la
+frontera que el nombre `extend_triple` insinúa. Si aguantara, el enunciado a demostrar
+sería *«con ≤3 padres la terna cierra»*, y el trabajo se movería a acotar el grado.
 
 **Dos lecturas, y la segunda me obliga a corregir la primera versión de esta nota.**
 
@@ -51,7 +60,7 @@ Desglose del segundo, por semilla:
    fallos caen a 1 de cada 4.000. Para la prueba eso significa algo concreto: **hay que usar
    `AggOk` sobre la pareja `(u,w)`**, y el argumento de `extend_pair` no lo hace — solo usa
    `(x,u)` y `(x,w)`. Ahí está el hueco.
-2. **Pero el clique no basta.** Hay 2 fallos en 8.261. Así que la terna *tal como la relajé*
+2. **Pero el clique no basta.** Hay 3 fallos en 16.364. Así que la terna *tal como la relajé*
    —dos owners cualesquiera de `x`, por encima, que se posean— **es falsa**.
 
 ### La pregunta que esto abre, y que no he contestado
@@ -69,7 +78,7 @@ Así que de los dos fallos solo se sigue una disyuntiva:
 * **o** sí se extiende — y entonces **`CommonOwner` es falsa**, y con ella la ruta del
   descenso entera.
 
-Son 2 casos concretos, localizados por línea, clave y paso. Decidir cuál de las dos es
+Son 3 casos concretos, localizados por línea, clave y paso. Decidir cuál de las dos es
 requiere reconstruir esos estados y buscar si el par extiende. **No lo he hecho**: eso ya es
 una búsqueda de contraejemplo, y en este repo eso se pregunta antes de lanzarlo.
 
@@ -120,7 +129,7 @@ que es una pregunta sobre **dos pasos contiguos**, no sobre toda la cadena. Es e
 más pequeño al que he sabido reducirlo.
 
 **Riesgo honesto:** `z` podría estar en otra rama y poseer a `u` y `w` sin tener nada que
-ver con `x`. Nada de lo que he leído lo impide, y los 2 fallos del §2 son exactamente eso
+ver con `x`. Nada de lo que he leído lo impide, y los 3 fallos del §2 son exactamente eso
 pasando. Así que este ángulo **no puede cerrarse solo con el clique**: necesita además la
 estructura de cadena (links de padre, un pick por paso) que mi test no impuso.
 
@@ -164,15 +173,18 @@ decisión revisable o un compromiso.
 
 ## 5. Lo que mediría antes de decidir
 
-1. **Los dos fallos del §2**, antes que nada: ¿el par extiende a una cadena parcial sana?
+1. **Los tres fallos del §2**, antes que nada: ¿el par extiende a una cadena parcial sana?
    Es la disyuntiva del §2 y decide si la ruta D sigue viva. Es una búsqueda de
    contraejemplo, así que se pregunta antes.
 2. **Instancias estructuradas.** El contraejemplo de Helly de v114 vivía en Tseitin sobre
    Petersen. *(Corriendo.)*
-3. **Los testigos `z`.** Cuando hay ≥2 padres, ¿el owner común de `u` y `w` al paso `s-1`
+3. **El grado 4.** Si los fallos solo aparecen con grado ≥4, eso es un enunciado con
+   nombre y una frontera clara. Es la medición más barata de las cuatro: basta filtrar el
+   test por `n.parents.length ≤ 3` y ver si los fallos desaparecen.
+4. **Los testigos `z`.** Cuando hay ≥2 padres, ¿el owner común de `u` y `w` al paso `s-1`
    **es** siempre uno de los padres de `x`? Eso mide directamente el ángulo (A), y es una
    línea más en la sonda.
-4. **`1 + ocurrencias(v)` real** por instancia, para saber si el ángulo (B) acota una clase
+5. **`1 + ocurrencias(v)` real** por instancia, para saber si el ángulo (B) acota una clase
    interesante o una vacía.
 
 ## 6. Lo que no haría
