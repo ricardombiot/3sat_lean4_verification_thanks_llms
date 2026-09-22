@@ -257,4 +257,86 @@ theorem readerVerdictW_iff_of_pinAlive (hpa : PinAlive) (φ : Cnf) (hwf : WF φ)
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_pinAlive
 
+-- ============================================================
+-- Dentro de `PinAlive`: el pin no rompe nada, solo el review puede
+-- ============================================================
+
+/-- **El pin, por sí solo, nunca invalida el grafo.** Sin ninguna hipótesis.
+
+`filterRequire` solo toca el paso del propio pin, y allí deja al pin — que sigue vivo—. Los demás
+pasos no los mira. Así que la mitad de `PinAlive` que corresponde al **filtro** se cierra aquí, y
+toda la obligación cae sobre el review. -/
+theorem isValid_filterRequire_of_live (g : GPathM) (hv : isValid g = true)
+    (q : PathNodeId) (hq : q ∈ g.gowners) : isValid (filterRequire g q.id) = true := by
+  simp only [isValid, List.all_eq_true] at hv ⊢
+  intro k hk
+  have hx := hv k hk
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hx ⊢
+  obtain ⟨p, hp, hps⟩ := hx
+  rcases int_eq_or_ne k q.id.step with hkq | hkq
+  · refine ⟨q, ?_, hkq.symm⟩
+    rw [PickInduction.filterRequire_gowners, List.mem_filter]
+    exact ⟨hq, by simp⟩
+  · refine ⟨p, ?_, hps⟩
+    rw [PickInduction.filterRequire_gowners, List.mem_filter]
+    exact ⟨hp, by simp only [Bool.or_eq_true, bne_iff_ne]; exact Or.inl (by rw [hps]; exact hkq)⟩
+
+/-- **Y además el pin deja, en cada paso, un owner del propio nodo pinchado.**
+
+Esto es más que la validez y es la forma en que el autor lo piensa: **la tabla de `q` es su
+camino**. Un nodo válido tiene un owner en todos los pasos (`owners_ok_of_isValidNode`), esos
+owners son owners globales (`ownGow`), y sobreviven al filtro — los de otros pasos porque el filtro
+ni los mira, y el del paso de `q` porque, por `OOS`, **es `q`**.
+
+Así que después de pinchar, el testigo de que ningún paso está vacío no es uno cualquiera: es la
+propia tabla del nodo elegido. -/
+theorem pin_keeps_own_owners (g : GPathM) (ctx : DCtx g) (hv : isValid g = true)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq)
+    (k : Int) (hk0 : 0 ≤ k) (hk1 : k < g.current_step) :
+    ∃ w ∈ nq.owners, w.id.step = k ∧ w ∈ (filterRequire g q.id).gowners := by
+  have rctx := Reader.Ctx_of_readable _ (readable_of_readableAgg _ ctx.rd) hv
+  have hok := owners_ok_of_isValidNode g nq (rctx.nodeval q nq hq)
+  simp only [List.all_eq_true] at hok
+  obtain ⟨w, hw, hws⟩ := List.any_eq_true.mp (hok k (mem_intRange hk0 (by omega)))
+  have hwstep : w.id.step = k := eq_of_beq hws
+  have hwg : w ∈ g.gowners :=
+    rctx.ownGow q nq hq w hw (by rw [hwstep]; exact hk0) (by rw [hwstep]; exact hk1)
+  have hqid : nq.id = q := node?_id_eq g q nq hq
+  refine ⟨w, hw, hwstep, ?_⟩
+  rw [PickInduction.filterRequire_gowners, List.mem_filter]
+  refine ⟨hwg, ?_⟩
+  rcases int_eq_or_ne w.id.step q.id.step with hs | hs
+  · have hwq : w = nq.id :=
+      (RCtx_of_readableAgg g ctx.rd).oos nq (List.mem_of_find?_eq_some hq) w hw (by rw [hs, hqid])
+    simp only [Bool.or_eq_true, beq_iff_eq]
+    exact Or.inr (by rw [hwq, hqid])
+  · simp only [Bool.or_eq_true, bne_iff_ne]
+    exact Or.inl hs
+
+/-- **Y entonces `PinAlive` es, exactamente, una frase sobre el review.**
+
+    el review no puede vaciar un paso de un estado que acaba de fijar una entrada viva.
+
+Nada más. El filtro ya está cerrado (`isValid_filterRequire_of_live`), y el testigo de cada paso
+está puesto y nombrado: un owner del nodo pinchado (`pin_keeps_own_owners`). Lo único que falta es
+que el review no se lo lleve.
+
+Y eso es `ReaderChain.PinKeepsPartner` dicho sobre la tabla global: *pinchar `q` no puede volver
+incompatible con `q` a algo que ya era compatible con `q`*. El review solo quita un owner cuando
+deja de compartir paso con los suyos (`aggPair`), y los owners de `q` comparten con `q` por
+construcción. -/
+theorem pinAlive_of_reviewKeeps
+    (h : ∀ g : GPathM, DCtx g → isValid g = true →
+      ∀ q ∈ g.gowners, 0 ≤ q.id.step → q.id.step < g.current_step →
+        isValid (reviewAgg (filterRequire g q.id)) = true) : PinAlive :=
+  fun g ctx hv q hq h0 h1 => h g ctx hv q hq h0 h1
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValid_filterRequire_of_live' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_filterRequire_of_live
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pin_keeps_own_owners' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pin_keeps_own_owners
+
 end AbsSat.GraphPath.Model.PinAliveChain
