@@ -1378,4 +1378,87 @@ theorem ownerChained_of_steer (g : GPathM) (h : HasChain g)
 #guard_msgs in
 #print axioms ownerChained_of_steer
 
+-- ============================================================
+-- `doJoin`: la unión de tablas pasa la frase sin tocarla
+-- ============================================================
+
+/-- **La fusión conserva la frase del autor. Sin condiciones entre los dos lados.**
+
+Y esto es lo que hay que comparar con la medida que mató a `AncOwned`: allí el `doJoin` rompía el
+invariante en el **22,8 %** de las fusiones, porque al fundir dos nodos con el mismo identificador
+se unen sus listas de padres, y la relación *padre* pasa a sobreaproximar mientras la tabla se
+queda exacta.
+
+`OwnerChained` no se entera de eso, porque **no habla de padres: habla de tablas**. Y las tablas
+de la fusión son la unión de las dos (`GownersNodes.join_gowners`), así que cada entrada viva del
+resultado viene de un lado o del otro, y se trae de allí su cadena entera
+(`ChainSound_join_left` / `_right`, que solo usan que el grafo ha crecido).
+
+Dicho como el autor lo dice: *hacemos la unión entre los conjuntos según se han ido construyendo
+en la máquina, y esas diferencias entre las tablas son las que nos permiten contener todas las
+soluciones.* Aquí se ve por qué eso era lo correcto y no un descuido: **la unión no solo conserva
+los caminos de los dos lados, es que los caminos del lado derecho son exactamente las alternativas
+que `ownerChained_of_steer` necesita.** Un estado fundido sabe desviar su cadena hacia una entrada
+que solo `g₂` tenía. -/
+theorem ownerChained_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : OwnerChained g₁) (h₂ : OwnerChained g₂) : OwnerChained (join g₁ g₂) := by
+  intro q hq h0 h1
+  rw [GownersNodes.join_gowners, List.mem_append] at hq
+  rcases hq with hq | hq
+  · obtain ⟨sel, hsc, hsel⟩ :=
+      h₁ q hq h0 (by rw [← (grown_join_left g₁ g₂).step_eq]; exact h1)
+    exact ⟨sel, ChainSound_join_left g₁ g₂ sel hsc, hsel⟩
+  · obtain ⟨sel, hsc, hsel⟩ :=
+      h₂ q (List.mem_filter.mp hq).1 h0 (by rw [← (grown_join_right g₁ g₂ hok).step_eq]; exact h1)
+    exact ⟨sel, ChainSound_join_right g₁ g₂ hok sel hsc, hsel⟩
+
+/-- **Y `doJoin`, que es `join` cuando los dos lados encajan y `g₁` cuando no.** -/
+theorem ownerChained_doJoin (g₁ g₂ : GPathM) (h₁ : OwnerChained g₁) (h₂ : OwnerChained g₂) :
+    OwnerChained (doJoin g₁ g₂) := by
+  unfold doJoin
+  by_cases hok : okJoin g₁ g₂ = true
+  · rw [if_pos hok]; exact ownerChained_join g₁ g₂ hok h₁ h₂
+  · rw [if_neg hok]; exact h₁
+
+/-- **Y el review agresivo también, por la misma razón y al revés.**
+
+`reviewAgg` solo poda (`pruned_reviewAgg`), así que una entrada que sobrevive ya estaba antes y
+tiene su cadena de antes; y `ChainSound_reviewAgg` dice que el review no rompe una cadena sana, así
+que esa misma cadena sigue valiendo después.
+
+Esto es exactamente lo que el autor viene diciendo del review: **no borra nada que haga falta**. Y
+aquí está escrito en la única forma que el lector necesita. -/
+theorem ownerChained_reviewAgg (g : GPathM) (h : OwnerChained g) :
+    OwnerChained (reviewAgg g) := by
+  intro q hq h0 h1
+  have hpr := pruned_reviewAgg g
+  obtain ⟨sel, hsc, hsel⟩ := h q (hpr.gowners_sub q hq) h0 (by rw [← hpr.step_eq]; exact h1)
+  exact ⟨sel, ChainSound_reviewAgg g sel hsc, hsel⟩
+
+/-! **Y con esto el mapa de `OwnerChained` queda igual que el de `TablesSound`:**
+
+| operación | `OwnerChained` |
+|---|---|
+| `doJoin` / `join` | **cerrado** — la unión de tablas, sin condiciones |
+| `reviewAgg` | **cerrado** — el review solo poda, y no rompe cadenas |
+| pasos sin elección | **cerrado** (`ownerChained_of_noChoice`), sin axiomas |
+| `filterRequire` | **lo que queda** |
+
+Y el que queda es el mismo de siempre, porque es el único sitio donde una cadena **puede** morir:
+el filtro exige que la cadena elija el nodo pinchado en ese paso, y la cadena que una entrada
+traía no tiene por qué elegirlo. Eso es `ownerChained_of_steer` — desviar la cadena hacia la otra
+alternativa — y la fusión es justo la operación que guarda esas alternativas. -/
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_join' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_join
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_doJoin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_doJoin
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_reviewAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_reviewAgg
+
 end AbsSat.GraphPath.Model.ReaderChain
