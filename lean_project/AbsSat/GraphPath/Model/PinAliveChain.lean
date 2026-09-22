@@ -2031,4 +2031,76 @@ theorem Anchored_unlinkIncompatible_protected (g : GPathM) (P : PathNodeId → P
 #guard_msgs in
 #print axioms Anchored_unlinkIncompatible_protected
 
+-- ============================================================
+-- Y la última pieza: el protegido mirado sigue anclado tras su propio corte
+-- ============================================================
+
+/-- El desenlace sobre el propio nodo mirado: filtra sus enlaces contra su tabla. -/
+theorem unlinkMap_self (m : PNodeM) (r : PathNodeId) (hm : m.id = r) :
+    unlinkMap m r m =
+      { m with
+        parents := m.parents.filter (fun p => m.owners.contains p),
+        sons := m.sons.filter (fun t => m.owners.contains t) } := by
+  unfold unlinkMap
+  rw [if_pos (by simpa using hm)]
+
+/-- **El protegido que el review está mirando sigue anclado después de su propio corte.**
+
+Su tabla se corta contra la tabla global, pero **todo lo que el anclaje necesita ya estaba dentro**:
+los testigos por la cobertura, el padre y el hijo por los dos conjuntos que el invariante les añade.
+Así que `intersectOwners` los conserva, y el re-enlace —que filtra los enlaces contra la tabla
+nueva— también.
+
+Con esto el paso del review está cerrado **para todo `r`**, sin excepciones de caso: el mirado por
+éste, los otros protegidos por `Anchored_unlinkIncompatible_protected` y `Anchored_updateAt`, y
+todo lo demás por `Anchored_cleanStep`. -/
+theorem Anchored_selfStep (g : GPathM) (P : PathNodeId → Prop) (r : PathNodeId) (nr : PNodeM)
+    (hnr : g.node? r = some nr) (h : Anchored g P r) :
+    Anchored (unlinkIncompatible
+      (updateAt g r (fun n => { n with owners := intersectOwners n.owners g.gowners })) r) P r := by
+  obtain ⟨nr', hn', hcov, hpar, hson⟩ := h
+  have hnn : nr' = nr := Option.some.inj (hn'.symm.trans hnr)
+  subst hnn
+  have hid : nr'.id = r := node?_id_eq g r nr' hn'
+  have hcut : (updateAt g r
+      (fun n => { n with owners := intersectOwners n.owners g.gowners })).node? r
+      = some { nr' with owners := intersectOwners nr'.owners g.gowners } := by
+    rw [updateAt_node? g r (fun n => { n with owners := intersectOwners n.owners g.gowners })
+        (fun _ => rfl) r nr' hn', show (nr'.id == r) = true from beq_iff_eq.mpr hid]
+  have hstep : (unlinkIncompatible (updateAt g r
+      (fun n => { n with owners := intersectOwners n.owners g.gowners })) r).current_step
+      = g.current_step := current_step_unlinkIncompatible _ _
+  have hgow : (unlinkIncompatible (updateAt g r
+      (fun n => { n with owners := intersectOwners n.owners g.gowners })) r).gowners
+      = g.gowners := by rw [gowners_unlinkIncompatible, gowners_updateAt]
+  have hself : unlinkMap { nr' with owners := intersectOwners nr'.owners g.gowners } r
+      { nr' with owners := intersectOwners nr'.owners g.gowners }
+      = { nr' with
+          owners := intersectOwners nr'.owners g.gowners,
+          parents := nr'.parents.filter
+            (fun p => (intersectOwners nr'.owners g.gowners).contains p),
+          sons := nr'.sons.filter
+            (fun t => (intersectOwners nr'.owners g.gowners).contains t) } :=
+    unlinkMap_self _ r (by rw [hid])
+  refine ⟨_, by rw [unlinkIncompatible_node? _ r _ hcut r _ hcut, hself], ?_, ?_, ?_⟩
+  · intro k hk0 hk1
+    rw [hstep] at hk1
+    obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
+    exact ⟨w, mem_intersectOwners_of_mem _ _ w hwm hwg, hws, by rw [hgow]; exact hwg, hwP⟩
+  · intro h1
+    obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
+    have hpc : p ∈ intersectOwners nr'.owners g.gowners :=
+      mem_intersectOwners_of_mem _ _ p hpo hpg
+    exact ⟨p, List.mem_filter.mpr ⟨hpm, by simpa using hpc⟩, hpP, hpc, by rw [hgow]; exact hpg⟩
+  · intro h2
+    rw [hstep] at h2
+    obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
+    have htc : t ∈ intersectOwners nr'.owners g.gowners :=
+      mem_intersectOwners_of_mem _ _ t hto htg
+    exact ⟨t, List.mem_filter.mpr ⟨htm, by simpa using htc⟩, htP, htc, by rw [hgow]; exact htg⟩
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_selfStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_selfStep
+
 end AbsSat.GraphPath.Model.PinAliveChain
