@@ -3,6 +3,7 @@ import AbsSat.GraphPath.Model.AddNode
 import AbsSat.GraphPath.Model.JoinSound
 import AbsSat.GraphPath.Model.DescentUp
 import AbsSat.GraphPath.Model.RunInhabited
+import AbsSat.GraphPath.Model.FabricAdd
 
 /-!
 # `TablesSound` por la construcción de la máquina
@@ -42,6 +43,7 @@ open AbsSat.Utils.Alias
 open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.Exactness (TablesSound Realizes)
+open AbsSat.GraphPath.Model.AggressiveReview
 
 -- ============================================================
 -- El join: no inventa nada
@@ -187,6 +189,72 @@ theorem tablesSound_addNode (g : GPathM) (d : NodeId) (title : String)
         ht p mp hmp (by omega) (by omega) x hx0 hxlt hxmp
       obtain ⟨σ, hσ, hσx, hσq⟩ := hchainRow q p x sel hp hsc hsp hxlt hsx
       exact ⟨σ, hσ, hσx, hσq⟩
+
+-- ============================================================
+-- El filtro: lo que el autor dice que hace, dicho como teorema
+-- ============================================================
+
+/-! El autor lo describe así:
+
+> *durante la lectura, al seleccionar aplicamos un filtrado muy ligero que borra los nodos que no
+> vamos a seleccionar; tras el review, todas las tablas de owners se actualizan para dejar solo
+> caminos de los nodos seleccionados*
+
+Las dos mitades, separadas, son dos cosas muy distintas de demostrar. La primera **sale entera**. -/
+
+/-- **El filtrado ligero: todo lo que sobrevive lleva el requisito.**
+
+`filterRequire` solo toca `gowners`, y deja allí exclusivamente lo que coincide con el requisito en
+su paso (`FabricAdd.gowners_foldl_compat`). La revisión solo poda. Así que **todo nodo que sobrevive
+lleva cada requisito dentro de su propia tabla**: tiene una entrada en ese paso —`isValidNode` lo
+exige— y esa entrada es el requisito.
+
+Es la primera mitad de la frase del autor, y no necesita nada del punto fijo: sale del filtro. -/
+theorem reqs_in_owners (P : GPathM) (reqs : List NodeId)
+    (ctx : Pinned.Ctx (filterAllAgg P reqs))
+    (x : PathNodeId) (nx : PNodeM) (hx : (filterAllAgg P reqs).node? x = some nx)
+    (r : NodeId) (hr : r ∈ reqs) (hr0 : 0 ≤ r.step)
+    (hrs : r.step < (filterAllAgg P reqs).current_step) :
+    ∃ w ∈ nx.owners, w.id = r := by
+  have hok := owners_ok_of_isValidNode _ nx (ctx.nodeval x nx hx)
+  simp only [List.all_eq_true] at hok
+  have hent := hok r.step (mem_intRange hr0 (by omega))
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+  obtain ⟨w, hw, hws⟩ := hent
+  refine ⟨w, hw, ?_⟩
+  have hg : w ∈ (filterAllAgg P reqs).gowners :=
+    ctx.ownGow x nx hx w hw (by omega) (by omega)
+  have hg' : w ∈ (reqs.foldl filterRequire P).gowners :=
+    (pruned_reviewAgg _).gowners_sub w hg
+  exact FabricAdd.gowners_foldl_compat reqs P w hg' r hr hws
+
+/-- **Y la segunda mitad es la que queda abierta.**
+
+*«Tras el review, las tablas dejan solo caminos de los nodos seleccionados»* dice dos cosas:
+
+* **⊇, demostrado**: ningún camino que respete los requisitos se pierde — `ChainSound_filterAllAgg`.
+  El filtro no borra nada que haga falta, exactamente como el autor dice.
+* **⊆, abierto**: lo que queda en las tablas **es** un camino. Esa es `RunSteps.FilterSoundAt`, y es
+  la única de las cuatro operaciones que puede fallarla, porque es la única que corta.
+
+`reqs_in_owners` acerca las dos: da, para cada requisito, un testigo dentro de la tabla de cada
+superviviente. Con `SupportedRun.shared_pin_witness` esos testigos son además **compartidos** por
+cada par que sobrevive. Lo que falta es una cadena que pase por el par **y** por los testigos, que
+es la misma frase que `PinPairSound`. -/
+def FilterLeavesOnlyPaths (P : GPathM) (reqs : List NodeId) : Prop :=
+  ∀ x nx, (filterAllAgg P reqs).node? x = some nx →
+    0 ≤ x.id.step → x.id.step < (filterAllAgg P reqs).current_step →
+    ∀ q ∈ nx.owners, 0 ≤ q.id.step → q.id.step < (filterAllAgg P reqs).current_step →
+      Realizes (filterAllAgg P reqs) x q
+
+theorem filterLeavesOnlyPaths_iff_tablesSound (P : GPathM) (reqs : List NodeId) :
+    FilterLeavesOnlyPaths P reqs ↔ TablesSound (filterAllAgg P reqs) :=
+  ⟨fun h x nx hx h0 h1 q hq0 hq1 hqn => h x nx hx h0 h1 q hqn hq0 hq1,
+   fun h x nx hx h0 h1 q hqn hq0 hq1 => h x nx hx h0 h1 q hq0 hq1 hqn⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.reqs_in_owners' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms reqs_in_owners
 
 /-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
