@@ -472,6 +472,135 @@ theorem readerVerdictW_of_rootPair (h : RootPairSound) (φ : Cnf) (kv : NodeId �
     (progressAgg_of_chains _ (pinKeepsChain_of_rootSound _ hR₀ h₀
       (rootSound_readFrom h _ hR₀ ht₀)))
 
+-- ============================================================
+-- Y el trío se deshace: un PAR, no tres cosas
+-- ============================================================
+
+/-- **La frase del autor, literal.**
+
+*Al aplicar el review sobre todo el grafo dejamos únicamente nodos con caminos válidos* — dicho de
+la tabla de la raíz: **todo lo que el nodo del paso 0 posee está en una cadena completa.**
+
+Nótese lo que **no** dice, comparado con `RootSound`: no pide que la cadena pase también por la
+raíz. Es un enunciado sobre **un** nodo, no sobre un par. Y es todo lo que el lector consume, porque
+`RunSteps.chain_pin_at` tira la pata de la raíz.
+
+Que la raíz no sea única (medido: dos nodos en el paso 0 en un 20–36% de los estados) deja de
+importar por lo mismo. -/
+def RootChained (g : GPathM) : Prop :=
+  ∀ x n, g.node? x = some n → x.id.step = 0 →
+    ∀ w, w ∈ n.owners → 0 ≤ w.id.step → w.id.step < g.current_step →
+      ∃ sel, ChainSound g sel ∧ sel w.id.step = w
+
+theorem rootChained_of_rootSound (g : GPathM) (h : RootSound g) : RootChained g := by
+  intro x n hx hx0 w hwn hw0 hw1
+  obtain ⟨sel, hsc, _, hsw⟩ := h x n hx hx0 w hwn hw0 hw1
+  exact ⟨sel, hsc, hsw⟩
+
+/-- **Y basta para que el pin conserve la cadena.** -/
+theorem hasChain_pin_of_rootChained (g : GPathM) (hR : ReadableAgg g) (hv : isValid g = true)
+    (ht : RootChained g) (mid : NodeId) (h0 : 0 ≤ mid.step) (h1 : mid.step < g.current_step)
+    (hvr : isValid (filterAllAgg g [mid]) = true) : HasChain (filterAllAgg g [mid]) := by
+  have hcs : (filterAllAgg g [mid]).current_step = g.current_step :=
+    (pruned_filterAllAgg g [mid]).step_eq
+  have hRp : ReadableAgg (filterAllAgg g [mid]) :=
+    PinExact.readableAgg_of_readFrom g hR _ (ReadFrom.pin g mid ReadFrom.start hv)
+  have rc := RCtx_of_readableAgg _ hRp
+  have hpos : 0 < (filterAllAgg g [mid]).current_step := by rw [hcs]; omega
+  have hent := hasStepEntry_of_isValid _ hvr 0 (Int.le_refl 0) hpos
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+  obtain ⟨q, hq, hqs⟩ := hent
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff _ q).mp (rc.gn q hq))
+  exact RunSteps.chain_pin_at g hR mid h0 hvr (by rw [hcs]; exact h1) q n hn (by omega) (by omega)
+    (fun n₀ hx₀ w hwr hwn =>
+      ht q n₀ hx₀ hqs w hwn (by rw [hwr]; exact h0) (by rw [hwr]; exact h1))
+
+/-- **El residuo, ahora un PAR y no un trío.**
+
+Todo owner de la raíz que sobrevive al pin está en una cadena **que pasa por el pin**. Dos cosas:
+el owner y el pin. Antes (`RootPairSound`) eran tres: la raíz, el owner y el pin.
+
+Y dos es el lado de la frontera donde la máquina es exacta: esta sesión midió que la criba alcanza
+la consistencia de caminos completa (`Descent.path_consistent_witness`) y falla solo de tres en
+adelante. -/
+def RootPinChained : Prop :=
+  ∀ g : GPathM, ReadableAgg g → isValid g = true → RootChained g →
+    ∀ r : NodeId, isValid (filterAllAgg g [r]) = true →
+      ∀ x n, (filterAllAgg g [r]).node? x = some n → x.id.step = 0 →
+        ∀ w, w ∈ n.owners → 0 ≤ w.id.step → w.id.step < (filterAllAgg g [r]).current_step →
+          w.id.step ≠ r.step →
+          ∃ sel, ChainSound (filterAllAgg g [r]) sel ∧ sel w.id.step = w
+
+/-- **El paso pinchado, gratis otra vez.** Un owner de la raíz en el paso del pin **es** el pin
+(`ReaderComplete.pin_id`), su cadena ya existía, y esa cadena pasa por el pin — luego sobrevive. -/
+theorem rootChained_pin_of_pairs (h : RootPinChained) (g : GPathM) (hR : ReadableAgg g)
+    (hv : isValid g = true) (ht : RootChained g) (r : NodeId)
+    (hvr : isValid (filterAllAgg g [r]) = true) : RootChained (filterAllAgg g [r]) := by
+  intro x n hx hx0 w hwn hw0 hw1
+  rcases int_eq_or_ne w.id.step r.step with hwr | hwr
+  · have hRr := ReadableAgg_filterAllAgg g hR [r]
+    have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+    have rcg := RCtx_of_readableAgg g hR
+    have hpr := pruned_filterAllAgg g [r]
+    have hcs := hpr.step_eq
+    obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+    have hxid := node?_id_eq _ x n hx
+    have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+    have hwid : w.id = r :=
+      ReaderComplete.pin_id g r w (ctxR.ownGow x n hx w hwn hw0 hw1) hwr
+    obtain ⟨sel, hsc, hsw⟩ := ht x n₀ hx₀ hx0 w (hown w hwn) hw0 (by rw [← hcs]; exact hw1)
+    exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq, ← hwr, hsw, hwid]), hsw⟩
+  · exact h g hR hv ht r hvr x n hx hx0 w hwn hw0 hw1 hwr
+
+theorem rootChained_readFrom (h : RootPinChained) (g₀ : GPathM) (hR₀ : ReadableAgg g₀)
+    (ht₀ : RootChained g₀) : ∀ g, ReadFrom g₀ g → isValid g = true → RootChained g := by
+  intro g hF
+  induction hF with
+  | start => intro _; exact ht₀
+  | pin g' mid hF' hv' ih =>
+    intro hv
+    exact rootChained_pin_of_pairs h g' (PinExact.readableAgg_of_readFrom g₀ hR₀ g' hF') hv'
+      (ih hv') mid hv
+
+theorem pinKeepsChain_of_rootChained (g₀ : GPathM) (hR₀ : ReadableAgg g₀) (h₀ : HasChain g₀)
+    (hrc : ∀ g, ReadFrom g₀ g → isValid g = true → RootChained g) :
+    ∀ g, ReadFrom g₀ g → isValid g = true → HasChain g := by
+  intro g hF
+  induction hF with
+  | start => intro _; exact h₀
+  | pin g' mid hF' hv' ih =>
+    intro hv
+    have hR' : ReadableAgg g' := PinExact.readableAgg_of_readFrom g₀ hR₀ g' hF'
+    if hin : 0 ≤ mid.step ∧ mid.step < g'.current_step then
+      exact hasChain_pin_of_rootChained g' hR' hv' (hrc g' hF' hv') mid hin.1 hin.2 hv
+    else
+      exact hasChain_out_of_range g' mid (ih hv') hin
+
+/-- **El lector sin retroceso, completo, desde un enunciado sobre dos nodos.**
+
+`RootPinChained`: un estado, un pin, la tabla de la raíz, y **dos** cosas —el owner y el pin—.
+No menciona φ, no cuantifica sobre nodos, no habla de tríos. -/
+theorem readerVerdictW_of_rootPinChained (h : RootPinChained) (φ : Cnf) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hR₀ : ReadableAgg (filterAllAgg kv.2 []))
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (h₀ : HasChain (filterAllAgg kv.2 []))
+    (ht₀ : RootChained (filterAllAgg kv.2 [])) :
+    readerVerdictW φ = true :=
+  readerVerdictW_complete φ kv hkv hv
+    (progressAgg_of_chains _ (pinKeepsChain_of_rootChained _ hR₀ h₀
+      (rootChained_readFrom h _ hR₀ ht₀)))
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_rootPinChained' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_of_rootPinChained
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.rootChained_pin_of_pairs' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms rootChained_pin_of_pairs
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_rootPair' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_of_rootPair

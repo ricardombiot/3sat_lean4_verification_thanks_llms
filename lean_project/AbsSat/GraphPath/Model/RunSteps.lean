@@ -190,6 +190,46 @@ theorem realizes_pin_at (g : GPathM) (hR : ReadableAgg g)
   refine ⟨w, hw, hwid, sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsw⟩
   rw [List.mem_singleton.mp hreq, ← hwstep, hsw, hwid]
 
+/-- **La variante que solo pide —y solo entrega— la cadena.**
+
+`realizes_pin_at` pide `Realizes g x w`, que es una frase sobre **dos** nodos. Pero quien la consume
+(el lector) tira la pata de `x`: solo usa que el estado pinchado tenga alguna cadena. Así que basta
+con que el owner al paso pinchado esté en **alguna** cadena — un enunciado sobre **un** nodo.
+
+Es el cruce de la frontera 2-vs-3 en la dirección buena, y es lo único que hacía falta. -/
+theorem chain_pin_at (g : GPathM) (hR : ReadableAgg g)
+    (r : NodeId) (hr0 : 0 ≤ r.step)
+    (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (x : PathNodeId) (n : PNodeM) (hx : (filterAllAgg g [r]).node? x = some n)
+    (_hx0 : 0 ≤ x.id.step) (_hx1 : x.id.step < (filterAllAgg g [r]).current_step)
+    (ht : ∀ n₀, g.node? x = some n₀ → ∀ w, w.id.step = r.step → w ∈ n₀.owners →
+      ∃ sel, ChainSound g sel ∧ sel w.id.step = w) :
+    ∃ sel, ChainSound (filterAllAgg g [r]) sel := by
+  have hRr := ReadableAgg_filterAllAgg g hR [r]
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+  have rcg := RCtx_of_readableAgg g hR
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  -- un nodo vivo posee algo en el paso pinchado, y el pin fija qué
+  have hok := owners_ok_of_isValidNode _ n (ctxR.nodeval x n hx)
+  simp only [List.all_eq_true] at hok
+  have hent := hok r.step (mem_intRange hr0 (by omega))
+  obtain ⟨w, hw, hws⟩ := List.any_eq_true.mp hent
+  have hwstep : w.id.step = r.step := eq_of_beq hws
+  have hwid : w.id = r :=
+    ReaderComplete.pin_id g r w (ctxR.ownGow x n hx w hw (by omega) (by omega)) hwstep
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxid := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  obtain ⟨sel, hsc, hsw⟩ := ht n₀ hx₀ w hwstep (hown w hw)
+  exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+    rw [List.mem_singleton.mp hreq, ← hwstep, hsw, hwid])⟩
+
+/-- info: 'AbsSat.GraphPath.Model.RunSteps.chain_pin_at' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_pin_at
+
 /-- **Con un invariante de entradas global.** El pin solo necesita que las entradas del nodo que se
 mira sean realizables. -/
 theorem realizes_pin_gen (L : Int → Prop) (g : GPathM) (hR : ReadableAgg g) (ht : SoundAt L g)

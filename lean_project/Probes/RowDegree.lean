@@ -1529,6 +1529,81 @@ def runFormulaTS (φ : Cnf) (a : AAcc) : AAcc := Id.run do
       a := walkTS s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat a
   return a
 
+/-! **¿Es unico el nodo del paso 0?** Si lo fuera, toda cadena pasaria por el, y
+`ReaderChain.RootPairSound` —«hay cadena por la raiz Y por `w`»— se volveria «hay cadena por `w`»:
+un enunciado sobre UN nodo, que es el lado bueno de la frontera 2-vs-3.
+
+`pureInit` arranca cada semilla de una sola raiz (`initSeed`), y el `up` nunca toca el paso 0. El
+unico que puede meter dos es el `doJoin`, que funde dos estados que pueden venir de raices
+distintas. -/
+
+structure RAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  one      : Nat := 0          -- un solo nodo en el paso 0
+  many     : Nat := 0          -- dos o mas
+  maxRoots : Nat := 0
+  rootOwn1 : Nat := 0          -- owners del paso 0 en la tabla de la raiz: uno
+  rootOwnN : Nat := 0          -- ... dos o mas
+  entries  : Nat := 0          -- (nodo, owner en el paso 0) sobre todos los nodos
+  entries1 : Nat := 0          -- ... nodos con UN solo owner en el paso 0
+  entriesN : Nat := 0          -- ... con dos o mas
+  deriving Repr
+
+def scanRoots (g : GPathM) (a : RAcc) : RAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  let roots := (g.line 0).length
+  a := { a with one := a.one + (if roots == 1 then 1 else 0)
+              , many := a.many + (if roots > 1 then 1 else 0)
+              , maxRoots := if roots > a.maxRoots then roots else a.maxRoots }
+  for n in g.nodes do
+    let z := (ownersAt n.owners 0).length
+    a := { a with entries := a.entries + z
+                , entries1 := a.entries1 + (if z == 1 then 1 else 0)
+                , entriesN := a.entriesN + (if z > 1 then 1 else 0) }
+    if n.id.id.step == 0 then
+      a := { a with rootOwn1 := a.rootOwn1 + (if z == 1 then 1 else 0)
+                  , rootOwnN := a.rootOwnN + (if z > 1 then 1 else 0) }
+  return a
+
+partial def walkRoots (g : GPathM) (fuel : Nat) (a : RAcc) : RAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanRoots g a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkRoots (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaR (φ : Cnf) (allStates : Bool) (a : RAcc) : RAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  if allStates then
+    let mut line : PureLine := pureInit φ
+    let steps := (stepCount φ - 1).toNat
+    for _ in [0:steps] do
+      line := pureAdvanceW φ line
+      for kv in line do
+        a := scanRoots kv.2 a
+  else
+    for kv in pureRunW φ do
+      let g := filterAllAgg kv.2 []
+      if isValid g then
+        a := walkRoots g (stepCount φ).toNat a
+  return a
+
+def reportR (name : String) (a : RAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}"
+  IO.println s!"   nodos en el paso 0:  uno {a.one}  ({pct a.one a.states})   dos o mas {a.many}   max {a.maxRoots}"
+  IO.println s!"   owners del paso 0 en la tabla de la RAIZ: uno {a.rootOwn1}, dos o mas {a.rootOwnN}"
+  IO.println s!"   owners del paso 0 por nodo (todos los nodos): uno {a.entries1}, dos o mas {a.entriesN}"
+  IO.println s!"   raiz unica: {if a.many == 0 then "SI en lo medido" else "NO"}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1603,6 +1678,26 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "roots" :: "file" :: paths | "roots-all" :: "file" :: paths =>
+    let allStates := args.headD "" == "roots-all"
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaR φ allStates {})
+        let t1 ← IO.monoMsNow
+        reportR path a (t1 - t0)
+  | "roots" :: "random" :: cases :: nvMin :: seeds
+  | "roots-all" :: "random" :: cases :: nvMin :: seeds =>
+    let allStates := args.headD "" == "roots-all"
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : RAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaR φ allStates a
+      let t1 ← IO.monoMsNow
+      reportR s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "tsread" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
