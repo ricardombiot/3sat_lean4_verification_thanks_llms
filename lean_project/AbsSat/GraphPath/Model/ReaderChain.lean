@@ -1179,4 +1179,203 @@ theorem readerVerdictW_iff_of_agrees
 #guard_msgs in
 #print axioms pinKeepsChain_of_soundAt
 
+-- ============================================================
+-- La frase del autor, escrita sobre la tabla — y el teorema entero colgado de ella
+-- ============================================================
+
+/-- **«El review agresivo deja solo entradas con camino.»**
+
+La frase del autor, escrita sobre el estado y no sobre el lector: toda entrada viva de la tabla
+global está en una cadena completa del estado, es decir, **forma parte de un certificado**.
+
+Nótese lo que NO pide:
+
+* no habla de pines, ni del orden en que el lector prueba, ni del retroceso;
+* no pide una cadena **por nodo** (eso es `Descent.SupportedS`), sino solo por **entrada de
+  `gowners`**, que son las únicas que el lector llega a mirar;
+* no pide que la cadena pase por `q` entera, solo que **elija el mismo nodo de mapa** en su paso —
+  que es exactamente lo que el filtro mira.
+
+Es, palabra por palabra, el diseño: *si el nodo x sigue presente es porque tiene un camino de
+compatibles que lo lleva a configurar una solución.* -/
+def OwnerChained (g : GPathM) : Prop :=
+  ∀ q ∈ g.gowners, 0 ≤ q.id.step → q.id.step < g.current_step →
+    ∃ sel, ChainSound g sel ∧ (sel q.id.step).id = q.id
+
+/-- **Y de esa frase sale el residuo del lector, sin nada más.**
+
+El puente es el filtro mismo: si pinchar `mid` deja el grafo válido, el paso `mid.step` conserva
+alguna entrada, y `ReaderComplete.pin_id` dice que esa entrada **es** `mid` —el filtro no deja otra
+cosa en ese paso—. Esa entrada estaba en la tabla de antes (el review solo poda), así que
+`OwnerChained` le da su cadena, y esa cadena elige `mid`.
+
+Dicho en corto: **el lector no puede elegir un nodo sin camino porque el review ya no los guarda.** -/
+theorem pinReachable_of_ownerChained
+    (h : ∀ g, ReadableAgg g → HasChain g → OwnerChained g) : PinReachable := by
+  intro g mid hR hc hv
+  by_cases hin : 0 ≤ mid.step ∧ mid.step < g.current_step
+  · obtain ⟨h0, h1⟩ := hin
+    have hpr := pruned_filterAllAgg g [mid]
+    have hent := hasStepEntry_of_isValid _ hv mid.step h0 (by rw [hpr.step_eq]; exact h1)
+    simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+    obtain ⟨q, hq, hqs⟩ := hent
+    have hqid : q.id = mid := ReaderComplete.pin_id g mid q hq hqs
+    obtain ⟨sel, hsc, hsel⟩ := h g hR hc q (hpr.gowners_sub q hq)
+      (by rw [hqs]; exact h0) (by rw [hqs]; exact h1)
+    exact ⟨sel, hsc, fun _ _ => by rw [← hqs, hsel, hqid]⟩
+  · obtain ⟨sel, hsc⟩ := hc
+    exact ⟨sel, hsc, fun h0 h1 => absurd ⟨h0, h1⟩ hin⟩
+
+/-- **Y la ruta clásica llega hasta aquí**: `SupportedS` —una cadena por nodo— la implica, porque
+las entradas de la tabla global son nodos (`GownersNodes.GN`). Se escribe para dejar medido cuánto
+sobraba: `OwnerChained` pide cadena de las entradas de **una** lista, no de todos los nodos. -/
+theorem ownerChained_of_supportedS (g : GPathM) (hgn : GownersNodes.GN g)
+    (hsup : Descent.SupportedS g) : OwnerChained g := by
+  intro q hq _ _
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g q).mp (hgn q hq))
+  obtain ⟨sel, hsc, hs⟩ := hsup q n hn
+  exact ⟨sel, hsc, by rw [hs]⟩
+
+/-- **El lector sin retroceso acierta siempre que hay solución.**
+
+La semilla la pone la conservación: sobre una fórmula satisfacible, la línea final de la máquina
+tiene un estado con cadena (`ConservationImproves.pureRunW_full_chain`), la misma que usa
+`ReaderBT.readerVerdictBT_complete`. De ahí en adelante `PinReachable` la lleva de pin en pin hasta
+el paso 0, sin probar nada dos veces.
+
+Es la dirección que faltaba, y ahora cuelga de una sola frase sobre el review. -/
+theorem readerVerdictW_complete_of_pinReachable (h : PinReachable) (φ : Cnf) (hwf : WF φ)
+    (hsat : Satisfiable φ) : readerVerdictW φ = true := by
+  obtain ⟨a, hsa⟩ := hsat
+  obtain ⟨g, hmem, _, _, sel, hsel⟩ := ConservationImproves.pureRunW_full_chain φ a hwf hsa
+  have hsel0 : ChainSound (filterAllAgg g []) sel :=
+    ChainSound_filterAllAgg g [] sel hsel (fun _ hreq => absurd hreq List.not_mem_nil)
+  exact readerVerdictW_of_pinReachable h φ _ hmem
+    ⟨g, [], (ReaderAggRun.pureRunW_state φ hwf _ hmem).1.rctx, rfl⟩
+    (PickInduction.isValid_of_ChainG _ sel hsel0.chain) ⟨sel, hsel0⟩
+
+/-- **El lector sin retroceso decide 3-SAT.** Las dos direcciones, bajo `PinReachable`.
+
+La vuelta (`readerVerdictW_sound`) ya estaba cerrada sin hipótesis: lo que el lector devuelve se
+decodifica y se comprueba, así que nunca miente. Lo que añade esta línea es la ida. -/
+theorem readerVerdictW_iff_of_pinReachable (h : PinReachable) (φ : Cnf) (hwf : WF φ) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  ⟨fun hv => ReaderExec.readerVerdictW_sound φ hwf hv,
+   readerVerdictW_complete_of_pinReachable h φ hwf⟩
+
+/-- **Y todo el teorema, desde la frase del autor y nada más.**
+
+    (∀ g, ReadableAgg g → HasChain g → OwnerChained g)  →  ∀ φ, WF φ →
+        (readerVerdictW φ = true ↔ Satisfiable φ)
+
+La hipótesis ya no menciona al lector, ni a los pines, ni al retroceso, ni al otro lector: dice
+únicamente que **lo que el review deja vivo en la tabla global tiene camino**. Ése es el enunciado
+que el algoritmo hace por diseño, y el que las sondas miden —`tsread`: 150.124 entradas de las
+trayectorias reales, cero fantasmas; `owntable`: 205.091 entradas, ninguna se pierde—.
+
+Comparada con `readerVerdictW_iff_of_agrees`, que pedía coincidir con el lector que retrocede, esta
+hipótesis es **interna al estado**: se puede atacar estado a estado, operación a operación, que es
+como se cerraron `up`, `doJoin` y el review para `TablesSound`. -/
+theorem readerVerdictW_iff_of_ownerChained
+    (h : ∀ g, ReadableAgg g → HasChain g → OwnerChained g) (φ : Cnf) (hwf : WF φ) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_pinReachable (pinReachable_of_ownerChained h) φ hwf
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.pinReachable_of_ownerChained' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinReachable_of_ownerChained
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_of_supportedS' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_supportedS
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_complete_of_pinReachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_complete_of_pinReachable
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_iff_of_ownerChained' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_ownerChained
+
+-- ============================================================
+-- Dónde la frase es gratis, y dónde queda el residuo
+-- ============================================================
+
+/-- **Un paso donde la tabla global ya no ofrece elección**: todas sus entradas nombran el mismo
+nodo de mapa. -/
+def OneIdAt (g : GPathM) (k : Int) : Prop :=
+  ∀ p ∈ g.gowners, ∀ q ∈ g.gowners, p.id.step = k → q.id.step = k → p.id = q.id
+
+/-- **Ahí la frase del autor es gratis: la da la propia cadena.**
+
+Si el paso no ofrece elección y el estado tiene **una** cadena, esa cadena elige forzosamente el
+mismo nodo de mapa que cualquier entrada viva, porque no hay otro. No hace falta saber nada del
+review: basta con que el paso esté decidido. -/
+theorem ownerChained_of_oneIds (g : GPathM) (h : HasChain g)
+    (hs : ∀ k, 0 ≤ k → k < g.current_step → OneIdAt g k) : OwnerChained g := by
+  intro q hq h0 h1
+  obtain ⟨sel, hsc⟩ := h
+  obtain ⟨_, hstep⟩ := hsc.chain.1.1 q.id.step h0 h1
+  exact ⟨sel, hsc,
+    hs q.id.step h0 h1 (sel q.id.step) (hsc.chain.2.2 _ h0 h1) q hq hstep rfl⟩
+
+/-- **Y `NoChoice` es exactamente eso, paso a paso.** `choiceAt` es la negación de `OneIdAt`
+escrita en `Bool`, así que `hasChoice g = false` la da en todos los pasos del rango. -/
+theorem oneIdAt_of_noChoice (g : GPathM) (hnc : PickInduction.NoChoice g)
+    (k : Int) (h0 : 0 ≤ k) (h1 : k < g.current_step) : OneIdAt g k := by
+  have hkmem : k ∈ intRange 0 (g.current_step - 1) := mem_intRange h0 (by omega)
+  have hnc' : PickInduction.hasChoice g = false := hnc
+  have hca : PickInduction.choiceAt g k = false := by
+    rcases Bool.eq_false_or_eq_true (PickInduction.choiceAt g k) with hb | hb
+    · have hch : PickInduction.hasChoice g = true := List.any_eq_true.mpr ⟨k, hkmem, hb⟩
+      rw [hch] at hnc'; exact Bool.noConfusion hnc'
+    · exact hb
+  intro p hp q hq hps hqs
+  have hmp : p ∈ ownersAt g.gowners k := List.mem_filter.mpr ⟨hp, beq_iff_eq.mpr hps⟩
+  have hmq : q ∈ ownersAt g.gowners k := List.mem_filter.mpr ⟨hq, beq_iff_eq.mpr hqs⟩
+  by_cases hpq : p.id = q.id
+  · exact hpq
+  · have hct : PickInduction.choiceAt g k = true :=
+      List.any_eq_true.mpr ⟨p, hmp, List.any_eq_true.mpr ⟨q, hmq, bne_iff_ne.mpr hpq⟩⟩
+    rw [hct] at hca; exact Bool.noConfusion hca
+
+/-- **El caso base de `OwnerChained`, cerrado y sin hipótesis abiertas.**
+
+Es la pareja de `hasChain_of_noChoice`: donde la propagación ya ha dejado un solo nodo de mapa por
+paso, tener cadena y tener la frase del autor son lo mismo. Todo lo que queda abierto vive en los
+pasos que **todavía ofrecen dos**. -/
+theorem ownerChained_of_noChoice (g : GPathM) (h : HasChain g)
+    (hnc : PickInduction.NoChoice g) : OwnerChained g :=
+  ownerChained_of_oneIds g h (oneIdAt_of_noChoice g hnc)
+
+/-- **Y el residuo, dicho exactamente: desviar la cadena hacia la otra alternativa.**
+
+Un estado con cadena ya cumple la frase para la entrada que **su** cadena elige (`goodPin_exists`).
+Lo único que falta es la otra: cuando la tabla ofrece en ese paso un nodo de mapa distinto del que
+la cadena toma, hay que producir **otra** cadena que tome ése.
+
+Y eso es una propiedad de la estructura, no del lector: es que las tablas contengan todas las
+soluciones, que es la razón de ser de la unión de owners en `doJoin`. -/
+theorem ownerChained_of_steer (g : GPathM) (h : HasChain g)
+    (hs : ∀ sel, ChainSound g sel → ∀ q ∈ g.gowners, 0 ≤ q.id.step → q.id.step < g.current_step →
+      (sel q.id.step).id ≠ q.id → ∃ sel', ChainSound g sel' ∧ (sel' q.id.step).id = q.id) :
+    OwnerChained g := by
+  intro q hq h0 h1
+  obtain ⟨sel, hsc⟩ := h
+  by_cases hEq : (sel q.id.step).id = q.id
+  · exact ⟨sel, hsc, hEq⟩
+  · exact hs sel hsc q hq h0 h1 hEq
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_of_noChoice' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_noChoice
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_of_oneIds' does not depend on any axioms -/
+#guard_msgs in
+#print axioms ownerChained_of_oneIds
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_of_steer' does not depend on any axioms -/
+#guard_msgs in
+#print axioms ownerChained_of_steer
+
 end AbsSat.GraphPath.Model.ReaderChain
