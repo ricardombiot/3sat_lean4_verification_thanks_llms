@@ -871,7 +871,7 @@ def measureJoin (A B J : GPathM) (label : String) (a : JAcc) : JAcc := Id.run do
 def sendToJ (φ : Cnf) (label : String) (g : GPathM) (st : PureLine × JAcc) (d : NodeId) :
     PureLine × JAcc := Id.run do
   let (next, a0) := st
-  let mut a := { a0 with sends := a0.sends + 1 }
+  let mut a := a0
   let h := upFilteringWeak g (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
   if !isValid h then return (next, a)
   match next.find? (fun kv => kv.1 == d) with
@@ -1001,6 +1001,104 @@ def reportS (name : String) (a : SAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   SupportedG: {if a.ghost == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
   IO.println s!"   ({ms} ms)"
 
+-- ============================================================
+-- ¿Afecta el filtro de requisitos a «todo nodo tiene camino»?
+-- ============================================================
+
+/-! `supportedS_reviewAgg` demuestra que la revision conserva `SupportedS`, y el `up` y el `doJoin`
+tampoco pueden crear un fantasma. Queda el filtro. Esta sonda mide el envio en tres tiempos:
+
+1. `g` — el estado de partida
+2. `filterRequire` plegado sobre los requisitos duros, **antes de revisar**
+3. y despues de `reviewAgg`
+
+Si (2) ya sale a cero fantasmas, el filtro conserva `SupportedS` por si mismo y la intuicion es
+literal. Si (2) tiene fantasmas y (3) no, entonces la revision es la que los quita, y el teorema
+que falta es ese. -/
+
+structure FAcc where
+  formulas : Nat := 0
+  sends    : Nat := 0
+  nBefore  : Nat := 0          -- nodos antes del filtro
+  gBefore  : Nat := 0          -- ... fantasmas
+  nFilt    : Nat := 0          -- nodos tras `filterRequire`, SIN revisar
+  gFilt    : Nat := 0          -- ... fantasmas
+  nRev     : Nat := 0          -- nodos tras `reviewAgg`
+  gRev     : Nat := 0          -- ... fantasmas
+  sendsBad : Nat := 0          -- envios donde el filtro deja algun fantasma
+  sendsRev : Nat := 0          -- ... que la revision NO arregla
+  badAt    : String := "-"
+  outs     : Nat := 0
+  deriving Repr
+
+def ghostCount (g : GPathM) (budget : Nat) : Nat × Nat × Nat := Id.run do
+  let mut n := 0
+  let mut gh := 0
+  let mut ou := 0
+  for m in g.nodes do
+    n := n + 1
+    let (left, ok) := chainAt g m.id budget [] 0
+    if !ok then
+      if left == 0 then ou := ou + 1 else gh := gh + 1
+  return (n, gh, ou)
+
+def sendToF2 (φ : Cnf) (label : String) (g : GPathM) (st : PureLine × FAcc) (d : NodeId) :
+    PureLine × FAcc := Id.run do
+  let (next, a0) := st
+  let mut a := { a0 with sends := a0.sends + 1 }
+  -- las tres fotos del envio
+  let ws := filterWeakAll g (weakReqOfCnf φ d)
+  let filt := (reqOfCnf φ d).foldl filterRequire ws
+  let rev := AggressiveReview.reviewAgg filt
+  -- solo cuentan los envios que SOBREVIVEN: un estado invalido tiene pasos sin owner global,
+  -- asi que ningun nodo tiene cadena y contarlo no dice nada
+  let alive := isValid rev
+  let (n0, g0, o0) := if alive then ghostCount g 60000 else (0, 0, 0)
+  let (n1, g1, o1) := if alive then ghostCount filt 60000 else (0, 0, 0)
+  let (n2, g2, o2) := if alive then ghostCount rev 60000 else (0, 0, 0)
+  a := { a with sends := a.sends + (if alive then 1 else 0)
+              , nBefore := a.nBefore + n0, gBefore := a.gBefore + g0
+              , nFilt := a.nFilt + n1, gFilt := a.gFilt + g1
+              , nRev := a.nRev + n2, gRev := a.gRev + g2
+              , outs := a.outs + o0 + o1 + o2
+              , sendsBad := a.sendsBad + (if g1 > 0 then 1 else 0)
+              , sendsRev := a.sendsRev + (if g2 > 0 then 1 else 0) }
+  if g1 > 0 then
+    a := { a with badAt := s!"{label}→⟨{d.step},{d.index}⟩: {g1} fantasmas tras filtrar, {g2} tras revisar" }
+  -- y seguimos la corrida de verdad
+  let h := upFilteringWeak g (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+  if !isValid h then return (next, a)
+  match next.find? (fun kv => kv.1 == d) with
+  | some (_, existing) => return (next.map (fun kv => if kv.1 == d then (d, doJoin existing h) else kv), a)
+  | none => return (next ++ [(d, h)], a)
+
+def runFormulaF2 (φ : Cnf) (a : FAcc) : FAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for _ in [0:steps] do
+    let (l', a') := line.foldl (fun st kv =>
+      (mapSons φ kv.1.step kv.1.index).foldl (sendToF2 φ s!"⟨{kv.1.step},{kv.1.index}⟩" kv.2) st)
+      ((([] : PureLine)), a)
+    line := l'
+    a := a'
+  return a
+
+def reportF2 (name : String) (a : FAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, envios que SOBREVIVEN {a.sends}"
+  IO.println s!"   fantasmas (nodos sin cadena) en las tres fotos del envio:"
+  IO.println s!"     1. antes del filtro            : {a.gBefore}/{a.nBefore}  ({pct a.gBefore a.nBefore})"
+  IO.println s!"     2. tras filterRequire, SIN revisar: {a.gFilt}/{a.nFilt}  ({pct a.gFilt a.nFilt})"
+  IO.println s!"     3. tras reviewAgg              : {a.gRev}/{a.nRev}  ({pct a.gRev a.nRev})"
+  IO.println s!"   envios donde el filtro deja fantasmas : {a.sendsBad}/{a.sends}"
+  IO.println s!"   ... que la revision NO arregla        : {a.sendsRev}/{a.sends}"
+  if a.sendsBad > 0 then IO.println s!"     primero: {a.badAt}"
+  IO.println s!"   indecisos (presupuesto): {a.outs}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1041,6 +1139,23 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormula φ {})
         let t1 ← IO.monoMsNow
         report path a (t1 - t0)
+  | "filt" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaF2 φ {})
+        let t1 ← IO.monoMsNow
+        reportF2 path a (t1 - t0)
+  | "filt" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : FAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaF2 φ a
+      let t1 ← IO.monoMsNow
+      reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "sup" :: "file" :: paths | "sup-all" :: "file" :: paths =>
     let allStates := args.headD "" == "sup-all"
     for path in paths do
