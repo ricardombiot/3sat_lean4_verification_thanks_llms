@@ -918,6 +918,89 @@ def reportJ (name : String) (a : JAcc) (ms : Nat) : IO Unit := do
   IO.println s!"     FALLA     : {a.triBad}  ({pct a.triBad a.triTot})"
   IO.println s!"   ({ms} ms)"
 
+-- ============================================================
+-- ¿Deja el review solo nodos con camino? (`SupportedG`)
+-- ============================================================
+
+/-! La afirmacion es: *al aplicar el review sobre todo el grafo, solo quedan nodos con caminos
+validos*. En el repo se llama `L6Up.SupportedG` y es el enunciado de cabecera: si fuera cierto,
+un estado valido esta inhabitado y la maquina decide.
+
+Esta sonda lo comprueba de frente: para cada nodo de cada estado busca una cadena completa que pase
+por el —enlazada padre-hijo, con todos los picks poseyendose mutuamente y todos owners globales—
+con retroceso y presupuesto acotado. Un nodo sin cadena es un **fantasma**. -/
+
+structure SAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  nodes    : Nat := 0
+  sup      : Nat := 0          -- tiene cadena: nodo real
+  ghost    : Nat := 0          -- NO tiene cadena: fantasma
+  out      : Nat := 0          -- presupuesto agotado, indeciso
+  ghostAt  : String := "-"
+  deriving Repr
+
+/-- Una cadena completa por `x`: un nodo por paso, enlazados padre-hijo, todos owners globales y
+poseyendose mutuamente. -/
+partial def chainAt (g : GPathM) (x : PathNodeId) (budget : Nat) (picks : List PathNodeId) (k : Int) :
+    Nat × Bool :=
+  if budget == 0 then (0, false)
+  else if k ≥ g.current_step then (budget, true)
+  else
+    let base : List PathNodeId :=
+      match picks with
+      | [] => g.gowners.filter (fun (c : PathNodeId) => c.id.step == k)
+      | p :: _ => (sonsOf g p).filter (fun (c : PathNodeId) => c.id.step == k)
+    let base := if k == x.id.step then base.filter (fun c => c == x) else base
+    let cands := base.filter (fun c =>
+      g.gowners.contains c && picks.all (fun p => mutuallyOwn g c p))
+    cands.foldl (fun (st : Nat × Bool) c =>
+      if st.2 then st else chainAt g x (st.1 - 1) (c :: picks) (k + 1)) (budget, false)
+
+def scanSupport (label : String) (g : GPathM) (budget : Nat) (a : SAcc) : SAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for n in g.nodes do
+    let (left, ok) := chainAt g n.id budget [] 0
+    a := { a with nodes := a.nodes + 1 }
+    if ok then a := { a with sup := a.sup + 1 }
+    else if left == 0 then a := { a with out := a.out + 1 }
+    else
+      a := { a with ghost := a.ghost + 1
+                  , ghostAt := s!"{label} paso {n.id.id.step}, {n.owners.length} owners, {n.parents.length} padres" }
+  return a
+
+/-- Sobre los estados de la linea final, que son los que el lector lee. -/
+def runFormulaS (φ : Cnf) (budget : Nat) (a : SAcc) : SAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := scanSupport s!"⟨{kv.1.step},{kv.1.index}⟩" g budget a
+  return a
+
+/-- Y sobre TODOS los estados de TODAS las lineas, que es donde vive `SupportedG`. -/
+def runFormulaSAll (φ : Cnf) (budget : Nat) (a : SAcc) : SAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for i in [0:steps] do
+    line := pureAdvanceW φ line
+    for kv in line do
+      a := scanSupport s!"linea {i+1} ⟨{kv.1.step},{kv.1.index}⟩" kv.2 budget a
+  return a
+
+def reportS (name : String) (a : SAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, nodos {a.nodes}"
+  IO.println s!"     con cadena (nodo real) : {a.sup}  ({pct a.sup a.nodes})"
+  IO.println s!"     FANTASMA (sin cadena)  : {a.ghost}  ({pct a.ghost a.nodes})"
+  IO.println s!"     indeciso (presupuesto) : {a.out}"
+  if a.ghost > 0 then IO.println s!"     primero: {a.ghostAt}"
+  IO.println s!"   SupportedG: {if a.ghost == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -958,6 +1041,27 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormula φ {})
         let t1 ← IO.monoMsNow
         report path a (t1 - t0)
+  | "sup" :: "file" :: paths | "sup-all" :: "file" :: paths =>
+    let allStates := args.headD "" == "sup-all"
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ =>
+          if allStates then runFormulaSAll φ 200000 {} else runFormulaS φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportS path a (t1 - t0)
+  | "sup" :: "random" :: cases :: nvMin :: seeds
+  | "sup-all" :: "random" :: cases :: nvMin :: seeds =>
+    let allStates := args.headD "" == "sup-all"
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := if allStates then runFormulaSAll φ 200000 a else runFormulaS φ 200000 a
+      let t1 ← IO.monoMsNow
+      reportS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "join" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with

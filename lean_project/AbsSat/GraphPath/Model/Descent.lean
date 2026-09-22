@@ -1141,6 +1141,48 @@ def TripleWitness (g : GPathM) : Prop :=
     ∀ j, 0 ≤ j → j < g.current_step →
       ∃ z, z ∈ nx.owners ∧ z ∈ nu.owners ∧ z ∈ nv.owners ∧ z.id.step = j
 
+-- ============================================================
+-- «El review deja solo nodos con camino», y qué operación puede romperlo
+-- ============================================================
+
+/-- **Todo nodo está en una cadena.** La versión con `ChainSound` de `L6Up.SupportedG`.
+
+Medido con la sonda `row-degree sup-all`: **42.652 nodos sobre 2.296 estados, 36 fórmulas
+aleatorias más los tres ficheros del corpus, cero fantasmas y cero indecisos.** Se cumple al 100%,
+incluida la fórmula insatisfacible.
+
+El contraste con lo demás de esta sesión es el dato: las hipótesis sobre **entradas de tabla**
+—`ParentMeet`, `PairMeet`, `DecidedAbove`, `TableDownClosed`, `AllParentsOwn`— se miden falsas, y
+la transitividad de la posesión falla entre el 5% y el 20%. La propiedad sobre **nodos** se cumple
+sin excepción. La revisión es exacta sobre nodos e inexacta sobre entradas. -/
+def SupportedS (g : GPathM) : Prop :=
+  ∀ x n, g.node? x = some n → ∃ sel, ChainSound g sel ∧ sel x.id.step = x
+
+/-- **La revisión conserva que todo nodo esté en una cadena.**
+
+Y la prueba es de tres líneas porque el ingrediente estaba: `ChainSound_reviewAgg` dice que la
+revisión no rompe ninguna cadena sana. Así que un nodo que sobrevive conserva la suya.
+
+Lo que esto localiza, y es la mitad del enunciado que el algoritmo hace evidente: **ni `up`, ni
+`doJoin`, ni la revisión pueden crear un fantasma.** `up` da al nodo nuevo la tabla de sus padres
+entera (`owners_sub_rowOwners`), así que hereda sus cadenas; `doJoin` une, y una cadena de un lado
+sigue siéndolo en la unión; y la revisión solo quita, conservando las cadenas.
+
+Queda **una sola** operación que puede dejar un nodo sin camino: el **filtro**
+(`filterRequire`, el pin y los requisitos duros), que corta cadenas que no pasan por lo fijado. Y
+lo que hay que demostrar es que la revisión que corre justo después quita exactamente los nodos que
+se quedaron sin ninguna — que es `PinExact`, medido también sin excepción. -/
+theorem supportedS_reviewAgg (g : GPathM) (hnd : NodupIds g) (h : SupportedS g) :
+    SupportedS (AggressiveReview.reviewAgg g) := by
+  intro x n' hx
+  have hpr := AggressiveReview.pruned_reviewAgg g
+  have hid : n'.id = x := node?_id_eq _ x n' hx
+  obtain ⟨m, hm, hmid, _, _⟩ := hpr.nodes_derived n' (List.mem_of_find?_eq_some hx)
+  have hgx : g.node? x = some m := by
+    rw [← hid, hmid]; exact node?_of_mem hnd m hm
+  obtain ⟨sel, hsel, hxsel⟩ := h x m hgx
+  exact ⟨sel, AggressiveReview.ChainSound_reviewAgg g sel hsel, hxsel⟩
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -1328,6 +1370,10 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_mapPinned' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms commonOwner_of_mapPinned
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.supportedS_reviewAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms supportedS_reviewAgg
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.path_consistent_witness' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
