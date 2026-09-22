@@ -406,6 +406,79 @@ theorem tablesSound_filterAllAgg_top (g : GPathM) (hnd : NodupIds g) (k : NodeId
     rw [hdead] at this
     exact Bool.noConfusion this
 
+-- ============================================================
+-- Los pasos de CLÁUSULA: tres requisitos, y lo que sí se salva
+-- ============================================================
+
+/-! Un paso de cláusula pide tres requisitos (`reqOfCnf_clause`), uno por literal:
+`litReq c.lᵢ (bᵢ d.index)`, con `bᵢ ∈ {0,1}` los tres bits del índice. Los siete índices `1..7` son
+las siete filas que satisfacen la cláusula, y **los tres literales quedan fijados, no solo los
+verdaderos**. Así que aquí el filtro sí elige, a diferencia del paso impar.
+
+Dos cosas importan, y son de signo opuesto:
+
+* **lo que se salva**: tras el filtro, la tabla de todo superviviente lleva **solo** el requisito en
+  cada paso pedido (`owners_pinned_after_filter`). O sea, el review deja las tablas exactamente con
+  lo compatible con la elección, que es la frase del autor;
+* **lo que no**: la cadena que realizaba la entrada *antes* del filtro se eligió en un estado cuyas
+  tablas sí tenían las dos opciones, y nada garantiza que pasara por la elegida.
+
+Y el número de requisitos no añade dificultad: `SeqPin.pinOneByOne` y `RunSteps.full_seq` reducen
+un filtro de varios requisitos a pinchar **de uno en uno** con revisión entre medias
+(`RunSteps.filterSoundAt_of_steps`), así que los tres de la cláusula son tres copias del caso de
+**un** pin en un paso literal — que es `RunSteps.PinPairSoundAt`. El muro es el mismo, no uno nuevo. -/
+
+/-- **Tras el filtro, las tablas llevan solo el requisito en los pasos pedidos.**
+
+Generaliza `reqs_in_owners` de «hay un testigo» a «no hay otra cosa». La prueba es la misma:
+`filterRequire` deja en `gowners` solo lo que coincide con cada requisito
+(`FabricAdd.gowners_foldl_compat`), la revisión solo poda, y los owners de un nodo vivo son
+`gowners` (`ownGow`).
+
+Esto es, literalmente, *«tras el review todas las tablas de owners se actualizan para dejar solo
+caminos de los nodos seleccionados»* — la parte de la frase del autor que sí se demuestra. -/
+theorem owners_pinned_after_filter (P : GPathM) (reqs : List NodeId)
+    (ctx : Pinned.Ctx (filterAllAgg P reqs))
+    (x : PathNodeId) (nx : PNodeM) (hx : (filterAllAgg P reqs).node? x = some nx)
+    (u : PathNodeId) (hu : u ∈ nx.owners)
+    (hu0 : 0 ≤ u.id.step) (hu1 : u.id.step < (filterAllAgg P reqs).current_step)
+    (r : NodeId) (hr : r ∈ reqs) (hus : u.id.step = r.step) : u.id = r := by
+  have hg : u ∈ (filterAllAgg P reqs).gowners := ctx.ownGow x nx hx u hu hu0 hu1
+  have hg' : u ∈ (reqs.foldl filterRequire P).gowners :=
+    (pruned_reviewAgg _).gowners_sub u hg
+  exact FabricAdd.gowners_foldl_compat reqs P u hg' r hr hus
+
+/-- **Y el residuo, dicho exacto: la cadena tiene que poder dirigirse.**
+
+Lo único que falta para que el filtro conserve `TablesSound` es que, para cada par `(x, q)` que
+sobrevive, entre las cadenas de antes del filtro que pasan por los dos **haya una que además elija
+los requisitos**. Ni más ni menos.
+
+`owners_pinned_after_filter` dice que los testigos ya están: cada superviviente lleva el requisito
+en su tabla, y `SupportedRun.shared_pin_witness` los hace además **compartidos** por el par. Lo que
+no está es la cadena que pase por los tres a la vez. -/
+def Steerable (P : GPathM) (reqs : List NodeId) : Prop :=
+  ∀ x nx, (filterAllAgg P reqs).node? x = some nx →
+    0 ≤ x.id.step → x.id.step < (filterAllAgg P reqs).current_step →
+    ∀ q ∈ nx.owners, 0 ≤ q.id.step → q.id.step < (filterAllAgg P reqs).current_step →
+      ∃ sel, ChainSound P sel ∧ sel x.id.step = x ∧ sel q.id.step = q ∧
+        ∀ r ∈ reqs, 0 ≤ r.step → r.step < P.current_step → (sel r.step).id = r
+
+/-- **Y basta.** Dirigida la cadena, el filtro y la revisión la dejan pasar entera. -/
+theorem tablesSound_of_steerable (P : GPathM) (reqs : List NodeId) (h : Steerable P reqs) :
+    TablesSound (filterAllAgg P reqs) := by
+  intro x nx hx hx0 hx1 q hq0 hq1 hqn
+  obtain ⟨sel, hsc, hsx, hsq, hreq⟩ := h x nx hx hx0 hx1 q hqn hq0 hq1
+  exact ⟨sel, ChainSound_filterAllAgg P reqs sel hsc hreq, hsx, hsq⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.owners_pinned_after_filter' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owners_pinned_after_filter
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_of_steerable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_of_steerable
+
 /-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_filterAllAgg_top' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tablesSound_filterAllAgg_top
