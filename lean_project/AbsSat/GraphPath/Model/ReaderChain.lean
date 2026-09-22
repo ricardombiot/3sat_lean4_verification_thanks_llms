@@ -892,6 +892,70 @@ theorem hasChain_of_pinStepSound (g : GPathM) (hR : ReadableAgg g) (r : NodeId)
   exact hasChain_of_supportedS _ (by rw [hcs]; omega) hvr rc.gn
     (supportedS_pin_of_pinStepSound g hR r hr0 hvr (by rw [hcs]; exact hr1) ht)
 
+/-- **Y todavía menos: basta que la cadena elija el ID DE MAPA del pin, no un nodo concreto.**
+
+`supportedS_pin_of_pinStepSound` pedía `Realizes g x w` — una cadena por **dos** `PathNodeId`. Pero
+lo único que el filtro comprueba es el **id de mapa** del pick: `ChainSound_filterAllAgg` pide
+`(sel r.step).id = r` y nada más.
+
+Y eso es mucho menos. En un paso literal el mapa tiene **dos** nodos, así que fijar el id de mapa es
+una condición binaria; fijar el `PathNodeId` es mucho más fuerte, porque varios nodos del grafo
+comparten id de mapa y difieren en su historia.
+
+Así que el residuo pasa de «un par de nodos» a «**un nodo y una elección binaria**». -/
+def PinCompatChain (g : GPathM) (r : NodeId) : Prop :=
+  ∀ x n₀, g.node? x = some n₀ → ((filterAllAgg g [r]).node? x).isSome = true →
+    ∃ sel, ChainSound g sel ∧ sel x.id.step = x ∧ (sel r.step).id = r
+
+theorem supportedS_pin_of_compatChain (g : GPathM) (hR : ReadableAgg g) (r : NodeId)
+    (h : PinCompatChain g r) : SupportedS (filterAllAgg g [r]) := by
+  intro x n hx
+  have hpr := pruned_filterAllAgg g [r]
+  have rcg := RCtx_of_readableAgg g hR
+  obtain ⟨n₀, hn₀, hid, _, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxid := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  obtain ⟨sel, hsc, hsx, hsr⟩ := h x n₀ hx₀ (by rw [hx]; rfl)
+  exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+    rw [List.mem_singleton.mp hreq]; exact hsr), hsx⟩
+
+/-- **Y donde el paso ya no tiene elección, la frase del autor se propaga sola.**
+
+Si todas las tablas llevan ya el pin en ese paso (`TablesSoundBuild.SingleIdAt`, escrito aquí
+desplegado para no invertir la dependencia entre módulos), la cadena que
+`SupportedS` da por `x` elige allí un owner de `x` — posesión por pares —, ese owner lleva el pin, y
+la cadena sobrevive.
+
+**Es la primera vez que `SupportedS` atraviesa un pin sin ninguna hipótesis abierta.** Y por
+`TablesSoundBuild.singleIdAt_of_pruned`, un paso que ya se fijó cumple `SingleIdAt` para siempre:
+así que todo pin que el lector repita sobre la zona ya fijada es gratis, y solo el frente de la
+lectura cuesta. -/
+theorem pinCompatChain_of_singleId (g : GPathM) (r : NodeId)
+    (hr0 : 0 ≤ r.step) (hrs : r.step < g.current_step)
+    (hb : ∀ x n, g.node? x = some n → 0 ≤ x.id.step ∧ x.id.step < g.current_step)
+    (hsup : SupportedS g)
+    (hsingle : ∀ x nx, g.node? x = some nx → ∀ u ∈ nx.owners, u.id.step = r.step → u.id = r)
+    (hself : ∀ pid n, g.node? pid = some n → pid ∈ n.owners) : PinCompatChain g r := by
+  intro x n₀ hx₀ _
+  obtain ⟨hx0, hx1⟩ := hb x n₀ hx₀
+  obtain ⟨sel, hsc, hsx⟩ := hsup x n₀ hx₀
+  refine ⟨sel, hsc, hsx, ?_⟩
+  rcases int_eq_or_ne r.step x.id.step with he | hne
+  · rw [he, hsx]
+    exact hsingle x n₀ hx₀ x (hself x n₀ hx₀) he.symm
+  · have hmem := hsc.chain.2.1 r.step x.id.step hr0 hx0 hrs hx1 hne
+    rw [hsx] at hmem
+    simp only [ownersAt, List.mem_filter, ownersOf, hx₀] at hmem
+    exact hsingle x n₀ hx₀ _ hmem.1 (eq_of_beq hmem.2)
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.supportedS_pin_of_compatChain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms supportedS_pin_of_compatChain
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.pinCompatChain_of_singleId' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinCompatChain_of_singleId
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.supportedS_pin_of_pinStepSound' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms supportedS_pin_of_pinStepSound
