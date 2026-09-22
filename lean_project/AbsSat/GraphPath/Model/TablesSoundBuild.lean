@@ -1,0 +1,199 @@
+-- lean_project/AbsSat/GraphPath/Model/TablesSoundBuild.lean
+import AbsSat.GraphPath.Model.AddNode
+import AbsSat.GraphPath.Model.JoinSound
+import AbsSat.GraphPath.Model.DescentUp
+import AbsSat.GraphPath.Model.RunInhabited
+
+/-!
+# `TablesSound` por la construcción de la máquina
+
+`ReaderChain.ownTable_of_tablesSound` deja el dato que ordena el ataque: **la única garantía de
+conservación que la criba ofrece es «estar en una cadena»**, así que ninguna reformulación de
+`TablesSound` en términos del punto fijo escapa de `TablesSound`. La prueba tiene que venir de la
+**construcción**.
+
+La máquina construye con cuatro operaciones. Este módulo hace dos de ellas, y con la revisión ya
+hecha en otro sitio quedan tres de cuatro:
+
+| operación | estado |
+|---|---|
+| revisión sin pin | `RunInhabited.soundAt_review` — hecho |
+| **`doJoin`** | **`tablesSound_join`** — aquí |
+| **`up` (`addNode`)** | **`tablesSound_addNode`** — aquí |
+| filtro (el pin) | `RunSteps.FilterSoundAt` — abierto |
+
+Y las dos que salen aquí no son casualidad, salen de lo que el diseño dice de cada una:
+
+* **el join no inventa nada** (`join_owners_source`): toda entrada del nodo fusionado viene de uno
+  de los dos lados, y una cadena de un lado sigue siéndolo en la unión
+  (`ChainSound_join_left`/`_right`), porque el join solo **añade** — nodos, padres, hijos, owners y
+  owners globales—;
+* **la fila nueva hereda la tabla de sus padres** (`rowOwners`): una entrada nueva viene de un
+  padre de fila, la cadena que la realizaba en el estado de antes se extiende con `extend`, y la
+  extensión entra justo por ese padre (`shiftPid`), que es el nodo de fila que se quería.
+
+Así que el filtro no solo es «lo que queda»: es **lo único que puede perder una cadena**, porque es
+la única de las cuatro que corta.
+-/
+
+namespace AbsSat.GraphPath.Model.TablesSoundBuild
+
+open AbsSat.Utils.Alias
+open AbsSat.GraphPath.Model
+open AbsSat.GraphPath.Model.GPathM
+open AbsSat.GraphPath.Model.Exactness (TablesSound Realizes)
+
+-- ============================================================
+-- El join: no inventa nada
+-- ============================================================
+
+/-- **`doJoin` conserva `TablesSound`.**
+
+Toda entrada del nodo fusionado viene de uno de los dos lados (`join_owners_source`), la cadena que
+la realizaba allí sigue siendo cadena de la unión (`ChainSound_join_left` / `_right`), y ya está: el
+join solo añade. -/
+theorem tablesSound_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : TablesSound g₁) (h₂ : TablesSound g₂) : TablesSound (join g₁ g₂) := by
+  have hcs : g₂.current_step = g₁.current_step := by
+    simp only [okJoin, Bool.and_eq_true] at hok
+    exact (beq_iff_eq.mp hok.1.1.1).symm
+  intro x n hx hx0 hx1 q hq0 hq1 hqn
+  rcases join_owners_source g₁ g₂ x n hx q hqn with ⟨m, hm, hw⟩ | ⟨m, hm, hw⟩
+  · obtain ⟨sel, hsc, hsx, hsq⟩ := h₁ x m hm hx0 hx1 q hq0 hq1 hw
+    exact ⟨sel, ChainSound_join_left g₁ g₂ sel hsc, hsx, hsq⟩
+  · obtain ⟨sel, hsc, hsx, hsq⟩ :=
+      h₂ x m hm hx0 (by rw [hcs]; exact hx1) q hq0 (by rw [hcs]; exact hq1) hw
+    exact ⟨sel, ChainSound_join_right g₁ g₂ hok sel hsc, hsx, hsq⟩
+
+theorem tablesSound_doJoin (g₁ g₂ : GPathM) (h₁ : TablesSound g₁) (h₂ : TablesSound g₂) :
+    TablesSound (doJoin g₁ g₂) := by
+  unfold doJoin
+  split
+  · exact tablesSound_join g₁ g₂ (by assumption) h₁ h₂
+  · exact h₁
+
+-- ============================================================
+-- El `up`: la fila nueva hereda la tabla de sus padres
+-- ============================================================
+
+/-- **`addNode` conserva `TablesSound`.**
+
+Las entradas viejas se extienden con `extend`. Las nuevas —las que tocan la fila— vienen de
+`rowOwners`, o sea de **un padre de fila**, y la cadena que las realizaba en el estado de antes
+entra en la fila justo por ese padre (`shiftPid`), que es el nodo de fila que se quería.
+
+No hace falta nada del punto fijo de la criba: es `rowOwners` leído literal. -/
+theorem tablesSound_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (hpos : 0 < g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hmok : MachineOk g) (hnd : NodupIds g)
+    (hso : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (hob : SelfOwn.OwnBelow g)
+    (ht : TablesSound g) : TablesSound (addNode g d title) := by
+  have hcsA : (addNode g d title).current_step = g.current_step + 1 := addNode_current g d title
+  -- una cadena de `g` por un padre de fila y por `v` sube a la fila, y entra por ese padre
+  have hchainRow : ∀ (pid p v : PathNodeId) (sel : Int → PathNodeId),
+      p ∈ rowParents g d pid → ChainSound g sel → sel p.id.step = p →
+      v.id.step < g.current_step → sel v.id.step = v →
+      ∃ σ, ChainSound (addNode g d title) σ ∧ σ v.id.step = v ∧ σ pid.id.step = pid := by
+    intro pid p v sel hp hsc hsp hv hsv
+    have hpn : p ∈ newParents g := rowParents_subset g d pid p hp
+    have hshift : shiftPid p d = pid := shiftPid_of_mem_rowParents g d pid p hp
+    have hrow : pid ∈ newRowIds g d := by
+      rw [← hshift]; exact mem_newRowIds_of_mem_newParents g d p hpos hpn
+    have hpstep : p.id.step = g.current_step - 1 := (rowParent_node g d hpos hp).2
+    have hselp : sel (g.current_step - 1) = p := by rw [← hpstep]; exact hsp
+    refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hsc, ?_, ?_⟩
+    · rw [extend_below g d sel v.id.step hv]; exact hsv
+    · rw [DescentUp.row_step g d hd hrow, extend_top]
+      unfold extendPid
+      rw [if_pos hpos, hselp]
+      exact hshift
+  -- y una cadena por dos nodos viejos sube sin tocar la fila
+  have hlow : ∀ (u v : PathNodeId) (sel : Int → PathNodeId), ChainSound g sel →
+      u.id.step < g.current_step → sel u.id.step = u →
+      v.id.step < g.current_step → sel v.id.step = v →
+      Realizes (addNode g d title) u v :=
+    fun u v sel hsc hu hsu hv hsv =>
+      ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hsc,
+        by rw [extend_below g d sel u.id.step hu]; exact hsu,
+        by rw [extend_below g d sel v.id.step hv]; exact hsv⟩
+  -- el padre de fila de donde sale una entrada nueva
+  have hsource : ∀ (pid v : PathNodeId), pid ∈ newRowIds g d → v.id.step < g.current_step →
+      v ∈ rowOwners g d pid →
+      ∃ p ∈ rowParents g d pid, ∃ mp, g.node? p = some mp ∧ v ∈ mp.owners := by
+    intro pid v hrow hv hmem
+    simp only [rowOwners, List.mem_append, List.mem_singleton] at hmem
+    rcases hmem with hl | hr
+    · obtain ⟨hu, _⟩ := List.mem_filter.mp hl
+      exact exists_owner_of_mem_unionOwnersOf g _ v hu
+    · exfalso
+      have hps := DescentUp.row_step g d hd hrow
+      rw [hr] at hv
+      omega
+  intro x n hx hx0 hx1 q hq0 hq1 hqn
+  rcases DescentUp.node_addNode_cases g d title hnd hx with ⟨hrow, hn⟩ | ⟨m, hm, hn⟩
+  · -- `x` es un nodo de la fila nueva
+    subst hn
+    rw [rowNode_owners] at hqn
+    have hxs : x.id.step = g.current_step := DescentUp.row_step g d hd hrow
+    rcases int_eq_or_ne q.id.step g.current_step with hqs | hqs
+    · -- un owner al propio paso de la fila: es `x` (y basta una cadena por `x`)
+      obtain ⟨p, hp⟩ := exists_rowParent g d hpos hrow
+      obtain ⟨hps, hpstep⟩ := rowParent_node g d hpos hp
+      obtain ⟨mp, hmp⟩ := Option.isSome_iff_exists.mp hps
+      obtain ⟨sel, hsc, hsp, _⟩ :=
+        ht p mp hmp (by omega) (by omega) p (by omega) (by omega) (hso p mp hmp)
+      obtain ⟨σ, hσ, _, hσx⟩ := hchainRow x p p sel hp hsc hsp (by omega) hsp
+      refine ⟨σ, hσ, hσx, ?_⟩
+      -- `q` y `x` están los dos en el paso de arriba, y `rowOwners` solo tiene a `x` allí
+      have : q = x := by
+        simp only [rowOwners, List.mem_append, List.mem_singleton] at hqn
+        rcases hqn with hl | hr
+        · exfalso
+          obtain ⟨hu, _⟩ := List.mem_filter.mp hl
+          obtain ⟨p', hp', mp', hmp', hq'⟩ := exists_owner_of_mem_unionOwnersOf g _ q hu
+          have := hob mp' (List.mem_of_find?_eq_some hmp') q hq'
+          omega
+        · exact hr
+      rw [this, hxs, ← hxs]; exact hσx
+    · -- una entrada nueva hacia abajo: viene de un padre de fila
+      have hqlt : q.id.step < g.current_step := by rw [hcsA] at hq1; omega
+      obtain ⟨p, hp, mp, hmp, hqmp⟩ := hsource x q hrow hqlt hqn
+      obtain ⟨_, hpstep⟩ := rowParent_node g d hpos hp
+      obtain ⟨sel, hsc, hsp, hsq⟩ :=
+        ht p mp hmp (by omega) (by omega) q hq0 hqlt hqmp
+      obtain ⟨σ, hσ, hσq, hσx⟩ := hchainRow x p q sel hp hsc hsp hqlt hsq
+      exact ⟨σ, hσ, hσx, hσq⟩
+  · -- `x` es un nodo viejo
+    subst hn
+    have hxlt : x.id.step < g.current_step := by
+      have := hbelow m (List.mem_of_find?_eq_some hm)
+      rwa [node?_id_eq g x m hm] at this
+    rw [upMap_owners] at hqn
+    rcases List.mem_append.mp hqn with hl | hr
+    · -- entrada vieja
+      have hqlt : q.id.step < g.current_step := hob m (List.mem_of_find?_eq_some hm) q hl
+      obtain ⟨sel, hsc, hsx, hsq⟩ := ht x m hm hx0 hxlt q hq0 hqlt hl
+      exact hlow x q sel hsc hxlt hsx hqlt hsq
+    · -- entrada ganada: `q` es un nodo de fila que posee a `x`
+      obtain ⟨hqrow, hqown⟩ := List.mem_filter.mp hr
+      have hxin : x ∈ rowOwners g d q := by
+        have := List.mem_of_elem_eq_true hqown
+        rwa [node?_id_eq g x m hm] at this
+      obtain ⟨p, hp, mp, hmp, hxmp⟩ := hsource q x hqrow hxlt hxin
+      obtain ⟨_, hpstep⟩ := rowParent_node g d hpos hp
+      obtain ⟨sel, hsc, hsp, hsx⟩ :=
+        ht p mp hmp (by omega) (by omega) x hx0 hxlt hxmp
+      obtain ⟨σ, hσ, hσx, hσq⟩ := hchainRow q p x sel hp hsc hsp hxlt hsx
+      exact ⟨σ, hσ, hσx, hσq⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_addNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_addNode
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_join' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_join
+
+end AbsSat.GraphPath.Model.TablesSoundBuild
