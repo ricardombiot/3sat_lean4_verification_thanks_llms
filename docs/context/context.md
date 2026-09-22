@@ -737,3 +737,55 @@ formen un clique** (566 fallos de 1.457 sin la condición, 3 de 16.364 con ella 
 resultan no ser realizables como picks de una cadena, así que `CommonOwner` sobrevive), la
 reformulación a *«el owner común de dos picks un paso más abajo, ¿posee al nodo?»*, y tres
 ángulos de ataque valorados.
+
+### 5.9 La multiplicidad no es el muro: el lector decide antes de andar
+
+Dos días de exploración del descenso convergieron en un obstáculo, y está ahora demostrado que es
+**ese y no otro**:
+
+* `Descent.parent_owns_of_coherent` — un owner de `x` lo posee ya **algún** padre de `x`, y sale de
+  la *coherencia del punto fijo* (`cohP`), no de la consistencia de pares;
+* `Descent.parents_own_unique_owner` — y si en ese paso la tabla de `x` tiene **un solo** owner, lo
+  poseen **todos** sus padres.
+
+> Lo único que impide al descenso elegir un padre es que las tablas tengan más de un candidato por
+> paso. Donde la revisión dejó la tabla decidida, no hay nada que elegir.
+
+Medido: de 999.560 celdas `(nodo, paso)` no vacías, **56,1 % decididas**, 43,8 % con dos o más
+(máximo 512), y solo el **11 %** de los nodos tiene todas sus celdas decididas.
+
+**Y ahí está el error de encuadre de toda la ruta D.** `NoDeadEnd` pide que el descenso funcione en
+un estado **estático y todavía indeciso**. La máquina no trabaja así: `ReaderExec` **pincha y
+vuelve a revisar** en cada paso, y cada pin decide más tablas. Nunca tiene que extender una cadena
+parcial en un estado indeciso — decide primero.
+
+El repo ya lo dice, y conviene citarlo literal:
+
+* `ReaderAgg`: *«la revisión se re-ejecuta tras cada pin, así que **no se pide ninguna propiedad
+  Helly estática** de las tablas de owners»*;
+* `PinExact`, sobre la sonda `helly pins` (v117): un pin *«elimina exactamente los nodos fuera de su
+  rebanada… y todo pin es válido, **aunque la rebanada tiene muchos huecos Helly-3**»*.
+
+Esa última frase es la medición de lo que dices: **los huecos de Helly no afectan a la validez del
+pin.** El fallo de Helly bloquea el descenso y le da igual al lector, porque el pin quita *nodos*,
+y lo que la criba tira son *pares de owners*, que no matan nodos.
+
+**Así que la obligación viva es `PinExact g mid`** — *un pin solo quita nodos fuera de su rebanada* —
+y su estado es bastante mejor que el del descenso:
+
+| pieza | estado |
+|---|---|
+| `ReaderExec.readerVerdictW_sound` | ✅ **sin hipótesis** |
+| `PinExact.inSlice_of_survives` (la otra mitad) | ✅ probado |
+| `PinExact.isValid_pin_of_pinExact` | ✅ probado: `PinExact` + simetría ⟹ el pin es válido |
+| `PinExactSome.pickSomeAgg_of_somePinExact` | ✅ probado, y solo pide `PinExact` en **un** owner de **un** paso con elección |
+| `PinExact` | ❌ abierto, medido sin excepción |
+
+Y nótese lo barato de la última fila: no hace falta `PinExact` en todos los owners globales
+(`pickSomeAgg_of_pinExact`), basta en **uno** por estado.
+
+> **Corolario para el mapa de §5.6:** dije que no hay flechas entre familias. Sigue siendo cierto
+> como implicación lógica, pero hay una flecha **conceptual** que no había visto: lo que bloquea D
+> (la multiplicidad de las tablas) es exactamente lo que E disuelve por construcción, porque E
+> decide antes de andar. D y E no son dos intentos independientes: son el problema visto desde el
+> estado estático y desde la dinámica.
