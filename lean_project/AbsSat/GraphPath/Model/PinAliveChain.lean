@@ -494,4 +494,83 @@ estaba vivo. -/
 #guard_msgs in
 #print axioms pin_owners_stay
 
+-- ============================================================
+-- La validez, dicha sobre NODOS: cada paso conserva alguno
+-- ============================================================
+
+/-- **Validez = ningún paso se queda sin nodos.**
+
+La tabla global y las filas del grafo dicen lo mismo: un owner global es un nodo (`GN`) y un nodo
+se posee a sí mismo (`SelfOwned`), luego está en la tabla global (`OwnersWithin`).
+
+Esto mueve `PinAlive` al nivel en el que el review de verdad trabaja. Porque `gowners` **solo**
+encoge por `removeNode` —`updateAt`, `unlinkIncompatible`, `relink` y `dropOwnerPair` tocan tablas
+de nodo y nunca la tabla global—, y `removeNode` solo dispara cuando `isValidNode` falla. Así que
+la pregunta deja de ser sobre entradas de tabla y pasa a ser sobre **muertes de nodos**. -/
+theorem isValid_iff_lines (g : GPathM) (hw : OwnersWithin g) (hso : Ownership.SelfOwned g)
+    (hgn : GownersNodes.GN g) (hnd : NodupIds g) :
+    isValid g = true ↔ ∀ k, 0 ≤ k → k < g.current_step → ∃ n, n ∈ g.line k := by
+  constructor
+  · intro hv k hk0 hk1
+    have hent := hasStepEntry_of_isValid g hv k hk0 hk1
+    simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+    obtain ⟨q, hq, hqs⟩ := hent
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g q).mp (hgn q hq))
+    exact ⟨n, List.mem_filter.mpr ⟨List.mem_of_find?_eq_some hn,
+      beq_iff_eq.mpr (by rw [node?_id_eq g q n hn]; exact hqs)⟩⟩
+  · intro hl
+    simp only [isValid, List.all_eq_true]
+    intro k hk
+    obtain ⟨n, hn⟩ := hl k (mem_intRange_lower hk) (by have := mem_intRange_upper hk; omega)
+    obtain ⟨hnm, hns⟩ := List.mem_filter.mp hn
+    have hnode : g.node? n.id = some n := node?_of_mem hnd n hnm
+    simp only [hasStepEntry, List.any_eq_true, beq_iff_eq]
+    exact ⟨n.id, hw n hnm n.id (hso n.id n hnode), eq_of_beq hns⟩
+
+/-- **Y un solo nodo vivo llena todas las filas.**
+
+Corolario de `isValid_of_survivor` leído sobre nodos: los owners del superviviente cubren todos los
+pasos, y son nodos. Así que **mientras quede un nodo vivo, ninguna fila se vacía**.
+
+Es la forma más nítida de por qué el review no puede romper el estado por un lado: no hay «romper
+por un lado». O caen todos o no cae ninguno. -/
+theorem lines_nonempty_of_survivor (g : GPathM) (hw : OwnersWithin g) (hgn : GownersNodes.GN g)
+    (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx) (hval : isValidNode g nx = true)
+    (k : Int) (hk0 : 0 ≤ k) (hk1 : k < g.current_step) : ∃ n, n ∈ g.line k := by
+  have hok := owners_ok_of_isValidNode g nx hval
+  simp only [List.all_eq_true] at hok
+  obtain ⟨w, hwm, hws⟩ := List.any_eq_true.mp (hok k (mem_intRange hk0 (by omega)))
+  have hwg : w ∈ g.gowners := hw nx (List.mem_of_find?_eq_some hx) w hwm
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g w).mp (hgn w hwg))
+  exact ⟨n, List.mem_filter.mpr ⟨List.mem_of_find?_eq_some hn,
+    by rw [node?_id_eq g w n hn]; exact hws⟩⟩
+
+/-! ## Dónde queda, dicho sobre nodos
+
+    Fijar `q` no puede matar a `q`.
+
+Y ahora con el mecanismo a la vista, porque todo lo demás está cerrado:
+
+* el pin **no toca** ni los nodos, ni las tablas, ni la validez de ningún nodo
+  (`isValidNode_filterRequire`, por `rfl`);
+* la tabla de `q` sobrevive entera al pin (`pin_owners_stay`), así que el corte contra `gowners`
+  de `cleanInvalid` no le quita nada;
+* si `q` sale vivo, **ninguna fila se vacía** (`lines_nonempty_of_survivor`) y el estado es válido
+  (`isValid_of_survivor`);
+* y `q` solo puede morir por `removeNode`, que solo dispara si `isValidNode q` falla, que solo
+  ocurre si `q` se queda sin owner en algún paso — es decir, **por contagio desde su propia
+  tabla**.
+
+La frase que falta es, por tanto, que el contagio no llegue: *fijar `q` no puede matar a todos los
+owners de `q` de ningún paso*. Y los owners de `q` son, por construcción de la máquina, los nodos
+con los que `q` comparte camino. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValid_iff_lines' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_iff_lines
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.lines_nonempty_of_survivor' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms lines_nonempty_of_survivor
+
 end AbsSat.GraphPath.Model.PinAliveChain
