@@ -2296,4 +2296,78 @@ lista ya no tiene **nada** dentro que no esté demostrado. -/
 #guard_msgs in
 #print axioms mem_gowners_cleanStep_ofP
 
+-- ============================================================
+-- El primer bucle: `cleanInvalid` entero
+-- ============================================================
+
+theorem pruned_cleanStep (g : GPathM) (r : PathNodeId) : Pruned g (cleanStep g r) := by
+  have h := pruned_cleanInvalidGo [r] g
+  rw [cleanInvalidGo_cons] at h
+  exact h
+
+theorem NodupIds_cleanStep (g : GPathM) (hnd : NodupIds g) (r : PathNodeId) :
+    NodupIds (cleanStep g r) := by
+  cases hnr : g.node? r with
+  | none => rw [cleanStep_none g r hnr]; exact hnd
+  | some d =>
+    rw [cleanStep_some g r d hnr]
+    unfold intersectOrDrop
+    have hnd1 : NodupIds (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
+      NodupIds_updateAt g r _ (fun _ => rfl) hnd
+    have hnd2 := NodupIds_unlinkIncompatible _ r hnd1
+    split
+    · exact hnd2
+    · exact NodupIds_removeNode _ r hnd2
+
+/-- **El paquete entero: lo que un conjunto protegido necesita, y todo a la vez.**
+
+Seis campos, y ninguno habla de la fórmula: los miembros de `P` están en rango, en la tabla global,
+anclados y mutuamente poseídos, y el grafo tiene sus dos invariantes de forma. -/
+structure Prot (g : GPathM) (P : PathNodeId → Prop) : Prop where
+  rz : Sons.RootAtZero g
+  nd : NodupIds g
+  range : ∀ y, P y → 0 ≤ y.id.step ∧ y.id.step < g.current_step
+  gow : ∀ y, P y → y ∈ g.gowners
+  sym : Sym g P
+  anch : ∀ y, P y → Anchored g P y
+
+/-- **Y cruza un paso del review.** Cada campo por su lema, todos ya demostrados. -/
+theorem Prot_cleanStep (g : GPathM) (P : PathNodeId → Prop) [DecidablePred P]
+    (h : Prot g P) (r : PathNodeId) : Prot (cleanStep g r) P where
+  rz := Sons.RootAtZero_of_pruned (pruned_cleanStep g r) h.rz
+  nd := NodupIds_cleanStep g h.nd r
+  range := fun y hy => by
+    rw [current_step_cleanStep]; exact h.range y hy
+  gow := fun y hy =>
+    mem_gowners_cleanStep_ofP g P h.rz h.range h.gow h.anch y r hy
+  sym := Sym_cleanStep g h.nd P h.gow h.sym r
+  anch := fun y hy =>
+    Anchored_cleanStep_all g P h.rz h.range h.gow h.sym h.anch y r hy
+
+/-- **Y por tanto una vuelta entera de `cleanInvalid`.**
+
+El primero de los cinco bucles, cerrado. La inducción sobre la lista de ids no hace nada más que
+aplicar `Prot_cleanStep` en cada `cons`. -/
+theorem Prot_cleanInvalidGo (P : PathNodeId → Prop) [DecidablePred P] :
+    ∀ (ids : List PathNodeId) (g : GPathM), Prot g P → Prot (cleanInvalidGo g ids) P := by
+  intro ids
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    rw [cleanInvalidGo_cons]
+    exact ih _ (Prot_cleanStep g P h id)
+
+theorem Prot_cleanInvalid (g : GPathM) (P : PathNodeId → Prop) [DecidablePred P]
+    (h : Prot g P) : Prot (cleanInvalid g) P := Prot_cleanInvalidGo P _ g h
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Prot_cleanStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Prot_cleanStep
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Prot_cleanInvalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Prot_cleanInvalid
+
 end AbsSat.GraphPath.Model.PinAliveChain
