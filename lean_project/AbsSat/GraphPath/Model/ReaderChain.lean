@@ -700,6 +700,66 @@ def PairDescends : Prop :=
     ∀ d nd, g.node? d = some nd → 0 < d.id.step → x ∈ nd.owners → q ∈ nd.owners →
       ∃ c ∈ nd.parents, ∀ mc, g.node? c = some mc → x ∈ mc.owners ∧ q ∈ mc.owners
 
+-- ============================================================
+-- El descenso CON revisión, que es el que el algoritmo hace
+-- ============================================================
+
+/-- **El compañero está en la rebanada del pin.**
+
+Si `q` está en la tabla de `x`, la simetría de `AggOk` pone a `x` en la de `q` — o sea, `q` está en
+la **rebanada** de `x.id` (`PinExact.InSlice`: tiene un owner que lleva el pin).
+
+Y eso conecta el descenso por pares con `PinExact`, la conjetura más antigua del repo y una de las
+medidas sin excepción: **`PinExact` basta para que `q` sobreviva a pinchar `x`.** El primer paso del
+descenso con revisión sale gratis. -/
+theorem partner_inSlice (P : GPathM) (hok : AggFixpoint.AggOk P) (ctx : Pinned.Ctx P)
+    (x q : PathNodeId) (nx nq : PNodeM) (hx : P.node? x = some nx) (hq : P.node? q = some nq)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < P.current_step)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < P.current_step) (hqn : q ∈ nx.owners) :
+    PinExact.InSlice nq x.id :=
+  ⟨x, (hok x nx q nq hx hq hx0 hx1 hq0 hq1 hqn (ctx.nodeval x nx hx) (ctx.nodeval q nq hq)).1, rfl⟩
+
+/-- **Y entonces `q` sobrevive a pinchar `x`.** -/
+theorem partner_survives_pin (P : GPathM) (hok : AggFixpoint.AggOk P) (ctx : Pinned.Ctx P)
+    (x q : PathNodeId) (nx nq : PNodeM) (hx : P.node? x = some nx) (hq : P.node? q = some nq)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < P.current_step)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < P.current_step) (hqn : q ∈ nx.owners)
+    (hpe : PinExact.PinExact P x.id) :
+    q ∈ (filterAllAgg P [x.id]).gowners := by
+  have h := hpe nq (List.mem_of_find?_eq_some hq)
+    (partner_inSlice P hok ctx x q nx nq hx hq hx0 hx1 hq0 hq1 hqn)
+  rwa [node?_id_eq P q nq hq] at h
+
+/-- **Lo que queda del descenso con revisión, en una frase.**
+
+El algoritmo no desciende por enlaces: pincha, **revisa todo el grafo**, y vuelve a elegir. Montado
+así, el paso del descenso por pares es este — y `partner_survives_pin` ya da la mitad (que `q`
+sobrevive), con `PinExact` como única entrada.
+
+Lo que falta es la otra mitad: que tras la revisión `q` **siga estando en la tabla de `x`**. La
+criba solo puede quitarlo si deja de compartir owner con `x` en algún paso, y eso es lo que el
+diseño dice que no puede pasar: pinchar `x` no puede volver incompatible con `x` a algo que ya era
+compatible con `x`.
+
+Medido (`row-degree pairdesc`, columna «como lo hace el lector», con revisión en cada paso, sin
+retroceso nunca): **1.016 de 1.016 pares sobre `dos_de_tres.cnf`**, que es la fórmula del
+contraejemplo al pegado puro. -/
+def PinKeepsPartner : Prop :=
+  ∀ P : GPathM, ReadableAgg P → isValid P = true →
+    ∀ x q : PathNodeId, ∀ nx : PNodeM, P.node? x = some nx → q ∈ nx.owners →
+      0 ≤ x.id.step → x.id.step < P.current_step →
+      0 ≤ q.id.step → q.id.step < P.current_step → q.id.step ≠ x.id.step →
+      isValid (filterAllAgg P [x.id]) = true →
+      ∃ nx', (filterAllAgg P [x.id]).node? x = some nx' ∧ q ∈ nx'.owners
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.partner_survives_pin' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms partner_survives_pin
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.partner_inSlice' does not depend on any axioms -/
+#guard_msgs in
+#print axioms partner_inSlice
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.pair_seed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pair_seed
