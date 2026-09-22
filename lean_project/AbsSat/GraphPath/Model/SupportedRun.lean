@@ -206,6 +206,38 @@ theorem triplePin_of_req (g : GPathM) (hrf : ReqFiltered (reqOfCnf φ) g)
     obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp hsome
     exact chain_through_req φ g hrf sel hsc q nq hnq hsq hq0 hq1 r hreq hr0 hr1 hne
 
+
+/-- **La supervivencia da un testigo COMPARTIDO en el paso del pin.**
+
+Y esto es lo que `ChainMerge` no tenía. Si `x` y `q` sobreviven al pin y `q` sigue en la tabla de
+`x`, la criba del estado pinchado obliga a que compartan un owner en **todos** los pasos
+(`AggOk`), y en el paso del pin ese owner común lleva el pin (`pin_id`).
+
+Así que la frase abierta ya no es «tres nodos compatibles dos a dos»: es «`x`, `q` y **un mismo
+tercero** `z` que los dos poseen y que es el valor pinchado». Un testigo, no dos. Es la forma más
+débil a la que ha bajado, y la que de verdad usa que el review dejó vivos a los dos. -/
+theorem shared_pin_witness (g : GPathM) (hR : ReadableAgg g)
+    (r : NodeId) (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs0 : 0 ≤ r.step) (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (hpms : Sons.PMS (filterAllAgg g [r])) (hsn : Sons.SN (filterAllAgg g [r]))
+    (x q : PathNodeId) (n mq : PNodeM)
+    (hx : (filterAllAgg g [r]).node? x = some n) (hq : (filterAllAgg g [r]).node? q = some mq)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < (filterAllAgg g [r]).current_step)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < (filterAllAgg g [r]).current_step)
+    (hqn : q ∈ n.owners) :
+    ∃ z, z.id = r ∧ z ∈ n.owners ∧ z ∈ mq.owners := by
+  have a := AdjacentOwners.adj_of_readable _ (ReadableAgg_filterAllAgg g hR [r]) hvr hpms hsn
+  have hok := AggFixpoint.aggOk_reviewAgg _ hvr
+  obtain ⟨z, hzx, hzq, hzs⟩ :=
+    ParentWitness.shared_owner a hok hx hq hx0 hx1 hq0 hq1 hqn r.step hrs0 hrs
+  have hzg : z ∈ (filterAllAgg g [r]).gowners :=
+    a.ctx.ownGow x n hx z hzx (by rw [hzs]; exact hrs0) (by rw [hzs]; exact hrs)
+  exact ⟨z, ReaderComplete.pin_id g r z hzg hzs, hzx, hzq⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.shared_pin_witness' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms shared_pin_witness
+
 /-- info: 'AbsSat.GraphPath.Model.SupportedRun.triplePin_of_req' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms triplePin_of_req
