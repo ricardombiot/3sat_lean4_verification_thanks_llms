@@ -774,6 +774,193 @@ theorem pid_of_three_pins (g : GPathM)
   simp only at h0 h1 h2
   rw [h0, h1, h2]
 
+/-- Un nodo por encima del paso 0 tiene padre: `notroot` dice que su id declara uno, y
+`isValidNode` obliga a que la lista no esté vacía. Descarga la única condición de forma que las
+dos lemas de la zona pinchada piden. -/
+theorem parents_exists (g : GPathM) (a : Adj g) :
+    ∀ y ny, g.node? y = some ny → 1 ≤ y.id.step → ∃ c, c ∈ ny.parents := by
+  intro y ny hy hy1
+  have hmem := List.mem_of_find?_eq_some hy
+  have hroot : ny.id.parent_id ≠ none :=
+    a.rc.shape.notroot ny hmem (by rw [node?_id_eq g y ny hy]; omega)
+  have hne := PathExists.parents_ne_nil_of_isValidNode g ny (a.ctx.nodeval y ny hy) hroot
+  cases hc : ny.parents with
+  | nil => exact absurd hc hne
+  | cons c cs => exact ⟨c, List.mem_cons_self⟩
+
+/-- **La zona pinchada.** De `j` para arriba, los owners globales de cada paso comparten id de mapa.
+Es exactamente lo que un pin deja detrás (`ReaderComplete.pin_id`), acumulado sobre varios pasos. -/
+def MapPinnedFrom (g : GPathM) (j : Int) : Prop :=
+  ∀ k, j ≤ k → k < g.current_step → ∃ r : NodeId, r.step = k ∧
+    ∀ q ∈ g.gowners, q.id.step = k → q.id = r
+
+/-- Un padre del nodo, con su nodo, su paso y su condición de owner global. La cadena de hechos de
+forma que los dos casos altos necesitan, empaquetada una vez. -/
+theorem parent_facts (g : GPathM) (a : Adj g)
+    (hpar : ∀ y ny, g.node? y = some ny → 1 ≤ y.id.step → ∃ c, c ∈ ny.parents)
+    {y : PathNodeId} {ny : PNodeM} (hy : g.node? y = some ny) (hy1 : 1 ≤ y.id.step)
+    (hys : y.id.step < g.current_step) :
+    ∃ p mp, g.node? p = some mp ∧ p ∈ ny.parents ∧ p.id.step = y.id.step - 1 ∧
+      p ∈ g.gowners := by
+  obtain ⟨p, hp⟩ := hpar y ny hy hy1
+  have hmem := List.mem_of_find?_eq_some hy
+  obtain ⟨mp, hmp, hmpid⟩ := a.rc.shape.pn ny hmem p hp
+  have hpnode : g.node? p = some mp := by rw [← hmpid]; exact node?_of_mem a.rc.nodup mp hmp
+  have hps : p.id.step = y.id.step - 1 := by
+    have := a.rc.shape.pbelow ny hmem p hp
+    rwa [node?_id_eq g y ny hy] at this
+  exact ⟨p, mp, hpnode, hp, hps,
+    a.ctx.ownGow y ny hy p ((a.links y ny hy).1 p hp) (by omega) (by omega)⟩
+
+/-- **Dentro de la zona pinchada, la tabla de todo nodo está decidida.**
+
+Tres casos, y los tres son el diseño:
+
+* al **paso propio**, `OOS`: un owner a la altura del nodo *es* el nodo;
+* **un paso arriba**, los owners son los hijos (`owners_above_iff_sons`), y un hijo lleva en su
+  identificador el id de mapa de su padre (`PMP`) y el del abuelo (`GPMP`) — que son el nodo mismo y
+  su padre. Con el id de mapa del paso ya pinchado, los tres componentes están escritos;
+* **dos o más arriba**, `pid_of_three_pins`: los tres pasos de la ventana caen dentro de la zona.
+
+O sea: **por dentro de una zona pinchada de tres pasos el descenso no elige.** Por
+`parents_own_unique_owner`, todo padre del pick de abajo es un owner común de todos los picks, así
+que la cadena baja un paso por debajo de la zona **sin hipótesis ninguna** — ni `SingleParents`, ni
+`PairMeet`, ni `AllParentsOwn`. -/
+theorem decided_in_pinned_zone (g : GPathM) (a : Adj g)
+    (hpmp : ParentId.PMP g) (hgpmp : ParentId.GPMP g)
+    (hpar : ∀ y ny, g.node? y = some ny → 1 ≤ y.id.step → ∃ c, c ∈ ny.parents)
+    {j : Int} (hpin : MapPinnedFrom g j)
+    {x : PathNodeId} {n : PNodeM} (hx : g.node? x = some n) (hxj : j ≤ x.id.step)
+    {w w' : PathNodeId} (hw : w ∈ n.owners) (hw' : w' ∈ n.owners)
+    (hge : x.id.step ≤ w.id.step) (heq : w.id.step = w'.id.step) : w = w' := by
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid : n.id = x := node?_id_eq g x n hx
+  have hx0 : 0 ≤ x.id.step := by
+    have := a.rc.snn n hmem; rwa [hid] at this
+  have hws : w.id.step < g.current_step := by
+    have := a.rc.ownb n hmem w hw; exact this
+  have hw's : w'.id.step < g.current_step := by
+    have := a.rc.ownb n hmem w' hw'; exact this
+  -- el nodo del owner, y que es owner global
+  have hnode : ∀ u, u ∈ n.owners → 0 ≤ u.id.step → u.id.step < g.current_step →
+      ∃ mu, g.node? u = some mu ∧ u ∈ g.gowners := by
+    intro u hu hu0 hus
+    have hug : u ∈ g.gowners := a.ctx.ownGow x n hx u hu hu0 hus
+    obtain ⟨mu, hmu⟩ := Option.isSome_iff_exists.mp
+      ((GownersNodes.hasNode_iff g u).mp (a.rc.gn u hug))
+    exact ⟨mu, hmu, hug⟩
+  rcases int_eq_or_ne w.id.step x.id.step with hcase | hne1
+  · -- (1) al paso propio: `OOS`
+    have e1 : w = n.id := a.rc.oos n hmem w hw (by rw [hid]; exact hcase)
+    have e2 : w' = n.id := a.rc.oos n hmem w' hw' (by rw [hid, ← heq]; exact hcase)
+    rw [e1, e2]
+  rcases int_eq_or_ne w.id.step (x.id.step + 1) with hcase | hne2
+  · -- (2) un paso arriba: los owners son hijos, y el hijo lleva escritos padre y abuelo
+    obtain ⟨r, hrs, hr⟩ := hpin w.id.step (by omega) hws
+    have hxl : x.id.step ≤ g.current_step - 2 := by omega
+    have son : ∀ u, u ∈ n.owners → u.id.step = x.id.step + 1 →
+        ∀ mu, g.node? u = some mu → u ∈ g.gowners → u = ⟨r, some x.id, x.parent_id⟩ := by
+      intro u hu hus mu hmu hug
+      have hson : u ∈ n.sons := (owners_above_iff_sons g a x n hx hxl u (by rw [hus])).mp hu
+      have hxpar : x ∈ mu.parents := by
+        have := a.pms n hmem u hson mu (List.mem_of_find?_eq_some hmu) (node?_id_eq g u mu hmu)
+        rwa [hid] at this
+      have h1 : u.id = r := hr u hug (by rw [hus, ← hcase])
+      have h2 : u.parent_id = some x.id := by
+        have := hpmp mu (List.mem_of_find?_eq_some hmu) x hxpar
+        rw [node?_id_eq g u mu hmu] at this; rw [← this]
+      have h3 : u.gparent_id = x.parent_id := by
+        have := hgpmp.1 mu (List.mem_of_find?_eq_some hmu) x hxpar
+        rwa [node?_id_eq g u mu hmu] at this
+      obtain ⟨i, pi, gi⟩ := u
+      simp only at h1 h2 h3
+      rw [h1, h2, h3]
+    obtain ⟨mw, hmw, hwg⟩ := hnode w hw (by omega) hws
+    obtain ⟨mw', hmw', hw'g⟩ := hnode w' hw' (by omega) hw's
+    rw [son w hw hcase mw hmw hwg, son w' hw' (by rw [← heq]; exact hcase) mw' hmw' hw'g]
+  · -- (3) dos o más arriba: los tres pasos de la ventana caen en la zona
+    have hgt : x.id.step + 2 ≤ w.id.step := by omega
+    obtain ⟨r0, hr0s, hr0⟩ := hpin w.id.step (by omega) hws
+    obtain ⟨r1, hr1s, hr1⟩ := hpin (w.id.step - 1) (by omega) (by omega)
+    obtain ⟨r2, hr2s, hr2⟩ := hpin (w.id.step - 2) (by omega) (by omega)
+    have det : ∀ u, u ∈ n.owners → u.id.step = w.id.step →
+        ∀ mu, g.node? u = some mu → u = ⟨r0, some r1, some r2⟩ := by
+      intro u hu hus mu hmu
+      obtain ⟨mu', hmu', hug⟩ := hnode u hu (by omega) (by rw [hus]; exact hws)
+      rw [hmu'] at hmu; cases hmu
+      obtain ⟨p, mp, hpnode, hp, hps, hpg⟩ :=
+        parent_facts g a hpar hmu' (by omega) (by rw [hus]; exact hws)
+      obtain ⟨p', mp', hp'node, hp', hp's, hp'g⟩ :=
+        parent_facts g a hpar hpnode (by omega) (by omega)
+      have hr0' : ∀ q ∈ g.gowners, q.id.step = r0.step → q.id = r0 := by rw [hr0s]; exact hr0
+      have hr1' : ∀ q ∈ g.gowners, q.id.step = r1.step → q.id = r1 := by rw [hr1s]; exact hr1
+      have hr2' : ∀ q ∈ g.gowners, q.id.step = r2.step → q.id = r2 := by rw [hr2s]; exact hr2
+      exact pid_of_three_pins g hpmp hgpmp hr0' hr1' hr2' hmu' hug (by rw [hus, ← hr0s])
+        hp hpnode hpg (by rw [hps, hus, hr1s]) hp' hp'g (by rw [hp's, hps, hus, hr2s]; omega)
+    obtain ⟨mw, hmw, _⟩ := hnode w hw (by omega) hws
+    obtain ⟨mw', hmw', _⟩ := hnode w' hw' (by omega) hw's
+    rw [det w hw rfl mw hmw, det w' hw' heq.symm mw' hmw']
+
+/-- **El descenso baja gratis por debajo de una zona pinchada.**
+
+Si los pasos de `j` para arriba tienen su id de mapa fijado, toda cadena parcial sana cuyo pick más
+bajo esté en la zona se extiende un paso **sin hipótesis ninguna**: `decided_in_pinned_zone` deja la
+tabla del pick de abajo decidida en todos los pasos de los picks, `parents_own_unique_owner` hace
+entonces que **todo** padre sirva, y `parent_owns_of_coherent` regala uno.
+
+Es la conclusión de `CommonOwner` en ese `lo`, sin `SingleParents`, sin `TwoParents`, sin `PairMeet`
+y sin `AllParentsOwn`. La hipótesis que la sustituye no es sobre las tablas: es sobre **lo que el
+lector ya ha pinchado**. -/
+theorem extend_below_pinned (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Sons.SMP g)
+    (hpmp : ParentId.PMP g) (hgpmp : ParentId.GPMP g)
+    (hpar : ∀ y ny, g.node? y = some ny → 1 ≤ y.id.step → ∃ c, c ∈ ny.parents)
+    {j : Int} (hpin : MapPinnedFrom g j)
+    (sel : Int → PathNodeId) (lo : Int) (hlo0 : 0 < lo) (hlo : lo ≤ g.current_step - 1)
+    (hjlo : j ≤ lo) (hs : SoundFrom g sel lo) :
+    ∃ c nc, g.node? c = some nc ∧ c.id.step = lo - 1 ∧
+      ∀ k, lo ≤ k → k < g.current_step → c ∈ ownersOf g (sel k) := by
+  obtain ⟨hsome, hstep⟩ := hs.node lo (Int.le_refl _) (by omega)
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have hid : n.id = sel lo := node?_id_eq g _ n hn
+  have hx1 : 1 ≤ (sel lo).id.step := by rw [hstep]; omega
+  have hxs : (sel lo).id.step < g.current_step := by rw [hstep]; omega
+  have hself : sel lo ∈ n.owners := by
+    simpa only [ownersOf, hn] using hs.self_owned lo (Int.le_refl _) (by omega)
+  obtain ⟨c, hc, mc, hcnode, _⟩ :=
+    parent_owns_of_coherent g a hn hx1 hxs (sel lo) hself (by rw [hstep]; omega) hxs
+  have hcstep : c.id.step = lo - 1 := by
+    have := a.rc.shape.pbelow n (List.mem_of_find?_eq_some hn) c hc
+    rw [hid, hstep] at this; omega
+  refine ⟨c, mc, hcnode, hcstep, fun k hk0 hk1 => ?_⟩
+  obtain ⟨hksome, hkstep⟩ := hs.node k hk0 hk1
+  obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp hksome
+  have hkx : sel k ∈ n.owners := by
+    rcases int_eq_or_ne k lo with rfl | hne
+    · exact hself
+    · have h := hs.owned k lo hk0 (Int.le_refl _) hk1 (by omega) hne
+      simpa only [ownersOf, hn] using (List.mem_filter.mp h).1
+  -- la zona pinchada decide la tabla: el pick ES la entrada de su paso
+  have huniq : ∀ w ∈ n.owners, w.id.step = k → w = sel k := by
+    intro w hw hws
+    exact decided_in_pinned_zone g a hpmp hgpmp hpar hpin hn (by rw [hstep]; omega)
+      hw hkx (by rw [hstep, hws]; omega) (by rw [hws, hkstep])
+  have hvk : sel k ∈ mc.owners :=
+    parents_own_unique_owner g a hok hsmp hn hx1 hxs k (by omega) hk1 (sel k) huniq c hc mc hcnode
+  have hsymc := (hok c mc (sel k) nk hcnode hnk (by rw [hcstep]; omega) (by rw [hcstep]; omega)
+    (by rw [hkstep]; omega) (by rw [hkstep]; exact hk1) hvk
+    (a.ctx.nodeval c mc hcnode) (a.ctx.nodeval (sel k) nk hnk)).1
+  simpa only [ownersOf, hnk] using hsymc
+
+/-- **Y con toda la corrida pinchada, es `CommonOwner` entero**, o sea el veredicto y que el lector
+no se atasca (`NoDeadEndVerdict.sat_of_commonOwner`, `ReaderDescent.pinExtends_of_commonOwner`).
+
+`MapPinnedFrom g 1` dice que todo paso de 1 para arriba tiene su id de mapa fijado — el paso 0 no
+hace falta, porque el descenso nunca pide extender por debajo de él. -/
+theorem commonOwner_of_mapPinned (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Sons.SMP g)
+    (hpin : MapPinnedFrom g 1) : CommonOwner g := fun sel lo hlo0 hlo hs =>
+  extend_below_pinned g a hok hsmp a.rc.pmp a.rc.gpmp (parents_exists g a) hpin sel lo hlo0 hlo
+    (by omega) hs
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -949,6 +1136,18 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.parents_own_unique_owner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms parents_own_unique_owner
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.decided_in_pinned_zone' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms decided_in_pinned_zone
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.extend_below_pinned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms extend_below_pinned
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_mapPinned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms commonOwner_of_mapPinned
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.pid_of_three_pins' depends on axioms: [propext] -/
 #guard_msgs in
