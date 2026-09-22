@@ -1957,4 +1957,78 @@ sobreviven, porque `unlinkMap` no toca a quien el mirado posee y `Sym` dice que 
 #guard_msgs in
 #print axioms Sym_removeNode
 
+-- ============================================================
+-- El desenlace de un PROTEGIDO no daña a los demás protegidos
+-- ============================================================
+
+/-- **Si el mirado posee a `z`, el desenlace deja a `z` idéntico.** La segunda rama de `unlinkMap`,
+aplicada a un anclado. -/
+theorem Anchored_unlinkIncompatible_owned (g : GPathM) (P : PathNodeId → Prop) (z r : PathNodeId)
+    (n : PNodeM) (hnr : g.node? r = some n) (hne : z ≠ r) (hzn : z ∈ n.owners)
+    (h : Anchored g P z) : Anchored (unlinkIncompatible g r) P z := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  have hid : nz.id = z := node?_id_eq g z nz hn
+  have hkeep : unlinkMap n r nz = nz :=
+    unlinkMap_keeps n r nz (by rw [hid]; exact hne) (by rw [hid]; simpa using hzn)
+  refine ⟨nz, by rw [unlinkIncompatible_node? g r n hnr z nz hn, hkeep], ?_, ?_, ?_⟩
+  · intro k hk0 hk1
+    rw [current_step_unlinkIncompatible] at hk1
+    obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
+    exact ⟨w, hwm, hws, by rw [gowners_unlinkIncompatible]; exact hwg, hwP⟩
+  · intro h1
+    obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
+    exact ⟨p, hpm, hpP, hpo, by rw [gowners_unlinkIncompatible]; exact hpg⟩
+  · intro h2
+    rw [current_step_unlinkIncompatible] at h2
+    obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
+    exact ⟨t, htm, htP, hto, by rw [gowners_unlinkIncompatible]; exact htg⟩
+
+/-- **Y entonces el desenlace de un protegido no daña a ningún otro protegido.**
+
+Dos salidas, y la disyuntiva es la del propio `unlinkMap`:
+
+* si `r` **está** en la tabla de `z`, la simetría de `P` pone a `z` en la tabla de `r`, y el
+  desenlace deja a `z` intacto (`Anchored_unlinkIncompatible_owned`);
+* si `r` **no está** en la tabla de `z`, entonces no es anclaje suyo —los anclajes están en la
+  tabla—, así que el filtro le quita algo que no le hacía falta.
+
+Es el último sitio donde `Sym` hacía falta, y aquí se ve por qué: **es lo que impide que desenlazar
+un protegido desancle a otro.** -/
+theorem Anchored_unlinkIncompatible_protected (g : GPathM) (P : PathNodeId → Prop)
+    (z r : PathNodeId) (hSym : Sym g P) (hPz : P z) (hPr : P r) (hne : z ≠ r)
+    (n : PNodeM) (hnr : g.node? r = some n) (h : Anchored g P z) :
+    Anchored (unlinkIncompatible g r) P z := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  have hid : nz.id = z := node?_id_eq g z nz hn
+  by_cases hrz : r ∈ nz.owners
+  · exact Anchored_unlinkIncompatible_owned g P z r n hnr hne
+      (hSym z r nz n hPz hPr hn hnr hrz) ⟨nz, hn, hcov, hpar, hson⟩
+  · refine ⟨unlinkMap n r nz, unlinkIncompatible_node? g r n hnr z nz hn, ?_, ?_, ?_⟩
+    · intro k hk0 hk1
+      rw [current_step_unlinkIncompatible] at hk1
+      obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
+      exact ⟨w, by rw [owners_unlinkMap]; exact hwm, hws,
+        by rw [gowners_unlinkIncompatible]; exact hwg, hwP⟩
+    · intro h1
+      obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
+      exact ⟨p, parents_unlinkMap_keeps n r nz (by rw [hid]; exact hne) p hpm
+          (fun he => hrz (by rw [← he]; exact hpo)), hpP,
+        by rw [owners_unlinkMap]; exact hpo,
+        by rw [gowners_unlinkIncompatible]; exact hpg⟩
+    · intro h2
+      rw [current_step_unlinkIncompatible] at h2
+      obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
+      exact ⟨t, sons_unlinkMap_keeps n r nz (by rw [hid]; exact hne) t htm
+          (fun he => hrz (by rw [← he]; exact hto)), htP,
+        by rw [owners_unlinkMap]; exact hto,
+        by rw [gowners_unlinkIncompatible]; exact htg⟩
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_unlinkIncompatible_owned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_unlinkIncompatible_owned
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_unlinkIncompatible_protected' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_unlinkIncompatible_protected
+
 end AbsSat.GraphPath.Model.PinAliveChain
