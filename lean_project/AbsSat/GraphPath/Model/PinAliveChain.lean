@@ -992,4 +992,56 @@ Eso es una inducción sobre las vueltas del review con el invariante «la tabla 
 #guard_msgs in
 #print axioms isValidNode_of_cover
 
+-- ============================================================
+-- Y el barrido agresivo tampoco: `aggPair` no dispara sobre el elegido
+-- ============================================================
+
+/-- **El barrido nunca desenlaza al nodo elegido de un owner suyo.**
+
+`aggPair g q w` tiene exactamente dos motivos para actuar, y `AggFixpoint.AggOk` niega los dos para
+el par `(q, w)` cuando `w` está en la tabla de `q`:
+
+* **asimetría** — `w` sería owner de `q` sin que `q` lo sea de `w`: la primera componente de `AggOk`
+  dice que sí lo es;
+* **inconsistencia** — las dos tablas no compartirían algo en algún paso: la segunda componente dice
+  que comparten en todos.
+
+Así que `aggPair` devuelve el grafo tal cual. Con esto el review **entero** queda cerrado sobre el
+nodo elegido: el corte y el re-enlace de `cleanInvalid` son la identidad
+(`review_step_noop_on_pinned`) y el barrido no dispara. -/
+theorem aggPair_noop_on_pinned (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (q w : PathNodeId) (nq nw : PNodeM) (hq : g.node? q = some nq) (hwn : g.node? w = some nw)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step)
+    (hw0 : 0 ≤ w.id.step) (hw1 : w.id.step < g.current_step)
+    (hwm : w ∈ nq.owners) : aggPair g q w = g := by
+  obtain ⟨hsym, hshare⟩ := hok q nq w nw hq hwn hq0 hq1 hw0 hw1 hwm
+    (ctx.nodeval q nq hq) (ctx.nodeval w nw hwn)
+  unfold aggPair
+  rw [hq, hwn]
+  simp [hsym, hshare]
+
+/-! ## Lo que queda: una inducción, y ya sin nada geométrico dentro
+
+El review, sobre el nodo elegido, no hace **nada**: ni el corte (`relink_eq_self`), ni el desenlace
+(`unlinkMap_self_eq`), ni el barrido (`aggPair_noop_on_pinned`). Y sus owners conservan cobertura
+mientras su tabla esté dentro de `gowners` (`owner_of_pinned_keeps_cover`), lo que por
+`isValidNode_of_cover` los mantiene válidos, y por tanto fuera del alcance del único mecanismo que
+puede borrar algo de `gowners`, que es `removeNode`.
+
+El círculo se cierra solo, y eso es lo que hay que escribir: el invariante
+
+    I(h) :  ∀ z ∈ (tabla de q), z ∈ h.gowners
+
+vale al empezar (`pin_owners_stay`), y **cada operación del review lo conserva** por lo de arriba.
+Lo que falta es la inducción contra la recursión de `reviewAggFuel` / `reviewFuel` /
+`cleanInvalidGo`, que es trabajo de fontanería sobre tres recursiones anidadas, no una idea nueva.
+
+Y conviene subrayar lo que ya **no** hay que probar por el camino: ni que se peguen cadenas, ni que
+tres pasos sean compatibles, ni nada sobre las fórmulas. El invariante habla de una lista y de una
+tabla. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.aggPair_noop_on_pinned' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms aggPair_noop_on_pinned
+
 end AbsSat.GraphPath.Model.PinAliveChain
