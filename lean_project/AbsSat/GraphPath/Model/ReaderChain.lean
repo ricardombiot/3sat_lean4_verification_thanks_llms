@@ -1461,4 +1461,132 @@ alternativa — y la fusión es justo la operación que guarda esas alternativas
 #guard_msgs in
 #print axioms ownerChained_reviewAgg
 
+-- ============================================================
+-- `filterRequire`: la mitad libre, y la otra mitad con su nombre
+-- ============================================================
+
+/-- **La mitad libre del filtro: las entradas del propio paso pinchado.**
+
+Una entrada que sobrevive al filtro **en el paso del pin** es el pin (eso es lo único que el filtro
+deja ahí), y la cadena que ya la atravesaba satisface por tanto el requisito. `ChainSound_filterRequire`
+la lleva al otro lado sin pedir nada.
+
+Es decir: el filtro no puede dejar huérfana a la entrada que él mismo elige. Lo que hay que mirar
+son las **otras**. -/
+theorem ownerChained_filterRequire_pin (g : GPathM) (h : OwnerChained g) (req : NodeId)
+    (q : PathNodeId) (hq : q ∈ (filterRequire g req).gowners) (hstep : q.id.step = req.step)
+    (h0 : 0 ≤ q.id.step) (h1 : q.id.step < g.current_step) :
+    ∃ sel, ChainSound (filterRequire g req) sel ∧ (sel q.id.step).id = q.id := by
+  rw [PickInduction.filterRequire_gowners, List.mem_filter] at hq
+  have hqid : q.id = req := by
+    have := hq.2
+    simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, beq_iff_eq] at this
+    exact this.resolve_left (fun hne => hne hstep)
+  obtain ⟨sel, hsc, hsel⟩ := h q hq.1 h0 h1
+  exact ⟨sel, ChainSound_filterRequire g req sel hsc
+    (fun _ _ => by rw [← hstep, hsel, hqid]), hsel⟩
+
+/-- **Dos entradas vivas a la vez, en una misma cadena.**
+
+La versión de `OwnerChained` para **parejas**: dos entradas cualesquiera de la tabla global están
+en una misma cadena completa. Su diagonal (`p := q`) es `OwnerChained`.
+
+Éste es el nivel donde el autor ha visto siempre que las cosas se sostienen: los enunciados sobre
+**dos** cosas valen —la frontera de esta línea de trabajo, medida una y otra vez, está entre dos y
+tres—. Y es justo lo que el filtro pide. -/
+def PairChained (g : GPathM) : Prop :=
+  ∀ q ∈ g.gowners, ∀ p ∈ g.gowners,
+    0 ≤ q.id.step → q.id.step < g.current_step →
+    0 ≤ p.id.step → p.id.step < g.current_step →
+    ∃ sel, ChainSound g sel ∧ (sel q.id.step).id = q.id ∧ (sel p.id.step).id = p.id
+
+/-- **La diagonal.** -/
+theorem ownerChained_of_pairChained (g : GPathM) (h : PairChained g) : OwnerChained g :=
+  fun q hq h0 h1 =>
+    let ⟨sel, hsc, hs, _⟩ := h q hq q hq h0 h1 h0 h1
+    ⟨sel, hsc, hs⟩
+
+/-- **Y con parejas, el filtro entero.**
+
+Para una entrada `q` que sobrevive al pin `req`, la pareja `(q, req)` da una cadena que pasa por
+las dos; esa cadena satisface el requisito por construcción, así que `ChainSound_filterRequire` la
+pasa al otro lado y allí sigue pasando por `q`.
+
+No hace falta distinguir si `q` está en el paso del pin o en otro: la pareja cubre los dos casos.
+Lo que la hipótesis pide es exactamente lo que el filtro rompe — **que el pin y la entrada sean
+compatibles** — y ni una letra más. -/
+theorem ownerChained_filterRequire (g : GPathM) (h : PairChained g) (req : NodeId)
+    (p : PathNodeId) (hp : p ∈ g.gowners) (hpid : p.id = req)
+    (hr0 : 0 ≤ req.step) (hr1 : req.step < g.current_step) :
+    OwnerChained (filterRequire g req) := by
+  intro q hq h0 h1
+  rw [PickInduction.filterRequire_gowners, List.mem_filter] at hq
+  obtain ⟨sel, hsc, hsq, hsp⟩ := h q hq.1 p hp h0 h1
+    (by rw [hpid]; exact hr0) (by rw [hpid]; exact hr1)
+  exact ⟨sel, ChainSound_filterRequire g req sel hsc
+    (fun _ _ => by rw [← hpid]; exact hsp), hsq⟩
+
+/-- **Pin y review, de una vez.** `filterAllAgg g [req]` es el filtro seguido del review agresivo,
+y el review ya estaba cerrado (`ownerChained_reviewAgg`). -/
+theorem ownerChained_filterAllAgg_one (g : GPathM) (h : PairChained g) (req : NodeId)
+    (p : PathNodeId) (hp : p ∈ g.gowners) (hpid : p.id = req)
+    (hr0 : 0 ≤ req.step) (hr1 : req.step < g.current_step) :
+    OwnerChained (filterAllAgg g [req]) :=
+  ownerChained_reviewAgg _ (ownerChained_filterRequire g h req p hp hpid hr0 hr1)
+
+/-- **El review agresivo conserva también la versión de parejas.** Misma razón que antes: solo
+poda, y no rompe cadenas sanas. -/
+theorem pairChained_reviewAgg (g : GPathM) (h : PairChained g) : PairChained (reviewAgg g) := by
+  intro q hq p hp h0 h1 h2 h3
+  have hpr := pruned_reviewAgg g
+  obtain ⟨sel, hsc, hsq, hsp⟩ := h q (hpr.gowners_sub q hq) p (hpr.gowners_sub p hp)
+    h0 (by rw [← hpr.step_eq]; exact h1) h2 (by rw [← hpr.step_eq]; exact h3)
+  exact ⟨sel, ChainSound_reviewAgg g sel hsc, hsq, hsp⟩
+
+/-- **Y el teorema entero, desde una frase sobre DOS entradas de la tabla.**
+
+    (∀ g, ReadableAgg g → HasChain g → PairChained g)  →  ∀ φ, WF φ →
+        (readerVerdictW φ = true ↔ Satisfiable φ)
+
+Es el enunciado más estrecho al que esta línea ha llegado: no habla del lector, ni del orden de los
+pines, ni del retroceso, ni del otro lector, ni siquiera de cadenas por nodo. Dice que **dos
+entradas que el review deja vivas caben en un mismo camino** — que es, palabra por palabra, para lo
+que la máquina une las tablas en `doJoin` y para lo que el barrido desenlaza las incompatibles. -/
+theorem readerVerdictW_iff_of_pairChained
+    (h : ∀ g, ReadableAgg g → HasChain g → PairChained g) (φ : Cnf) (hwf : WF φ) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_ownerChained
+    (fun g hR hc => ownerChained_of_pairChained g (h g hR hc)) φ hwf
+
+/-! **Y aquí conviene decir con precisión dónde está ahora el borde.**
+
+`OwnerChained` pasaba `doJoin` sin condiciones porque cada entrada viva se trae su cadena de **uno**
+de los dos lados. En parejas eso ya no basta: `q` puede venir de `g₁` y `p` de `g₂`, y entonces
+ninguna de las dos cadenas sirve para las dos. **La fusión deja de ser gratis exactamente al pasar
+de una entrada a dos** — que es, otra vez, la frontera de siempre.
+
+Y ése es el trabajo del barrido agresivo, no de la fusión: `aggPair` compara las tablas y
+`unlinkIncompatible` quita las entradas que no comparten paso a paso, de modo que las parejas que
+sobreviven a la fusión **más** el barrido sí son las compatibles. `pair_seed` ya extrae de `AggOk`
+el owner común del paso de arriba para una pareja cualquiera; lo que falta es bajarlo.
+
+Así que el residuo, dicho entero y sin adornos: **que el barrido agresivo deje emparejadas las
+tablas que une la fusión.** -/
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_filterRequire' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_filterRequire
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_filterRequire_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_filterRequire_pin
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownerChained_filterAllAgg_one' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_filterAllAgg_one
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_iff_of_pairChained' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_pairChained
+
 end AbsSat.GraphPath.Model.ReaderChain
