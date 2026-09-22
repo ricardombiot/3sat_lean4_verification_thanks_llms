@@ -1131,4 +1131,99 @@ diseño: hay tres recursiones que recorrer con un invariante que se conserva. -/
 #guard_msgs in
 #print axioms mem_gowners_cleanInvalidGo
 
+-- ============================================================
+-- Y el caso que faltaba: cuando el review mira al propio nodo
+-- ============================================================
+
+/-- El paso del review, con el nodo a la vista. -/
+theorem cleanStep_some (g : GPathM) (id : PathNodeId) (d : PNodeM) (h : g.node? id = some d) :
+    cleanStep g id = intersectOrDrop g id g.gowners d := by
+  simp only [cleanStep, h]
+
+/-- Y cuando el nodo ya no está, el paso no hace nada. -/
+theorem cleanStep_none (g : GPathM) (id : PathNodeId) (h : g.node? id = none) :
+    cleanStep g id = g := by
+  simp only [cleanStep, h]
+
+/-- Desenlazar no mueve el paso actual. -/
+theorem current_step_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    (unlinkIncompatible g id).current_step = g.current_step := by
+  unfold unlinkIncompatible; split <;> rfl
+
+/-- **`isValidNode` solo lee el paso actual del grafo.** Dos grafos con el mismo paso dan el mismo
+veredicto sobre el mismo nodo — y es la razón por la que el corte del review no puede invalidar a
+nadie *por el grafo*, solo por el nodo. -/
+theorem isValidNode_congr_step (g h : GPathM) (n : PNodeM)
+    (hcs : h.current_step = g.current_step) : isValidNode h n = isValidNode g n := by
+  unfold isValidNode; rw [hcs]
+
+/-- **El review conserva también la entrada que está mirando, si el nodo era válido.**
+
+Y con esto el ladrillo está completo, porque las dos condiciones del `if` de `intersectOrDrop` se
+resuelven con lo ya demostrado:
+
+* el nodo que se somete a examen es `relink (intersectOwners nz.owners gowners) nz`, que **es `nz`**
+  cuando su tabla está dentro de la tabla global y sus enlaces dentro de su tabla
+  (`relink_eq_self`);
+* y el grafo contra el que se examina tiene el mismo paso actual, así que el veredicto es el mismo
+  (`isValidNode_congr_step`).
+
+De modo que si `nz` era válido, el `if` va por la rama que **no borra**, y `z` sigue en la tabla
+global. -/
+theorem mem_gowners_cleanStep_self (g : GPathM) (z : PathNodeId) (nz : PNodeM)
+    (hz : z ∈ g.gowners) (hn : g.node? z = some nz)
+    (hw : ∀ q ∈ nz.owners, q ∈ g.gowners)
+    (hp : ∀ p ∈ nz.parents, p ∈ nz.owners) (hs : ∀ s ∈ nz.sons, s ∈ nz.owners)
+    (hval : isValidNode g nz = true) : z ∈ (cleanStep g z).gowners := by
+  have hstep : (unlinkIncompatible
+      (updateAt g z (fun n => { n with owners := intersectOwners n.owners g.gowners })) z).current_step
+      = g.current_step := current_step_unlinkIncompatible _ _
+  rw [cleanStep_some g z nz hn]
+  unfold intersectOrDrop
+  split
+  · rw [gowners_unlinkIncompatible, gowners_updateAt]; exact hz
+  · next hbad =>
+    exact absurd (by
+      rw [relink_eq_self nz g.gowners hw hp hs, isValidNode_congr_step g _ nz hstep]
+      exact hval) hbad
+
+/-- **Y entonces una vuelta entera de `cleanInvalid` conserva a todo nodo válido cuya tabla esté
+dentro de la tabla global.**
+
+Ya sin la condición `z ∉ ids`: o el review no lo mira, y lo conserva por `mem_gowners_cleanStep`,
+o lo mira, y lo conserva por `mem_gowners_cleanStep_self`.
+
+Queda una única hipótesis, la que hace falta **en el estado intermedio**: que al llegarle el turno
+`z` siga siendo válido y su tabla siga dentro de la tabla global. Que es, otra vez, el invariante
+que se sostiene a sí mismo. -/
+theorem mem_gowners_cleanInvalidGo_of_valid (z : PathNodeId) :
+    ∀ (ids : List PathNodeId) (g : GPathM), z ∈ g.gowners →
+      (∀ h : GPathM, ∀ nz : PNodeM, h.node? z = some nz → z ∈ h.gowners →
+        (∀ q ∈ nz.owners, q ∈ h.gowners) ∧ (∀ p ∈ nz.parents, p ∈ nz.owners) ∧
+          (∀ s ∈ nz.sons, s ∈ nz.owners) ∧ isValidNode h nz = true) →
+      z ∈ (cleanInvalidGo g ids).gowners := by
+  intro ids
+  induction ids with
+  | nil => intro g hz _; exact hz
+  | cons id rest ih =>
+    intro g hz hkeep
+    rw [cleanInvalidGo_cons]
+    refine ih _ ?_ hkeep
+    by_cases he : z = id
+    · subst he
+      cases hnz : g.node? z with
+      | none => rw [cleanStep_none g z hnz]; exact hz
+      | some nz =>
+        obtain ⟨hw, hp, hs, hval⟩ := hkeep g nz hnz hz
+        exact mem_gowners_cleanStep_self g z nz hz hnz hw hp hs hval
+    · exact mem_gowners_cleanStep g id z hz he
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_gowners_cleanStep_self' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_gowners_cleanStep_self
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_gowners_cleanInvalidGo_of_valid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_gowners_cleanInvalidGo_of_valid
+
 end AbsSat.GraphPath.Model.PinAliveChain
