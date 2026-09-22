@@ -125,6 +125,43 @@ theorem pinPair_of_triplePin (h : TriplePin φ) : RunSteps.PinPairSoundAt φ := 
   exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
     rw [List.mem_singleton.mp hreq]; exact hsr), hsx, hsq⟩
 
+
+-- ============================================================
+-- Una cadena respeta los requisitos duros del mapa
+-- ============================================================
+
+/-- **Cuando el pin es lo que el nodo ya requiere, la cadena pasa por él sin reencaminar.**
+
+`ReqFiltered` dice que todo owner de un nodo en el paso de uno de sus requisitos **es** ese
+requisito. Y los picks de una cadena son owners unos de otros. Así que si `q` está en la cadena y el
+pin `r` es un requisito de `q`, el pick de la cadena en el paso de `r` **es** `r`.
+
+Es el primer trozo de `TriplePin` que sale sin hipótesis: el caso en que el mapa ya forzaba la
+respuesta. En el bloque de literales eso cubre la pareja `2v ↔ 2v+1`, que es donde `reqOfCnf` enlaza
+cruzado — un nodo del paso impar requiere el del par con el índice contrario. -/
+theorem chain_through_req (g : GPathM)
+    (hrf : ReqFiltered (reqOfCnf φ) g)
+    (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hqsel : sel q.id.step = q)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step)
+    (r : NodeId) (hreq : r ∈ reqOfCnf φ q.id) (hr0 : 0 ≤ r.step) (hr1 : r.step < g.current_step)
+    (hne : r.step ≠ q.id.step) :
+    (sel r.step).id = r := by
+  -- el pick del paso de `r` es owner de `q`
+  have hmem := hsc.chain.2.1 r.step q.id.step hr0 hq0 hr1 hq1 hne
+  rw [hqsel] at hmem
+  have hmem' := List.mem_filter.mp hmem
+  have hown : sel r.step ∈ nq.owners := by
+    simpa only [ownersOf, hq] using hmem'.1
+  have hstep : (sel r.step).id.step = r.step := eq_of_beq hmem'.2
+  -- y `ReqFiltered` lo identifica con el requisito
+  exact hrf nq (List.mem_of_find?_eq_some hq) r (by
+    rw [node?_id_eq g q nq hq]; exact hreq) (sel r.step) hown hstep
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.chain_through_req' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_through_req
+
 /-- info: 'AbsSat.GraphPath.Model.SupportedRun.pinPair_of_triplePin' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pinPair_of_triplePin
