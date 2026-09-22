@@ -1010,6 +1010,61 @@ def CompatChain (g : GPathM) : Prop :=
   ∀ q nq, g.node? q = some nq → 0 ≤ q.id.step → q.id.step < g.current_step →
     ∃ sel : Int → PathNodeId, ChainSound g sel ∧ sel q.id.step = q
 
+/-- **La criba ya está en su techo: consistencia de caminos completa.**
+
+Para todo nodo `x`, todo owner suyo `w` y **todo** paso `j`, hay un testigo `z` en el paso `j`
+compatible con los dos **en los dos sentidos**: `z` está en las tablas de `x` y de `w`, y `x` y `w`
+están en la de `z`.
+
+Eso es 3-consistencia (path consistency) con testigo simétrico, y es **lo máximo que unas tablas
+por pares pueden sostener**. Por eso no hay tercera pata que añadir a `aggPair`: las dos que tiene
+—asimetría y no compartir paso— ya saturan lo que la información por pares permite podar.
+
+La consecuencia, junto con `pin_compatible_at_every_step`: lo que le falta al lector para no
+retroceder nunca no es más criba. Cualquier poda que mire solo pares ya está hecha; la que faltaría
+tendría que mirar **tríos**, que es la escalera que no termina (una tabla por tríos da
+4-consistencia, y hace falta `n`-consistencia sobre un grafo de restricciones completo). -/
+theorem path_consistent_witness (g : GPathM) (a : Adj g) (hok : AggOk g)
+    {x w : PathNodeId} {nx nw : PNodeM} (hx : g.node? x = some nx) (hw : g.node? w = some nw)
+    (hx0 : 0 ≤ x.id.step) (hxs : x.id.step < g.current_step)
+    (hw0 : 0 ≤ w.id.step) (hws : w.id.step < g.current_step) (hwx : w ∈ nx.owners)
+    (j : Int) (hj0 : 0 ≤ j) (hjs : j < g.current_step) :
+    ∃ z nz, g.node? z = some nz ∧ z.id.step = j ∧
+      z ∈ nx.owners ∧ x ∈ nz.owners ∧ z ∈ nw.owners ∧ w ∈ nz.owners := by
+  obtain ⟨z, hzx, hzw, hzs⟩ :=
+    ParentWitness.shared_owner a hok hx hw hx0 hxs hw0 hws hwx j hj0 hjs
+  have hzg : z ∈ g.gowners := a.ctx.ownGow x nx hx z hzx (by rw [hzs]; exact hj0)
+    (by rw [hzs]; exact hjs)
+  obtain ⟨nz, hnz⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff g z).mp (a.rc.gn z hzg))
+  exact ⟨z, nz, hnz, hzs, hzx,
+    (hok x nx z nz hx hnz hx0 hxs (by rw [hzs]; exact hj0) (by rw [hzs]; exact hjs) hzx
+      (a.ctx.nodeval x nx hx) (a.ctx.nodeval z nz hnz)).1,
+    hzw,
+    (hok w nw z nz hw hnz hw0 hws (by rw [hzs]; exact hj0) (by rw [hzs]; exact hjs) hzw
+      (a.ctx.nodeval w nw hw) (a.ctx.nodeval z nz hnz)).1⟩
+
+/-- **Y la tercera pata que faltaría no es sana.**
+
+La tentación, leyendo `pin_compatible_at_every_step`, es hacer que la criba compare **dos owners del
+mismo nodo** entre sí y borre el nodo cuando son incompatibles. No vale, y la razón es la de siempre
+en este repo: *la tabla de un nodo es la unión de sus ramas.* Si `x` está en una cadena real por
+`u`, su tabla lleva además owners de otras cadenas reales, que no tienen por qué ser compatibles con
+`u`. Borrar `x` por eso tira un nodo bueno.
+
+El criterio de sanidad está escrito en el repo como `ConservationFilter.PrunesF` /
+`ChainSound_reviewAgg`: solo se puede quitar lo que **ninguna** cadena sana usa. Y una cadena sana a
+través de `x` usa **uno** de los dos owners incompatibles, no los dos — así que su incompatibilidad
+no autoriza a quitar nada.
+
+Lo que sí autorizaría es una tabla por **pares de owners**, o sea por tríos de nodos: eso es
+4-consistencia, cuesta ×N por nivel y la escalera reproduce la obligación un piso más arriba. -/
+def TripleWitness (g : GPathM) : Prop :=
+  ∀ x nx u nu v nv, g.node? x = some nx → g.node? u = some nu → g.node? v = some nv →
+    u ∈ nx.owners → v ∈ nx.owners → v ∈ nu.owners →
+    ∀ j, 0 ≤ j → j < g.current_step →
+      ∃ z, z ∈ nx.owners ∧ z ∈ nu.owners ∧ z ∈ nv.owners ∧ z.id.step = j
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -1197,6 +1252,10 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_mapPinned' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms commonOwner_of_mapPinned
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.path_consistent_witness' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms path_consistent_witness
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.pin_compatible_at_every_step' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

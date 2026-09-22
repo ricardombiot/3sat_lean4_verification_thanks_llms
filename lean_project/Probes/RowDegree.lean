@@ -4,6 +4,7 @@ import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.ReaderDescent
 import AbsSat.GraphPath.Model.ReaderTop
+import AbsSat.GraphPath.Model.ReaderBT
 
 /-! # The in-degree of the row
 
@@ -42,6 +43,8 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.PureDriver (PureLine pureInit)
 open AbsSat.GraphPath.Model.PureDriverImproves
 open AbsSat.GraphPath.Model.AggressiveReview (filterAllAgg)
+open AbsSat.GraphMap.CnfMapImproves (weakReqOfCnf)
+open AbsSat.GraphMap.CnfSel (mapSons)
 
 namespace Probes.RowDegree
 
@@ -718,6 +721,203 @@ def reportTraj (name : String) (a : TAcc) (ms : Nat) : IO Unit := do
     IO.println s!"     media de owners comunes por paso: {m / 100}.{if m % 100 < 10 then "0" else ""}{m % 100}"
   IO.println s!"   ({ms} ms)"
 
+
+-- ============================================================
+-- ¿Retrocede alguna vez el lector?
+-- ============================================================
+
+/-! `ReaderBT.readerVerdictBT_iff` demuestra que el lector con retroceso decide, sin hipotesis. Lo
+que queda abierto es el COSTE: cuantas veces retrocede. Esta sonda lo mide de frente comparando los
+tres lectores sobre cada estado de la linea final:
+
+* `readAgg`    — sin retroceso, primer paso con eleccion (`ReaderExec`)
+* `readAggTop` — sin retroceso, ultimo paso con eleccion (`ReaderTop`)
+* `readAggBT`  — con retroceso (`ReaderBT`), demostrado completo
+
+Un estado donde `readAggBT` acierta y `readAgg` no es un estado donde el retroceso HACE FALTA. -/
+
+structure BAcc where
+  formulas : Nat := 0
+  finals   : Nat := 0
+  seeds    : Nat := 0          -- estados validos tras el review del lector
+  okW      : Nat := 0          -- los resuelve el lector sin retroceso (abajo arriba)
+  okTop    : Nat := 0          -- ... el de arriba abajo
+  okBT     : Nat := 0          -- ... el de retroceso
+  needW    : Nat := 0          -- BT acierta y W no: el retroceso HACE FALTA
+  needTop  : Nat := 0          -- BT acierta y Top no
+  needAt   : String := "-"
+  deriving Repr
+
+def runFormulaBT (φ : Cnf) (a : BAcc) : BAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    a := { a with finals := a.finals + 1 }
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      let w := (ReaderExec.readAgg g).isSome
+      let t := (ReaderTop.readAggTop g).isSome
+      let b := (ReaderBT.readAggBT g).isSome
+      a := { a with seeds := a.seeds + 1
+                  , okW := a.okW + (if w then 1 else 0)
+                  , okTop := a.okTop + (if t then 1 else 0)
+                  , okBT := a.okBT + (if b then 1 else 0)
+                  , needW := a.needW + (if b && !w then 1 else 0)
+                  , needTop := a.needTop + (if b && !t then 1 else 0) }
+      if b && !w then
+        a := { a with needAt := s!"clave ⟨{kv.1.step},{kv.1.index}⟩" }
+  return a
+
+def reportBT (name : String) (a : BAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados finales {a.finals}, semillas validas {a.seeds}"
+  IO.println s!"   resuelven la semilla:"
+  IO.println s!"     sin retroceso, abajo arriba (ReaderExec) : {a.okW}"
+  IO.println s!"     sin retroceso, arriba abajo (ReaderTop)  : {a.okTop}"
+  IO.println s!"     con retroceso (ReaderBT, demostrado)     : {a.okBT}"
+  IO.println s!"   EL RETROCESO HACE FALTA en: {a.needW} estados (vs abajo arriba), {a.needTop} (vs arriba abajo)"
+  if a.needW > 0 then IO.println s!"     primero: {a.needAt}"
+  IO.println s!"   ({ms} ms)"
+
+-- ============================================================
+-- `doJoin`, instrumentado, y la transitividad remedida
+-- ============================================================
+
+/-! `insertPure` une dos estados que llegan al mismo nodo de mapa **sin revisar**: el review llega en
+el envío siguiente (`upFilteringWeak` = débiles → duros → `reviewAgg` → `up`). Esta sonda mira cada
+join de la corrida y responde a dos preguntas:
+
+1. ¿cuántos joins fusionan un nodo que está en los dos lados **con listas de padres distintas**? Ese
+   es el único caso que puede romper `AllParentsOwn` (`Descent.gained_of_parent` demuestra que el
+   `up` la conserva);
+2. ¿la restablece el review que viene después?
+
+Y remide la transitividad de la posesión, que la medida vieja (52.720/380.746) tomó **antes** de que
+el identificador llevara tres componentes. -/
+
+structure JAcc where
+  formulas  : Nat := 0
+  sends     : Nat := 0
+  joins     : Nat := 0         -- envios que caen sobre una clave ya presente
+  merged    : Nat := 0         -- nodos presentes en los dos lados
+  diffPar   : Nat := 0         -- ... con listas de padres DISTINTAS (el unico peligro)
+  diffParAt : String := "-"
+  /-- `AllParentsOwn`, contando fallos (nodo, owner, padre) -/
+  apoA      : Nat := 0         -- fallos en el lado ya presente
+  apoB      : Nat := 0         -- fallos en el lado que llega
+  apoJ      : Nat := 0         -- fallos en la union, antes de revisar
+  apoR      : Nat := 0         -- fallos DESPUES del review agresivo
+  joinsBadJ : Nat := 0         -- joins con algun fallo antes de revisar
+  joinsBadR : Nat := 0         -- ... y que el review NO arregla
+  badRAt    : String := "-"
+  /-- transitividad de la posesion, remedida con la ventana de 3 -/
+  triTot    : Nat := 0
+  triOk     : Nat := 0
+  triBad    : Nat := 0
+  deriving Repr
+
+/-- `Descent.AllParentsOwn` contado: número de ternas (nodo, owner de arriba, padre) que fallan. -/
+def apoFails (g : GPathM) (cap : Nat) : Nat := Id.run do
+  let mut bad := 0
+  for n in g.nodes do
+    if n.id.id.step ≥ 1 && n.id.id.step < g.current_step then
+      let vs := (n.owners.filter
+        (fun v => decide (n.id.id.step ≤ v.id.step ∧ v.id.step < g.current_step))).take cap
+      for v in vs do
+        for c in n.parents do
+          match g.node? c with
+          | none => pure ()
+          | some mc => if !mc.owners.contains v then bad := bad + 1
+  return bad
+
+/-- Transitividad de la posesión: si `u` está en la tabla de `v` y `v` en la de `w`, ¿está `u` en la
+de `w`? Sobre owners que son nodos del estado, acotado por `cap`. -/
+def transStats (g : GPathM) (cap : Nat) : Nat × Nat := Id.run do
+  let mut tot := 0
+  let mut ok := 0
+  for w in g.nodes.take cap do
+    for v in (w.owners.take cap) do
+      match g.node? v with
+      | none => pure ()
+      | some mv =>
+        for u in (mv.owners.take cap) do
+          if u != v && u != w.id then
+            tot := tot + 1
+            if w.owners.contains u then ok := ok + 1
+  return (tot, ok)
+
+def measureJoin (A B J : GPathM) (label : String) (a : JAcc) : JAcc := Id.run do
+  let mut a := { a with joins := a.joins + 1 }
+  for n in A.nodes do
+    match B.node? n.id with
+    | none => pure ()
+    | some m =>
+      a := { a with merged := a.merged + 1 }
+      let same := n.parents.all (fun p => m.parents.contains p)
+        && m.parents.all (fun p => n.parents.contains p)
+      if !same then
+        a := { a with diffPar := a.diffPar + 1
+                    , diffParAt := s!"{label} paso {n.id.id.step}: {n.parents.length} vs {m.parents.length} padres" }
+  let fa := apoFails A 40
+  let fb := apoFails B 40
+  let fj := apoFails J 40
+  let fr := apoFails (AggressiveReview.reviewAgg J) 40
+  a := { a with apoA := a.apoA + fa, apoB := a.apoB + fb, apoJ := a.apoJ + fj, apoR := a.apoR + fr
+              , joinsBadJ := a.joinsBadJ + (if fj > 0 then 1 else 0)
+              , joinsBadR := a.joinsBadR + (if fr > 0 then 1 else 0) }
+  if fr > 0 then
+    a := { a with badRAt := s!"{label}: {fj} fallos antes de revisar, {fr} despues" }
+  return a
+
+def sendToJ (φ : Cnf) (label : String) (g : GPathM) (st : PureLine × JAcc) (d : NodeId) :
+    PureLine × JAcc := Id.run do
+  let (next, a0) := st
+  let mut a := { a0 with sends := a0.sends + 1 }
+  let h := upFilteringWeak g (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+  if !isValid h then return (next, a)
+  match next.find? (fun kv => kv.1 == d) with
+  | some (_, existing) =>
+    let j := doJoin existing h
+    a := measureJoin existing h j s!"{label}→⟨{d.step},{d.index}⟩" a
+    return (next.map (fun kv => if kv.1 == d then (d, j) else kv), a)
+  | none => return (next ++ [(d, h)], a)
+
+def advanceJ (φ : Cnf) (line : PureLine) (a : JAcc) : PureLine × JAcc :=
+  line.foldl (fun st kv =>
+    (mapSons φ kv.1.step kv.1.index).foldl (sendToJ φ s!"⟨{kv.1.step},{kv.1.index}⟩" kv.2) st)
+    ((([] : PureLine)), a)
+
+def runFormulaJ (φ : Cnf) (a : JAcc) : JAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for _ in [0:steps] do
+    let (l', a') := advanceJ φ line a
+    line := l'
+    a := a'
+    for kv in line do
+      let (t, ok) := transStats kv.2 24
+      a := { a with triTot := a.triTot + t, triOk := a.triOk + ok, triBad := a.triBad + (t - ok) }
+  return a
+
+def reportJ (name : String) (a : JAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, envios {a.sends}, de ellos JOINS: {a.joins}  ({pct a.joins a.sends})"
+  IO.println s!"   nodos fusionados (en los dos lados): {a.merged}"
+  IO.println s!"     con listas de padres DISTINTAS  : {a.diffPar}  ({pct a.diffPar a.merged})"
+  if a.diffPar > 0 then IO.println s!"       primero: {a.diffParAt}"
+  IO.println s!"   AllParentsOwn, fallos (nodo, owner de arriba, padre):"
+  IO.println s!"     lado ya presente          : {a.apoA}"
+  IO.println s!"     lado que llega            : {a.apoB}"
+  IO.println s!"     la union, SIN revisar     : {a.apoJ}   (joins afectados: {a.joinsBadJ}/{a.joins})"
+  IO.println s!"     DESPUES del review agresivo: {a.apoR}   (joins afectados: {a.joinsBadR}/{a.joins})"
+  if a.joinsBadR > 0 then IO.println s!"       primero: {a.badRAt}"
+  IO.println s!"   transitividad de la posesion, REMEDIDA con ventana 3 ({a.triTot} trios):"
+  IO.println s!"     se cumple : {a.triOk}  ({pct a.triOk a.triTot})"
+  IO.println s!"     FALLA     : {a.triBad}  ({pct a.triBad a.triTot})"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -758,6 +958,40 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormula φ {})
         let t1 ← IO.monoMsNow
         report path a (t1 - t0)
+  | "join" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaJ φ {})
+        let t1 ← IO.monoMsNow
+        reportJ path a (t1 - t0)
+  | "join" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : JAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaJ φ a
+      let t1 ← IO.monoMsNow
+      reportJ s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "bt" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaBT φ {})
+        let t1 ← IO.monoMsNow
+        reportBT path a (t1 - t0)
+  | "bt" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : BAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaBT φ a
+      let t1 ← IO.monoMsNow
+      reportBT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pm" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
@@ -807,4 +1041,4 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       report s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | _ =>
-    IO.println "usage: row-degree [pm|traj|traj-sib|traj-top] file <cnf>... | row-degree [pm|traj|traj-sib|traj-top] random <cases> <minVars> <seed>..."
+    IO.println "usage: row-degree [pm|bt|join|traj|traj-sib|traj-top] file <cnf>... | row-degree [pm|traj|traj-sib|traj-top] random <cases> <minVars> <seed>..."
