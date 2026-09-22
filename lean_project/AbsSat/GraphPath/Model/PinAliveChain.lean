@@ -2427,4 +2427,68 @@ Y el enunciado a atacar vuelve a ser el de siempre, ahora con la equivalencia de
 #guard_msgs in
 #print axioms pinAlive_iff_ownerChained
 
+-- ============================================================
+-- `reviewParents` y `reviewSons`: el corte contra los vecinos
+-- ============================================================
+
+/-- **Las tablas de `P` encajan con las de sus vecinos.**
+
+Lo que los dos pasos por vecinos exigen, y que `cleanInvalid` no necesitaba: cada protegido tiene un
+vecino —padre en `reviewParents`, hijo en `reviewSons`— **cuya tabla contiene a todos los miembros
+protegidos de la suya**.
+
+Para una cadena esto vale sin más: sus nodos se poseen dos a dos, así que la tabla del vecino
+contiene a todos los demás. Y es exactamente lo que hace que el corte contra la unión de los
+vecinos no toque nada de `P`. -/
+def Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId) : Prop :=
+  ∀ z nz, P z → g.node? z = some nz →
+    ∃ p ∈ nb nz, ∃ np, g.node? p = some np ∧ ∀ w, P w → w ∈ nz.owners → w ∈ np.owners
+
+/-- **Y entonces un miembro protegido de la tabla está en la unión de los vecinos.** -/
+theorem mem_uni_of_Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
+    (hN : Nested g P nb) (z : PathNodeId) (nz : PNodeM) (hPz : P z) (hz : g.node? z = some nz)
+    (w : PathNodeId) (hPw : P w) (hw : w ∈ nz.owners) : w ∈ unionOwnersOf g (nb nz) := by
+  obtain ⟨p, hpm, np, hnp, hsub⟩ := hN z nz hPz hz
+  exact mem_unionOwnersOf g (nb nz) p np w hpm hnp (hsub w hPw hw)
+
+/-- **Y por tanto sobrevive al corte contra ella.** Es la pieza que en `cleanInvalid` hacía
+`w ∈ gowners` y que aquí hace el encaje de tablas. -/
+theorem mem_cut_of_Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
+    (hN : Nested g P nb) (z : PathNodeId) (nz : PNodeM) (hPz : P z) (hz : g.node? z = some nz)
+    (w : PathNodeId) (hPw : P w) (hw : w ∈ nz.owners) :
+    w ∈ intersectOwners nz.owners (unionOwnersOf g (nb nz)) :=
+  mem_intersectOwners_of_mem _ _ w hw (mem_uni_of_Nested g P nb hN z nz hPz hz w hPw hw)
+
+/-- **El paso por vecinos, cuando mira a un nodo NO protegido: el invariante pasa intacto.**
+
+Y es el mismo argumento que en `cleanInvalid`, literalmente los mismos tres lemas: el corte solo
+toca al mirado, el desenlace no toca tablas, y el borrado se lleva solo al mirado. Que el corte sea
+contra la unión de los vecinos en vez de contra la tabla global **no cambia nada aquí**, porque los
+tres lemas son genéricos en la función de corte. -/
+theorem Anchored_reviewNode_other (g : GPathM) (P : PathNodeId → Prop)
+    (nb : PNodeM → List PathNodeId) (z id : PathNodeId) (hne : z ≠ id) (hPid : ¬ P id)
+    (h : Anchored g P z) : Anchored (reviewNode g nb id) P z := by
+  unfold reviewNode
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h2 := Anchored_unlinkIncompatible _ P z id hne hPid
+        (Anchored_updateAt g P z id
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })
+          (fun _ => rfl) hne h)
+      simp only []
+      split
+      · exact h2
+      · exact Anchored_removeNode _ P z id hne hPid h2
+    · exact Anchored_removeNode g P z id hne hPid h
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_cut_of_Nested' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms mem_cut_of_Nested
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_reviewNode_other' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_reviewNode_other
+
 end AbsSat.GraphPath.Model.PinAliveChain
