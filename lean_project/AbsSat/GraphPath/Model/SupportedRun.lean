@@ -158,6 +158,42 @@ theorem chain_through_req (g : GPathM)
   exact hrf nq (List.mem_of_find?_eq_some hq) r (by
     rw [node?_id_eq g q nq hq]; exact hreq) (sel r.step) hown hstep
 
+
+/-- **`TriplePin` cerrado cuando el pin es requisito de alguno de los dos.**
+
+Aplicando `chain_through_req` a `x` o a `q`, según cuál de los dos lo requiera. No hace falta
+reencaminar nada: el mapa ya había forzado el pick.
+
+Cubre, en la corrida: todo nodo del paso `2v+1` cuyo requisito sea exactamente el pin —la pareja
+cruzada del bloque de literales— y todo nodo de cláusula que tenga al pin entre sus tres literales.
+
+Lo que queda fuera es el caso en que **ni `x` ni `q` requieren `r`**: dos variables que el mapa no
+enlaza directamente. Ahí la cadena puede estar usando el otro valor y hay que reencaminarla — y
+empalmar dos cadenas no vale, porque `ChainMerge` es falso (v145). -/
+theorem triplePin_of_req (g : GPathM) (hrf : ReqFiltered (reqOfCnf φ) g)
+    (r : NodeId) (hr0 : 0 ≤ r.step) (hr1 : r.step < g.current_step)
+    (x q : PathNodeId) (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < g.current_step)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step)
+    (hxq : Realizes g x q)
+    (hreq : (r ∈ reqOfCnf φ x.id ∧ r.step ≠ x.id.step) ∨
+            (r ∈ reqOfCnf φ q.id ∧ r.step ≠ q.id.step)) :
+    ∃ sel, ChainSound g sel ∧ sel x.id.step = x ∧ sel q.id.step = q ∧ (sel r.step).id = r := by
+  obtain ⟨sel, hsc, hsx, hsq⟩ := hxq
+  refine ⟨sel, hsc, hsx, hsq, ?_⟩
+  rcases hreq with ⟨hreq, hne⟩ | ⟨hreq, hne⟩
+  · obtain ⟨hsome, _⟩ := hsc.chain.1.1 x.id.step hx0 hx1
+    rw [hsx] at hsome
+    obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp hsome
+    exact chain_through_req φ g hrf sel hsc x nx hnx hsx hx0 hx1 r hreq hr0 hr1 hne
+  · obtain ⟨hsome, _⟩ := hsc.chain.1.1 q.id.step hq0 hq1
+    rw [hsq] at hsome
+    obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp hsome
+    exact chain_through_req φ g hrf sel hsc q nq hnq hsq hq0 hq1 r hreq hr0 hr1 hne
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.triplePin_of_req' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms triplePin_of_req
+
 /-- info: 'AbsSat.GraphPath.Model.SupportedRun.chain_through_req' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms chain_through_req
