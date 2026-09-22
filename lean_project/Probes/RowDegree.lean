@@ -1431,6 +1431,80 @@ def reportN4 (name : String) (a : N4) (ms : Nat) : IO Unit := do
   IO.println s!"   diagnostico: {a.diag}"
   IO.println s!"   ({ms} ms)"
 
+-- ============================================================
+-- `PinReachable`: ¿todo pin valido tiene cadena por el?
+-- ============================================================
+
+/-! `ReaderChain.readerVerdictW_of_pinReachable` reduce el lector sin retroceso a **una frase sobre
+un estado y un pin**: si pinchar `mid` deja el grafo valido, alguna cadena completa del estado de
+antes pasa por `mid`.
+
+Es el residuo con su tamano correcto — mucho menos que `SupportedS`, que pedia una cadena por
+NODO de cada estado. Esta sonda lo recorre: para cada estado que el lector visita, para cada
+candidato del primer paso con eleccion, si el pin deja el grafo valido se busca una cadena completa
+del estado de antes que pase por ese nodo. -/
+
+structure PAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  pins     : Nat := 0          -- candidatos probados
+  valid    : Nat := 0          -- ... que dejan el grafo valido
+  withChain: Nat := 0          -- ... y tienen cadena por ellos
+  noChain  : Nat := 0          -- ... y NO la tienen: contraejemplo a PinReachable
+  out      : Nat := 0
+  badAt    : String := "-"
+  deriving Repr
+
+def scanPinReach (label : String) (g : GPathM) (budget : Nat) (a : PAcc) : PAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  match ReaderExec.firstChoice g with
+  | none => return a
+  | some k =>
+    for q in ownersAt g.gowners k do
+      a := { a with pins := a.pins + 1 }
+      if isValid (filterAllAgg g [q.id]) then
+        a := { a with valid := a.valid + 1 }
+        let (left, ok) := chainAt2 g [q] budget [] 0
+        if ok then a := { a with withChain := a.withChain + 1 }
+        else if left == 0 then a := { a with out := a.out + 1 }
+        else
+          a := { a with noChain := a.noChain + 1
+                      , badAt := if a.noChain == 0 then s!"{label} paso {k}" else a.badAt }
+    return a
+
+/-- Recorre la trayectoria real del lector sin retroceso desde la semilla. -/
+partial def walkPinReach (label : String) (g : GPathM) (fuel budget : Nat) (a : PAcc) : PAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanPinReach label g budget a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkPinReach label (filterAllAgg g [q.id]) (fuel - 1) budget a
+
+def runFormulaP (φ : Cnf) (budget : Nat) (a : PAcc) : PAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkPinReach s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat budget a
+  return a
+
+def reportP (name : String) (a : PAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados de la lectura {a.states}, candidatos {a.pins}"
+  IO.println s!"   pines que dejan el grafo VALIDO: {a.valid}  ({pct a.valid a.pins})"
+  IO.println s!"     con cadena completa por el : {a.withChain}  ({pct a.withChain a.valid})"
+  IO.println s!"     SIN cadena (contraejemplo) : {a.noChain}  ({pct a.noChain a.valid})"
+  IO.println s!"     indeciso (presupuesto)     : {a.out}"
+  if a.noChain > 0 then IO.println s!"     primero: {a.badAt}"
+  IO.println s!"   PinReachable: {if a.noChain == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1505,6 +1579,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "pinreach" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaP φ 200000 {})
+        let t1 ← IO.monoMsNow
+        reportP path a (t1 - t0)
+  | "pinreach" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : PAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaP φ 200000 a
+      let t1 ← IO.monoMsNow
+      reportP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "anc4" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with

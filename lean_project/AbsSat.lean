@@ -211,6 +211,7 @@ import AbsSat.GraphPath.Model.PinSend
 import AbsSat.GraphPath.Model.PinVar
 import AbsSat.GraphPath.Model.PinClause
 import AbsSat.GraphPath.Model.PinDeath
+import AbsSat.GraphPath.Model.ReaderChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid
 import AbsSat.GraphPath.Model.ImprovesCima
