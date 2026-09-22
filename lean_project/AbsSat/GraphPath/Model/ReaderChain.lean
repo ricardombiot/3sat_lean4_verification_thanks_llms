@@ -1110,12 +1110,16 @@ theorem hasChain_of_readAgg (P : GPathM) (hR : ReadableAgg P) (hv : isValid P = 
 `ReaderBT.readerVerdictBT_of_readerVerdictW` ya da una de las dos direcciones — lo que el lector sin
 retroceso acierta, el que retrocede también—.
 
-Así que todo lo que queda abierto en esta línea de trabajo cabe aquí: **que el que retrocede no
-acierte nunca donde el barato falla.** Y la sonda `row-degree bt` no encuentra un solo estado donde
-eso ocurra, sobre todos los corpus.
+Así que todo lo que queda abierto en esta línea de trabajo cabe aquí, y dicho en positivo es la
+frase del autor: **el lector sin retroceso acierta siempre que hay solución.**
 
-Nótese lo que esto no es: no es un hueco en la **corrección**. Es un hueco en que la lectura
-**barata** baste. -/
+Medido: la sonda `row-degree bt` compara los tres lectores estado por estado sobre todos los
+corpus, y el número de estados en que el retroceso hace falta es **cero**. Lo que falta no es
+evidencia, es la demostración.
+
+Y nótese lo que esto no es: **no es un hueco en la corrección de la máquina** —`readerVerdictBT_iff`
+la cierra sin hipótesis, y `ReaderExec.readerVerdictW_sound` garantiza que lo que el lector sin
+retroceso devuelve es siempre un modelo—. Es un hueco en que la lectura barata **baste**. -/
 theorem readerVerdictW_iff_of_agrees
     (hagree : ∀ ψ : Cnf, ReaderBT.readerVerdictBT ψ = true → ReaderExec.readerVerdictW ψ = true)
     (φ : Cnf) (hwf : WF φ) : ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ :=
