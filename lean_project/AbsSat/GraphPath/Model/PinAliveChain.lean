@@ -1458,4 +1458,100 @@ theorem Cover_cleanStep (g : GPathM) (r z : PathNodeId) (hne : z ≠ r)
 #guard_msgs in
 #print axioms Cover_cleanStep
 
+-- ============================================================
+-- El invariante que no necesita punto fijo
+-- ============================================================
+
+/-- **La cobertura anclada**, y con testigos dentro del propio conjunto protegido.
+
+`isValidNode_of_cover` sacaba los enlaces de la cobertura, pero para eso necesitaba `Adj`, que es
+una propiedad **del punto fijo** — y dentro del bucle del review el estado no es un punto fijo. Así
+que el invariante que hay que llevar a cuestas guarda los enlaces explícitamente:
+
+* la tabla de `z` cubre todos los pasos, con testigos **en `P`** y dentro de la tabla global;
+* si `z` no está en el paso 0, tiene un padre **en `P`**;
+* si no está en el último, tiene un hijo **en `P`**.
+
+Que los testigos y los anclajes estén en `P` es lo que hace el invariante **cerrado**: para
+romperlo habría que borrar a un miembro de `P`, y los miembros de `P` son justo los que el
+invariante mantiene válidos. -/
+def Anchored (g : GPathM) (P : PathNodeId → Prop) (z : PathNodeId) : Prop :=
+  ∃ nz, g.node? z = some nz ∧
+    (∀ k, 0 ≤ k → k < g.current_step → ∃ w ∈ nz.owners, w.id.step = k ∧ w ∈ g.gowners ∧ P w) ∧
+    (1 ≤ z.id.step → ∃ p ∈ nz.parents, P p) ∧
+    (z.id.step ≤ g.current_step - 2 → ∃ t ∈ nz.sons, P t)
+
+/-- **Y de él la validez del nodo sale sin ninguna propiedad de punto fijo.** -/
+theorem isValidNode_of_Anchored (g : GPathM) (P : PathNodeId → Prop) (z : PathNodeId)
+    (hrz : Sons.RootAtZero g) (hz0 : 0 ≤ z.id.step) (hz1 : z.id.step < g.current_step)
+    (h : Anchored g P z) : ∃ nz, g.node? z = some nz ∧ isValidNode g nz = true := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  refine ⟨nz, hn, ?_⟩
+  have hid : nz.id = z := node?_id_eq g z nz hn
+  have hmem := List.mem_of_find?_eq_some hn
+  have howners : (intRange 0 (g.current_step - 1)).all (fun k => hasStepEntry nz.owners k) = true := by
+    simp only [List.all_eq_true]
+    intro k hk
+    obtain ⟨w, hw, hws, _, _⟩ := hcov k (mem_intRange_lower hk)
+      (by have := mem_intRange_upper hk; omega)
+    simp only [hasStepEntry, List.any_eq_true]
+    exact ⟨w, hw, beq_iff_eq.mpr hws⟩
+  have hp : 1 ≤ z.id.step → nz.parents ≠ [] := fun h1 =>
+    let ⟨p, hpm, _⟩ := hpar h1; List.ne_nil_of_mem hpm
+  have hs : z.id.step ≤ g.current_step - 2 → nz.sons ≠ [] := fun h2 =>
+    let ⟨t, htm, _⟩ := hson h2; List.ne_nil_of_mem htm
+  have hnr : ¬(nz.id.parent_id.isNone = true) → 1 ≤ z.id.step := by
+    intro hr
+    by_cases h1 : 1 ≤ z.id.step
+    · exact h1
+    · exact absurd (by rw [hrz nz hmem (by rw [hid]; omega)]; rfl) hr
+  have hlast : (nz.id.id.step == g.current_step - 1) = (z.id.step == g.current_step - 1) := by
+    rw [hid]
+  have hnotlast : ¬((z.id.step == g.current_step - 1) = true) → z.id.step ≤ g.current_step - 2 := by
+    intro hl
+    have : z.id.step ≠ g.current_step - 1 := fun he => hl (by rw [he]; exact beq_iff_eq.mpr rfl)
+    omega
+  simp only [isValidNode, hlast]
+  split
+  · split
+    · exact howners
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hs (hnotlast hl)), Bool.and_self]
+  · next hr =>
+    split
+    · simp only [howners, not_isEmpty_of_ne_nil _ (hp (hnr hr)), Bool.and_self]
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hp (hnr hr)),
+        not_isEmpty_of_ne_nil _ (hs (hnotlast hl)), Bool.and_self]
+
+/-- **Y la validez del estado, también.** Un solo anclado basta. -/
+theorem isValid_of_Anchored (g : GPathM) (P : PathNodeId → Prop) (z : PathNodeId)
+    (h : Anchored g P z) : isValid g = true := by
+  obtain ⟨nz, hn, hcov, _, _⟩ := h
+  exact isValid_of_Cover g z ⟨nz, hn, fun k hk0 hk1 =>
+    let ⟨w, hw, hws, hwg, _⟩ := hcov k hk0 hk1; ⟨w, hw, hws, hwg⟩⟩
+
+/-! ## Por qué este invariante es el que se puede llevar en el bucle
+
+`Adj` —«los owners de los pasos vecinos son los enlaces»— vale en los estados que el lector visita,
+que son puntos fijos del review. Dentro del bucle no vale, y por eso `isValidNode_of_cover` no
+servía para razonar paso a paso. `Anchored` lo arregla guardando los enlaces en el propio
+invariante, y se paga barato: se instancia **una vez** al principio, donde `Adj` sí vale, y a partir
+de ahí solo hay que conservarlo.
+
+Y se conserva por lo ya demostrado: el corte no toca a otros nodos, el desenlace no toca tablas
+(`owners_unlinkMap`), y el borrado solo se lleva al nodo mirado. Los testigos y los anclajes están
+en `P`, así que **el único modo de romperlo sigue siendo borrar a un miembro de `P`** — y por
+`isValidNode_of_Anchored` los miembros de `P` son válidos, luego el review no los borra.
+
+El círculo está cerrado en lo conceptual; lo que queda es recorrer los cinco bucles con él. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValidNode_of_Anchored' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValidNode_of_Anchored
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValid_of_Anchored' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_of_Anchored
+
 end AbsSat.GraphPath.Model.PinAliveChain
