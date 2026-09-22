@@ -2,7 +2,7 @@ import AbsSat.Cnf.Dimacs
 import AbsSat.SatMachine.DiffTest
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ReaderExec
-import AbsSat.GraphPath.Model.ReaderPairMeet
+import AbsSat.GraphPath.Model.ReaderDescent
 
 /-! # The in-degree of the row
 

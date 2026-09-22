@@ -444,30 +444,52 @@ theorem commonOwner_gives_parent (g : GPathM) (a : Adj g) (h : CommonOwner g)
   exact ⟨c, nc, n, hn, (owners_below_iff_parents g a (sel lo) n hn (by rw [hstep]; omega) c
     (by rw [hcstep, hstep])).mp hco, hcnode, hall⟩
 
-/-- **La tabla decidida por encima.** En todo nodo, y en todo paso a su altura o por encima, la
-tabla tiene como mucho una entrada.
+/-- **Lo que el descenso consume, exactamente: que el padre no haya que elegirlo.**
 
-Es lo que la sonda `row-degree traj` mide de frente como *«owners comunes por paso»*: a lo largo de
-la trayectoria del lector la media es **1,01** y el máximo **2**, porque cada pin decide más tabla.
+Para todo nodo `x` y todo owner suyo `v` **a su altura o por encima**, *todos* los padres de `x`
+tienen a `v` en su tabla.
+
 Es la forma precisa de la intuición *«al lector siempre le queda un camino de owners por el que
-bajar»*: no es que haya **alguno**, es que casi nunca hay **más de uno**. -/
+bajar»*. Dice justo lo que hace falta y nada más: si todo padre posee a todo owner de arriba, el
+descenso no tiene nada que elegir, y por eso **no acota el in-degree** — ni `SingleParents`, ni
+`TwoParents`, ni `PairMeet`, que son todas maneras de acotar cuántos padres hay para no tener que
+decidir entre ellos. Aquí sobra decidir.
+
+Y la cota `x.id.step ≤ v.id.step` es la que evita el colapso de §5.16: los padres de `x` viven
+**por debajo** de `x`, así que quedan fuera del cuantificador y `parents_never_own_each_other` no
+lo convierte en padre único, que es lo que mató a `ParentMeetAll`. -/
+def AllParentsOwn (g : GPathM) : Prop :=
+  ∀ x n, g.node? x = some n → 1 ≤ x.id.step → x.id.step < g.current_step →
+    ∀ v ∈ n.owners, x.id.step ≤ v.id.step → v.id.step < g.current_step →
+      ∀ c ∈ n.parents, ∀ mc, g.node? c = some mc → v ∈ mc.owners
+
+/-- **La tabla decidida por encima.** En todo nodo, y en todo paso a su altura o por encima, la
+tabla tiene como mucho una entrada. Es el caso que `parents_own_unique_owner` cubre: donde la
+revisión dejó la tabla decidida, no hay nada que elegir. -/
 def DecidedAbove (g : GPathM) : Prop :=
   ∀ x n, g.node? x = some n → ∀ w ∈ n.owners, ∀ w' ∈ n.owners,
     x.id.step ≤ w.id.step → w.id.step = w'.id.step → w = w'
 
-/-- **Con la tabla decidida por encima, el descenso no elige: cualquier padre sirve.**
+/-- **Decidida ⟹ todos los padres poseen.** Es `parents_own_unique_owner` leído con la unicidad
+puesta por hipótesis en vez de comprobada paso a paso. -/
+theorem allParentsOwn_of_decided (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Sons.SMP g)
+    (hdec : DecidedAbove g) : AllParentsOwn g := by
+  intro x n hx hx1 hxs v hv hv0 hv1 c hc mc hmc
+  exact parents_own_unique_owner g a hok hsmp hx hx1 hxs v.id.step (by omega) hv1 v
+    (fun w hw hws => (hdec x n hx v hv w hw hv0 hws.symm).symm) c hc mc hmc
 
-`parents_own_unique_owner` dice que un owner único en un paso lo poseen **todos** los padres, y
-`AggOk` es simétrica, así que ese padre está a su vez en la tabla del pick. Como vale paso a paso y
-el padre es el mismo para todos, es `CommonOwner`.
+/-- **La intuición, demostrada: si el padre no hay que elegirlo, el descenso baja.**
 
-Lo que hay que ver es que **no acota el in-degree**: no pide `SingleParents`, ni `TwoParents`, ni
-`PairMeet`. Un nodo puede tener tres o cuatro padres y el descenso sigue saliendo, porque el padre
-no se elige — sirven todos. El obstáculo no era nunca la multiplicidad de los **padres**, sino la
-de las **tablas**, exactamente como decía `parents_own_unique_owner`. Y el padre lo regala la
-coherencia del punto fijo (`parent_owns_of_coherent`), así que ni siquiera hay que construirlo. -/
-theorem commonOwner_of_decided (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Sons.SMP g)
-    (hdec : DecidedAbove g) : CommonOwner g := by
+El padre lo regala la coherencia del punto fijo (`parent_owns_of_coherent`), `AllParentsOwn` pone
+cada pick en su tabla, y la simetría de `AggOk` lo devuelve a la tabla del pick, que es la forma en
+que `CommonOwner` lo pide. Sale **sin acotar el in-degree**: un nodo puede tener cuatro padres y el
+descenso baja igual.
+
+Lo que esto localiza: el obstáculo abierto nunca fue la multiplicidad de los **padres** —contra lo
+que suponían `SingleParents`, `TwoParents` y `PairMeet`— sino la de las **tablas**. Un nodo con
+cuatro padres no estorba; un owner que solo una rama posee, sí. -/
+theorem commonOwner_of_allParentsOwn (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (hap : AllParentsOwn g) : CommonOwner g := by
   intro sel lo hlo0 hlo hs
   obtain ⟨hsome, hstep⟩ := hs.node lo (Int.le_refl _) (by omega)
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
@@ -490,18 +512,40 @@ theorem commonOwner_of_decided (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : 
     · exact hself
     · have h := hs.owned k lo hk0 (Int.le_refl _) hk1 (by omega) hne
       simpa only [ownersOf, hn] using (List.mem_filter.mp h).1
-  -- decidida en el paso `k` ⇒ el pick es LA entrada, y todo padre la posee
-  have huniq : ∀ w ∈ n.owners, w.id.step = k → w = sel k := by
-    intro w hw hws
-    exact (hdec (sel lo) n hn (sel k) hkx w hw (by rw [hstep, hkstep]; omega)
-      (by rw [hkstep, hws])).symm
+  -- todo padre posee al pick, en particular el que tenemos
   have hvk : sel k ∈ mc.owners :=
-    parents_own_unique_owner g a hok hsmp hn hx1 hxs k (by omega) hk1 (sel k) huniq c hc mc hcnode
+    hap (sel lo) n hn hx1 hxs (sel k) hkx (by rw [hstep, hkstep]; omega)
+      (by rw [hkstep]; exact hk1) c hc mc hcnode
   -- y `AggOk` es simétrica: el padre está entonces en la tabla del pick
   have hsymc := (hok c mc (sel k) nk hcnode hnk (by rw [hcstep]; omega) (by rw [hcstep]; omega)
     (by rw [hkstep]; omega) (by rw [hkstep]; exact hk1) hvk
     (a.ctx.nodeval c mc hcnode) (a.ctx.nodeval (sel k) nk hnk)).1
   simpa only [ownersOf, hnk] using hsymc
+
+/-- **El caso decidido, como composición.** -/
+theorem commonOwner_of_decided (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Sons.SMP g)
+    (hdec : DecidedAbove g) : CommonOwner g :=
+  commonOwner_of_allParentsOwn g a hok (allParentsOwn_of_decided g a hok hsmp hdec)
+
+/-- **Y `SingleParents` es el caso degenerado**: con un solo padre, el que la coherencia del punto
+fijo devuelve *es* ese padre, así que «todos los padres poseen» es «alguno posee». Queda entonces la
+escalera entera, y `AllParentsOwn` es el escalón de abajo:
+
+```
+SingleParents  ⟹  AllParentsOwn  ⟸  DecidedAbove
+                        ⇓
+                   CommonOwner  ⟹  NoDeadEnd  ⟹  el veredicto, y el lector no se atasca
+```
+-/
+theorem allParentsOwn_of_singleParents (g : GPathM) (a : Adj g)
+    (hsp : ParentWitness.SingleParents g) : AllParentsOwn g := by
+  intro x n hx hx1 hxs v hv hv0 hv1 c hc mc hmc
+  obtain ⟨c', hc', mc', hmc', hv'⟩ := parent_owns_of_coherent g a hx hx1 hxs v hv (by omega) hv1
+  have : c' = c := hsp n (List.mem_of_find?_eq_some hx) c' hc' c hc
+  subst this
+  rw [hmc'] at hmc
+  cases hmc
+  exact hv'
 
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
@@ -678,6 +722,14 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.parents_own_unique_owner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms parents_own_unique_owner
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_allParentsOwn' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms commonOwner_of_allParentsOwn
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.allParentsOwn_of_singleParents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms allParentsOwn_of_singleParents
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_decided' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
