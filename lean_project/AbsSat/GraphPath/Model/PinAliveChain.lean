@@ -1375,4 +1375,87 @@ queda sin testigos. -/
 #guard_msgs in
 #print axioms Cover_removeNode
 
+-- ============================================================
+-- Y la cobertura atraviesa un paso entero del review
+-- ============================================================
+
+/-- **El desenlace no toca la tabla de nadie.** Las tres ramas de `unlinkMap` filtran padres e hijos
+y dejan los owners donde estaban. -/
+theorem owners_unlinkMap (n : PNodeM) (id : PathNodeId) (m : PNodeM) :
+    (unlinkMap n id m).owners = m.owners := by
+  unfold unlinkMap
+  split
+  · rfl
+  · split
+    · rfl
+    · rfl
+
+/-- **La cobertura, con sus testigos distintos de un id dado.** Lo que hace falta para cruzar un
+`removeNode` de ese id. -/
+def CoverNe (g : GPathM) (z : PathNodeId) (id : PathNodeId) : Prop :=
+  ∃ nz, g.node? z = some nz ∧
+    ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ w ∈ nz.owners, w.id.step = k ∧ w ∈ g.gowners ∧ w ≠ id
+
+theorem Cover_of_CoverNe (g : GPathM) (z id : PathNodeId) (h : CoverNe g z id) : Cover g z := by
+  obtain ⟨nz, hz, hcov⟩ := h
+  exact ⟨nz, hz, fun k hk0 hk1 =>
+    let ⟨w, hwm, hws, hwg, _⟩ := hcov k hk0 hk1; ⟨w, hwm, hws, hwg⟩⟩
+
+/-- Actualizar otro nodo no afecta a la cobertura. -/
+theorem CoverNe_updateAt (g : GPathM) (id r z : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (hne : z ≠ r) (h : CoverNe g z id) :
+    CoverNe (updateAt g r f) z id := by
+  obtain ⟨nz, hz, hcov⟩ := h
+  have hid : nz.id = z := node?_id_eq g z nz hz
+  refine ⟨nz, ?_, hcov⟩
+  rw [updateAt_node? g r f hf z nz hz,
+      show (nz.id == r) = false from beq_eq_false_iff_ne.mpr (by rw [hid]; exact hne)]
+
+/-- Desenlazar tampoco: solo cambia enlaces. -/
+theorem CoverNe_unlinkIncompatible (g : GPathM) (id r z : PathNodeId) (h : CoverNe g z id) :
+    CoverNe (unlinkIncompatible g r) z id := by
+  obtain ⟨nz, hz, hcov⟩ := h
+  cases hn : g.node? r with
+  | none =>
+    have he : unlinkIncompatible g r = g := by unfold unlinkIncompatible; rw [hn]
+    rw [he]; exact ⟨nz, hz, hcov⟩
+  | some n =>
+    refine ⟨unlinkMap n r nz, unlinkIncompatible_node? g r n hn z nz hz, ?_⟩
+    intro k hk0 hk1
+    rw [current_step_unlinkIncompatible] at hk1
+    obtain ⟨w, hwm, hws, hwg, hwne⟩ := hcov k hk0 hk1
+    exact ⟨w, by rw [owners_unlinkMap]; exact hwm, hws,
+      by rw [gowners_unlinkIncompatible]; exact hwg, hwne⟩
+
+/-- **Y entonces la cobertura cruza un paso entero del review.**
+
+Las tres piezas del paso, cada una con su motivo:
+
+* el **corte** solo toca el nodo que se está mirando, y `z` no es ése;
+* el **desenlace** no toca la tabla de nadie;
+* y el **borrado**, si ocurre, se lleva únicamente al nodo mirado — que por hipótesis no es testigo
+  de ningún paso de `z`.
+
+Con esto el análisis de una vuelta está cerrado: **la cobertura de `z` solo se pierde si el review
+borra a un testigo suyo.** Ni por cortes, ni por enlaces, ni por efectos laterales. -/
+theorem Cover_cleanStep (g : GPathM) (r z : PathNodeId) (hne : z ≠ r)
+    (h : CoverNe g z r) : Cover (cleanStep g r) z := by
+  cases hn : g.node? r with
+  | none => rw [cleanStep_none g r hn]; exact Cover_of_CoverNe g z r h
+  | some d =>
+    rw [cleanStep_some g r d hn]
+    unfold intersectOrDrop
+    have h' : CoverNe (unlinkIncompatible
+        (updateAt g r (fun n => { n with owners := intersectOwners n.owners g.gowners })) r) z r :=
+      CoverNe_unlinkIncompatible _ r r z (CoverNe_updateAt g r r z _ (fun _ => rfl) hne h)
+    split
+    · exact Cover_of_CoverNe _ z r h'
+    · obtain ⟨nz, hz, hcov⟩ := h'
+      exact Cover_removeNode _ r z nz hne hz hcov
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Cover_cleanStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Cover_cleanStep
+
 end AbsSat.GraphPath.Model.PinAliveChain
