@@ -1,0 +1,7 @@
+c exactamente dos de tres: soluciones 110, 101, 011
+p cnf 3 5
+-1 -2 -3 0
+1 2 3 0
+1 2 -3 0
+1 -2 3 0
+-1 2 3 0
