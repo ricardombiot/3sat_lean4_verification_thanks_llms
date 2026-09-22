@@ -1205,3 +1205,74 @@ incompatibles— así que **la hipótesis que queda viva es la de los testigos**
 nodo, ambos por encima de él, no comparten ningún padre del nodo, entonces no se poseen
 mutuamente.* Eso es un enunciado sobre **un nodo y dos de sus owners**, medido sin excepción en
 375 casos, y es lo más pequeño a lo que ha bajado este hueco hasta ahora.
+
+### 5.17 `PairMeet` formalizado: la hipótesis de los testigos, y el veredicto que da
+
+Formalizada la hipótesis que quedó viva en §5.16, demostrado que basta, y medida exacta.
+
+#### El enunciado
+
+```
+PairMeet g :=  para todo nodo x con tabla n, y todo par de owners u, v de x
+               con u, v en pasos ≥ el de x y que **se poseen mutuamente**,
+               ∃ c ∈ n.parents con c ∈ tabla(u) y c ∈ tabla(v)
+```
+
+Es *pairwise* donde `CommonOwner` es *k-wise*: habla de **un nodo y dos de sus owners**.
+
+#### Por qué basta, y qué hace falta además
+
+**`commonOwner_of_pairMeet`** (`[propext, Quot.sound]`): con `PairMeet` **y `TwoParents`** (a lo
+sumo dos padres por nodo) sale `CommonOwner`, y con él el veredicto
+(**`NoDeadEndVerdict.sat_of_pairMeet`**).
+
+El argumento es Helly con número de Helly dos, y conviene verlo porque marca el límite exacto:
+
+* los conjuntos `P_k = parents(n) ∩ tabla(sel k)` son **no vacíos** (criba + `owners_below_iff_parents`);
+* viven en un universo de **dos** elementos;
+* `PairMeet` los hace **intersecarse dos a dos** (los picks de una cadena se poseen mutuamente);
+* y familias no vacías que se cortan dos a dos sobre un universo de 2 tienen elemento común.
+
+Constructivo, sin `Classical`: se busca con `find?` un pick de arriba que no posea al primer padre;
+si no hay, ese padre es el owner común; si lo hay, la no-vacuidad da el **otro** padre, y para cada
+pick posterior `PairMeet` entrega un padre que `TwoParents` identifica con él.
+
+**El límite**: con tres padres esto se rompe —`{a,b},{b,c},{a,c}` se cortan dos a dos y no tienen
+elemento común—, y haría falta la versión de tripletas. El número de Helly de un universo de `d` es
+`d`, así que cada unidad de in-degree pide un nivel más.
+
+Y `SingleParents` es el caso degenerado de las dos (`twoParents_of_singleParents`,
+`pairMeet_of_singleParents`), así que **`sat_of_pairMeet` cubre estrictamente más estados** que
+`sat_of_singleParents`.
+
+#### La medida
+
+Solo hay que comprobar `PairMeet` donde `ParentMeet` falla: si algún padre está en la tabla de todos
+los owners de arriba, todo par lo comparte y es automático. Ahí la sonda lo comprueba **exacto**,
+todos los pares cruzados, no un testigo por padre.
+
+| corpus | nodos con ≥2 padres | máx in-degree | nodos a comprobar | `PairMeet` |
+|---|---|---|---|---|
+| `test_sat_medium` | 63 | 2 | 18 | **18/18** |
+| `simple_test` | 18 | 2 | 4 | **4/4** |
+| `test_unsat` | 14 | 2 | 0 | — (`ParentMeet` ya valía) |
+| seed 2026 (12 fórmulas) | 783 | 2 | 212 | **212/212** |
+| seed 7 (12 fórmulas) | 576 | 2 | 141 | **141/141** |
+| seed 11 (12 fórmulas) | 1142 | 2 | 378 | **378/378** |
+
+> **753 nodos comprobados exactamente, 0 contraejemplos.** Y `TwoParents` se cumple en los seis
+> barridos, con el in-degree tocando el 2 y nunca el 3.
+
+Con una advertencia que no quiero pasar por alto: un barrido anterior de esta misma sonda registró
+in-degree **3–4** sobre otro corpus. `TwoParents` es por tanto una **hipótesis**, no un hecho, y el
+primer trabajo pendiente es volver a encontrar esos estados y ver si `PairMeet` aguanta ahí — donde
+el argumento de Helly ya no basta y haría falta el nivel de tripletas.
+
+#### El test de §5.11, aplicado antes de invertir más
+
+`PairMeet` **no parece equivalente al objetivo**: `CommonOwner` habla de los picks de una cadena
+parcial sana, y `PairMeet` de *cualquier* par de owners que se posean, que no tiene por qué
+extenderse a una cadena. No hay vuelta a la vista. Es la primera hipótesis en varias sesiones que
+pasa el test **y** está medida sin excepción **y** tiene el veredicto demostrado detrás.
+
+Es, además, la más pequeña a la que ha bajado este hueco: un nodo y dos de sus owners.

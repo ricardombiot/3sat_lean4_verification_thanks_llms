@@ -91,6 +91,10 @@ structure Acc where
   pmwClique : Nat := 0         -- ... con los testigos compatibles entre sí (fallo REAL)
   pmwNo     : Nat := 0         -- ... con testigos incompatibles (fallo espurio)
   pmwNote   : String := "-"
+  pmPairChk : Nat := 0         -- nodos donde se comprueba PairMeet (los que fallan ParentMeet)
+  pmPairOk  : Nat := 0         -- ... donde PairMeet se cumple
+  pmPairBad : Nat := 0         -- ... donde NO (contraejemplo de PairMeet)
+  pmPairNote: String := "-"
   pmFailAt  : String := "-"
   deriving Repr
 
@@ -214,6 +218,20 @@ parcial, y el fallo de `ParentMeet` **no** contradice `CommonOwner`. -/
 def witnessesClique (g : GPathM) (ws : List PathNodeId) : Bool :=
   ws.all (fun u => ws.all (fun v => u == v || mutuallyOwn g u v))
 
+/-- **`Descent.PairMeet` en un nodo, exacto.** ¿Todo par de owners por encima del nodo que se
+poseen mutuamente comparte un padre del nodo?
+
+Solo hace falta comprobarlo donde `ParentMeet` falla: si algún padre está en la tabla de todos los
+owners de arriba, todo par lo comparte y `PairMeet` es automático. -/
+def pairMeetAt (g : GPathM) (n : PNodeM) : Bool :=
+  let ys := n.owners.filter
+    (fun y => decide (n.id.id.step ≤ y.id.step ∧ y.id.step < g.current_step))
+  let tab := fun (y : PathNodeId) =>
+    match g.node? y with | some m => m.owners | none => ([] : List PathNodeId)
+  let shares := fun (u v : PathNodeId) =>
+    n.parents.any (fun c => (tab u).contains c && (tab v).contains c)
+  ys.all (fun u => ys.all (fun v => shares u v || !mutuallyOwn g u v))
+
 /-- Solo el in-degree y `ParentMeet`, sin las sondas caras. -/
 def scanStatePM (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run do
   let mut a := { a with states := a.states + 1 }
@@ -235,6 +253,13 @@ def scanStatePM (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.r
         if !ok then
           a := { a with pmFailAt :=
             s!"{label} paso {n.id.id.step}, {n.parents.length} padres, {n.owners.length} owners" }
+          let pmp := pairMeetAt g n
+          a := { a with pmPairChk := a.pmPairChk + 1
+                      , pmPairOk := a.pmPairOk + (if pmp then 1 else 0)
+                      , pmPairBad := a.pmPairBad + (if pmp then 0 else 1) }
+          if !pmp then
+            a := { a with pmPairNote :=
+              s!"{label} paso {n.id.id.step}, {n.parents.length} padres, {n.owners.length} owners" }
           match parentMeetWitnesses g n with
           | none => pure ()
           | some ws =>
@@ -423,6 +448,11 @@ def reportPM (name : String) (a : Acc) (ms : Nat) : IO Unit := do
     IO.println s!"     testigos compatibles entre si (fallo REAL) : {a.pmwClique}"
     IO.println s!"     testigos incompatibles (fallo espurio)     : {a.pmwNo}"
     IO.println s!"     ultimo: {a.pmwNote}"
+  if a.pmPairChk > 0 then
+    IO.println s!"   PairMeet, exacto, en los {a.pmPairChk} nodos donde ParentMeet falla:"
+    IO.println s!"     se cumple            : {a.pmPairOk}  ({pct a.pmPairOk a.pmPairChk})"
+    IO.println s!"     CONTRAEJEMPLO        : {a.pmPairBad}"
+    if a.pmPairBad > 0 then IO.println s!"     primero: {a.pmPairNote}"
   IO.println s!"   ({ms} ms)"
 
 def loadCnf (path : String) : IO (Option Cnf) := do

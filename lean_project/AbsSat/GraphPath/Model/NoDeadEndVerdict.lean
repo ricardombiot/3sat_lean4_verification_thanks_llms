@@ -114,6 +114,28 @@ theorem sat_of_singleParents (hwf : WF φ) (kv : NodeId × GPathM)
   have hok := AggFixpoint.aggOk_reviewAgg _ hv
   exact sat_of_commonOwner φ hwf kv hkv hv (Descent.commonOwner_of_singleParents _ a hok hsp)
 
+/-- **The verdict from the pairwise hypothesis.** Strictly more states than `sat_of_singleParents`:
+`SingleParents` gives `TwoParents` and `PairMeet` for free, and `PairMeet` is the statement the 375
+measured failures of `ParentMeet` all respected — two owners of a node that own each other share a
+parent of it. -/
+theorem sat_of_pairMeet (hwf : WF φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (htp : Descent.TwoParents (filterAllAgg kv.2 []))
+    (hpm : Descent.PairMeet (filterAllAgg kv.2 [])) : Satisfiable φ := by
+  obtain ⟨hm, _, _⟩ := ReaderAggRun.pureRunW_state φ hwf kv hkv
+  obtain ⟨hR, _, hp, hn⟩ := Fw_facts kv.2 hm.rctx hm.smp hm.pms hm.sn []
+  have hfw : Fw kv.2 [] = filterAllAgg kv.2 [] := by
+    simp only [Fw, PureDriverImproves.filterWeakAll_nil]
+  rw [hfw] at hR hp hn
+  have a := AdjacentOwners.adj_of_readable _ hR hv hp hn
+  have hok := AggFixpoint.aggOk_reviewAgg _ hv
+  exact sat_of_commonOwner φ hwf kv hkv hv (Descent.commonOwner_of_pairMeet _ a hok htp hpm)
+
+/-- info: 'AbsSat.GraphPath.Model.NoDeadEndVerdict.sat_of_pairMeet' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms sat_of_pairMeet
+
 /-- info: 'AbsSat.GraphPath.Model.NoDeadEndVerdict.sat_of_singleParents' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms sat_of_singleParents
