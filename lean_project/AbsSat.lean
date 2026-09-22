@@ -186,6 +186,7 @@ import AbsSat.GraphPath.Model.WeakPairs
 import AbsSat.GraphPath.Model.Greedy
 import AbsSat.GraphPath.Model.PinExtends
 import AbsSat.GraphPath.Model.ReaderDescent
+import AbsSat.GraphPath.Model.ReaderTop
 import AbsSat.GraphPath.Model.PinSplit
 import AbsSat.GraphPath.Model.PinUp
 import AbsSat.GraphPath.Model.TripleA

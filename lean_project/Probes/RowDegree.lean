@@ -3,6 +3,7 @@ import AbsSat.SatMachine.DiffTest
 import AbsSat.GraphPath.Model.PureDriverImproves
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.ReaderDescent
+import AbsSat.GraphPath.Model.ReaderTop
 
 /-! # The in-degree of the row
 
@@ -514,6 +515,11 @@ structure TAcc where
   decOk    : Nat := 0          -- estados donde DecidedAbove se cumple entero
   decBad   : Nat := 0
   decBadAt : String := "-"
+  /-- `Descent.MapPinnedFrom`: cuantos pasos desde arriba tienen el id de mapa ya fijado -/
+  zoneSum  : Nat := 0          -- suma de la profundidad de la zona pinchada
+  zoneMax  : Nat := 0
+  zoneFull : Nat := 0          -- estados con TODA la corrida pinchada (MapPinnedFrom _ 1)
+  stepsSum : Nat := 0          -- suma de current_step, para el porcentaje
   deriving Repr
 
 /-- **Los owners comunes que el descenso puede usar.** Un paso más abajo del pick más bajo, y
@@ -575,6 +581,22 @@ def decidedAboveStats (g : GPathM) (n : PNodeM) : Nat × Nat × Nat := Id.run do
     mx := max mx c
   return (cells, more, mx)
 
+/-- **La zona pinchada**, medida: cuantos pasos consecutivos desde arriba tienen todos sus owners
+globales con el mismo id de mapa. Es `Descent.MapPinnedFrom g (current_step - zona)`, y es la
+hipotesis que `Descent.extend_below_pinned` consume. -/
+def pinnedZone (g : GPathM) : Nat := Id.run do
+  let mut depth := 0
+  let mut k := g.current_step - 1
+  while k ≥ 0 do
+    let ids := (g.gowners.filter (fun q => q.id.step == k)).map (fun q => q.id)
+    let distinct := distinctBy (fun (d : NodeId) => d) ids
+    if distinct ≤ 1 then
+      depth := depth + 1
+      k := k - 1
+    else
+      k := -1
+  return depth
+
 /-- Un estado de la trayectoria, medido: `TwoParents`, `PairMeet` y el descenso. -/
 def measureTraj (label : String) (g : GPathM) (isSib : Bool) (a : TAcc) : TAcc := Id.run do
   let mut a := { a with visited := a.visited + 1
@@ -604,6 +626,11 @@ def measureTraj (label : String) (g : GPathM) (isSib : Bool) (a : TAcc) : TAcc :
   a := { a with degMax := max a.degMax mx }
   if mx > 2 then
     a := { a with tpFail := a.tpFail + 1, tpFailAt := s!"{label} in-degree {mx}" }
+  let zone := pinnedZone g
+  a := { a with zoneSum := a.zoneSum + zone
+              , zoneMax := max a.zoneMax zone
+              , stepsSum := a.stepsSum + g.current_step.toNat
+              , zoneFull := a.zoneFull + (if (zone : Int) ≥ g.current_step then 1 else 0) }
   let top := g.current_step - 1
   a := { a with dscTried := a.dscTried + 1 }
   match topAnchors g with
@@ -623,10 +650,10 @@ def measureTraj (label : String) (g : GPathM) (isSib : Bool) (a : TAcc) : TAcc :
 
 /-- Recorre la trayectoria del lector: el mismo paso que `ReaderExec.readLoop` da, y —si `sibs`— los
 demás pines válidos de ese paso, que también son estados de `ReadFrom`. -/
-partial def walkReader (sibs : Bool) (label : String) (g : GPathM) (fuel : Nat) (a : TAcc) : TAcc :=
-  Id.run do
+partial def walkReader (topDown sibs : Bool) (label : String) (g : GPathM) (fuel : Nat) (a : TAcc) :
+    TAcc := Id.run do
   let mut a := measureTraj label g false a
-  match ReaderExec.firstChoice g with
+  match (if topDown then ReaderTop.lastChoice g else ReaderExec.firstChoice g) with
   | none => return { a with finished := a.finished + 1 }
   | some k =>
     let mut chosen : Option GPathM := none
@@ -641,16 +668,16 @@ partial def walkReader (sibs : Bool) (label : String) (g : GPathM) (fuel : Nat) 
                             , stuckAt := s!"{label}: ningún pin válido en el paso {k}" }
     | some h =>
       if fuel == 0 then return a
-      return walkReader sibs s!"{label}+pin@{k}" h (fuel - 1) { a with pins := a.pins + 1 }
+      return walkReader topDown sibs s!"{label}+pin@{k}" h (fuel - 1) { a with pins := a.pins + 1 }
 
-def runFormulaTraj (sibs : Bool) (φ : Cnf) (a : TAcc) : TAcc := Id.run do
+def runFormulaTraj (topDown sibs : Bool) (φ : Cnf) (a : TAcc) : TAcc := Id.run do
   let mut a := { a with formulas := a.formulas + 1 }
   for kv in pureRunW φ do
     a := { a with finals := a.finals + 1 }
     let g := filterAllAgg kv.2 []
     if isValid g then
       a := { a with seeds := a.seeds + 1 }
-      a := walkReader sibs s!"⟨{kv.1.step},{kv.1.index}⟩" g (measure g) a
+      a := walkReader topDown sibs s!"⟨{kv.1.step},{kv.1.index}⟩" g (measure g) a
   return a
 
 def reportTraj (name : String) (a : TAcc) (ms : Nat) : IO Unit := do
@@ -674,6 +701,10 @@ def reportTraj (name : String) (a : TAcc) (ms : Nat) : IO Unit := do
   IO.println s!"     dos o mas        : {a.decMore}   max {a.decMax}"
   IO.println s!"     estados donde SE CUMPLE entero: {a.decOk}/{a.decOk + a.decBad}"
   if a.decBad > 0 then IO.println s!"     primero: {a.decBadAt}"
+  IO.println s!"   zona pinchada (MapPinnedFrom: pasos desde arriba con id de mapa fijado):"
+  IO.println s!"     profundidad media : {if a.visited == 0 then 0 else a.zoneSum / a.visited} de {if a.visited == 0 then 0 else a.stepsSum / a.visited} pasos   ({pct a.zoneSum a.stepsSum})"
+  IO.println s!"     maxima            : {a.zoneMax}"
+  IO.println s!"     estados con TODA la corrida pinchada : {a.zoneFull}/{a.visited}"
   IO.println s!"   el descenso (owners comunes para seguir bajando), {a.dscTried} estados:"
   IO.println s!"     llega al paso 0 (hay camino) : {a.dscFull}  ({pct a.dscFull a.dscTried})"
   IO.println s!"     SE QUEDA SIN OWNER COMUN     : {a.dscStall}"
@@ -736,24 +767,27 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormulaPM φ {})
         let t1 ← IO.monoMsNow
         reportPM path a (t1 - t0)
-  | "traj" :: "file" :: paths | "traj-sib" :: "file" :: paths =>
+  | "traj" :: "file" :: paths | "traj-sib" :: "file" :: paths | "traj-top" :: "file" :: paths =>
     let sibs := args.headD "" == "traj-sib"
+    let topDown := args.headD "" == "traj-top"
     for path in paths do
       match ← loadCnf path with
       | none => IO.println s!"{path}: bad cnf"
       | some φ =>
         let t0 ← IO.monoMsNow
-        let a ← IO.lazyPure (fun _ => runFormulaTraj sibs φ {})
+        let a ← IO.lazyPure (fun _ => runFormulaTraj topDown sibs φ {})
         let t1 ← IO.monoMsNow
         reportTraj path a (t1 - t0)
   | "traj" :: "random" :: cases :: nvMin :: seeds
-  | "traj-sib" :: "random" :: cases :: nvMin :: seeds =>
+  | "traj-sib" :: "random" :: cases :: nvMin :: seeds
+  | "traj-top" :: "random" :: cases :: nvMin :: seeds =>
     let sibs := args.headD "" == "traj-sib"
+    let topDown := args.headD "" == "traj-top"
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
       let mut a : TAcc := {}
       for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
-        a := runFormulaTraj sibs φ a
+        a := runFormulaTraj topDown sibs φ a
       let t1 ← IO.monoMsNow
       reportTraj s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pm" :: "random" :: cases :: nvMin :: seeds =>
@@ -773,4 +807,4 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       report s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | _ =>
-    IO.println "usage: row-degree [pm|traj|traj-sib] file <cnf>... | row-degree [pm|traj|traj-sib] random <cases> <minVars> <seed>..."
+    IO.println "usage: row-degree [pm|traj|traj-sib|traj-top] file <cnf>... | row-degree [pm|traj|traj-sib|traj-top] random <cases> <minVars> <seed>..."
