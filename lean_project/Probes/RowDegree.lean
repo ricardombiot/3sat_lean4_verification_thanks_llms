@@ -1,6 +1,8 @@
 import AbsSat.Cnf.Dimacs
 import AbsSat.SatMachine.DiffTest
 import AbsSat.GraphPath.Model.PureDriverImproves
+import AbsSat.GraphPath.Model.ReaderExec
+import AbsSat.GraphPath.Model.ReaderPairMeet
 
 /-! # The in-degree of the row
 
@@ -21,6 +23,14 @@ Two numbers per run:
 
 Usage: `lake exe row-degree file <cnf>...`
        `lake exe row-degree random <cases> <minVars> <seed>...`
+       `lake exe row-degree pm file|random ...`      -- ParentMeet / PairMeet, toda linea
+       `lake exe row-degree traj[-sib] file|random ...`
+
+El modo **`traj`** es el que mide la hipotesis que el lector consume de verdad
+(`ReaderPairMeet.RunPairMeet`): recorre la trayectoria del lector desde cada estado de la linea
+final —semilla, y un estado mas por cada pin— y en cada uno comprueba `PairMeet`, el in-degree, y
+sobre todo **si al descenso le queda un owner comun para seguir bajando**. `traj-sib` mide ademas
+los pines que el lector NO toma, que tambien son estados de `ReadFrom`.
 -/
 
 open AbsSat.Utils.Alias
@@ -30,6 +40,7 @@ open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.PureDriver (PureLine pureInit)
 open AbsSat.GraphPath.Model.PureDriverImproves
+open AbsSat.GraphPath.Model.AggressiveReview (filterAllAgg)
 
 namespace Probes.RowDegree
 
@@ -455,6 +466,227 @@ def reportPM (name : String) (a : Acc) (ms : Nat) : IO Unit := do
     if a.pmPairBad > 0 then IO.println s!"     primero: {a.pmPairNote}"
   IO.println s!"   ({ms} ms)"
 
+-- ============================================================
+-- La trayectoria del lector: `ReaderPairMeet.RunPairMeet`
+-- ============================================================
+
+/-! `ReaderPairMeet.answer_ne_unknown_pm` pide `PairMeet` **en todo estado que el lector alcanza**,
+no solo en el final. Y lo que el descenso consume de esos estados es una cosa muy concreta, que es
+la que esta sonda mide de frente: **que quede un owner común un paso más abajo**, para poder seguir
+bajando y descubrir el camino. `TwoParents` no hace falta medirlo por la trayectoria
+(`ReaderPairMeet.twoParents_of_pruned` lo baja solo), pero se mide igual porque si algún estado
+tiene in-degree 3 el argumento de Helly con número 2 se cae. -/
+
+structure TAcc where
+  formulas : Nat := 0
+  finals   : Nat := 0          -- estados de la línea final
+  seeds    : Nat := 0          -- ... que un review deja válidos: las semillas del lector
+  visited  : Nat := 0          -- estados de la trayectoria medidos
+  sibling  : Nat := 0          -- ... de ellos, pines que el lector NO tomó (más de `ReadFrom`)
+  pins     : Nat := 0
+  finished : Nat := 0          -- trayectorias en que el lector llega al final
+  stuck    : Nat := 0          -- ... en que se atasca: ningún pin del paso deja válido
+  stuckAt  : String := "-"
+  /-- `TwoParents` -/
+  degMax   : Nat := 0
+  tpFail   : Nat := 0          -- estados con algún nodo de ≥3 padres
+  tpFailAt : String := "-"
+  /-- `PairMeet`, exacto, donde `ParentMeet` no lo hace automático -/
+  pmChk    : Nat := 0
+  pmOk     : Nat := 0
+  pmBad    : Nat := 0
+  pmBadAt  : String := "-"
+  /-- el descenso: ¿queda owner común para seguir bajando? -/
+  dscTried : Nat := 0          -- estados en los que se intenta el descenso
+  dscFull  : Nat := 0          -- ... que llegan al paso 0: hay camino
+  dscStall : Nat := 0          -- ... que se quedan sin owner común
+  dscNoTop : Nat := 0          -- ... sin ancla arriba (no debería pasar en estado válido)
+  dscOut   : Nat := 0          -- ... indecisos, presupuesto agotado
+  dscStallAt : String := "-"
+  coSteps  : Nat := 0          -- pasos de descenso intentados
+  coOkStep : Nat := 0          -- ... con al menos un owner común
+  coCands  : Nat := 0          -- suma de owners comunes disponibles por paso
+  coMax    : Nat := 0
+  /-- `Descent.DecidedAbove`: ¿tiene la tabla de un nodo una sola entrada en cada paso POR ENCIMA? -/
+  decCells : Nat := 0          -- celdas (nodo, paso≥suyo) no vacias
+  decMore  : Nat := 0          -- ... con dos o mas entradas
+  decMax   : Nat := 0
+  decOk    : Nat := 0          -- estados donde DecidedAbove se cumple entero
+  decBad   : Nat := 0
+  decBadAt : String := "-"
+  deriving Repr
+
+/-- **Los owners comunes que el descenso puede usar.** Un paso más abajo del pick más bajo, y
+poseído por **todos** los picks ya hechos — que es lo que `Descent.extend_of_common_owner` consume, y
+lo que `PairMeet` promete par a par. Por `owners_below_iff_parents` un owner un paso por debajo es
+un padre, así que se buscan entre los padres. -/
+def commonOwners (g : GPathM) (picks : List PathNodeId) : List PathNodeId :=
+  match picks with
+  | [] => []
+  | x :: _ =>
+    match g.node? x with
+    | none => []
+    | some n => n.parents.filter (fun c =>
+        g.gowners.contains c && picks.all (fun y => mutuallyOwn g c y))
+
+/-- El ancla de arriba: un owner global del paso más alto que es nodo y se posee a sí mismo. Es lo
+que `NoDeadEnd.topAnchor_of` da gratis en un estado válido. -/
+def topAnchors (g : GPathM) : List PathNodeId :=
+  (g.gowners.filter (fun q => q.id.step == g.current_step - 1)).filter (fun q =>
+    match g.node? q with | some m => m.owners.contains q | none => false)
+
+structure DAcc where
+  budget : Nat := 0
+  steps  : Nat := 0
+  okStep : Nat := 0
+  cands  : Nat := 0
+  mx     : Nat := 0
+  lowest : Int := 0
+  done   : Bool := false
+  deriving Repr
+
+/-- **El descenso, con retroceso acotado.** `picks` cubre los pasos `k+1 .. top`; toca llenar `k`.
+Se para en éxito al pasar del 0. Si se queda sin candidatos en algún paso y ningún retroceso lo
+arregla, ese estado es un contraejemplo de `NoDeadEnd` — y por tanto de `CommonOwner`. -/
+partial def descendFrom (g : GPathM) (picks : List PathNodeId) (k : Int) (d : DAcc) : DAcc :=
+  if d.done || d.budget == 0 then d
+  else if k < 0 then { d with done := true, lowest := -1 }
+  else
+    let cs := commonOwners g picks
+    let d := { d with budget := d.budget - 1, steps := d.steps + 1
+                    , okStep := d.okStep + (if cs.isEmpty then 0 else 1)
+                    , cands := d.cands + cs.length
+                    , mx := max d.mx cs.length
+                    , lowest := min d.lowest k }
+    cs.foldl (fun acc c => if acc.done then acc else descendFrom g (c :: picks) (k - 1) acc) d
+
+/-- `Descent.DecidedAbove`, nodo a nodo: celdas (paso ≥ el del nodo) y cuantas tienen ≥2 entradas. -/
+def decidedAboveStats (g : GPathM) (n : PNodeM) : Nat × Nat × Nat := Id.run do
+  let ws := n.owners.filter
+    (fun w => decide (n.id.id.step ≤ w.id.step ∧ w.id.step < g.current_step))
+  let steps := ws.foldl (fun acc w => if acc.contains w.id.step then acc else w.id.step :: acc) []
+  let mut cells := 0
+  let mut more := 0
+  let mut mx := 0
+  for j in steps do
+    let c := distinctBy (fun (w : PathNodeId) => w) (ws.filter (fun w => w.id.step == j))
+    cells := cells + 1
+    if c > 1 then more := more + 1
+    mx := max mx c
+  return (cells, more, mx)
+
+/-- Un estado de la trayectoria, medido: `TwoParents`, `PairMeet` y el descenso. -/
+def measureTraj (label : String) (g : GPathM) (isSib : Bool) (a : TAcc) : TAcc := Id.run do
+  let mut a := { a with visited := a.visited + 1
+                      , sibling := a.sibling + (if isSib then 1 else 0) }
+  let mut mx := 0
+  let mut dbad := 0
+  for n in g.nodes do
+    if n.id.id.step > 0 then
+      mx := max mx n.parents.length
+      let (dc, dm, dx) := decidedAboveStats g n
+      dbad := dbad + dm
+      a := { a with decCells := a.decCells + dc, decMore := a.decMore + dm
+                  , decMax := max a.decMax dx }
+      if n.id.id.step < g.current_step && n.parents.length > 1 && !parentMeetAt g n then
+        let ok := pairMeetAt g n
+        a := { a with pmChk := a.pmChk + 1
+                    , pmOk := a.pmOk + (if ok then 1 else 0)
+                    , pmBad := a.pmBad + (if ok then 0 else 1) }
+        if !ok then
+          a := { a with pmBadAt :=
+            s!"{label} paso {n.id.id.step}, {n.parents.length} padres, {n.owners.length} owners" }
+  a := { a with degMax := max a.degMax mx
+              , decOk := a.decOk + (if dbad == 0 then 1 else 0)
+              , decBad := a.decBad + (if dbad == 0 then 0 else 1) }
+  if dbad > 0 then
+    a := { a with decBadAt := s!"{label}: {dbad} celdas con ≥2 entradas por encima" }
+  a := { a with degMax := max a.degMax mx }
+  if mx > 2 then
+    a := { a with tpFail := a.tpFail + 1, tpFailAt := s!"{label} in-degree {mx}" }
+  let top := g.current_step - 1
+  a := { a with dscTried := a.dscTried + 1 }
+  match topAnchors g with
+  | [] => a := { a with dscNoTop := a.dscNoTop + 1 }
+  | q :: _ =>
+    let d := descendFrom g [q] (top - 1) { budget := 200000, lowest := top }
+    a := { a with coSteps := a.coSteps + d.steps
+                , coOkStep := a.coOkStep + d.okStep
+                , coCands := a.coCands + d.cands
+                , coMax := max a.coMax d.mx }
+    if d.done then a := { a with dscFull := a.dscFull + 1 }
+    else if d.budget == 0 then a := { a with dscOut := a.dscOut + 1 }
+    else
+      a := { a with dscStall := a.dscStall + 1
+                  , dscStallAt := s!"{label}: bajó hasta el paso {d.lowest} de {top}" }
+  return a
+
+/-- Recorre la trayectoria del lector: el mismo paso que `ReaderExec.readLoop` da, y —si `sibs`— los
+demás pines válidos de ese paso, que también son estados de `ReadFrom`. -/
+partial def walkReader (sibs : Bool) (label : String) (g : GPathM) (fuel : Nat) (a : TAcc) : TAcc :=
+  Id.run do
+  let mut a := measureTraj label g false a
+  match ReaderExec.firstChoice g with
+  | none => return { a with finished := a.finished + 1 }
+  | some k =>
+    let mut chosen : Option GPathM := none
+    for q in ownersAt g.gowners k do
+      let h := filterAllAgg g [q.id]
+      if isValid h then
+        match chosen with
+        | none => chosen := some h
+        | some _ => if sibs then a := measureTraj s!"{label}|hermano@{k}" h true a
+    match chosen with
+    | none => return { a with stuck := a.stuck + 1
+                            , stuckAt := s!"{label}: ningún pin válido en el paso {k}" }
+    | some h =>
+      if fuel == 0 then return a
+      return walkReader sibs s!"{label}+pin@{k}" h (fuel - 1) { a with pins := a.pins + 1 }
+
+def runFormulaTraj (sibs : Bool) (φ : Cnf) (a : TAcc) : TAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    a := { a with finals := a.finals + 1 }
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with seeds := a.seeds + 1 }
+      a := walkReader sibs s!"⟨{kv.1.step},{kv.1.index}⟩" g (measure g) a
+  return a
+
+def reportTraj (name : String) (a : TAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados finales {a.finals}, semillas validas {a.seeds}"
+  IO.println s!"   trayectoria: {a.visited} estados medidos ({a.sibling} hermanos), {a.pins} pines"
+  IO.println s!"     el lector termina : {a.finished}"
+  IO.println s!"     el lector SE ATASCA: {a.stuck}"
+  if a.stuck > 0 then IO.println s!"       primero: {a.stuckAt}"
+  IO.println s!"   TwoParents: in-degree maximo {a.degMax}, estados con ≥3 padres: {a.tpFail}"
+  if a.tpFail > 0 then IO.println s!"     primero: {a.tpFailAt}"
+  IO.println s!"   PairMeet, exacto, en los {a.pmChk} nodos donde ParentMeet no lo hace automatico:"
+  IO.println s!"     se cumple     : {a.pmOk}  ({pct a.pmOk a.pmChk})"
+  IO.println s!"     CONTRAEJEMPLO : {a.pmBad}"
+  if a.pmBad > 0 then IO.println s!"     primero: {a.pmBadAt}"
+  IO.println s!"   RunPairMeet: {if a.pmBad == 0 then "SE CUMPLE en la trayectoria medida" else "FALLA"}"
+  IO.println s!"   DecidedAbove ({a.decCells} celdas (nodo, paso≥suyo) no vacias):"
+  IO.println s!"     una sola entrada : {a.decCells - a.decMore}  ({pct (a.decCells - a.decMore) a.decCells})"
+  IO.println s!"     dos o mas        : {a.decMore}   max {a.decMax}"
+  IO.println s!"     estados donde SE CUMPLE entero: {a.decOk}/{a.decOk + a.decBad}"
+  if a.decBad > 0 then IO.println s!"     primero: {a.decBadAt}"
+  IO.println s!"   el descenso (owners comunes para seguir bajando), {a.dscTried} estados:"
+  IO.println s!"     llega al paso 0 (hay camino) : {a.dscFull}  ({pct a.dscFull a.dscTried})"
+  IO.println s!"     SE QUEDA SIN OWNER COMUN     : {a.dscStall}"
+  IO.println s!"     indeciso (presupuesto)       : {a.dscOut}"
+  IO.println s!"     sin ancla arriba             : {a.dscNoTop}"
+  if a.dscStall > 0 then IO.println s!"     primero: {a.dscStallAt}"
+  if a.coSteps > 0 then
+    IO.println s!"   por paso de descenso ({a.coSteps} intentos):"
+    IO.println s!"     con owner comun : {a.coOkStep}  ({pct a.coOkStep a.coSteps})   max {a.coMax} candidatos"
+    let m := a.coCands * 100 / a.coSteps
+    IO.println s!"     media de owners comunes por paso: {m / 100}.{if m % 100 < 10 then "0" else ""}{m % 100}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -504,6 +736,26 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormulaPM φ {})
         let t1 ← IO.monoMsNow
         reportPM path a (t1 - t0)
+  | "traj" :: "file" :: paths | "traj-sib" :: "file" :: paths =>
+    let sibs := args.headD "" == "traj-sib"
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTraj sibs φ {})
+        let t1 ← IO.monoMsNow
+        reportTraj path a (t1 - t0)
+  | "traj" :: "random" :: cases :: nvMin :: seeds
+  | "traj-sib" :: "random" :: cases :: nvMin :: seeds =>
+    let sibs := args.headD "" == "traj-sib"
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTraj sibs φ a
+      let t1 ← IO.monoMsNow
+      reportTraj s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pm" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
@@ -521,4 +773,4 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       report s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | _ =>
-    IO.println "usage: row-degree [pm] file <cnf>... | row-degree [pm] random <cases> <minVars> <seed>..."
+    IO.println "usage: row-degree [pm|traj|traj-sib] file <cnf>... | row-degree [pm|traj|traj-sib] random <cases> <minVars> <seed>..."
