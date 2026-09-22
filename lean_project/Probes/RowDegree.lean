@@ -70,7 +70,14 @@ structure Acc where
   pinMax    : Nat := 0
   loTot     : Nat := 0         -- pares (d, lo) con algún pin
   loClean   : Nat := 0         -- ... donde TODO pin está gratis (arriba, a 1 o a 2)
-  loDirty   : Nat := 0         -- ... donde queda algún pin a >=3
+  loDirty   : Nat := 0
+  /-- multiplicidad de la tabla: cuántos owners tiene un nodo en cada paso -/
+  cellTot   : Nat := 0         -- pares (nodo, paso) con alguna entrada
+  cell1     : Nat := 0         -- ... con exactamente una (decidido: parents_own_unique_owner)
+  cellMore  : Nat := 0         -- ... con dos o más (el obstáculo)
+  cellMax   : Nat := 0
+  nodeClean : Nat := 0         -- nodos con TODAS sus celdas decididas
+  nodeDirty : Nat := 0         -- ... donde queda algún pin a >=3
   deriving Repr
 
 def bump (a : Acc) (d : Nat) (lit : Bool) : Acc :=
@@ -180,6 +187,22 @@ def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run
             else
               a := { a with huntNone := a.huntNone + 1
                           , huntNote := s!"{label} x@{n.id.id.step} u@{u.id.step} w@{w.id.step} sin cadena" }
+  -- (1bis) la multiplicidad de la tabla, celda por celda
+  for n in g.nodes do
+    if n.id.id.step > 0 then
+      let mut clean := true
+      let mut j : Int := 0
+      while j < g.current_step do
+        let cnt := (n.owners.filter (fun q => q.id.step == j)).length
+        if cnt > 0 then
+          a := { a with cellTot := a.cellTot + 1
+                      , cell1 := a.cell1 + (if cnt == 1 then 1 else 0)
+                      , cellMore := a.cellMore + (if cnt > 1 then 1 else 0)
+                      , cellMax := max a.cellMax cnt }
+          if cnt > 1 then clean := false
+        j := j + 1
+      a := { a with nodeClean := a.nodeClean + (if clean then 1 else 0)
+                  , nodeDirty := a.nodeDirty + (if clean then 0 else 1) }
   -- (2) the counterfactual, line by line
   let mut k : Int := 0
   while k < g.current_step - 1 do
@@ -263,6 +286,11 @@ def report (name : String) (a : Acc) (ms : Nat) : IO Unit := do
     IO.println s!"     no hay cadena por los dos (relajacion debil)  : {a.huntNone}"
     IO.println s!"     indeciso (presupuesto agotado)                : {a.huntOut}"
     IO.println s!"     ultimo: {a.huntNote}"
+  if a.cellTot > 0 then
+    IO.println s!"   multiplicidad de las tablas ({a.cellTot} celdas (nodo, paso) no vacias):"
+    IO.println s!"     un solo owner (decidido)  : {a.cell1}  ({pct a.cell1 a.cellTot})"
+    IO.println s!"     dos o mas (el obstaculo)  : {a.cellMore}  ({pct a.cellMore a.cellTot})   max {a.cellMax}"
+    IO.println s!"     nodos con TODAS decididas : {a.nodeClean}/{a.nodeClean + a.nodeDirty}  ({pct a.nodeClean (a.nodeClean + a.nodeDirty)})"
   if a.pinTot > 0 then
     IO.println s!"   distancia de los pines al pick mas bajo ({a.pinTot} pares (pin, lo)):"
     IO.println s!"     por encima o igual (gratis, node_id_of_pin) : {a.pinAbove}  ({pct a.pinAbove a.pinTot})"

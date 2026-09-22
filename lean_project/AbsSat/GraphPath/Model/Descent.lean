@@ -35,7 +35,8 @@ open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview (sharesEveryStep)
 open AbsSat.GraphPath.Model.AggFixpoint (AggOk)
-open AbsSat.GraphPath.Model.AdjacentOwners (Adj owners_below_iff_parents owners_above_iff_sons)
+open AbsSat.GraphPath.Model.AdjacentOwners (Adj owners_below_iff_parents owners_above_iff_sons
+  mem_union_of_coherent)
 open AbsSat.GraphPath.Model.NoDeadEnd (SoundFrom upd)
 
 /-- **The extension is a common owner.** A pick on the step below that every pick of the partial
@@ -262,6 +263,57 @@ def CommonOwner (g : GPathM) : Prop :=
     ∃ c nc, g.node? c = some nc ∧ c.id.step = lo - 1 ∧
       ∀ k, lo ≤ k → k < g.current_step → c ∈ ownersOf g (sel k)
 
+-- ============================================================
+-- Where the descent really breaks: the multiplicity of the tables
+-- ============================================================
+
+/-- **Un owner de `x` lo posee ya algún padre de `x`** — y esto sale de la *coherencia del punto
+fijo* (`cohP`), no de la consistencia de pares. La revisión deja la tabla de un nodo contenida en
+la unión de las de sus padres, así que todo lo que `x` posee lo posee alguno de ellos. -/
+theorem parent_owns_of_coherent (g : GPathM) (a : Adj g) {x : PathNodeId} {n : PNodeM}
+    (hx : g.node? x = some n) (hx1 : 1 ≤ x.id.step) (hxs : x.id.step < g.current_step)
+    (v : PathNodeId) (hv : v ∈ n.owners) (hv0 : 0 ≤ v.id.step) (hv1 : v.id.step < g.current_step) :
+    ∃ c ∈ n.parents, ∃ m, g.node? c = some m ∧ v ∈ m.owners := by
+  have hcoh := a.cohP _ (mem_intRange hx1 (by omega)) x
+    (Threaded.mem_line_of_node? g x n hx) n hx
+  exact mem_union_of_coherent g n.parents n.owners v hcoh hv
+    (ParentWitness.union_entry_below a hx hx1 v.id.step hv0 hv1)
+
+/-- **Y si en ese paso la tabla de `x` tiene un solo owner, lo poseen *todos* sus padres.**
+
+Un padre `c` de `x` tiene a `x` en su propia tabla (`owners_above_iff_sons`), así que la criba del
+autor exige que `c` y `x` compartan un owner en cada paso. En el paso `j` ese owner común está en
+la tabla de `x`; si ahí no hay más que `v`, es `v`, y entonces `v` está también en la de `c`.
+
+**Esto es donde el descenso se rompe de verdad.** El descenso necesita *un* padre que posea a
+todos los picks; lo único que se lo impide es que las tablas tengan **más de un candidato por
+paso**. Donde la revisión ha dejado la tabla decidida, no hay nada que elegir.
+
+Ni siquiera hace falta suponer `v ∈ n.owners`: la validez ya pone una entrada en el paso `j`, y
+`huniq` la identifica con `v`. -/
+theorem parents_own_unique_owner (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Sons.SMP g)
+    {x : PathNodeId} {n : PNodeM} (hx : g.node? x = some n)
+    (hx1 : 1 ≤ x.id.step) (hxs : x.id.step < g.current_step)
+    (j : Int) (hj0 : 0 ≤ j) (hj1 : j < g.current_step)
+    (v : PathNodeId) (huniq : ∀ w ∈ n.owners, w.id.step = j → w = v)
+    (c : PathNodeId) (hc : c ∈ n.parents) (mc : PNodeM) (hmc : g.node? c = some mc) :
+    v ∈ mc.owners := by
+  have hid := node?_id_eq g x n hx
+  have hcstep : c.id.step = x.id.step - 1 := by
+    have := a.rc.shape.pbelow n (List.mem_of_find?_eq_some hx) c hc
+    rw [hid] at this; exact this
+  -- `x` está en la tabla de su padre: un owner un paso por encima es un hijo
+  have hxson : x ∈ mc.sons := by
+    have := hsmp n (List.mem_of_find?_eq_some hx) c hc mc (List.mem_of_find?_eq_some hmc)
+      (node?_id_eq g c mc hmc)
+    rwa [hid] at this
+  have hxc : x ∈ mc.owners := (a.links c mc hmc).2 x hxson
+  -- la criba da un owner común en el paso `j`, y la unicidad lo identifica con `v`
+  obtain ⟨z, hzc, hzx, hzs⟩ := ParentWitness.shared_owner a hok hmc hx
+    (by omega) (by omega) (by omega) hxs hxc j hj0 hj1
+  rw [← huniq z hzx hzs]
+  exact hzc
+
 /-- **With one parent per node, the common owner is free.** The pick at `lo` is not a root, so it has
 a parent `c`, and `SingleParents` makes it *the* parent. For every pick above, the sweep's pair
 consistency hands a common owner on the step below `lo`; an owner exactly one step below a node **is**
@@ -321,6 +373,14 @@ theorem commonOwner_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
     have hwc : w = c := hsp n hmem w hwp c hc
     rw [hwc] at hwk
     simpa only [ownersOf, hnk] using hwk
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.parent_owns_of_coherent' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms parent_owns_of_coherent
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.parents_own_unique_owner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms parents_own_unique_owner
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_singleParents' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

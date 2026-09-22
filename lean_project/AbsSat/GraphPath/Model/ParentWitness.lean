@@ -112,7 +112,7 @@ theorem par_witness_triple (g : GPathM) (a : Adj g) (hok : AggOk g)
 def SingleParents (g : GPathM) : Prop := ∀ n ∈ g.nodes, SingleParent n
 
 /-- The union of a node's parents' tables has an entry on every step below the node. -/
-private theorem union_entry_below {g : GPathM} (a : Adj g) {x : PathNodeId} {n : PNodeM}
+theorem union_entry_below {g : GPathM} (a : Adj g) {x : PathNodeId} {n : PNodeM}
     (hx : g.node? x = some n) (hx1 : 1 ≤ x.id.step) (k : Int) (hk0 : 0 ≤ k)
     (hk1 : k < g.current_step) :
     hasStepEntry (unionOwnersOf g n.parents) k = true := by
