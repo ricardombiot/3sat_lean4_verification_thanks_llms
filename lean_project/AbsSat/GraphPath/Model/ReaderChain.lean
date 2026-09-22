@@ -752,6 +752,46 @@ def PinKeepsPartner : Prop :=
       isValid (filterAllAgg P [x.id]) = true →
       ∃ nx', (filterAllAgg P [x.id]).node? x = some nx' ∧ q ∈ nx'.owners
 
+/-- **El pin no quita nada: solo la revisión puede.**
+
+`filterRequire` reescribe únicamente `gowners` — no toca ninguna tabla —, así que tras pinchar y
+**antes** de revisar, `q` sigue en la de `x`, sin hipótesis ninguna. Toda la obligación de
+`PinKeepsPartner` cae por tanto sobre `reviewAgg`, y eso vale la pena dejarlo escrito porque
+localiza el problema en una sola operación. -/
+theorem partner_after_filterRequire (P : GPathM) (req : NodeId) (x q : PathNodeId) (nx : PNodeM)
+    (hx : P.node? x = some nx) (hqn : q ∈ nx.owners) :
+    (filterRequire P req).node? x = some nx ∧ q ∈ nx.owners := ⟨hx, hqn⟩
+
+/-- **La forma fuerte, y la que el diseño hace evidente: una tabla sobrevive a su propio pin.**
+
+Todo lo que está en la tabla de `x` es compatible con `x` — es lo que la tabla *significa* —, así
+que pinchar `x` no debería poder quitárselo. Ni a `x` mismo.
+
+Medido (`row-degree owntable`, sobre los estados que el lector recorre): **1.016 de 1.016 entradas
+sobre `dos_de_tres.cnf`, ninguna perdida, y el nodo no desaparece nunca.** Es justo la fórmula del
+contraejemplo al pegado puro.
+
+Con ella `PinKeepsPartner` es inmediato, y con `partner_survives_pin` cierra el descenso con
+revisión por pares. -/
+def PinKeepsOwnTable : Prop :=
+  ∀ P : GPathM, ReadableAgg P → isValid P = true →
+    ∀ x nx, P.node? x = some nx → isValid (filterAllAgg P [x.id]) = true →
+      ∃ nx', (filterAllAgg P [x.id]).node? x = some nx' ∧
+        ∀ u ∈ nx.owners, u.id.step ≠ x.id.step → u ∈ nx'.owners
+
+theorem pinKeepsPartner_of_ownTable (h : PinKeepsOwnTable) : PinKeepsPartner := by
+  intro P hR hv x q nx hx hqn _ _ _ _ hne hvr
+  obtain ⟨nx', hnx', hkeep⟩ := h P hR hv x nx hx hvr
+  exact ⟨nx', hnx', hkeep q hqn hne⟩
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.pinKeepsPartner_of_ownTable' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms pinKeepsPartner_of_ownTable
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.partner_after_filterRequire' does not depend on any axioms -/
+#guard_msgs in
+#print axioms partner_after_filterRequire
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.partner_survives_pin' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms partner_survives_pin

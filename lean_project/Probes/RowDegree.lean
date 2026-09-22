@@ -1762,6 +1762,85 @@ def reportPD (name : String) (a : DPAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   descenso CON review: {if a.rBad == 0 then "SIN RETROCESO en lo medido" else "FALLA"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **¿Pierde un nodo su propia tabla al pincharse?**
+
+`ReaderChain.PinKeepsPartner` pide que tras pinchar `x` y revisar, `q` siga en la tabla de `x`. El
+pin en si no quita nada -`filterRequire` solo reescribe `gowners`-, asi que todo depende del review.
+
+Y la intuicion del diseño es fuerte: **todo lo que esta en la tabla de `x` es compatible con `x`**,
+asi que pinchar `x` no deberia poder quitarselo. Esta sonda lo comprueba de frente. -/
+
+structure OTAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  nodes    : Nat := 0
+  valid    : Nat := 0          -- pinchar x deja el grafo valido
+  gone     : Nat := 0          -- ... y x ya no esta
+  entries  : Nat := 0          -- entradas de la tabla de x (fuera de su propio paso)
+  kept     : Nat := 0          -- ... que sobreviven
+  lost     : Nat := 0          -- ... que se pierden
+  nodesBad : Nat := 0          -- nodos que pierden alguna
+  lostAt   : String := "-"
+  deriving Repr
+
+def scanOwnTable (label : String) (g : GPathM) (cap : Nat) (a : OTAcc) : OTAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for nx in g.nodes.take cap do
+    let x := nx.id
+    a := { a with nodes := a.nodes + 1 }
+    let h := filterAllAgg g [x.id]
+    if isValid h then
+      a := { a with valid := a.valid + 1 }
+      match h.node? x with
+      | none => a := { a with gone := a.gone + 1 }
+      | some nx' =>
+        let mut bad := 0
+        for u in nx.owners do
+          if u.id.step != x.id.step then
+            a := { a with entries := a.entries + 1 }
+            if nx'.owners.contains u then a := { a with kept := a.kept + 1 }
+            else
+              bad := bad + 1
+              a := { a with lost := a.lost + 1
+                          , lostAt := if a.lost == 0 then
+                              s!"{label} x@{x.id.step} pierde owner@{u.id.step}" else a.lostAt }
+        if bad > 0 then a := { a with nodesBad := a.nodesBad + 1 }
+  return a
+
+partial def walkOT (label : String) (g : GPathM) (fuel cap : Nat) (a : OTAcc) : OTAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanOwnTable label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkOT label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaOT (φ : Cnf) (cap : Nat) (a : OTAcc) : OTAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkOT s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat cap a
+  return a
+
+def reportOT (name : String) (a : OTAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, nodos probados {a.nodes}"
+  IO.println s!"   pinchar el propio nodo deja el grafo valido: {a.valid}  ({pct a.valid a.nodes})"
+  IO.println s!"     y el nodo desaparece: {a.gone}"
+  IO.println s!"   entradas de su tabla (fuera de su paso): {a.entries}"
+  IO.println s!"     sobreviven  : {a.kept}  ({pct a.kept a.entries})"
+  IO.println s!"     SE PIERDEN  : {a.lost}  ({pct a.lost a.entries})"
+  IO.println s!"   nodos que pierden alguna: {a.nodesBad}  ({pct a.nodesBad a.valid})"
+  if a.lost > 0 then IO.println s!"     primero: {a.lostAt}"
+  IO.println s!"   la tabla sobrevive a su propio pin: {if a.lost == 0 then "SI en lo medido" else "NO"}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1836,6 +1915,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "owntable" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaOT φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportOT path a (t1 - t0)
+  | "owntable" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : OTAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaOT φ 40 a
+      let t1 ← IO.monoMsNow
+      reportOT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pairdesc" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
