@@ -301,6 +301,115 @@ justo donde toda cadena termina— y en los `m` de cláusula, con tres.
 El caso impar es el más prometedor de los dos que quedan: un requisito, en el paso donde la cadena
 acaba, y `SupportedRun.shared_pin_witness` ya entrega allí un testigo **compartido** por el par. -/
 
+-- ============================================================
+-- Y el paso IMPAR también: o el filtro no hace nada, o mata el estado
+-- ============================================================
+
+/-- **La cima de un estado lleva un solo id de mapa: el de su propia clave.**
+
+`addNode` crea la fila de arriba con `newRowIds`, y todos sus identificadores llevan el id del nodo
+de mapa al que se está subiendo (`mapId_of_mem_newRowIds`). El `doJoin` solo funde estados de la
+**misma** clave, y los filtros y la revisión solo podan. Así que el paso de arriba de un estado de
+la corrida no tiene más que un id de mapa. -/
+def TopSingleId (g : GPathM) (k : NodeId) : Prop :=
+  ∀ q ∈ g.gowners, q.id.step = g.current_step - 1 → q.id = k
+
+theorem topSingleId_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hgb : ∀ q ∈ g.gowners, q.id.step < g.current_step) :
+    TopSingleId (addNode g d title) d := by
+  intro q hq hqs
+  rw [addNode_current] at hqs
+  rw [addNode_gowners] at hq
+  rcases List.mem_append.mp hq with hl | hr
+  · exact absurd (hgb q hl) (by omega)
+  · exact mapId_of_mem_newRowIds g d q hr
+
+/-- Podar no puede añadir identificadores a la cima. -/
+theorem topSingleId_of_pruned {g g' : GPathM} (hpr : Pruned g g') (k : NodeId)
+    (h : TopSingleId g k) : TopSingleId g' k := by
+  intro q hq hqs
+  exact h q (hpr.gowners_sub q hq) (by rw [← hpr.step_eq]; exact hqs)
+
+/-- **Si el requisito coincide con la clave, el filtro no toca nada.** -/
+theorem filterRequire_top_eq (g : GPathM) (k : NodeId) (htop : TopSingleId g k)
+    (r : NodeId) (hrs : r.step = g.current_step - 1) (hrk : r = k) :
+    filterRequire g r = g := by
+  have hkeep : g.gowners.filter (fun q => q.id.step != r.step || q.id == r) = g.gowners := by
+    refine List.filter_eq_self.mpr (fun q hq => ?_)
+    rcases int_eq_or_ne q.id.step r.step with hs | hs
+    · have : q.id = r := by rw [hrk]; exact htop q hq (by rw [← hrs]; exact hs)
+      simp only [this, beq_self_eq_true, Bool.or_true]
+    · have hne : (q.id.step != r.step) = true := bne_iff_ne.mpr hs
+      simp only [hne, Bool.true_or]
+  show { g with gowners := g.gowners.filter (fun q => q.id.step != r.step || q.id == r) } = g
+  rw [hkeep]
+
+/-- **Y si no coincide, el paso de arriba se queda sin nadie: el estado muere.** -/
+theorem not_isValid_filterRequire_top (g : GPathM) (k : NodeId) (htop : TopSingleId g k)
+    (r : NodeId) (hrs : r.step = g.current_step - 1) (hrk : r ≠ k) (hpos : 0 < g.current_step) :
+    isValid (filterRequire g r) = false := by
+  cases hc : isValid (filterRequire g r) with
+  | false => rfl
+  | true =>
+    exfalso
+    have hcs : (filterRequire g r).current_step = g.current_step := rfl
+    have hent := hasStepEntry_of_isValid _ hc r.step (by omega) (by rw [hcs]; omega)
+    simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+    obtain ⟨q, hq, hqs⟩ := hent
+    simp only [filterRequire, List.mem_filter] at hq
+    obtain ⟨hqg, hqp⟩ := hq
+    have hqr : q.id = r := by
+      rcases Bool.or_eq_true_iff.mp hqp with h | h
+      · exact absurd hqs (by simpa using h)
+      · exact eq_of_beq h
+    have hqk : q.id = k := htop q hqg (by rw [← hrs]; exact hqs)
+    exact hrk (hqr ▸ hqk)
+
+/-- **El filtro en el paso de arriba: o no hace nada, o mata el estado.**
+
+Y esto cierra el caso **impar** del bloque de literales, que era uno de los dos que quedaban.
+
+Un paso impar `negStep v` pide exactamente un requisito, `⟨varStep v, 1 - d.index⟩`, en el paso
+**justo de abajo** — que es la cima del estado de partida. Y la cima lleva un solo id de mapa. Así
+que el filtro solo tiene dos salidas: si el requisito es la clave, no borra nada y el filtro es la
+revisión sola; y si no lo es, la cima se queda vacía y el envío se descarta por inválido.
+
+En términos del algoritmo: *desde «v vale j» solo se puede ir a «¬v vale 1−j»*, que es lo que el
+enlace cruzado del mapa dice. El filtro no elige nada, solo comprueba. -/
+theorem tablesSound_filterAllAgg_top (g : GPathM) (hnd : NodupIds g) (k : NodeId)
+    (htop : TopSingleId g k) (r : NodeId) (hrs : r.step = g.current_step - 1)
+    (hpos : 0 < g.current_step) (hv : isValid (filterAllAgg g [r]) = true)
+    (ht : TablesSound g) : TablesSound (filterAllAgg g [r]) := by
+  have hfold : [r].foldl filterRequire g = filterRequire g r := rfl
+  if hrk : r = k then
+    -- el requisito es la clave: el filtro no toca nada
+    have : filterAllAgg g [r] = filterAllAgg g [] := by
+      simp only [filterAllAgg, hfold, filterRequire_top_eq g k htop r hrs hrk]
+      rfl
+    rw [this]
+    exact tablesSound_review g hnd ht
+  else
+    -- el requisito no es la clave: el estado muere, así que la hipótesis es imposible
+    exfalso
+    have hdead := not_isValid_filterRequire_top g k htop r hrs hrk hpos
+    have hpr : Pruned (filterRequire g r) (filterAllAgg g [r]) := by
+      simp only [filterAllAgg, hfold]; exact pruned_reviewAgg _
+    have : isValid (filterRequire g r) = true := by
+      simp only [isValid, List.all_eq_true] at hv ⊢
+      intro kk hkk
+      have hkk' : kk ∈ intRange 0 ((filterAllAgg g [r]).current_step - 1) := by
+        rwa [hpr.step_eq]
+      have := hv kk hkk'
+      simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at this ⊢
+      obtain ⟨q, hq, hqs⟩ := this
+      exact ⟨q, hpr.gowners_sub q hq, hqs⟩
+    rw [hdead] at this
+    exact Bool.noConfusion this
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_filterAllAgg_top' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_filterAllAgg_top
+
 /-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_filterAllAgg_var' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tablesSound_filterAllAgg_var
