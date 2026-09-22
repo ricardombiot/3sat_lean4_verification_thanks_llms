@@ -1604,6 +1604,130 @@ def reportR (name : String) (a : RAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   raiz unica: {if a.many == 0 then "SI en lo medido" else "NO"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **El descenso para PARES.** `PinPairSound` pide una cadena por `x` y por `q`. La semilla es
+gratis: `AggOk` da un owner comun de los dos en el paso de arriba, y por simetria ese owner los
+posee a los dos. Lo que falta es el PASO: dado un nodo `d` que posee a `x` y a `q`, ¿hay un PADRE de
+`d` que tambien los posee a los dos?
+
+Eso es `Descent.PairMeet` restringido al par que estoy descendiendo. Si se cumple, la prueba es un
+descenso avido y no hace falta buscar. Si falla, la prueba tiene que ser un argumento de busqueda, y
+conviene saberlo antes de intentarla. -/
+
+structure DPAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  pairs    : Nat := 0          -- pares (x,q) que se poseen mutuamente
+  seeds    : Nat := 0          -- ... con semilla arriba (AggOk)
+  cells    : Nat := 0          -- (par, nodo d que posee a los dos, d.step > 0)
+  cellsOk  : Nat := 0          -- ... con ALGUN padre que posee a los dos
+  cellsBad : Nat := 0          -- ... SIN ninguno: el descenso avido se atasca
+  multi    : Nat := 0          -- ... con dos o mas padres asi
+  badAt    : String := "-"
+  /-- el descenso de verdad, desde la semilla -/
+  dTried   : Nat := 0
+  dOk      : Nat := 0          -- con retroceso, llega al paso 0
+  dStuck   : Nat := 0          -- ni con retroceso
+  dGreedy  : Nat := 0          -- el avido puro (primer candidato) llega al 0
+  dOut     : Nat := 0
+  deriving Repr
+
+def ownsBoth (g : GPathM) (c x q : PathNodeId) : Bool :=
+  match g.node? c with
+  | some n => n.owners.contains x && n.owners.contains q
+  | none => false
+
+/-- El descenso de verdad: desde `cur`, bajando por padres que poseen a `x` y a `q`. -/
+partial def pairDescend (g : GPathM) (x q cur : PathNodeId) (budget : Nat) : Nat × Bool :=
+  if budget == 0 then (0, false)
+  else if cur.id.step ≤ 0 then (budget, true)
+  else
+    let cands := (match g.node? cur with | some n => n.parents | none => []).filter
+      (fun c => ownsBoth g c x q)
+    cands.foldl (fun (st : Nat × Bool) c =>
+      if st.2 then st else pairDescend g x q c (st.1 - 1)) (budget, false)
+
+/-- El mismo, sin retroceso: siempre el primer candidato. -/
+partial def pairDescendGreedy (g : GPathM) (x q cur : PathNodeId) (fuel : Nat) : Bool :=
+  if fuel == 0 then false
+  else if cur.id.step ≤ 0 then true
+  else
+    match ((match g.node? cur with | some n => n.parents | none => []).find?
+      (fun c => ownsBoth g c x q)) with
+    | none => false
+    | some c => pairDescendGreedy g x q c (fuel - 1)
+
+def scanPairDescent (label : String) (g : GPathM) (cap : Nat) (a : DPAcc) : DPAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for nx in g.nodes.take cap do
+    let x := nx.id
+    for q in (nx.owners.take cap) do
+      if q != x && ownsBoth g x x q && ownsBoth g q x q then
+        a := { a with pairs := a.pairs + 1 }
+        let top := g.gowners.filter (fun c =>
+          c.id.step == g.current_step - 1 && ownsBoth g c x q)
+        if !top.isEmpty then a := { a with seeds := a.seeds + 1 }
+        -- el descenso de verdad, desde cualquier semilla
+        a := { a with dTried := a.dTried + 1 }
+        let (left, ok) := top.foldl (fun (st : Nat × Bool) t =>
+          if st.2 then st else pairDescend g x q t (st.1 - 1)) (20000, false)
+        if ok then a := { a with dOk := a.dOk + 1 }
+        else if left == 0 then a := { a with dOut := a.dOut + 1 }
+        else a := { a with dStuck := a.dStuck + 1 }
+        if top.any (fun t => pairDescendGreedy g x q t (g.current_step + 1).toNat) then
+          a := { a with dGreedy := a.dGreedy + 1 }
+        -- el paso: todo nodo que posee a los dos, ¿tiene un padre que tambien?
+        for nd in g.nodes do
+          if nd.id.id.step > 0 && nd.owners.contains x && nd.owners.contains q then
+            let good := nd.parents.filter (fun c => ownsBoth g c x q)
+            a := { a with cells := a.cells + 1 }
+            if good.isEmpty then
+              a := { a with cellsBad := a.cellsBad + 1
+                          , badAt := if a.cellsBad == 0 then
+                              s!"{label} d@{nd.id.id.step} ({nd.parents.length} padres), x@{x.id.step}, q@{q.id.step}"
+                            else a.badAt }
+            else
+              a := { a with cellsOk := a.cellsOk + 1
+                          , multi := a.multi + (if good.length > 1 then 1 else 0) }
+  return a
+
+partial def walkPD (label : String) (g : GPathM) (fuel cap : Nat) (a : DPAcc) : DPAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanPairDescent label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkPD label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaPD (φ : Cnf) (cap : Nat) (a : DPAcc) : DPAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkPD s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat cap a
+  return a
+
+def reportPD (name : String) (a : DPAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, pares mutuos {a.pairs}"
+  IO.println s!"   semilla arriba (AggOk) : {a.seeds}  ({pct a.seeds a.pairs})"
+  IO.println s!"   el PASO, {a.cells} celdas (par, nodo que posee a los dos):"
+  IO.println s!"     con padre que posee a los dos : {a.cellsOk}  ({pct a.cellsOk a.cells})"
+  IO.println s!"     SIN ninguno (avido se atasca) : {a.cellsBad}  ({pct a.cellsBad a.cells})"
+  IO.println s!"     con dos o mas padres asi      : {a.multi}  ({pct a.multi a.cells})"
+  if a.cellsBad > 0 then IO.println s!"     primero: {a.badAt}"
+  IO.println s!"   el DESCENSO de verdad, {a.dTried} pares:"
+  IO.println s!"     llega al paso 0 (con retroceso) : {a.dOk}  ({pct a.dOk a.dTried})"
+  IO.println s!"     NI con retroceso                : {a.dStuck}  ({pct a.dStuck a.dTried})"
+  IO.println s!"     llega sin retroceso (avido)     : {a.dGreedy}  ({pct a.dGreedy a.dTried})"
+  IO.println s!"     indeciso (presupuesto)          : {a.dOut}"
+  IO.println s!"   descenso por pares: {if a.dStuck == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1678,6 +1802,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "pairdesc" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaPD φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportPD path a (t1 - t0)
+  | "pairdesc" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : DPAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaPD φ 40 a
+      let t1 ← IO.monoMsNow
+      reportPD s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "roots" :: "file" :: paths | "roots-all" :: "file" :: paths =>
     let allStates := args.headD "" == "roots-all"
     for path in paths do

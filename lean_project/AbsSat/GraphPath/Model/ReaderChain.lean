@@ -644,6 +644,63 @@ theorem rootChained_pin_of_tablesSound (g : GPathM) (hR : ReadableAgg g)
   exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
     rw [List.mem_singleton.mp hreq, ← hzs, hsz, hzid]), hsw⟩
 
+-- ============================================================
+-- El muro, atacado con `AggOk`: la semilla es gratis, el paso no
+-- ============================================================
+
+/-- **La semilla del descenso por pares, gratis.**
+
+Para demostrar `PinPairSound` lo natural es descender construyendo la cadena y manteniendo que
+**todo pick posee a `x` y a `q`**. La semilla de ese descenso sale sola de `AggOk`: si `q` está en
+la tabla de `x`, la criba obliga a que compartan un owner en **todos** los pasos, y en el de arriba
+ese owner común, por la simetría de `AggOk`, los posee a los dos.
+
+Medido (`row-degree pairdesc`): **34.124 de 34.124 pares, el 100%.** -/
+theorem pair_seed (g : GPathM) (a : AdjacentOwners.Adj g) (hok : AggFixpoint.AggOk g) (hpos : 0 < g.current_step)
+    (x q : PathNodeId) (nx nq : PNodeM) (hx : g.node? x = some nx) (hq : g.node? q = some nq)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < g.current_step)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step) (hqn : q ∈ nx.owners) :
+    ∃ t nt, g.node? t = some nt ∧ t.id.step = g.current_step - 1 ∧
+      x ∈ nt.owners ∧ q ∈ nt.owners := by
+  obtain ⟨z, hzx, hzq, hzs⟩ :=
+    ParentWitness.shared_owner a hok hx hq hx0 hx1 hq0 hq1 hqn (g.current_step - 1)
+      (by omega) (by omega)
+  have hzg : z ∈ g.gowners := a.ctx.ownGow x nx hx z hzx (by omega) (by omega)
+  obtain ⟨nz, hnz⟩ :=
+    Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g z).mp (a.rc.gn z hzg))
+  exact ⟨z, nz, hnz, hzs,
+    (hok x nx z nz hx hnz hx0 hx1 (by omega) (by omega) hzx
+      (a.ctx.nodeval x nx hx) (a.ctx.nodeval z nz hnz)).1,
+    (hok q nq z nz hq hnz hq0 hq1 (by omega) (by omega) hzq
+      (a.ctx.nodeval q nq hq) (a.ctx.nodeval z nz hnz)).1⟩
+
+/-- **El paso del descenso por pares, y por qué NO es local.**
+
+Dado un nodo `d` que posee a `x` y a `q`, el descenso necesita un **padre** de `d` que también los
+posea a los dos. Eso es `Descent.PairMeet` restringido al par que se desciende — y **es falso**:
+
+> medido, 140 fallos sobre 871.843 celdas `(par, nodo que posee a los dos)`.
+
+Pero el descenso **con retroceso** llega al paso 0 **siempre**:
+
+> 34.124 de 34.124 pares, 0 atascados, 0 indecisos. Sin retroceso llega el 99,8%.
+
+Es el dato que explica las seis hipótesis caídas de estas dos sesiones —`ParentMeet`, `PairMeet`,
+`DecidedAbove`, `TableDownClosed`, `AllParentsOwn`, `AncOwned`—: **todas eran reglas locales**, y
+ninguna regla local puede demostrar esto, porque el descenso de verdad tiene que buscar.
+
+Así que la prueba de `PinPairSound` no puede ser un descenso ávido. Tiene que ser un argumento de
+búsqueda, como `ReaderBT.readBT_complete` lo es para el lector. Queda escrito para que no se vuelva
+a intentar por el lado ávido. -/
+def PairDescends : Prop :=
+  ∀ (g : GPathM) (x q : PathNodeId) (nx : PNodeM), g.node? x = some nx → q ∈ nx.owners →
+    ∀ d nd, g.node? d = some nd → 0 < d.id.step → x ∈ nd.owners → q ∈ nd.owners →
+      ∃ c ∈ nd.parents, ∀ mc, g.node? c = some mc → x ∈ mc.owners ∧ q ∈ mc.owners
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.pair_seed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pair_seed
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.rootChained_pin_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms rootChained_pin_of_tablesSound
