@@ -1554,4 +1554,68 @@ El círculo está cerrado en lo conceptual; lo que queda es recorrer los cinco b
 #guard_msgs in
 #print axioms isValid_of_Anchored
 
+-- ============================================================
+-- Los anclajes también cruzan: un enlace solo se pierde con su nodo
+-- ============================================================
+
+/-- **Un padre distinto del nodo desenlazado sobrevive al desenlace.**
+
+La primera rama de `unlinkMap` —la que filtra los enlaces contra la tabla— es solo para el propio
+nodo desenlazado; para cualquier otro, o no se toca nada, o se quita exactamente ese id. -/
+theorem parents_unlinkMap_keeps (n : PNodeM) (r : PathNodeId) (m : PNodeM) (hmr : m.id ≠ r)
+    (p : PathNodeId) (hp : p ∈ m.parents) (hne : p ≠ r) : p ∈ (unlinkMap n r m).parents := by
+  unfold unlinkMap
+  rw [if_neg (by simpa using hmr)]
+  split
+  · exact hp
+  · exact List.mem_filter.mpr ⟨hp, bne_iff_ne.mpr hne⟩
+
+/-- **Y un hijo, igual.** -/
+theorem sons_unlinkMap_keeps (n : PNodeM) (r : PathNodeId) (m : PNodeM) (hmr : m.id ≠ r)
+    (t : PathNodeId) (ht : t ∈ m.sons) (hne : t ≠ r) : t ∈ (unlinkMap n r m).sons := by
+  unfold unlinkMap
+  rw [if_neg (by simpa using hmr)]
+  split
+  · exact ht
+  · exact List.mem_filter.mpr ⟨ht, bne_iff_ne.mpr hne⟩
+
+/-- **Y al borrado: `removeNode` solo quita de los enlaces al nodo que borra.** -/
+theorem parents_unlink_keeps (r : PathNodeId) (m : PNodeM) (p : PathNodeId)
+    (hp : p ∈ m.parents) (hne : p ≠ r) : p ∈ (unlink r m).parents :=
+  List.mem_filter.mpr ⟨hp, bne_iff_ne.mpr hne⟩
+
+theorem sons_unlink_keeps (r : PathNodeId) (m : PNodeM) (t : PathNodeId)
+    (ht : t ∈ m.sons) (hne : t ≠ r) : t ∈ (unlink r m).sons :=
+  List.mem_filter.mpr ⟨ht, bne_iff_ne.mpr hne⟩
+
+/-! ## El herramental, completo
+
+Con estos cuatro, cada campo de `Anchored` tiene ya su lema de supervivencia frente a cada
+operación del review:
+
+| | corte (`updateAt`) | desenlace (`unlinkMap`) | borrado (`removeNode`) |
+|---|---|---|---|
+| **está vivo** | `updateAt_node?` | `unlinkIncompatible_node?` | `removeNode_node?` |
+| **tabla** | intacta si estaba dentro | `owners_unlinkMap` | `owners_removeNode` |
+| **tabla global** | `gowners_updateAt` | `gowners_unlinkIncompatible` | `mem_gowners_removeNode` |
+| **padre anclado** | no lo toca | `parents_unlinkMap_keeps` | `parents_unlink_keeps` |
+| **hijo anclado** | no lo toca | `sons_unlinkMap_keeps` | `sons_unlink_keeps` |
+
+Y en las tres columnas la condición es **siempre la misma**: que el nodo afectado no sea el
+testigo ni el anclaje, es decir que no sea un miembro de `P`. Que es justo lo que
+`isValidNode_of_Anchored` garantiza, porque un miembro de `P` es válido y el review no borra
+nodos válidos.
+
+No queda ninguna pieza suelta. Lo que falta es enhebrar la tabla de arriba por los cinco bucles
+—`cleanInvalidGo`, `reviewPass`, `reviewFuel`, `aggSweep`, `reviewAggFuel`—, y cada casilla ya
+tiene su lema con nombre. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.parents_unlinkMap_keeps' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms parents_unlinkMap_keeps
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.parents_unlink_keeps' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms parents_unlink_keeps
+
 end AbsSat.GraphPath.Model.PinAliveChain
