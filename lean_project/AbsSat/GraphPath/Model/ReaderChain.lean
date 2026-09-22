@@ -1008,6 +1008,62 @@ theorem pinCompatChain_of_singleId (g : GPathM) (r : NodeId)
 #guard_msgs in
 #print axioms rootSound_pin_of_pairs
 
+-- ============================================================
+-- La forma exacta del hueco: un ∃ frente a un ∀
+-- ============================================================
+
+/-- **El lector siempre TIENE un pin bueno: el que su propia cadena elige.**
+
+Si el estado tiene una cadena, pinchar el nodo que la cadena escoge en ese paso la conserva entera
+(`ChainSound_filterAllAgg`), y una cadena hace válido al estado (`isValid_of_ChainG`). Así que en
+todo estado con cadena hay, en todo paso, **al menos un** pin que deja el grafo válido **y con
+cadena**.
+
+Demostrado, sin hipótesis. -/
+theorem goodPin_exists (g : GPathM) (h : HasChain g) (k : Int) (h0 : 0 ≤ k)
+    (h1 : k < g.current_step) :
+    ∃ q ∈ ownersAt g.gowners k, isValid (filterAllAgg g [q.id]) = true ∧
+      HasChain (filterAllAgg g [q.id]) := by
+  obtain ⟨sel, hsc⟩ := h
+  obtain ⟨_, hstep⟩ := hsc.chain.1.1 k h0 h1
+  have hkeep : ChainSound (filterAllAgg g [(sel k).id]) sel :=
+    ChainSound_filterAllAgg g [(sel k).id] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq, hstep])
+  exact ⟨sel k, List.mem_filter.mpr ⟨hsc.chain.2.2 k h0 h1, beq_iff_eq.mpr hstep⟩,
+    PickInduction.isValid_of_ChainG _ sel hkeep.chain, ⟨sel, hkeep⟩⟩
+
+/-- **Y el hueco entero es el salto de ese `∃` a un `∀`.**
+
+`goodPin_exists` da **un** pin bueno. El lector sin retroceso toma el **primero que deja el grafo
+válido**, que no tiene por qué ser ése. Para que su elección sea siempre correcta hace falta que
+**todo** pin válido sea bueno — que es esto. -/
+def AllValidPinsGood : Prop :=
+  ∀ (g : GPathM) (q : PathNodeId), HasChain g → isValid (filterAllAgg g [q.id]) = true →
+    HasChain (filterAllAgg g [q.id])
+
+theorem pinKeepsChain_of_allValidPinsGood (h : AllValidPinsGood) : PinKeepsChain :=
+  fun g mid _ hc hv => by
+    -- el pin del lector es siempre el id de un owner global, luego de la forma `q.id`
+    exact h g ⟨mid, none, none⟩ hc hv
+
+/-! **Y esto ordena las dos direcciones del problema, que no son la misma:**
+
+* **La corrección de la máquina está cerrada.** `ReaderBT.readerVerdictBT_iff` decide 3-SAT sin
+  ninguna hipótesis, y `ReaderExec.readerVerdictW_sound` dice que lo que el lector sin retroceso
+  devuelve es siempre un modelo de verdad. Un pin malo **no puede** producir un SAT falso: la salida
+  se decodifica y se comprueba.
+* **Lo abierto es que el lector barato baste.** `goodPin_exists` demuestra el `∃`; el lector sin
+  retroceso necesita el `∀`. `readBT` cubre la diferencia retrocediendo, y las sondas no encuentran
+  un solo estado donde haga falta.
+
+Dicho de otro modo: lo que queda no es si la máquina es correcta, sino **si se puede leer sin
+retroceso**, y eso es exactamente la exactitud de la criba — que todo lo que deja viva tenga
+camino. -/
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.goodPin_exists' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms goodPin_exists
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_pinPair' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_of_pinPair
