@@ -2491,4 +2491,74 @@ theorem Anchored_reviewNode_other (g : GPathM) (P : PathNodeId → Prop)
 #guard_msgs in
 #print axioms Anchored_reviewNode_other
 
+/-- **El protegido que el paso por vecinos mira tampoco se borra.**
+
+Mismo argumento que `isValidNode_relink_of_Anchored`, cambiando una sola pieza: donde allí el
+testigo sobrevivía al corte por estar en la tabla global, aquí sobrevive por el encaje de tablas
+(`mem_cut_of_Nested`). Todo lo demás —la cobertura, los anclajes, el papel de `RootAtZero`— es
+idéntico. -/
+theorem isValidNode_relink_of_Anchored_nb (g : GPathM) (P : PathNodeId → Prop)
+    (nb : PNodeM → List PathNodeId) (hN : Nested g P nb) (r : PathNodeId) (nr : PNodeM)
+    (hrz : Sons.RootAtZero g) (hPr : P r) (hr0 : 0 ≤ r.id.step)
+    (hr1 : r.id.step < g.current_step) (hn : g.node? r = some nr) (h : Anchored g P r) :
+    isValidNode g (relink (intersectOwners nr.owners (unionOwnersOf g (nb nr))) nr) = true := by
+  obtain ⟨nr', hn', hcov, hpar, hson⟩ := h
+  have hnn : nr' = nr := Option.some.inj (hn'.symm.trans hn)
+  subst hnn
+  have hid : nr'.id = r := node?_id_eq g r nr' hn'
+  have howners : (intRange 0 (g.current_step - 1)).all
+      (fun k => hasStepEntry
+        (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').owners k) = true := by
+    simp only [List.all_eq_true]
+    intro k hk
+    obtain ⟨w, hwm, hws, _, hwP⟩ := hcov k (mem_intRange_lower hk)
+      (by have := mem_intRange_upper hk; omega)
+    simp only [hasStepEntry, List.any_eq_true]
+    exact ⟨w, mem_cut_of_Nested g P nb hN r nr' hPr hn' w hwP hwm, beq_iff_eq.mpr hws⟩
+  have hp : 1 ≤ r.id.step →
+      (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').parents ≠ [] := by
+    intro h1
+    obtain ⟨p, hpm, hpP, hpo, _⟩ := hpar h1
+    exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨hpm,
+      by simpa using mem_cut_of_Nested g P nb hN r nr' hPr hn' p hpP hpo⟩)
+  have hs : r.id.step ≤ g.current_step - 2 →
+      (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').sons ≠ [] := by
+    intro h2
+    obtain ⟨t, htm, htP, hto, _⟩ := hson h2
+    exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨htm,
+      by simpa using mem_cut_of_Nested g P nb hN r nr' hPr hn' t htP hto⟩)
+  have hnr' : ¬((relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').id.parent_id.isNone
+      = true) → 1 ≤ r.id.step := by
+    intro hrr
+    by_cases h1 : 1 ≤ r.id.step
+    · exact h1
+    · exact absurd (by
+        rw [show (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').id = nr'.id
+            from rfl,
+          hrz nr' (List.mem_of_find?_eq_some hn') (by rw [hid]; omega)]; rfl) hrr
+  have hlast : ((relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').id.id.step
+      == g.current_step - 1) = (r.id.step == g.current_step - 1) := by
+    rw [show (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').id = nr'.id
+      from rfl, hid]
+  have hnotlast : ¬((r.id.step == g.current_step - 1) = true) → r.id.step ≤ g.current_step - 2 := by
+    intro hl
+    have : r.id.step ≠ g.current_step - 1 := fun he => hl (by rw [he]; exact beq_iff_eq.mpr rfl)
+    omega
+  simp only [isValidNode, hlast]
+  split
+  · split
+    · exact howners
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hs (hnotlast hl)), Bool.and_self]
+  · next hrr =>
+    split
+    · simp only [howners, not_isEmpty_of_ne_nil _ (hp (hnr' hrr)), Bool.and_self]
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hp (hnr' hrr)),
+        not_isEmpty_of_ne_nil _ (hs (hnotlast hl)), Bool.and_self]
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValidNode_relink_of_Anchored_nb' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValidNode_relink_of_Anchored_nb
+
 end AbsSat.GraphPath.Model.PinAliveChain
