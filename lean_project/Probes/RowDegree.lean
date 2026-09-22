@@ -1841,6 +1841,71 @@ def reportOT (name : String) (a : OTAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   la tabla sobrevive a su propio pin: {if a.lost == 0 then "SI en lo medido" else "NO"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **¿Cuanto cubre `realizes_pin_of_singleId`?** Cierra el caso en que la tabla de `x` NO tiene
+eleccion en el paso del pin: todos sus owners alli llevan ya el pin. Esta sonda lo cuenta sobre los
+pines que el lector se plantea de verdad. -/
+
+structure PCAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  pins     : Nat := 0
+  nodes    : Nat := 0          -- (pin, nodo que sobrevive)
+  single   : Nat := 0          -- ... sin eleccion: cubierto por el teorema
+  choice   : Nat := 0          -- ... con los dos valores: el residuo
+  entries  : Nat := 0          -- (pin, nodo, owner) del residuo
+  deriving Repr
+
+def scanPinChoice (g : GPathM) (a : PCAcc) : PCAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  match ReaderExec.firstChoice g with
+  | none => return a
+  | some k =>
+    for cand in ownersAt g.gowners k do
+      let r := cand.id
+      let h := filterAllAgg g [r]
+      if isValid h then
+        a := { a with pins := a.pins + 1 }
+        for nx in h.nodes do
+          match g.node? nx.id with
+          | none => pure ()
+          | some nx0 =>
+            a := { a with nodes := a.nodes + 1 }
+            let other := nx0.owners.filter (fun u => u.id.step == r.step && u.id != r)
+            if other.isEmpty then a := { a with single := a.single + 1 }
+            else
+              a := { a with choice := a.choice + 1
+                          , entries := a.entries + nx0.owners.length }
+    return a
+
+partial def walkPC (g : GPathM) (fuel : Nat) (a : PCAcc) : PCAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanPinChoice g a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkPC (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaPC (φ : Cnf) (a : PCAcc) : PCAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkPC g (stepCount φ).toNat a
+  return a
+
+def reportPC (name : String) (a : PCAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, pines validos {a.pins}"
+  IO.println s!"   pares (pin, nodo superviviente): {a.nodes}"
+  IO.println s!"     SIN eleccion -> cerrado por realizes_pin_of_singleId : {a.single}  ({pct a.single a.nodes})"
+  IO.println s!"     con los dos valores -> el residuo                    : {a.choice}  ({pct a.choice a.nodes})"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1915,6 +1980,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "pinchoice" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaPC φ {})
+        let t1 ← IO.monoMsNow
+        reportPC path a (t1 - t0)
+  | "pinchoice" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : PCAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaPC φ a
+      let t1 ← IO.monoMsNow
+      reportPC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "owntable" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with

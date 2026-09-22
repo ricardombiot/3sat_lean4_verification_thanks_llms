@@ -471,6 +471,59 @@ theorem tablesSound_of_steerable (P : GPathM) (reqs : List NodeId) (h : Steerabl
   obtain ⟨sel, hsc, hsx, hsq, hreq⟩ := h x nx hx hx0 hx1 q hqn hq0 hq1
   exact ⟨sel, ChainSound_filterAllAgg P reqs sel hsc hreq, hsx, hsq⟩
 
+/-- **El caso que se cierra solo: cuando la tabla ya no tenía elección en el paso del pin.**
+
+La cadena que `SoundAt` entrega por `x` y `q` elige, en el paso del pin, **un owner de `x`** — eso
+es la posesión por pares de `ChainSound`. Así que si todos los owners de `x` en ese paso llevan ya
+el pin, la cadena lo lleva también, y sobrevive al filtro **sin reencaminar nada**.
+
+Es el mismo mecanismo que cierra el paso impar (`tablesSound_filterAllAgg_top`), pero por nodo en
+vez de por estado: allí era la cima del grafo la que no tenía más que un id de mapa, aquí es la
+tabla de `x`.
+
+Y recuérdese que en un paso literal el mapa tiene **dos** nodos y nada más, así que «no tener
+elección» es simplemente que la tabla de `x` no contenga el otro valor de esa variable. -/
+theorem realizes_pin_of_singleId (g : GPathM) (r : NodeId) (hr0 : 0 ≤ r.step)
+    (hrs : r.step < g.current_step)
+    (x q : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < g.current_step) (hself : x ∈ nx.owners)
+    (hsingle : ∀ u ∈ nx.owners, u.id.step = r.step → u.id = r)
+    (sel : Int → PathNodeId) (hsc : ChainSound g sel) (hsx : sel x.id.step = x)
+    (hsq : sel q.id.step = q) :
+    Realizes (filterAllAgg g [r]) x q := by
+  refine ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsq⟩
+  rw [List.mem_singleton.mp hreq]
+  rcases int_eq_or_ne r.step x.id.step with he | hne
+  · rw [he, hsx]; exact hsingle x hself he.symm
+  · have hmem := hsc.chain.2.1 r.step x.id.step hr0 hx0 hrs hx1 hne
+    rw [hsx] at hmem
+    simp only [ownersAt, List.mem_filter, ownersOf, hx] at hmem
+    exact hsingle _ hmem.1 (eq_of_beq hmem.2)
+
+/-- **Y entonces el residuo del pin es solo el caso con elección.**
+
+Queda pedir la cadena **únicamente** cuando la tabla de `x` contiene los dos valores de la variable
+del pin. Donde no los contiene, `realizes_pin_of_singleId` la da sin hipótesis.
+
+Es la primera vez en la sesión que el residuo se recorta **por dentro** del propio enunciado y no
+moviéndolo de sitio. Y se puede medir cuánto recorta:
+
+| corpus | pares (pin, superviviente) | sin elección — cerrado | con elección — residuo |
+|---|---|---|---|
+| `dos_de_tres.cnf` | 63 | 57 (**90,4 %**) | 6 |
+| 8 fórmulas aleatorias | 1.586 | 1.034 (**65,1 %**) | 552 |
+
+Sonda `row-degree pinchoice`, sobre los pines que el lector se plantea de verdad. -/
+def PinChoiceOnly (g : GPathM) (r : NodeId) : Prop :=
+  ∀ x nx, g.node? x = some nx → 0 ≤ x.id.step → x.id.step < g.current_step →
+    (∃ u ∈ nx.owners, u.id.step = r.step ∧ u.id ≠ r) →
+    ∀ q ∈ nx.owners, 0 ≤ q.id.step → q.id.step < g.current_step →
+      Realizes (filterAllAgg g [r]) x q
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.realizes_pin_of_singleId' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms realizes_pin_of_singleId
+
 /-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.owners_pinned_after_filter' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms owners_pinned_after_filter
