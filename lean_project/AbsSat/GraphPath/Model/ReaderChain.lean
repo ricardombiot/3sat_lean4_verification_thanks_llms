@@ -674,24 +674,27 @@ theorem pair_seed (g : GPathM) (a : AdjacentOwners.Adj g) (hok : AggFixpoint.Agg
     (hok q nq z nz hq hnz hq0 hq1 (by omega) (by omega) hzq
       (a.ctx.nodeval q nq hq) (a.ctx.nodeval z nz hnz)).1⟩
 
-/-- **El paso del descenso por pares, y por qué NO es local.**
+/-- **El paso del descenso por pares, sobre el grafo EN CRUDO.**
 
-Dado un nodo `d` que posee a `x` y a `q`, el descenso necesita un **padre** de `d` que también los
-posea a los dos. Eso es `Descent.PairMeet` restringido al par que se desciende — y **es falso**:
+Dado un nodo `d` que posee a `x` y a `q`, ¿hay un **padre** de `d` que también los posea a los dos?
+Eso es `Descent.PairMeet` restringido al par que se desciende — y **es falso**:
 
-> medido, 140 fallos sobre 871.843 celdas `(par, nodo que posee a los dos)`.
+> medido, 140 fallos sobre 871.843 celdas `(par, nodo que posee a los dos)`; el descenso con
+> retroceso llega al paso 0 en los 34.124 pares, y sin retroceso en el 99,8%.
 
-Pero el descenso **con retroceso** llega al paso 0 **siempre**:
+**Aviso sobre qué mide eso, porque me equivoqué al leerlo la primera vez.** Este descenso camina
+enlaces padre-hijo **sin revisar**, y eso **no es lo que hace el lector**: el lector pincha y
+después aplica `filterAllAgg` sobre todo el grafo, que borra las ramas sin continuación antes de
+volver a elegir. Los fallos de arriba son ramas que la revisión habría quitado, no elecciones que el
+algoritmo pueda tomar.
 
-> 34.124 de 34.124 pares, 0 atascados, 0 indecisos. Sin retroceso llega el 99,8%.
+Con la revisión dentro del bucle —`row-degree pairdesc`, columna «como lo hace el lector»— el
+descenso ávido, sin retroceso nunca, llega arriba en **1.016 de 1.016 pares** sobre
+`dos_de_tres.cnf`, que es justo la fórmula del contraejemplo al pegado puro.
 
-Es el dato que explica las seis hipótesis caídas de estas dos sesiones —`ParentMeet`, `PairMeet`,
-`DecidedAbove`, `TableDownClosed`, `AllParentsOwn`, `AncOwned`—: **todas eran reglas locales**, y
-ninguna regla local puede demostrar esto, porque el descenso de verdad tiene que buscar.
-
-Así que la prueba de `PinPairSound` no puede ser un descenso ávido. Tiene que ser un argumento de
-búsqueda, como `ReaderBT.readBT_complete` lo es para el lector. Queda escrito para que no se vuelva
-a intentar por el lado ávido. -/
+Así que esta definición se deja escrita para lo que de verdad dice: **la regla local sobre el grafo
+en crudo es falsa**, y toda prueba que intente descender por enlaces sin revisar va a chocar con
+esos 140 casos. La prueba tiene que descender sobre el estado **revisado**. -/
 def PairDescends : Prop :=
   ∀ (g : GPathM) (x q : PathNodeId) (nx : PNodeM), g.node? x = some nx → q ∈ nx.owners →
     ∀ d nd, g.node? d = some nd → 0 < d.id.step → x ∈ nd.owners → q ∈ nd.owners →

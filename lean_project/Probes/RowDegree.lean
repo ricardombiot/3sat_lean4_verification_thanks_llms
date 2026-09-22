@@ -1629,6 +1629,12 @@ structure DPAcc where
   dStuck   : Nat := 0          -- ni con retroceso
   dGreedy  : Nat := 0          -- el avido puro (primer candidato) llega al 0
   dOut     : Nat := 0
+  /-- el descenso CON REVIEW en el bucle, que es lo que hace el lector -/
+  rTried   : Nat := 0
+  rValid   : Nat := 0          -- pinchar x y q deja el grafo valido
+  rOk      : Nat := 0          -- ... y el descenso avido CON REVIEW llega arriba
+  rBad     : Nat := 0          -- ... y NO llega: haria falta retroceso
+  rBadAt   : String := "-"
   deriving Repr
 
 def ownsBoth (g : GPathM) (c x q : PathNodeId) : Bool :=
@@ -1656,6 +1662,17 @@ partial def pairDescendGreedy (g : GPathM) (x q cur : PathNodeId) (fuel : Nat) :
     | none => false
     | some c => pairDescendGreedy g x q c (fuel - 1)
 
+/-- **El descenso como lo hace el lector**: en cada paso elige un candidato que sobreviva al pin, y
+**revisa todo el grafo** antes de seguir. Avido puro: el primero que deja el grafo valido, sin
+retroceso nunca. -/
+partial def descendReviewed (g : GPathM) (x q : PathNodeId) (k : Int) (fuel : Nat) : Bool :=
+  if fuel == 0 then false
+  else if k ≥ g.current_step then true
+  else
+    match (ownersAt g.gowners k).find? (fun c => isValid (filterAllAgg g [c.id])) with
+    | none => false
+    | some c => descendReviewed (filterAllAgg g [c.id]) x q (k + 1) (fuel - 1)
+
 def scanPairDescent (label : String) (g : GPathM) (cap : Nat) (a : DPAcc) : DPAcc := Id.run do
   let mut a := { a with states := a.states + 1 }
   for nx in g.nodes.take cap do
@@ -1675,6 +1692,17 @@ def scanPairDescent (label : String) (g : GPathM) (cap : Nat) (a : DPAcc) : DPAc
         else a := { a with dStuck := a.dStuck + 1 }
         if top.any (fun t => pairDescendGreedy g x q t (g.current_step + 1).toNat) then
           a := { a with dGreedy := a.dGreedy + 1 }
+        -- y ahora como lo hace el lector: pinchar los dos, revisar, y bajar revisando
+        a := { a with rTried := a.rTried + 1 }
+        let h := filterAllAgg g [x.id, q.id]
+        if isValid h then
+          a := { a with rValid := a.rValid + 1 }
+          if descendReviewed h x q 0 (g.current_step + 2).toNat then
+            a := { a with rOk := a.rOk + 1 }
+          else
+            a := { a with rBad := a.rBad + 1
+                        , rBadAt := if a.rBad == 0 then s!"{label} x@{x.id.step} q@{q.id.step}"
+                                    else a.rBadAt }
         -- el paso: todo nodo que posee a los dos, ¿tiene un padre que tambien?
         for nd in g.nodes do
           if nd.id.id.step > 0 && nd.owners.contains x && nd.owners.contains q then
@@ -1725,7 +1753,13 @@ def reportPD (name : String) (a : DPAcc) (ms : Nat) : IO Unit := do
   IO.println s!"     NI con retroceso                : {a.dStuck}  ({pct a.dStuck a.dTried})"
   IO.println s!"     llega sin retroceso (avido)     : {a.dGreedy}  ({pct a.dGreedy a.dTried})"
   IO.println s!"     indeciso (presupuesto)          : {a.dOut}"
-  IO.println s!"   descenso por pares: {if a.dStuck == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   descenso por pares (SIN review): {if a.dStuck == 0 then "SE CUMPLE" else "FALLA"}"
+  IO.println s!"   ── y ahora COMO LO HACE EL LECTOR, revisando en cada paso, {a.rTried} pares:"
+  IO.println s!"     pinchar x y q deja el grafo valido : {a.rValid}  ({pct a.rValid a.rTried})"
+  IO.println s!"       y el avido CON REVIEW llega arriba : {a.rOk}  ({pct a.rOk a.rValid})"
+  IO.println s!"       NO llega (haria falta retroceso)   : {a.rBad}  ({pct a.rBad a.rValid})"
+  if a.rBad > 0 then IO.println s!"       primero: {a.rBadAt}"
+  IO.println s!"   descenso CON review: {if a.rBad == 0 then "SIN RETROCESO en lo medido" else "FALLA"}"
   IO.println s!"   ({ms} ms)"
 
 def loadCnf (path : String) : IO (Option Cnf) := do
