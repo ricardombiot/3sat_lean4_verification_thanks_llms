@@ -106,6 +106,62 @@ theorem inSlice_of_survives (g : GPathM) (hgn : GownersNodes.GN g) (hnd : NodupI
   exact ⟨q, hown₀ q hq, hqid⟩
 
 -- ============================================================
+-- The pin's own intersection leaves the slice covered
+-- ============================================================
+
+/-- An owner of a node, in range, survives the pin's cut of the global owners as soon as it is not
+at the pinned step — and at the pinned step, as soon as it carries the pinned map node. -/
+theorem mem_gowners_filterRequire (g : GPathM) (mid : NodeId) (q : PathNodeId)
+    (hq : q ∈ g.gowners) (h : q.id.step ≠ mid.step ∨ q.id = mid) :
+    q ∈ (filterRequire g mid).gowners := by
+  simp only [filterRequire, List.mem_filter, Bool.or_eq_true, bne_iff_ne, ne_eq, beq_iff_eq]
+  exact ⟨hq, h⟩
+
+/-- **El pin no descubre a nadie de su rebanada.**
+
+`cleanInvalid` es lo primero que corre tras el pin, y lo primero que hace es intersectar la tabla
+de cada nodo con los `gowners` ya recortados. Un nodo de la rebanada de `mid` sobrevive a esa
+intersección **con cobertura en todos los pasos**:
+
+* en el paso de `mid`, porque su testigo de rebanada lleva el id de mapa `mid`, y el recorte
+  conserva exactamente los que lo llevan;
+* en cualquier otro paso, porque el recorte no toca los `gowners` de los demás pasos, y los owners
+  de un nodo son `gowners` (`ownGow`).
+
+Así que **la cascada del pin no puede arrancar aquí**. Si `PinExact` falla, falla en la coherencia
+con los vecinos (`reviewParents` / `reviewSons`) o en el desenlace, no en el corte del pin.
+
+Ni siquiera hace falta que `mid.step` esté en rango: la cobertura se lee en el paso `j`, y es el
+rango de `j` el que la sostiene. -/
+theorem slice_keeps_cover (g : GPathM) (ctx : Pinned.Ctx g) (hnd : NodupIds g)
+    (mid : NodeId) (n : PNodeM) (hn : n ∈ g.nodes) (hs : InSlice n mid)
+    (j : Int) (hj0 : 0 ≤ j) (hj1 : j < g.current_step) :
+    hasStepEntry (intersectOwners n.owners (filterRequire g mid).gowners) j = true := by
+  have hnode : g.node? n.id = some n := node?_of_mem hnd n hn
+  have hall := owners_ok_of_isValidNode g n (ctx.nodeval n.id n hnode)
+  -- un owner de `n` en el paso `j` que sobrevive al corte
+  obtain ⟨r, hr, hrs, hsurv⟩ :
+      ∃ r ∈ n.owners, r.id.step = j ∧ r ∈ (filterRequire g mid).gowners := by
+    by_cases hje : j = mid.step
+    · -- el paso pinchado: el testigo de rebanada
+      obtain ⟨q, hq, hqid⟩ := hs
+      have hqs : q.id.step = j := by rw [hqid, hje]
+      refine ⟨q, hq, hqs, ?_⟩
+      exact mem_gowners_filterRequire g mid q
+        (ctx.ownGow n.id n hnode q hq (by rw [hqs]; omega) (by rw [hqs]; omega))
+        (Or.inr hqid)
+    · -- cualquier otro paso: el corte no lo toca
+      obtain ⟨r, hr, hrs⟩ :=
+        List.any_eq_true.mp (List.all_eq_true.mp hall j (mem_intRange hj0 (by omega)))
+      have hrs' : r.id.step = j := eq_of_beq hrs
+      refine ⟨r, hr, hrs', ?_⟩
+      exact mem_gowners_filterRequire g mid r
+        (ctx.ownGow n.id n hnode r hr (by rw [hrs']; omega) (by rw [hrs']; omega))
+        (Or.inl (by rw [hrs']; exact hje))
+  exact List.any_eq_true.mpr
+    ⟨r, mem_intersectOwners_of_mem _ _ r hr hsurv, beq_iff_eq.mpr hrs⟩
+
+-- ============================================================
 -- PinExact makes the pin valid
 -- ============================================================
 
@@ -173,6 +229,10 @@ theorem sat_of_pinExact (φ : Cnf) (hwf : WF φ) (kv : NodeId × GPathM)
   exact pickSomeAgg_of_pinExact g
     (Reader.Ctx_of_readable g (readable_of_readableAgg g hR) hvg) (RCtx_of_readableAgg g hR).nodup
     (hsym g hF hvg) (hpe g hF hvg)
+
+/-- info: 'AbsSat.GraphPath.Model.PinExact.slice_keeps_cover' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms slice_keeps_cover
 
 /-- info: 'AbsSat.GraphPath.Model.PinExact.inSlice_of_survives' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
