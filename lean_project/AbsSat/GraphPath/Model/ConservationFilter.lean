@@ -646,6 +646,20 @@ theorem pureRunF_full_state (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
   exact ⟨g, hmem, hcs, isValid_alongF φ a F R hwf hFpr hFcs g hal,
     inhabitedM_alongF φ a F R hwf hFpr hFcs g hal⟩
 
+/-- **The chain conservation already builds.** `pureRunF_full_state` throws it away to keep
+`Inhabited`, which is strictly weaker: `chainSound_alongF` has the `ChainSound` chain in hand and
+`inhabitedM_alongF` projects out two of its four fields. Keeping it is what lets a reader that
+backtracks be proved complete with no open hypothesis. -/
+theorem pureRunF_full_chain (hwf : WF φ) (hsat : Sat a φ) (hFpr : PrunesF F)
+    (hFcs : KeepsBranchF φ a F) :
+    ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunF φ F R
+      ∧ g.current_step = stepCount φ
+      ∧ isValid g = true
+      ∧ ∃ sel, ChainSound g sel := by
+  obtain ⟨g, hmem, hal, hcs⟩ := pureRunF_carries φ a F R hwf hsat hFpr hFcs
+  obtain ⟨sel, hsel, _⟩ := chainSound_alongF φ a F R hwf hFpr hFcs g hal
+  exact ⟨g, hmem, hcs, isValid_alongF φ a F R hwf hFpr hFcs g hal, sel, hsel⟩
+
 /-- **A satisfiable formula gets a non-empty last line.** -/
 theorem pureRunF_ne_nil (hwf : WF φ) (hFpr : PrunesF F)
     (hFcs : ∀ b : Assign, Sat b φ → KeepsBranchF φ b F) (h : Satisfiable φ) :

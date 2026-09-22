@@ -192,6 +192,17 @@ theorem pureRunW_full_state (hwf : WF φ) (hsat : Sat a φ) :
     pureRunF_full_state φ a (Fsac φ 0) reviewAgg hwf hsat (prunes_Fsac φ 0) (keepsBranch_Fsac φ a hsat 0)
   exact ⟨g, run_eq φ ▸ hmem, hcs, hv, hi⟩
 
+/-- **La cadena, no solo `Inhabited`.** Lo mismo que `pureRunW_full_state` sin tirar el testigo. -/
+theorem pureRunW_full_chain (hwf : WF φ) (hsat : Sat a φ) :
+    ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRunW φ
+      ∧ g.current_step = stepCount φ
+      ∧ isValid g = true
+      ∧ ∃ sel, ChainSound g sel := by
+  obtain ⟨g, hmem, hcs, hv, hch⟩ :=
+    pureRunF_full_chain φ a (Fsac φ 0) reviewAgg hwf hsat (prunes_Fsac φ 0)
+      (keepsBranch_Fsac φ a hsat 0)
+  exact ⟨g, run_eq φ ▸ hmem, hcs, hv, hch⟩
+
 /-- **A satisfiable formula gets a non-empty last line.** -/
 theorem pureRunW_ne_nil (hwf : WF φ) (h : Satisfiable φ) : pureRunW φ ≠ [] := by
   have hne := pureRunF_ne_nil φ (Fsac φ 0) reviewAgg hwf (prunes_Fsac φ 0)
