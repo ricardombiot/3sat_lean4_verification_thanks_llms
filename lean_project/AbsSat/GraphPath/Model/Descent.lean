@@ -605,6 +605,84 @@ theorem allParentsOwn_of_tableDownClosed (g : GPathM) (a : Adj g) (hok : AggOk g
   exact (hok v nv c mc hnv hmc (by omega) hv1 (by omega) (by omega) hcv
     (a.ctx.nodeval v nv hnv) (a.ctx.nodeval c mc hmc)).1
 
+/-- **Y `TableDownClosed` colapsa: es `SingleParents`.**
+
+Tómese la tabla de un padre `c` de `x`. Contiene a `x` —`owners_below_iff_parents` más la simetría
+de `AggOk`—, así que la cerradura le mete dentro **todos** los padres de `x`. Y
+`parents_never_own_each_other` dice que ningún padre de `x` vive en la tabla de otro. Luego no hay
+más que uno.
+
+**Cuarta vez que este repo tropieza con el mismo colapso**, y siempre por lo mismo: una hipótesis
+que cuantifica sobre los owners de un nodo **sin excluir a sus padres** obliga a padre único. La
+cota `x.id.step ≤ v.id.step` de `AllParentsOwn` es exactamente lo que la salva — `TableDownClosed`
+no la tiene, y por eso cae donde `AllParentsOwn` sigue en pie.
+
+Consecuencia práctica: `allParentsOwn_of_tableDownClosed` es cierto pero **no es una reducción** —
+su hipótesis ya da `SingleParents`, que por `allParentsOwn_of_singleParents` da la conclusión sola.
+La vía «las tablas nacen cerradas hacia abajo» queda cerrada, y la razón es que `rowOwners` cierra
+la tabla hacia abajo **por rama**, no en total: un nodo viejo entra en la fila nueva por *una* de
+sus ramas y no tiene por qué llevarse las otras. -/
+theorem singleParent_of_tableDownClosed (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (hdc : TableDownClosed g) {x : PathNodeId} {n : PNodeM} (hx : g.node? x = some n)
+    (hx1 : 1 ≤ x.id.step) (hxs : x.id.step < g.current_step) :
+    ∀ c ∈ n.parents, ∀ c' ∈ n.parents, c = c' := by
+  intro c hc c' hc'
+  obtain ⟨mc, hmc, hmcid⟩ := a.rc.shape.pn n (List.mem_of_find?_eq_some hx) c hc
+  have hcnode : g.node? c = some mc := by rw [← hmcid]; exact node?_of_mem a.rc.nodup mc hmc
+  have hcs : c.id.step = x.id.step - 1 := by
+    have := a.rc.shape.pbelow n (List.mem_of_find?_eq_some hx) c hc
+    rwa [node?_id_eq g x n hx] at this
+  have hcs' : c'.id.step = x.id.step - 1 := by
+    have := a.rc.shape.pbelow n (List.mem_of_find?_eq_some hx) c' hc'
+    rwa [node?_id_eq g x n hx] at this
+  have hco : c ∈ n.owners := (owners_below_iff_parents g a x n hx hx1 c hcs).mpr hc
+  -- simetría: `x` está en la tabla de `c`
+  have hxc : x ∈ mc.owners :=
+    (hok x n c mc hx hcnode (by omega) hxs (by omega) (by omega) hco
+      (a.ctx.nodeval x n hx) (a.ctx.nodeval c mc hcnode)).1
+  -- la cerradura mete al otro padre en la tabla de `c`, y un owner al paso propio ES el nodo
+  have hin : c' ∈ mc.owners := hdc c mc hcnode x hxc n hx c' hc'
+  have hmcid2 := node?_id_eq g c mc hcnode
+  exact ((a.rc.oos mc (List.mem_of_find?_eq_some hcnode) c' hin
+    (by rw [hmcid2]; omega)).trans hmcid2).symm
+
+/-- **Lo que sí sobrevive del diseño, y es lo que ya estaba**: la versión *existencial*. Si la tabla
+de un nodo contiene a `v`, contiene a **algún** padre de `v`. `rowOwners` la conserva por rama, y es
+literalmente `parent_owns_of_coherent` leído con la simetría de `AggOk`.
+
+Se deja escrita para que no se vuelva a intentar la universal: el salto de «algún padre» a «todos
+los padres» es el hueco entero, y no lo regala el `up`. -/
+theorem tableDownBranch (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (r : PathNodeId) (nr : PNodeM) (hr : g.node? r = some nr)
+    (v : PathNodeId) (hv : v ∈ nr.owners) (nv : PNodeM) (hnv : g.node? v = some nv)
+    (hv1 : 1 ≤ v.id.step) (hvs : v.id.step < g.current_step)
+    (hr0 : 0 ≤ r.id.step) (hrs : r.id.step < g.current_step) :
+    ∃ c ∈ nv.parents, c ∈ nr.owners := by
+  -- `r` está en la tabla de `v` por simetría
+  have hrv : r ∈ nv.owners :=
+    (hok r nr v nv hr hnv hr0 hrs (by omega) hvs hv
+      (a.ctx.nodeval r nr hr) (a.ctx.nodeval v nv hnv)).1
+  -- y la coherencia del punto fijo da un padre de `v` que también lo posee
+  obtain ⟨c, hc, mc, hmc, hrc⟩ :=
+    parent_owns_of_coherent g a hnv hv1 hvs r hrv hr0 hrs
+  have hcs : c.id.step = v.id.step - 1 := by
+    have := a.rc.shape.pbelow nv (List.mem_of_find?_eq_some hnv) c hc
+    rwa [node?_id_eq g v nv hnv] at this
+  exact ⟨c, hc, (hok c mc r nr hmc hr (by omega) (by omega) hr0 hrs hrc
+    (a.ctx.nodeval c mc hmc) (a.ctx.nodeval r nr hr)).1⟩
+
+/-- **La primera pata de `aggPair` no dispara nunca sobre owners simétricos.**
+
+`aggPair` borra `w` de la tabla de `x` cuando `w` está en ella y `x` **no** está en la de `w`. Con
+`OwnSymmetric` eso es imposible, así que de las dos patas de la criba agresiva solo queda viva la
+segunda —*no comparten owner en algún paso*— y toda conservación por la revisión se reduce a ella.
+
+Es el recorte que deja el ataque a `aggPair` con la mitad de casos. -/
+theorem aggPair_sym_second_leg (g : GPathM) (hsym : Threaded.OwnSymmetric g) (x w : PathNodeId)
+    (nx nw : PNodeM) (hx : g.node? x = some nx) (hw : g.node? w = some nw) :
+    nx.owners.contains w = true → nw.owners.contains x = true := fun h1 =>
+  List.elem_eq_true_of_mem (hsym x nx w nw hx hw (List.mem_of_elem_eq_true h1))
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -780,6 +858,18 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.parents_own_unique_owner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms parents_own_unique_owner
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.singleParent_of_tableDownClosed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms singleParent_of_tableDownClosed
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.tableDownBranch' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableDownBranch
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.aggPair_sym_second_leg' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms aggPair_sym_second_leg
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.allParentsOwn_of_tableDownClosed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
