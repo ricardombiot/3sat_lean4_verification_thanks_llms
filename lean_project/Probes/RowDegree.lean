@@ -1099,6 +1099,95 @@ def reportF2 (name : String) (a : FAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   indecisos (presupuesto): {a.outs}"
   IO.println s!"   ({ms} ms)"
 
+-- ============================================================
+-- `SoundAt (LitStep φ)`: ¿son realizables las entradas hacia pasos literales?
+-- ============================================================
+
+/-! `RunSteps.realizes_pin` demuestra la mitad dificil —tras un pin, todo nodo vivo esta en una
+cadena del estado pinchado que pasa por el pin— bajo `SoundAt (LitStep φ) g`: *toda entrada de la
+tabla que apunte a un paso literal (o al 0) es realizable por una cadena que pase por los dos*.
+
+Eso es mucho menos que `TablesSound`: no pide nada de las entradas hacia pasos de clausula, que es
+donde vive la no-transitividad medida (5-20%). Nunca se habia medido por separado. -/
+
+structure AAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  entries  : Nat := 0          -- entradas (nodo, owner) hacia un paso literal o el 0
+  real     : Nat := 0          -- ... realizables: hay cadena por los dos
+  ghost    : Nat := 0          -- ... NO realizables: entrada fantasma
+  out      : Nat := 0
+  ghostAt  : String := "-"
+  /-- contraste: las entradas hacia pasos de CLAUSULA -/
+  cEntries : Nat := 0
+  cReal    : Nat := 0
+  cGhost   : Nat := 0
+  deriving Repr
+
+/-- Cadena completa que pasa por todos los nodos de `forced`. -/
+partial def chainAt2 (g : GPathM) (forced : List PathNodeId) (budget : Nat)
+    (picks : List PathNodeId) (k : Int) : Nat × Bool :=
+  if budget == 0 then (0, false)
+  else if k ≥ g.current_step then (budget, true)
+  else
+    let base : List PathNodeId :=
+      match picks with
+      | [] => g.gowners.filter (fun (c : PathNodeId) => c.id.step == k)
+      | p :: _ => (sonsOf g p).filter (fun (c : PathNodeId) => c.id.step == k)
+    let base := match forced.find? (fun (f : PathNodeId) => f.id.step == k) with
+      | some f => base.filter (fun c => c == f)
+      | none => base
+    let cands := base.filter (fun c =>
+      g.gowners.contains c && picks.all (fun p => mutuallyOwn g c p))
+    cands.foldl (fun (st : Nat × Bool) c =>
+      if st.2 then st else chainAt2 g forced (st.1 - 1) (c :: picks) (k + 1)) (budget, false)
+
+def scanSoundAt (label : String) (lb : Int) (g : GPathM) (budget cap : Nat) (a : AAcc) :
+    AAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for n in g.nodes.take cap do
+    for w in n.owners.take cap do
+      let lit := w.id.step < lb || w.id.step == 0
+      let (left, ok) := chainAt2 g [n.id, w] budget [] 0
+      if lit then
+        a := { a with entries := a.entries + 1 }
+        if ok then a := { a with real := a.real + 1 }
+        else if left == 0 then a := { a with out := a.out + 1 }
+        else
+          a := { a with ghost := a.ghost + 1
+                      , ghostAt := s!"{label}: nodo@{n.id.id.step} owner@{w.id.step}" }
+      else
+        a := { a with cEntries := a.cEntries + 1
+                    , cReal := a.cReal + (if ok then 1 else 0)
+                    , cGhost := a.cGhost + (if ok || left == 0 then 0 else 1) }
+  return a
+
+def runFormulaA (φ : Cnf) (a : AAcc) : AAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for i in [0:steps] do
+    line := pureAdvanceW φ line
+    for kv in line do
+      a := scanSoundAt s!"linea {i+1} ⟨{kv.1.step},{kv.1.index}⟩" (litBlock φ) kv.2 40000 60 a
+  return a
+
+def reportA (name : String) (a : AAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}"
+  IO.println s!"   SoundAt (LitStep): entradas hacia un paso LITERAL o el 0: {a.entries}"
+  IO.println s!"     realizables (hay cadena por los dos) : {a.real}  ({pct a.real a.entries})"
+  IO.println s!"     ENTRADA FANTASMA                     : {a.ghost}  ({pct a.ghost a.entries})"
+  IO.println s!"     indeciso (presupuesto)               : {a.out}"
+  if a.ghost > 0 then IO.println s!"     primero: {a.ghostAt}"
+  IO.println s!"   SoundAt(LitStep): {if a.ghost == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   contraste, entradas hacia pasos de CLAUSULA: {a.cEntries}"
+  IO.println s!"     realizables : {a.cReal}  ({pct a.cReal a.cEntries})"
+  IO.println s!"     fantasma    : {a.cGhost}  ({pct a.cGhost a.cEntries})"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1139,6 +1228,23 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormula φ {})
         let t1 ← IO.monoMsNow
         report path a (t1 - t0)
+  | "soundat" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaA φ {})
+        let t1 ← IO.monoMsNow
+        reportA path a (t1 - t0)
+  | "soundat" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : AAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaA φ a
+      let t1 ← IO.monoMsNow
+      reportA s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filt" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
