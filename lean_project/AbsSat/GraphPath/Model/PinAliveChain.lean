@@ -900,4 +900,96 @@ de `isValidNode`. -/
 #guard_msgs in
 #print axioms review_step_noop_on_pinned
 
+-- ============================================================
+-- Y los enlaces se van del todo: la cobertura de la tabla basta
+-- ============================================================
+
+/-- **Un nodo cuya tabla cubre todos los pasos es válido. Los enlaces salen de la tabla.**
+
+Y esto quita los enlaces del problema entero, porque en los estados del lector **los owners de los
+pasos vecinos SON los enlaces**: `AdjacentOwners.owners_below_iff_parents` y
+`owners_above_iff_sons`. Así que:
+
+* si el nodo no es raíz, su paso es ≥ 1 (`RootAtZero` al revés), la cobertura le da un owner en el
+  paso de abajo, y ese owner **es un padre**;
+* si no es el último, la cobertura le da un owner en el paso de arriba, y ese owner **es un hijo**.
+
+`isValidNode` colapsa por tanto sobre una sola cosa: **que la tabla cubra todos los pasos**. Que es,
+otra vez, la frase del autor — *la tabla de un nodo es su camino* — ahora en su forma más fuerte:
+no es que el camino esté en la tabla, es que **la tabla es todo lo que hay que mirar**. -/
+theorem isValidNode_of_cover (g : GPathM) (a : AdjacentOwners.Adj g)
+    (x : PathNodeId) (n : PNodeM) (hx : g.node? x = some n)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < g.current_step)
+    (hcover : ∀ k, 0 ≤ k → k < g.current_step → ∃ z ∈ n.owners, z.id.step = k) :
+    isValidNode g n = true := by
+  have hid : n.id = x := node?_id_eq g x n hx
+  have hmem := List.mem_of_find?_eq_some hx
+  have howners : (intRange 0 (g.current_step - 1)).all (fun k => hasStepEntry n.owners k) = true := by
+    simp only [List.all_eq_true]
+    intro k hk
+    obtain ⟨z, hz, hzs⟩ := hcover k (mem_intRange_lower hk)
+      (by have := mem_intRange_upper hk; omega)
+    simp only [hasStepEntry, List.any_eq_true]
+    exact ⟨z, hz, beq_iff_eq.mpr hzs⟩
+  have hpar : 1 ≤ x.id.step → n.parents ≠ [] := by
+    intro h1
+    obtain ⟨z, hz, hzs⟩ := hcover (x.id.step - 1) (by omega) (by omega)
+    exact List.ne_nil_of_mem
+      ((AdjacentOwners.owners_below_iff_parents g a x n hx h1 z (by rw [hzs])).mp hz)
+  have hson : x.id.step ≤ g.current_step - 2 → n.sons ≠ [] := by
+    intro h2
+    obtain ⟨z, hz, hzs⟩ := hcover (x.id.step + 1) (by omega) (by omega)
+    exact List.ne_nil_of_mem
+      ((AdjacentOwners.owners_above_iff_sons g a x n hx h2 z (by rw [hzs])).mp hz)
+  have hnr : ¬(n.id.parent_id.isNone = true) → 1 ≤ x.id.step := by
+    intro hr
+    by_cases h1 : 1 ≤ x.id.step
+    · exact h1
+    · exact absurd (by rw [a.rc.rootz n hmem (by rw [hid]; omega)]; rfl) hr
+  have hlast : (n.id.id.step == g.current_step - 1) = (x.id.step == g.current_step - 1) := by
+    rw [hid]
+  have hnotlast : ¬((x.id.step == g.current_step - 1) = true) → x.id.step ≤ g.current_step - 2 := by
+    intro hl
+    have : x.id.step ≠ g.current_step - 1 := fun he => hl (by rw [he]; exact beq_iff_eq.mpr rfl)
+    omega
+  simp only [isValidNode, hlast]
+  split
+  · split
+    · exact howners
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hson (hnotlast hl)), Bool.and_self]
+  · next hr =>
+    split
+    · simp only [howners, not_isEmpty_of_ne_nil _ (hpar (hnr hr)), Bool.and_self]
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hpar (hnr hr)),
+        not_isEmpty_of_ne_nil _ (hson (hnotlast hl)), Bool.and_self]
+
+/-! ## `PinAlive`, reducido a una sola palabra: cobertura
+
+Con `isValidNode_of_cover` los enlaces desaparecen del problema y todo queda dicho en términos de
+una única cosa, **que la tabla de un nodo siga cubriendo todos los pasos**:
+
+| pieza | estado |
+|---|---|
+| un nodo con cobertura es válido (los enlaces salen de la tabla) | **cerrado** |
+| un nodo válido basta para que el estado sea válido | **cerrado** |
+| el pin no toca la tabla del elegido | **cerrado** |
+| el corte y el re-enlace del review son la identidad sobre él | **cerrado** |
+| los owners del elegido son compatibles con la elección (simetría) | **cerrado** |
+| y conservan cobertura mientras la del elegido esté intacta (cruce) | **cerrado** |
+| **la tabla del elegido sigue intacta al final del review** | lo que falta |
+
+Y la última casilla ya no tiene nada de geometría: la tabla de `q` solo puede perder una entrada
+`z` si `z` deja de estar en `gowners`, o sea si `z` muere; `z` es un owner de `q`, luego tiene
+cobertura mientras la tabla de `q` esté intacta; **así que la única forma de romperlo es que se
+rompa solo.**
+
+Eso es una inducción sobre las vueltas del review con el invariante «la tabla de `q` está dentro de
+`gowners`», y lo que queda es escribirla contra la recursión de `reviewAggFuel`. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValidNode_of_cover' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValidNode_of_cover
+
 end AbsSat.GraphPath.Model.PinAliveChain
