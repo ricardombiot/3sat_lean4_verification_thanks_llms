@@ -86,6 +86,49 @@ theorem supportedS_pin_of_soundAt (g : GPathM) (hR : ReadableAgg g) (ht : SoundA
     RunSteps.realizes_pin φ g hR ht r hr hr0 hvr hrs x n hx hx0 hx1
   exact ⟨sel, hsc, hsx⟩
 
+
+-- ============================================================
+-- `PinPairSoundAt`, reducido a una frase sobre UN estado sin pinchar
+-- ============================================================
+
+/-- **La terna, dicha antes del pin: una cadena se puede reencaminar.**
+
+Si hay cadena por `x` y por `q`, y el pin `r` deja el estado válido, entonces hay una cadena por
+`x`, por `q` **y por `r`**.
+
+Es lo único que `PinPairSoundAt` pide de más, y esta forma tiene dos ventajas sobre aquella: habla
+de **un solo estado**, el de antes de pinchar —no del pinchado, que es el resultado de un punto
+fijo— y no menciona el filtro más que como condición. Medirla es mirar tres nodos de un grafo. -/
+def TriplePin : Prop :=
+  ∀ g : GPathM, ReadableAgg g → isValid g = true → SoundAt (LitStep φ) g →
+    ∀ r : NodeId, LitStep φ r.step → isValid (filterAllAgg g [r]) = true →
+      ∀ x q : PathNodeId, Realizes g x q → q.id.step ≠ r.step →
+        ∃ sel, ChainSound g sel ∧ sel x.id.step = x ∧ sel q.id.step = q ∧ (sel r.step).id = r
+
+/-- **Y basta.** `SoundAt` da la cadena por `x` y `q` antes del pin, la terna la reencamina por `r`,
+y `ChainSound_filterAllAgg` la deja intacta a través del pin y de la revisión.
+
+Así que **toda la obligación abierta de esta ruta cabe en `TriplePin`**: con ella salen
+`PinPairSoundAt`, `PinStepSoundAt` (`pinStep_of_pairs`), `SendPinSoundAt`, `FilterSoundAt`, el
+invariante de la corrida, `SupportedS`, `Inhabited`, que el lector no se atasca, y el veredicto. -/
+theorem pinPair_of_triplePin (h : TriplePin φ) : RunSteps.PinPairSoundAt φ := by
+  intro g hR hv ht r hr hvr x n hx hx0 hx1 q hq0 hq1 hL hqr hqn
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  have rcg := RCtx_of_readableAgg g hR
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxid := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  have hxq : Realizes g x q :=
+    ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) q hq0 (by rw [← hcs]; exact hq1) hL (hown q hqn)
+  obtain ⟨sel, hsc, hsx, hsq, hsr⟩ := h g hR hv ht r hr hvr x q hxq hqr
+  exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+    rw [List.mem_singleton.mp hreq]; exact hsr), hsx, hsq⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.pinPair_of_triplePin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinPair_of_triplePin
+
 /-- info: 'AbsSat.GraphPath.Model.SupportedRun.supportedS_of_soundAt' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms supportedS_of_soundAt
