@@ -1226,4 +1226,77 @@ theorem mem_gowners_cleanInvalidGo_of_valid (z : PathNodeId) :
 #guard_msgs in
 #print axioms mem_gowners_cleanInvalidGo_of_valid
 
+-- ============================================================
+-- Y el desenlace no toca a los demás: las dos únicas salidas
+-- ============================================================
+
+/-- **Si el nodo que se desenlaza posee a `m`, `m` se queda igual.** Es la segunda rama de
+`unlinkMap`, literal. -/
+theorem unlinkMap_keeps (n : PNodeM) (id : PathNodeId) (m : PNodeM) (hne : m.id ≠ id)
+    (h : n.owners.contains m.id = true) : unlinkMap n id m = m := by
+  unfold unlinkMap
+  rw [if_neg (by simpa using hne), if_pos h]
+
+/-- **Y si `m` no estaba enlazado con él, tampoco.** Quitar lo que no hay no quita nada. -/
+theorem unlinkMap_keeps_unlinked (n : PNodeM) (id : PathNodeId) (m : PNodeM) (hne : m.id ≠ id)
+    (hp : id ∉ m.parents) (hs : id ∉ m.sons) : unlinkMap n id m = m := by
+  unfold unlinkMap
+  rw [if_neg (by simpa using hne)]
+  split
+  · rfl
+  · rw [List.filter_eq_self.mpr
+          (fun p hpm => bne_iff_ne.mpr (fun he => hp (by rw [← he]; exact hpm))),
+        List.filter_eq_self.mpr
+          (fun t htm => bne_iff_ne.mpr (fun he => hs (by rw [← he]; exact htm)))]
+
+/-- **El desenlace deja intacto a todo nodo protegido.**
+
+Y solo hay dos casos, los dos cubiertos:
+
+* o el nodo desenlazado **posee** a `z` —lo que la simetría de `AggOk` garantiza cuando `z` lo
+  posee a él—, y entonces `unlinkMap` no lo toca;
+* o `z` **no lo tiene en su tabla**, y entonces tampoco lo tiene entre sus enlaces
+  (`LinksWithin`), así que el filtro no le quita nada.
+
+No hay tercera salida. Con esto, un nodo protegido cruza `unlinkIncompatible` idéntico a sí
+mismo. -/
+theorem unlinkIncompatible_keeps (g : GPathM) (id : PathNodeId) (n : PNodeM)
+    (hn : g.node? id = some n) (z : PathNodeId) (nz : PNodeM) (hz : g.node? z = some nz)
+    (hne : z ≠ id) (hp : ∀ p ∈ nz.parents, p ∈ nz.owners) (hs : ∀ t ∈ nz.sons, t ∈ nz.owners)
+    (hcase : z ∈ n.owners ∨ id ∉ nz.owners) :
+    (unlinkIncompatible g id).node? z = some nz := by
+  have hid : nz.id = z := node?_id_eq g z nz hz
+  rw [unlinkIncompatible_node? g id n hn z nz hz]
+  rcases hcase with hown | hout
+  · rw [unlinkMap_keeps n id nz (by rw [hid]; exact hne) (by rw [hid]; simpa using hown)]
+  · rw [unlinkMap_keeps_unlinked n id nz (by rw [hid]; exact hne)
+      (fun hm => hout (hp id hm)) (fun hm => hout (hs id hm))]
+
+/-! ## El invariante, ya con todas sus piezas
+
+Para llevar la tabla de `q` entera a través de una vuelta del review hacen falta exactamente tres
+cosas, y las tres están:
+
+1. **que la entrada siga en la tabla global** — `mem_gowners_cleanStep` si el review mira a otro,
+   `mem_gowners_cleanStep_self` si la mira a ella;
+2. **que el nodo no cambie al desenlazar** — `unlinkIncompatible_keeps`, con sus dos únicas
+   salidas;
+3. **que siga siendo válido** — `isValidNode_of_cover` sobre la cobertura que
+   `owner_of_pinned_keeps_cover` le garantiza mientras el invariante valga.
+
+Y el `updateAt` intermedio no cuenta: solo toca al nodo que el review está mirando, y sobre él ya
+sabemos que es la identidad cuando su tabla está dentro de la global (`relink_eq_self`).
+
+Lo que queda es ensamblar las tres en la recursión —`cleanInvalidGo`, luego `reviewPass`,
+`reviewFuel`, `aggSweep`, `reviewAggFuel`—. Ni una de esas cinco pregunta nada nuevo: son bucles
+sobre listas. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.unlinkMap_keeps' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms unlinkMap_keeps
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.unlinkIncompatible_keeps' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms unlinkIncompatible_keeps
+
 end AbsSat.GraphPath.Model.PinAliveChain
