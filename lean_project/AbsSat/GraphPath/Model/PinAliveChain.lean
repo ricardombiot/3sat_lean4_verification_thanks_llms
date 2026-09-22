@@ -661,4 +661,75 @@ lo único que falta acotar. -/
 #guard_msgs in
 #print axioms pinned_is_compat
 
+-- ============================================================
+-- La simetría: los owners del elegido también son compatibles
+-- ============================================================
+
+/-- **Todo owner del nodo elegido es compatible con la elección.**
+
+Y sale de la simetría del punto fijo de la criba, que es lo primero que `aggPair` impone: si `w`
+está en la tabla de `q`, entonces `q` está en la tabla de `w` (`AggFixpoint.AggOk`, primera
+componente). Y `q` lleva el valor elegido por definición.
+
+Dicho en el lenguaje del algoritmo: **los owners de un nodo son los nodos con los que comparte
+camino, y compartir camino es mutuo.** -/
+theorem owner_of_pinned_is_compat (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (q w : PathNodeId) (nq nw : PNodeM) (hq : g.node? q = some nq) (hwn : g.node? w = some nw)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step)
+    (hw0 : 0 ≤ w.id.step) (hw1 : w.id.step < g.current_step)
+    (hwm : w ∈ nq.owners) : ∃ u ∈ nw.owners, u.id = q.id :=
+  ⟨q, (hok q nq w nw hq hwn hq0 hq1 hw0 hw1 hwm (ctx.nodeval q nq hq) (ctx.nodeval w nw hwn)).1,
+    rfl⟩
+
+/-- **Así que la primera criba no puede matar a ningún owner del nodo elegido.**
+
+Junta las dos piezas: un owner de `q` es compatible con la elección (por simetría), y a un nodo
+compatible el pin no le quita nada que le haga falta (`compat_owners_survive_pin`).
+
+Es decir: **el pin no roza el vecindario del nodo que se elige.** Ni `q`, ni su tabla entera. Y la
+tabla de `q` es lo único que hace falta para que ninguna fila se vacíe
+(`lines_nonempty_of_survivor`). -/
+theorem owners_of_pinned_survive_pin (g : GPathM) (hw : OwnersWithin g)
+    (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (q w : PathNodeId) (nq nw : PNodeM) (hq : g.node? q = some nq) (hwn : g.node? w = some nw)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step)
+    (hw0 : 0 ≤ w.id.step) (hw1 : w.id.step < g.current_step)
+    (hwm : w ∈ nq.owners) :
+    ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ u ∈ nw.owners, u.id.step = k ∧ u ∈ (filterRequire g q.id).gowners :=
+  compat_owners_survive_pin g hw q w nw hwn (ctx.nodeval w nw hwn)
+    (owner_of_pinned_is_compat g hok ctx q w nq nw hq hwn hq0 hq1 hw0 hw1 hwm)
+
+/-! ## Lo que la simetría compra, y lo que no
+
+Compra el vecindario entero del nodo elegido:
+
+* `q` sobrevive a la primera criba (`pinned_is_compat`);
+* **y todos sus owners también** (`owners_of_pinned_survive_pin`), porque la simetría del punto
+  fijo los hace compatibles con la elección;
+* y con la tabla de `q` en pie, ninguna fila se vacía (`lines_nonempty_of_survivor`) y el estado es
+  válido (`isValid_of_survivor`).
+
+Lo que no compra es la **segunda vuelta**. El review itera: un nodo incompatible muere, su muerte
+sale de `gowners`, y la vuelta siguiente vuelve a cortar todas las tablas contra una tabla global
+ya más pequeña. La simetría protege a los owners de `q` del **primer** corte, no de que uno de
+ellos pierda más adelante su último owner en un tercer paso.
+
+Así que el residuo, ya del todo pelado, es la terminación de esa cascada:
+
+> ninguna cadena de muertes que empiece en los incompatibles con la elección alcanza la tabla
+> de `q`.
+
+Y ahí es donde el diseño tiene la última palabra, porque los owners de `q` son su camino: para
+alcanzarlos habría que matar el camino que hacía vivo a `q` — y `q` estaba vivo antes de elegirlo,
+que es lo único que el lector comprueba. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.owner_of_pinned_is_compat' does not depend on any axioms -/
+#guard_msgs in
+#print axioms owner_of_pinned_is_compat
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.owners_of_pinned_survive_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owners_of_pinned_survive_pin
+
 end AbsSat.GraphPath.Model.PinAliveChain
