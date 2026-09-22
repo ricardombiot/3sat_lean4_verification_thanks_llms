@@ -1060,6 +1060,38 @@ Dicho de otro modo: lo que queda no es si la máquina es correcta, sino **si se 
 retroceso**, y eso es exactamente la exactitud de la criba — que todo lo que deja viva tenga
 camino. -/
 
+/-- **El caso base, cerrado: un estado válido SIN ELECCIÓN tiene cadena.**
+
+Cuando en cada paso los owners globales ya coinciden en un nodo de mapa, no queda nada que elegir, y
+`Reader.inhabited_of_noChoice_readable` entrega la denotación — una selección enlazada y con
+posesión por pares. `SupportedRun.chainSound_of_chain` la eleva a `ChainSound` con lo que el
+contexto del lector ya trae, sin hipótesis nueva.
+
+Dicho en claro: **cuando el lector termina, el estado tiene cadena demostrada.** Todo el hueco está
+en el camino, no en el final — y eso es lo que hace que `AllValidPinsGood` sea un enunciado sobre la
+*trayectoria* y no sobre los estados finales. -/
+theorem hasChain_of_noChoice (g : GPathM) (hR : ReadableAgg g) (hv : isValid g = true)
+    (hpms : Sons.PMS g) (hsn : Sons.SN g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (hc : PickInduction.NoChoice g) : HasChain g := by
+  obtain ⟨_, sel, hchain, howned, _⟩ :=
+    Reader.inhabited_of_noChoice_readable g (readable_of_readableAgg g hR) hv hc
+  exact ⟨sel, SupportedRun.chainSound_of_chain g
+    (AdjacentOwners.adj_of_readable g hR hv hpms hsn) hsmp hpos sel hchain howned⟩
+
+/-! **Y entonces `AllValidPinsGood` solo pide algo de los estados intermedios.**
+
+En los dos extremos de una lectura la cadena está: en la semilla la pone la conservación
+(`ConservationImproves.pureRunW_full_chain`), y al final la pone `hasChain_of_noChoice`. Lo que
+falta es que no se pierda **por el camino** — y ni una sola de las sondas encuentra un estado donde
+se pierda.
+
+Es la misma forma que tenía la simetría de owners cuando se midió (v63): disponible en los dos
+extremos de la lectura, y lo que cuesta es llevarla por el medio. -/
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.hasChain_of_noChoice' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms hasChain_of_noChoice
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.goodPin_exists' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms goodPin_exists
