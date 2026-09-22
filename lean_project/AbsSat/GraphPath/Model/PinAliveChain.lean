@@ -2103,4 +2103,65 @@ theorem Anchored_selfStep (g : GPathM) (P : PathNodeId → Prop) (r : PathNodeId
 #guard_msgs in
 #print axioms Anchored_selfStep
 
+-- ============================================================
+-- El paso del review, cerrado para TODO `r`
+-- ============================================================
+
+/-- **El invariante cruza un paso del review, cualquiera que sea el nodo mirado.**
+
+Sin hipótesis de caso. Las cuatro ramas, cada una con su lema:
+
+* el mirado **no** está protegido → `Anchored_cleanStep`;
+* está protegido y `z` es otro → `Anchored_updateAt` seguido de
+  `Anchored_unlinkIncompatible_protected`, con `Sym_cut` para llevar la simetría al otro lado del
+  corte;
+* está protegido y `z` **es** ése → `Anchored_selfStep`;
+* y el borrado **no ocurre** cuando el mirado está protegido, porque
+  `isValidNode_relink_of_Anchored` dice que el nodo que se examina es válido.
+
+Las hipótesis son las cuatro que el conjunto protegido trae consigo: que sus miembros estén en
+rango, en la tabla global, anclados y mutuamente poseídos. Ninguna habla de la fórmula. -/
+theorem Anchored_cleanStep_all (g : GPathM) (P : PathNodeId → Prop) [DecidablePred P]
+    (hrz : Sons.RootAtZero g)
+    (hrange : ∀ y, P y → 0 ≤ y.id.step ∧ y.id.step < g.current_step)
+    (hPg : ∀ y, P y → y ∈ g.gowners)
+    (hSym : Sym g P) (hall : ∀ y, P y → Anchored g P y)
+    (z r : PathNodeId) (hPz : P z) : Anchored (cleanStep g r) P z := by
+  by_cases hPr : P r
+  · obtain ⟨nr, hnr, hcovr, hparr, hsonr⟩ := hall r hPr
+    have hid : nr.id = r := node?_id_eq g r nr hnr
+    have hvalid : isValidNode g (relink (intersectOwners nr.owners g.gowners) nr) = true :=
+      isValidNode_relink_of_Anchored g P r nr hrz (hrange r hPr).1 (hrange r hPr).2 hnr
+        ⟨nr, hnr, hcovr, hparr, hsonr⟩
+    have hcut : (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })).node? r
+        = some { nr with owners := intersectOwners nr.owners g.gowners } := by
+      rw [updateAt_node? g r (fun n => { n with owners := intersectOwners n.owners g.gowners })
+          (fun _ => rfl) r nr hnr, show (nr.id == r) = true from beq_iff_eq.mpr hid]
+    have hstep2 : (unlinkIncompatible (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) r).current_step
+        = g.current_step := current_step_unlinkIncompatible _ _
+    have hcond : isValidNode (unlinkIncompatible (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) r)
+        (relink (intersectOwners nr.owners g.gowners) nr) = true := by
+      rw [isValidNode_congr_step g _ _ hstep2]
+      exact hvalid
+    rw [cleanStep_some g r nr hnr]
+    unfold intersectOrDrop
+    split
+    · by_cases hzr : z = r
+      · subst hzr
+        exact Anchored_selfStep g P z nr hnr (hall z hPz)
+      · exact Anchored_unlinkIncompatible_protected _ P z r
+          (Sym_cut g P r hPg hSym) hPz hPr hzr _ hcut
+          (Anchored_updateAt g P z r
+            (fun n => { n with owners := intersectOwners n.owners g.gowners })
+            (fun _ => rfl) hzr (hall z hPz))
+    · next hbad => exact absurd hcond hbad
+  · exact Anchored_cleanStep g P z r (fun he => hPr (by rw [← he]; exact hPz)) hPr (hall z hPz)
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_cleanStep_all' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_cleanStep_all
+
 end AbsSat.GraphPath.Model.PinAliveChain
