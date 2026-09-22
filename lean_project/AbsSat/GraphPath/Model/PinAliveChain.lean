@@ -2164,4 +2164,74 @@ theorem Anchored_cleanStep_all (g : GPathM) (P : PathNodeId → Prop) [Decidable
 #guard_msgs in
 #print axioms Anchored_cleanStep_all
 
+-- ============================================================
+-- Las invariantes de apoyo, también por el paso
+-- ============================================================
+
+/-- Los ids no se duplican: el corte los preserva uno a uno. -/
+theorem NodupIds_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (h : NodupIds g) : NodupIds (updateAt g id f) := by
+  have he : ((updateAt g id f).nodes.map (·.id)) = g.nodes.map (·.id) := by
+    simp only [updateAt, updateAtGo, List.map_map, Function.comp_def]
+    refine List.map_congr_left (fun n _ => ?_)
+    cases hb : n.id == id with
+    | true => exact hf n
+    | false => rfl
+  unfold NodupIds
+  rw [he]
+  exact h
+
+/-- Y el desenlace también. -/
+theorem NodupIds_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : NodupIds g) :
+    NodupIds (unlinkIncompatible g id) := by
+  cases hn : g.node? id with
+  | none =>
+    have he : unlinkIncompatible g id = g := by unfold unlinkIncompatible; rw [hn]
+    rw [he]; exact h
+  | some n =>
+    have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n id) := by
+      simp only [unlinkIncompatible, hn]
+    unfold NodupIds
+    rw [hshape, List.map_map, Function.comp_def]
+    have he : (fun x : PNodeM => (unlinkMap n id x).id) = (fun x : PNodeM => x.id) := by
+      funext x; rw [unlinkMap_id]
+    rw [he]
+    exact h
+
+/-- Y el borrado, que solo quita. -/
+theorem NodupIds_removeNode (g : GPathM) (id : PathNodeId) (h : NodupIds g) :
+    NodupIds (removeNode g id) := by
+  unfold NodupIds
+  rw [removeNode_nodes, List.map_map, Function.comp_def]
+  have he : (fun x : PNodeM => (unlink id x).id) = (fun x : PNodeM => x.id) := by
+    funext x; rfl
+  rw [he]
+  exact List.Nodup.sublist (List.Sublist.map _ List.filter_sublist) h
+
+/-- **Y la simetría cruza el paso entero.** Corte, desenlace y borrado, los tres ya cerrados. -/
+theorem Sym_cleanStep (g : GPathM) (hnd : NodupIds g) (P : PathNodeId → Prop)
+    (hPg : ∀ y, P y → y ∈ g.gowners) (hSym : Sym g P) (r : PathNodeId) :
+    Sym (cleanStep g r) P := by
+  cases hnr : g.node? r with
+  | none => rw [cleanStep_none g r hnr]; exact hSym
+  | some d =>
+    rw [cleanStep_some g r d hnr]
+    unfold intersectOrDrop
+    have hnd1 : NodupIds (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
+      NodupIds_updateAt g r _ (fun _ => rfl) hnd
+    have h1 : Sym (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) P :=
+      Sym_cut g P r hPg hSym
+    have h2 : Sym (unlinkIncompatible (updateAt g r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) r) P :=
+      Sym_unlinkIncompatible _ hnd1 P r h1
+    split
+    · exact h2
+    · exact Sym_removeNode _ (NodupIds_unlinkIncompatible _ r hnd1) P r h2
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_cleanStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Sym_cleanStep
+
 end AbsSat.GraphPath.Model.PinAliveChain
