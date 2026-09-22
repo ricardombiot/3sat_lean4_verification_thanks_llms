@@ -368,6 +368,40 @@ theorem pathNodeId_ext {a b : PathNodeId} (h1 : a.id = b.id)
       simp only at h1 h2 h3
       rw [h1, h2, h3]
 
+/-- **The only freedom a node's parents have is the grandparent.** `PMP` pins their `id`, `GPMP`
+pins their `parent_id`; nothing pins their `gparent_id`.
+
+This is the exact measure of what a window of three buys and what it cannot buy. A node at step `s`
+carries the map ids of steps `s`, `s-1`, `s-2`; its parents all carry `s-1` and `s-2`, and differ
+only in the map id of step `s-3` — **the first coordinate that falls outside the window**. -/
+theorem parents_agree_but_gparent {h : GPathM} (hpmp : PMP h) (hgpmp : GPMP h)
+    {n : PNodeM} (hn : n ∈ h.nodes) {c c' : PathNodeId} (hc : c ∈ n.parents) (hc' : c' ∈ n.parents) :
+    c.id = c'.id ∧ c.parent_id = c'.parent_id :=
+  ⟨Option.some.inj ((hpmp n hn c hc).trans (hpmp n hn c' hc').symm),
+   (hgpmp.1 n hn c hc).symm.trans (hgpmp.1 n hn c' hc')⟩
+
+/-- **A node has a single parent exactly when its parents agree on the grandparent.**
+
+So `ParentWitness.SingleParents` — the named class whose verdict is closed
+(`NoDeadEndVerdict.sat_of_singleParents`) — is precisely *the state has no ambiguity left in the one
+coordinate the window forgot*. Widening the window to `k` moves that coordinate from `s-3` to
+`s-k`; it never removes it, because the parents of a `k`-window node are still free in their own
+`k`-th component. Only an identifier carrying the whole prefix has a single parent everywhere, and
+that identifier is the path itself. -/
+theorem singleParent_iff_gparents {h : GPathM} (hpmp : PMP h) (hgpmp : GPMP h)
+    {n : PNodeM} (hn : n ∈ h.nodes) :
+    (∀ c ∈ n.parents, ∀ c' ∈ n.parents, c = c') ↔
+      (∀ c ∈ n.parents, ∀ c' ∈ n.parents, c.gparent_id = c'.gparent_id) := by
+  constructor
+  · intro hs c hc c' hc'; rw [hs c hc c' hc']
+  · intro hg c hc c' hc'
+    obtain ⟨h1, h2⟩ := parents_agree_but_gparent hpmp hgpmp hn hc hc'
+    exact pathNodeId_ext h1 h2 (hg c hc c' hc')
+
+/-- info: 'AbsSat.GraphPath.Model.ParentId.singleParent_iff_gparents' does not depend on any axioms -/
+#guard_msgs in
+#print axioms singleParent_iff_gparents
+
 /-- **A chain is determined by its map ids.** Two chains that agree on every
 map id are the same chain. So at a pinned step there is no choice between two
 path nodes: the pick is fixed by the requirement's map id and the map id below

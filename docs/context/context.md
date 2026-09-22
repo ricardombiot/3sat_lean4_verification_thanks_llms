@@ -993,3 +993,72 @@ con todo pin sobre su misma variable, y el mapa enlaza `2v → 2v+1` **cruzado**
 `parent_id` de `q` quedan forzados por el pin. Lo único que no queda forzado es el **`gparent_id`**
 —el tercer componente de la ventana—, y ahí es donde entraría un paso de descenso, uno solo. Es el
 sitio del repo donde la ventana de 3 y el hueco abierto se tocan directamente.
+
+### 5.14 La fila sin uniones: tienes razón, y aquí está la cuenta
+
+La línea de la tabla de §5.13 («ramificar cuesta el 7,3% de las filas») **estaba mal contada**, y la
+objeción es exactamente la correcta: partir un nodo obliga a crear identificadores nuevos, y eso se
+propaga. Lo he demostrado, y sale peor de lo que yo sugería.
+
+#### El teorema que lo decide
+
+Dos lemas nuevos en `ParentId.lean`, y salen **sin ningún axioma** (ni `propext`):
+
+* **`parents_agree_but_gparent`** — `PMP` fija el `id` de todos los padres de un nodo y `GPMP` fija
+  su `parent_id`. Nada fija su `gparent_id`.
+* **`singleParent_iff_gparents`** — luego **un nodo tiene un solo padre exactamente cuando sus
+  padres coinciden en el `gparent_id`**.
+
+Léelo así: un nodo del paso `s` lleva los ids de mapa de `s`, `s-1`, `s-2`. Sus padres coinciden en
+`s-1` y `s-2` y solo pueden diferir en el de **`s-3`** — la primera coordenada que cae **fuera de la
+ventana**.
+
+#### Por qué no hay versión polinómica
+
+De ahí sale la consecuencia que responde a tu «mmm», y es estructural, no empírica:
+
+> **Ensanchar la ventana no baja el in-degree.** Con ventana `k`, los padres de un nodo siguen
+> siendo libres en su propia componente `k`-ésima: la ambigüedad se muda del paso `s-3` al `s-k`,
+> pero no desaparece. El in-degree está acotado por *una capa del mapa* (≤7 aquí) para **cualquier**
+> `k` fijo.
+
+Y por tanto: forzar in-degree 1 en todas partes = que el identificador distinga la historia
+completa = **la ventana es el prefijo entero**. Eso es `|mapa|^pasos` identificadores. La única
+ventana que da `SingleParents` siempre es la que convierte el identificador en el camino, que es
+justo lo que la máquina existe para no hacer.
+
+Y el 7,3% tampoco salva la cuenta, por la razón que apuntabas: los cortes **se componen**. Partir un
+nodo distingue a todos sus descendientes; bajo la regla «no unir nunca», la anchura de la fila
+multiplica por el in-degree en cada corte, así que con una fracción constante de filas ambiguas la
+anchura es `2^Θ(n)`. Sin un teorema que acote cuántas copias mata el review después, la cuenta
+honesta es exponencial. Dicho de otro modo: **la máquina que no une es búsqueda con retroceso**, y
+proponerla como algoritmo no aporta nada.
+
+#### Corrección a §5.13
+
+Escribí que «el hueco abierto es exactamente el precio del `doJoin`». **No es exacto.** El olvido lo
+hace **la ventana del identificador**; el `doJoin` lo amplifica al fundir procedencias distintas
+bajo la misma clave, pero aunque no hubiera uniones de línea, dos historias que solo difieren en el
+paso `s-3` colapsan igual en el mismo nodo. El precio es el de **olvidar**, y la ventana es el
+tamaño del olvido.
+
+#### Un atajo que puedo descartar ya, y me ahorra proponerlo
+
+La alternativa barata al corte sería no partir el nodo sino **partir su tabla**: guardar los owners
+por padre (×in-degree ≤ 7, local, sin propagarse, polinómico). **No compra nada**, y ahora sé por
+qué con precisión: el descenso de un paso **ya es gratis** en la máquina actual —
+`Descent.parent_owns_of_coherent` demuestra que todo owner de un nodo coherente es owner de *algún*
+padre—, así que bajar manteniendo vivo **un** objetivo siempre se puede. Lo que `ChainSound` pide de
+más es que los nodos **del propio camino** sean compatibles **entre sí**, todos contra todos, no
+solo padre-hijo. Particionar la tabla por padre no toca esa demanda.
+
+#### Lo que sí queda en pie de todo esto
+
+`SingleParents` deja de ser «una clase de fórmulas» y pasa a ser **una medida del estado**: *no queda
+ambigüedad en la coordenada olvidada*. Y entonces la pregunta barata —y creo que la buena— ya no es
+cómo forzarla, sino:
+
+> **¿qué parte de esa ambigüedad la colapsa ya el review agresivo?** Medido: in-degree 1 en el
+> **92,7%** de las filas, máximo 3–4 sobre un techo teórico de 7. Eso no es suerte: es el filtro
+> haciendo el trabajo. Un teorema de la forma «tras el review agresivo, in-degree > 1 implica *X*»
+> sería nuevo, local, y ataca el hueco por donde el algoritmo ya está ganando.
