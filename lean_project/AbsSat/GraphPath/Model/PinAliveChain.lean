@@ -2234,4 +2234,66 @@ theorem Sym_cleanStep (g : GPathM) (hnd : NodupIds g) (P : PathNodeId → Prop)
 #guard_msgs in
 #print axioms Sym_cleanStep
 
+/-- El paso no mueve el paso actual. -/
+theorem current_step_cleanStep (g : GPathM) (r : PathNodeId) :
+    (cleanStep g r).current_step = g.current_step := by
+  cases hnr : g.node? r with
+  | none => rw [cleanStep_none g r hnr]
+  | some d =>
+    rw [cleanStep_some g r d hnr]
+    unfold intersectOrDrop
+    split
+    · exact current_step_unlinkIncompatible _ _
+    · exact current_step_unlinkIncompatible _ _
+
+/-- **Y un protegido sigue en la tabla global después del paso.**
+
+La cuarta y última de las hipótesis que el bucle lleva a cuestas. Dos casos: si el review mira a
+otro, `mem_gowners_cleanStep`; y si mira al propio protegido, **no lo borra** —el nodo que examina
+es válido (`isValidNode_relink_of_Anchored`)— y la rama que toma no toca la tabla global. -/
+theorem mem_gowners_cleanStep_ofP (g : GPathM) (P : PathNodeId → Prop) [DecidablePred P]
+    (hrz : Sons.RootAtZero g)
+    (hrange : ∀ y, P y → 0 ≤ y.id.step ∧ y.id.step < g.current_step)
+    (hPg : ∀ y, P y → y ∈ g.gowners) (hall : ∀ y, P y → Anchored g P y)
+    (y r : PathNodeId) (hPy : P y) : y ∈ (cleanStep g r).gowners := by
+  by_cases hyr : y = r
+  · subst hyr
+    obtain ⟨ny, hny, hcovy, hpary, hsony⟩ := hall y hPy
+    have hvalid : isValidNode g (relink (intersectOwners ny.owners g.gowners) ny) = true :=
+      isValidNode_relink_of_Anchored g P y ny hrz (hrange y hPy).1 (hrange y hPy).2 hny
+        ⟨ny, hny, hcovy, hpary, hsony⟩
+    have hstep2 : (unlinkIncompatible (updateAt g y
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) y).current_step
+        = g.current_step := current_step_unlinkIncompatible _ _
+    have hcond : isValidNode (unlinkIncompatible (updateAt g y
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })) y)
+        (relink (intersectOwners ny.owners g.gowners) ny) = true := by
+      rw [isValidNode_congr_step g _ _ hstep2]
+      exact hvalid
+    rw [cleanStep_some g y ny hny]
+    unfold intersectOrDrop
+    split
+    · rw [gowners_unlinkIncompatible, gowners_updateAt]; exact hPg y hPy
+    · next hbad => exact absurd hcond hbad
+  · exact mem_gowners_cleanStep g r y (hPg y hPy) hyr
+
+/-! ## Las cuatro, cerradas
+
+| hipótesis del bucle | quién la conserva |
+|---|---|
+| el anclaje de cada protegido | `Anchored_cleanStep_all` |
+| la simetría dentro de `P` | `Sym_cleanStep` |
+| el rango de los pasos | `current_step_cleanStep` |
+| `P` dentro de la tabla global | `mem_gowners_cleanStep_ofP` |
+
+`Sons.RootAtZero` se conserva al podar (`Sons.RootAtZero_of_pruned`) y `NodupIds` por los tres
+lemas de arriba, así que el paquete entero cruza un paso del review.
+
+Lo que queda es el `fold`: `cleanInvalidGo` aplica `cleanStep` id a id, y la inducción sobre esa
+lista ya no tiene **nada** dentro que no esté demostrado. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_gowners_cleanStep_ofP' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_gowners_cleanStep_ofP
+
 end AbsSat.GraphPath.Model.PinAliveChain
