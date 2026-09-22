@@ -314,36 +314,47 @@ theorem parents_own_unique_owner (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp 
   rw [← huniq z hzx hzs]
   exact hzc
 
-/-- **With one parent per node, the common owner is free.** The pick at `lo` is not a root, so it has
-a parent `c`, and `SingleParents` makes it *the* parent. For every pick above, the sweep's pair
-consistency hands a common owner on the step below `lo`; an owner exactly one step below a node **is**
-a parent of it (`owners_below_iff_parents`), so each of those witnesses is `c` itself. The `k`-fold
-intersection the descent asks for is therefore the 2-fold one, read `k` times at the same node.
+/-- **Two parents of the same node never own each other.** They sit at the same step, and an owner
+at a node's own step *is* that node (`OOS`), so if one owned the other they would be equal.
 
-This is `ParentWitness.par_witness_triple` along the whole partial chain instead of one triple, and it
-is where the window pays: by `ParentWitness.parents_differ_below` two parents of a node agree on their
-map id (`PMP`) and on their own parent (`GPMP`), so `SingleParent` is the statement that the previous
-line holds no two nodes with the same two-step history — one level deeper than what a window of two
-could even say. -/
-theorem commonOwner_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
-    (hsp : ParentWitness.SingleParents g) : CommonOwner g := by
+The consequence is about the filter, not about the parents: `aggPair` only ever tests a pair
+`(x, w)` with `w` already in `x`'s table, so **no sweep ever compares two parents of a node**. The
+ambiguity the in-degree measures is invisible to both legs of the aggressive review. -/
+theorem parents_never_own_each_other (g : GPathM) (a : Adj g) {x : PathNodeId} {n : PNodeM}
+    (hx : g.node? x = some n)
+    {c c' : PathNodeId} (hc : c ∈ n.parents) (hc' : c' ∈ n.parents) (hne : c ≠ c')
+    {mc : PNodeM} (hmc : g.node? c = some mc) : c' ∉ mc.owners := by
+  intro hown
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid := node?_id_eq g x n hx
+  have hcs : c.id.step = x.id.step - 1 := by
+    have := a.rc.shape.pbelow n hmem c hc; rw [hid] at this; exact this
+  have hcs' : c'.id.step = x.id.step - 1 := by
+    have := a.rc.shape.pbelow n hmem c' hc'; rw [hid] at this; exact this
+  have hmcid := node?_id_eq g c mc hmc
+  exact hne (((a.rc.oos mc (List.mem_of_find?_eq_some hmc) c' hown
+    (by rw [hmcid]; omega)).trans hmcid).symm)
+
+/-- **What the descent really asks of a node**: among its parents there is one that *every* pick
+owning the node owns too.
+
+`SingleParents` supplies it for a trivial reason — there is only one parent to choose. But the
+descent never needed uniqueness: it needs the choice to be makeable **once, for all the picks above
+at the same time**. That is strictly less, and it is exactly what `CommonOwner` consumes. -/
+def ParentMeet (g : GPathM) : Prop :=
+  ∀ x n, g.node? x = some n → 1 ≤ x.id.step → x.id.step < g.current_step →
+    ∃ c ∈ n.parents, ∀ y m, g.node? y = some m → 0 ≤ y.id.step → y.id.step < g.current_step →
+      y ∈ n.owners → c ∈ m.owners
+
+/-- **And it is enough.** No sweep, no `AggOk`: the meeting parent is handed to every pick above
+directly. -/
+theorem commonOwner_of_parentMeet (g : GPathM) (a : Adj g) (hpm : ParentMeet g) : CommonOwner g := by
   intro sel lo hlo0 hlo hs
   obtain ⟨hsome, hstep⟩ := hs.node lo (Int.le_refl _) (by omega)
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
   have hmem : n ∈ g.nodes := List.mem_of_find?_eq_some hn
   have hid : n.id = sel lo := node?_id_eq g _ n hn
-  -- above step 0 the pick is not a root, so it has a parent
-  have hroot : n.id.parent_id.isNone = false := by
-    have hne : (sel lo).parent_id ≠ none := by
-      intro hnone
-      have := (hs.root_shape lo (Int.le_refl _) (by omega)).mp hnone
-      omega
-    rw [hid]
-    cases hp : (sel lo).parent_id with
-    | none => exact absurd hp hne
-    | some _ => rfl
-  obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
-    (SelfOwn.have_parents_of_isValidNode g n (a.ctx.nodeval _ n hn) hroot)
+  obtain ⟨c, hc, hcall⟩ := hpm (sel lo) n hn (by rw [hstep]; omega) (by rw [hstep]; omega)
   obtain ⟨mc, hmc, hmcid⟩ := a.rc.shape.pn n hmem c hc
   have hcnode : g.node? c = some mc := by rw [← hmcid]; exact node?_of_mem a.rc.nodup mc hmc
   have hcstep : c.id.step = lo - 1 := by
@@ -356,23 +367,53 @@ theorem commonOwner_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
   refine ⟨c, mc, hcnode, hcstep, fun k hk0 hk1 => ?_⟩
   rcases int_eq_or_ne k lo with rfl | hne
   · simpa only [ownersOf, hn] using hcown
-  · -- the pick above owns `sel lo`, so pair consistency shares an owner on the step below
-    obtain ⟨hksome, hkstep⟩ := hs.node k hk0 hk1
+  · obtain ⟨hksome, hkstep⟩ := hs.node k hk0 hk1
     obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp hksome
     have hkx : sel k ∈ n.owners := by
       have h := hs.owned k lo hk0 (Int.le_refl _) hk1 (by omega) hne
       have h' := (List.mem_filter.mp h).1
       simpa only [ownersOf, hn] using h'
-    obtain ⟨w, hwn, hwk, hws⟩ := ParentWitness.shared_owner a hok hn hnk
-      (by rw [hstep]; omega) (by rw [hstep]; omega)
-      (by rw [hkstep]; omega) (by rw [hkstep]; exact hk1) hkx (lo - 1) (by omega) (by omega)
-    -- and that shared owner is one step below `sel lo`, hence a parent of it, hence `c`
-    have hwp : w ∈ n.parents :=
-      (owners_below_iff_parents g a (sel lo) n hn (by rw [hstep]; omega) w
-        (by rw [hws, hstep])).mp hwn
-    have hwc : w = c := hsp n hmem w hwp c hc
-    rw [hwc] at hwk
-    simpa only [ownersOf, hnk] using hwk
+    simpa only [ownersOf, hnk] using
+      hcall (sel k) nk hnk (by rw [hkstep]; omega) (by rw [hkstep]; exact hk1) hkx
+
+/-- **One parent per node gives the meeting for free.** The sweep's pair consistency hands, for each
+pick above, a common owner one step below the node; an owner exactly one step below **is** a parent
+(`owners_below_iff_parents`), and `SingleParent` identifies every one of those witnesses with the
+same `c`. -/
+theorem parentMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (hsp : ParentWitness.SingleParents g) : ParentMeet g := by
+  intro x n hx hx1 hxs
+  have hmem : n ∈ g.nodes := List.mem_of_find?_eq_some hx
+  have hid : n.id = x := node?_id_eq g x n hx
+  have hroot : n.id.parent_id.isNone = false := by
+    have hnr := a.rc.shape.notroot n hmem (by rw [hid]; omega)
+    cases hp : n.id.parent_id with
+    | none => exact absurd hp hnr
+    | some _ => rfl
+  obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode g n (a.ctx.nodeval x n hx) hroot)
+  refine ⟨c, hc, fun y m hy hy0 hys hyn => ?_⟩
+  obtain ⟨w, hwn, hwy, hws⟩ := ParentWitness.shared_owner a hok hx hy (by omega) hxs hy0 hys hyn
+    (x.id.step - 1) (by omega) (by omega)
+  have hwp : w ∈ n.parents :=
+    (owners_below_iff_parents g a x n hx hx1 w hws).mp hwn
+  rw [← hsp n hmem w hwp c hc]
+  exact hwy
+
+/-- **With one parent per node, the common owner is free.** The pick at `lo` is not a root, so it has
+a parent `c`, and `SingleParents` makes it *the* parent. For every pick above, the sweep's pair
+consistency hands a common owner on the step below `lo`; an owner exactly one step below a node **is**
+a parent of it (`owners_below_iff_parents`), so each of those witnesses is `c` itself. The `k`-fold
+intersection the descent asks for is therefore the 2-fold one, read `k` times at the same node.
+
+This is `ParentWitness.par_witness_triple` along the whole partial chain instead of one triple, and it
+is where the window pays: by `ParentWitness.parents_differ_below` two parents of a node agree on their
+map id (`PMP`) and on their own parent (`GPMP`), so `SingleParent` is the statement that the previous
+line holds no two nodes with the same two-step history — one level deeper than what a window of two
+could even say. -/
+theorem commonOwner_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (hsp : ParentWitness.SingleParents g) : CommonOwner g :=
+  commonOwner_of_parentMeet g a (parentMeet_of_singleParents g a hok hsp)
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.parent_owns_of_coherent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -385,6 +426,14 @@ theorem commonOwner_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_singleParents' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms commonOwner_of_singleParents
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.parents_never_own_each_other' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms parents_never_own_each_other
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_parentMeet' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms commonOwner_of_parentMeet
 
 /-- **And with it the state has no dead ends**, so the verdict follows
 (`NoDeadEndVerdict.sat_of_noDeadEnd`). -/

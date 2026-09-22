@@ -1062,3 +1062,78 @@ cómo forzarla, sino:
 > **92,7%** de las filas, máximo 3–4 sobre un techo teórico de 7. Eso no es suerte: es el filtro
 > haciendo el trabajo. Un teorema de la forma «tras el review agresivo, in-degree > 1 implica *X*»
 > sería nuevo, local, y ataca el hueco por donde el algoritmo ya está ganando.
+
+### 5.15 «Tras el review agresivo, in-degree > 1 implica X»: la X, y por qué no puede venir del review
+
+Atacada la pregunta, y tiene dos mitades. La segunda corrige la primera.
+
+#### La X existe, y es local: `ParentMeet`
+
+Releyendo `commonOwner_of_singleParents` se ve que la hipótesis de padre único **solo se usa para
+una cosa**: identificar entre sí los testigos que la criba produce. Para cada pick de la cadena por
+encima de `lo`, `shared_owner` entrega un owner común un paso por debajo, que por
+`owners_below_iff_parents` **es un padre**; `SingleParents` los declara a todos el mismo. La
+unicidad nunca hizo falta: hacía falta **elegir una vez, para todos los picks a la vez**.
+
+Eso es un enunciado por nodo, y lo he separado (`Descent.lean`, `[propext, Quot.sound]`):
+
+```
+ParentMeet g :=  para todo nodo x con tabla n,  ∃ c ∈ n.parents,
+                 todo owner y de x tiene a c en su propia tabla
+```
+
+* **`commonOwner_of_parentMeet`** — y basta para `CommonOwner`, **sin la criba y sin `AggOk`**: el
+  padre que se encuentran se le entrega directamente a cada pick.
+* **`parentMeet_of_singleParents`** — y `SingleParents` lo da gratis; `commonOwner_of_singleParents`
+  pasa a ser la composición de los dos, con el mismo enunciado de antes.
+
+Ganancia real: `SingleParents` ⟹ `ParentMeet` ⟹ `CommonOwner` ⟹ veredicto, con la de en medio
+**estrictamente más débil que la primera** y, sobre todo, **local**: habla de un nodo y su tabla, no
+de cadenas. Es comprobable nodo a nodo, así que se puede medir.
+
+#### Y la X **no** puede salir del review agresivo
+
+Aquí está la corrección, y es la parte que ahorra trabajo. Demostrado
+(`parents_never_own_each_other`):
+
+> **dos padres de un mismo nodo nunca se poseen mutuamente** — están en el mismo paso, y un owner en
+> el paso propio de un nodo **es** ese nodo (`OOS`).
+
+Y `aggPair` solo dispara sobre un par `(x, w)` con `w` ya en la tabla de `x`. Juntando las dos:
+
+> **ninguna pasada del filtro agresivo compara jamás dos padres del mismo nodo.** La ambigüedad que
+> el in-degree mide es **invisible** para las dos patas del review.
+
+Así que la pregunta tal como la formulamos —«tras el review agresivo, in-degree > 1 implica X»— no
+puede tener una X sobre el *par de padres* deducida de `AggOk`: el review no mira ahí. Lo que el
+review sí hace con el in-degree es bajarlo **indirectamente**, matando nodos por otras razones. Eso
+explica el 92,7% medido sin necesidad de un teorema sobre padres.
+
+#### Y tampoco se puede añadir como pata del filtro
+
+La tentación inmediata es convertir `ParentMeet` en un test y añadirlo al barrido: para cada nodo
+`n`, si `⋂_y (parents(n) ∩ owners(y)) = ∅`, quitar `n`. El coste sería del mismo orden que el
+barrido actual (|owners|×|parents| frente a |owners|²), o sea **polinómico y barato**.
+
+**Pero no es sano.** Si `n` está en un camino real por su padre `c*`, su tabla contiene además
+owners que vienen de caminos reales por *otro* padre `c'`, y para esos `y` el conjunto
+`parents(n) ∩ owners(y)` puede no contener `c*`. La intersección puede ser vacía con `n` siendo
+perfectamente real: el test borraría nodos buenos.
+
+Y la razón es la misma de siempre, dicha una vez más: **la tabla de un nodo es la unión de sus ramas,
+y `ParentMeet` es una condición sobre la intersección de toda la tabla.** Separar las ramas para que
+la condición sea por rama es exactamente partir el nodo — §5.14, exponencial. La escalera vuelve a
+cerrar solo por el extremo caro.
+
+#### Balance del ataque
+
+| | |
+|---|---|
+| nuevo y utilizable | `ParentMeet`: la hipótesis local exacta que el descenso consume; `SingleParents` es un caso suyo |
+| nuevo y negativo | el review agresivo no ve los pares de padres, así que no puede ser la fuente de la X |
+| descartado con razón | añadir `ParentMeet` como tercera pata del filtro (no conserva soluciones) |
+
+Lo siguiente que haría, y es barato: **medir `ParentMeet`** con una sonda sobre los estados reales.
+Si se cumple siempre, es la hipótesis declarada que yo pondría en lugar de `SingleParents` — más
+débil, local, y con el veredicto ya demostrado detrás. Si falla, el contraejemplo es un nodo
+concreto con su tabla, que es el objeto más pequeño con el que se ha podido mirar este hueco.
