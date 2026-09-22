@@ -839,3 +839,65 @@ camino en el nodo que se pincha»*.
 > La lección de método: antes de invertir en una hipótesis de este repo, **comprobar si es
 > equivalente al objetivo**. Tres de las que parecían reducciones no lo eran, y las tres se
 > detectan demostrando la vuelta, que en los tres casos salió en menos de treinta líneas.
+
+### 5.12 `GhostsLine` explorado: la hipótesis declarada tampoco es más barata
+
+Aplico la lección de §5.11 a la que quedaba primera de la lista, **A**, y el resultado es el cuarto
+de la serie — y el más incómodo, porque `GhostsLine` es *la hipótesis declarada del resultado de
+cabecera* (v141, `DeclaredVerdict.verdict_iff`).
+
+**Lo que dice.** Para cada entrada `(x, v)` del estado `B` que queda tras el review base del estado
+fijado, una de tres: la entrada es **asimétrica**, o las dos tablas **no comparten owner** en algún
+paso, o la entrada **está en un camino** del estado final `R`. Las dos primeras son exactamente las
+dos patas del filtro agresivo del autor; la tercera es realizabilidad.
+
+**Lo que encontré, leyendo la prueba que ya existía.** `tablesSound_of_ghosts` aplica la hipótesis
+**solo a pares que siguen siendo entrada de `R`**, y en sus dos primeras ramas *refuta* las dos
+patas en vez de usarlas. Eso no era un detalle de estilo: es el enunciado entero colapsando.
+
+* **`legs_dead`** (nuevo) — si `(x, v)` sobrevive hasta `R`, entonces en `B` es simétrica **y**
+  comparte todos los pasos. Razón: `R` es `AggOk`, y las dos propiedades **suben** a las tablas más
+  grandes de `B` (la segunda por el contrarrecíproco de `shares_false_of_sub`, que ya estaba).
+* **`GhostsDetectableR`** (nuevo) — la misma hipótesis restringida a esos pares. Basta para el
+  veredicto (`tablesSound_of_ghostsR`), o sea que restringir no pierde nada.
+* **`ghostsR_iff_tablesSound`** — y restringida **es** el objetivo: `GhostsDetectableR B R ↔
+  TablesSound R`. Con las dos patas muertas, solo queda el tercer disyunto, que es la definición de
+  tabla exacta.
+* **`ghostsLineR_iff_filterSlices`** — lo mismo a nivel de la ejecución: `GhostsLineR φ ↔
+  FilterSlices φ`.
+
+Todo con cierre `[propext, Quot.sound]`.
+
+**Cómo hay que leerlo.** `GhostsLine` no es una reducción de `FilterSlices`: es `FilterSlices` **más
+un excedente que el veredicto no lee nunca**. El excedente es la parte que habla de las entradas que
+*mueren* en el review agresivo — «toda entrada fantasma era ya detectable tras la primera pasada»,
+que es la medida de v140 (3,02 M fantasmas, ninguna excepción). Esa medida es real y es buena
+evidencia; simplemente **valida la parte que no se usa**, además de la que sí.
+
+Esto también explica algo que en §5.6 anoté como raro sin entenderlo: `GhostsLine` sustituyó a
+`CommonOwner` en v133 *por localidad*, no por fuerza — y v141 ya lo advertía («no está demostrado
+que `GhostsLine` sea más débil que `CommonOwner`»). La localidad es cierta: habla de una pasada de
+una operación. La debilidad no: por debajo es el objetivo.
+
+**Recomendación concreta, y es un cambio de enunciado, no de prueba.** Declarar `FilterSlices` (o
+`GhostsLineR`) en lugar de `GhostsLine` en `DeclaredVerdict`: es estrictamente menos obligación,
+tiene exactamente las mismas consecuencias, y deja de pedir nada sobre entradas que el algoritmo
+tira.
+
+**Y dónde queda el terreno que sí se gana.** Con A caída, el tronco de B es el único de la lista
+corta que pide **menos** de forma visible, y en dos ejes a la vez
+(`RunInhabited.FilterSoundAt` frente a `FilterSlices`):
+
+| eje | `FilterSlices` | `FilterSoundAt` |
+|---|---|---|
+| qué entradas | **todas** | solo las que apuntan a un **paso literal** o al paso 0 (`LitStep`) |
+| qué fijaciones | `ws`, `rq` **arbitrarios** | las del propio envío: `weakReqOfCnf φ d`, `reqOfCnf φ d`, con `d` hijo real |
+
+Con la advertencia de rigor: no son comparables como implicación, porque `FilterSoundAt` también
+**arrastra un invariante más débil** (`SoundAt` en vez de `TablesSound`). Es el intercambio normal
+de una inducción: invariante más débil, obligación más débil. Y por delante tiene ya dos puertas
+demostradas (`filterSoundAt_of_sends`, `filterSoundAt_of_pins`).
+
+> Cuarta equivalencia, mismo método, otra vez por debajo de treinta líneas de vuelta. Ya no es
+> casualidad: en este repo **las hipótesis que hablan del estado final tienden a ser el objetivo**,
+> y las que hablan de *qué entradas* y *qué fijaciones* son las que de verdad recortan.
