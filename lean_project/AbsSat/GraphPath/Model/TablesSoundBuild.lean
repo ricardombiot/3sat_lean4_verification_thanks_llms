@@ -44,6 +44,8 @@ open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.Exactness (TablesSound Realizes)
 open AbsSat.GraphPath.Model.AggressiveReview
+open AbsSat.Cnf
+open AbsSat.GraphMap.CnfMap
 
 -- ============================================================
 -- El join: no inventa nada
@@ -251,6 +253,57 @@ theorem filterLeavesOnlyPaths_iff_tablesSound (P : GPathM) (reqs : List NodeId) 
     FilterLeavesOnlyPaths P reqs ↔ TablesSound (filterAllAgg P reqs) :=
   ⟨fun h x nx hx h0 h1 q hq0 hq1 hqn => h x nx hx h0 h1 q hqn hq0 hq1,
    fun h x nx hx h0 h1 q hqn hq0 hq1 => h x nx hx h0 h1 q hq0 hq1 hqn⟩
+
+-- ============================================================
+-- Y la mitad del bloque de literales sale gratis
+-- ============================================================
+
+/-- **La revisión sin pin conserva `TablesSound`.** Es `RunInhabited.soundAt_review` en esta
+moneda: ningún camino se pierde cuando no se fija nada. -/
+theorem tablesSound_review (g : GPathM) (hnd : NodupIds g) (ht : TablesSound g) :
+    TablesSound (filterAllAgg g []) := fun x n hx hx0 hx1 q hq0 hq1 hqn =>
+  RunInhabited.soundAt_review (fun _ => True) g hnd (RunInhabited.soundAt_of_tablesSound ht)
+    x n hx hx0 hx1 q hq0 hq1 trivial hqn
+
+/-- **Un filtro sin requisitos es la revisión sola.** -/
+theorem tablesSound_filter_nil (g : GPathM) (hnd : NodupIds g) (reqs : List NodeId)
+    (hnil : reqs = []) (ht : TablesSound g) : TablesSound (filterAllAgg g reqs) := by
+  subst hnil; exact tablesSound_review g hnd ht
+
+/-- **El envío a un nodo de VARIABLE no pide nada, así que su filtro sale gratis.**
+
+`reqOfCnf_var`: un paso par del bloque de literales no tiene requisitos duros. El filtro se reduce
+entonces a la revisión, y la revisión conserva `TablesSound` sin hipótesis.
+
+Esto no es un caso de borde: **es la mitad del bloque de literales**, un paso por variable. Sumado
+al paso frontera y a los que están por encima de `fusionTop` —que tampoco piden nada—, el muro se
+queda solo en dos sitios. -/
+theorem tablesSound_filterAllAgg_var (φ : Cnf) (g : GPathM) (hnd : NodupIds g)
+    (d : NodeId) (v : Nat) (hv : v < φ.nVars) (hd : d.step = varStep v)
+    (ht : TablesSound g) : TablesSound (filterAllAgg g (reqOfCnf φ d)) := by
+  rw [reqOfCnf_var φ d v hv hd]
+  exact tablesSound_review g hnd ht
+
+/-! **Dónde queda el muro, con los pasos contados.** `reqOfCnf` leído literal:
+
+| paso de `d` | requisitos | el filtro |
+|---|---|---|
+| `varStep v` (par, bloque literal) | **ninguno** | gratis (`tablesSound_filterAllAgg_var`) |
+| `negStep v` (impar, bloque literal) | **uno**, en `varStep v` — el paso justo de abajo | abierto |
+| el paso frontera `litBlock` | **ninguno** | gratis |
+| paso de cláusula | **tres**, los tres literales | abierto |
+| de `fusionTop` para arriba | **ninguno** | gratis |
+
+Así que de los `2n + m + 2` pasos de la corrida, **`n + 2` no cuestan nada**, y el muro vive en los
+`n` pasos impares —con un solo requisito, y **adyacente**: el paso de arriba del estado, que es
+justo donde toda cadena termina— y en los `m` de cláusula, con tres.
+
+El caso impar es el más prometedor de los dos que quedan: un requisito, en el paso donde la cadena
+acaba, y `SupportedRun.shared_pin_witness` ya entrega allí un testigo **compartido** por el par. -/
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.tablesSound_filterAllAgg_var' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_filterAllAgg_var
 
 /-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.reqs_in_owners' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
