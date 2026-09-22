@@ -292,6 +292,92 @@ theorem triple_data_of_survival (g : GPathM) (hR : ReadableAgg g)
     ht x n₀ hx₀ hx0 hxg1 z hz0 hz1 hzL (hownx z hzx),
     ht q m₀ hq₀ hq0 hqg1 z hz0 hz1 hzL (hownq z hzq)⟩
 
+
+-- ============================================================
+-- La otra ruta: `Threaded.chain_through_of_symmetric`
+-- ============================================================
+
+/-- **Una cadena `IsChain` con posesión por pares ya es `ChainSound`.**
+
+Los otros tres campos salen del contexto del lector y no de hipótesis: `self_owned` de `SelfOwned`,
+`son_link` del enlace de padre de `IsChain` más `SMP`, y `root_shape` de `RootAtZero` y `NotRoot`.
+
+Se escribe aquí porque es el puente que le falta a `Threaded.chain_through_of_symmetric`: ese
+teorema entrega, para **todo** nodo `a`, una cadena enlazada que pasa por `a` y cuyos nodos están
+todos en la tabla de `a` — todo ello **demostrado**, bajo simetría de owners. Lo único que no
+entrega es que los nodos de esa cadena se posean **entre sí**. -/
+theorem chainSound_of_chain (g : GPathM) (a : AdjacentOwners.Adj g) (hsmp : Sons.SMP g)
+    (hpos : 0 < g.current_step)
+    (sel : Int → PathNodeId) (hchain : IsChain g sel) (howned : PairwiseOwned g sel) :
+    ChainSound g sel := by
+  have hnode : ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ m, g.node? (sel k) = some m ∧ (sel k).id.step = k := by
+    intro k h0 h1
+    obtain ⟨hs, hstep⟩ := hchain.1 k h0 h1
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+    exact ⟨m, hm, hstep⟩
+  refine ⟨⟨hchain, howned, ?_⟩, ?_, ?_, ?_, ?_⟩
+  · intro k h0 h1
+    obtain ⟨m, hm, hstep⟩ := hnode k h0 h1
+    exact a.ctx.ownGow (sel k) m hm (sel k) (a.ctx.self (sel k) m hm)
+      (by rw [hstep]; exact h0) (by rw [hstep]; exact h1)
+  · intro k h0 h1
+    obtain ⟨m, hm, _⟩ := hnode k h0 h1
+    simpa only [ownersOf, hm] using a.ctx.self (sel k) m hm
+  · intro k h0 h1
+    obtain ⟨m1, hm1, _⟩ := hnode (k + 1) (by omega) h1
+    obtain ⟨m0, hm0, _⟩ := hnode k h0 (by omega)
+    have hp : sel k ∈ m1.parents := by simpa [hm1] using hchain.2 k h0 h1
+    have := hsmp m1 (List.mem_of_find?_eq_some hm1) (sel k) hp m0
+      (List.mem_of_find?_eq_some hm0) (node?_id_eq g _ m0 hm0)
+    rw [node?_id_eq g _ m1 hm1] at this
+    simpa only [sonsOf, hm0] using this
+  · obtain ⟨m, hm, hstep⟩ := hnode 0 (Int.le_refl 0) hpos
+    have := a.ctx.rootz m (List.mem_of_find?_eq_some hm) (by rw [node?_id_eq g _ m hm, hstep])
+    rwa [node?_id_eq g _ m hm] at this
+  · intro k hk0 hk1
+    obtain ⟨m, hm, hstep⟩ := hnode k (by omega) hk1
+    have := a.ctx.shape.notroot m (List.mem_of_find?_eq_some hm)
+      (by rw [node?_id_eq g _ m hm, hstep]; omega)
+    rwa [node?_id_eq g _ m hm] at this
+
+/-- **El residuo de la otra ruta, aislado.**
+
+`Threaded.chain_through_of_symmetric` da, para todo nodo, una cadena enlazada que pasa por él y
+vive entera dentro de su tabla. Lo único que falta para que sea `ChainSound` —y por tanto para
+`SupportedS`, y por tanto para que el lector no se atasque— es que los nodos de **esa** cadena se
+posean entre sí.
+
+Nótese lo que **no** pide, comparado con todo lo que se cayó en esta sesión: no habla de dos owners
+cualesquiera de un nodo, ni de padres, ni de tríos arbitrarios. Habla de los nodos de **una cadena
+enlazada padre-hijo que ya está contenida en una sola tabla**. Los pares adyacentes se poseen gratis
+(`Adj.links`: padres e hijos están en la tabla); lo que queda es los no adyacentes. -/
+def ChainPairwise (g : GPathM) : Prop :=
+  ∀ a n, g.node? a = some n → ∀ sel : Int → PathNodeId, IsChain g sel →
+    (∀ i, 0 ≤ i → i < g.current_step → sel i ∈ n.owners) → PairwiseOwned g sel
+
+/-- **Y con eso, `SupportedS` sin pasar por `SoundAt` ni por el pin.** Una segunda ruta al mismo
+sitio, con un residuo de forma distinta. -/
+theorem supportedS_of_chainPairwise (g : GPathM) (a : AdjacentOwners.Adj g) (hsmp : Sons.SMP g)
+    (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g) (hpos : 0 < g.current_step)
+    (hcp : ChainPairwise g) : SupportedS g := by
+  intro x n hx
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid : n.id = x := node?_id_eq g x n hx
+  have hx0 : 0 ≤ x.id.step := by have := a.rc.snn n hmem; rwa [hid] at this
+  have hx1 : x.id.step < g.current_step := by have := a.rc.below n hmem; rwa [hid] at this
+  obtain ⟨sel, hchain, hsx, hin⟩ :=
+    Threaded.chain_through_of_symmetric g ctx hsym a.rc.oos x n hx (a.ctx.self x n hx) hx0 hx1
+  exact ⟨sel, chainSound_of_chain g a hsmp hpos sel hchain (hcp x n hx sel hchain hin), hsx⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.chainSound_of_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chainSound_of_chain
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.supportedS_of_chainPairwise' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms supportedS_of_chainPairwise
+
 /-- info: 'AbsSat.GraphPath.Model.SupportedRun.triple_data_of_survival' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms triple_data_of_survival
