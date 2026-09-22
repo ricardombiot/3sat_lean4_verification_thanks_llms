@@ -2,6 +2,7 @@
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.PinExact
 import AbsSat.GraphPath.Model.AncestorOwned
+import AbsSat.GraphPath.Model.ReaderBT
 
 /-!
 # El residuo del lector sin retroceso, con su tamaño correcto
@@ -1087,6 +1088,48 @@ se pierda.
 
 Es la misma forma que tenía la simetría de owners cuando se midió (v63): disponible en los dos
 extremos de la lectura, y lo que cuesta es llevarla por el medio. -/
+
+/-- **Que el lector barato acierte en un estado ES que ese estado tenga cadena.**
+
+`readLoop_sound` entrega `Inhabited` de todo estado en el que el lector termina, y
+`SupportedRun.chainSound_of_chain` lo eleva a `ChainSound`. Es la vuelta de `goodPin_exists`: allí
+la cadena daba el pin, aquí el pin da la cadena. -/
+theorem hasChain_of_readAgg (P : GPathM) (hR : ReadableAgg P) (hv : isValid P = true)
+    (hpms : Sons.PMS P) (hsn : Sons.SN P) (hsmp : Sons.SMP P) (hpos : 0 < P.current_step)
+    (h : (ReaderExec.readAgg P).isSome = true) : HasChain P := by
+  unfold ReaderExec.readAgg at h
+  rw [if_pos hv] at h
+  obtain ⟨h', hh'⟩ := Option.isSome_iff_exists.mp h
+  obtain ⟨_, sel, hchain, howned, _⟩ := ReaderExec.readLoop_sound _ P h' hR hv hh'
+  exact ⟨sel, SupportedRun.chainSound_of_chain P
+    (AdjacentOwners.adj_of_readable P hR hv hpms hsn) hsmp hpos sel hchain howned⟩
+
+/-- **Y el hueco entero, en una línea: que el lector barato coincida con el que retrocede.**
+
+`ReaderBT.readerVerdictBT_iff` decide 3-SAT **sin ninguna hipótesis**, y
+`ReaderBT.readerVerdictBT_of_readerVerdictW` ya da una de las dos direcciones — lo que el lector sin
+retroceso acierta, el que retrocede también—.
+
+Así que todo lo que queda abierto en esta línea de trabajo cabe aquí: **que el que retrocede no
+acierte nunca donde el barato falla.** Y la sonda `row-degree bt` no encuentra un solo estado donde
+eso ocurra, sobre todos los corpus.
+
+Nótese lo que esto no es: no es un hueco en la **corrección**. Es un hueco en que la lectura
+**barata** baste. -/
+theorem readerVerdictW_iff_of_agrees
+    (hagree : ∀ ψ : Cnf, ReaderBT.readerVerdictBT ψ = true → ReaderExec.readerVerdictW ψ = true)
+    (φ : Cnf) (hwf : WF φ) : ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ :=
+  ⟨fun h => (ReaderBT.readerVerdictBT_iff φ hwf).mp
+      (ReaderBT.readerVerdictBT_of_readerVerdictW φ h),
+   fun h => hagree φ ((ReaderBT.readerVerdictBT_iff φ hwf).mpr h)⟩
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.hasChain_of_readAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms hasChain_of_readAgg
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_iff_of_agrees' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_agrees
 
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.hasChain_of_noChoice' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
