@@ -1674,4 +1674,66 @@ theorem Anchored_unlinkIncompatible (g : GPathM) (P : PathNodeId → Prop) (z r 
 #guard_msgs in
 #print axioms Anchored_unlinkIncompatible
 
+-- ============================================================
+-- Tercer ladrillo: `Anchored` cruza el borrado, y con él el paso entero
+-- ============================================================
+
+/-- **Y cruza el borrado de un nodo no protegido.**
+
+Los cinco campos, cada uno por su lema: la tabla no la toca `removeNode`, el testigo sigue en la
+tabla global porque no es el borrado, y padre e hijo anclados sobreviven por lo mismo. Todo bajo la
+única condición de siempre: **el borrado no es de `P`**. -/
+theorem Anchored_removeNode (g : GPathM) (P : PathNodeId → Prop) (z r : PathNodeId)
+    (hne : z ≠ r) (hPr : ¬ P r) (h : Anchored g P z) :
+    Anchored (removeNode g r) P z := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  have hcs : (removeNode g r).current_step = g.current_step := rfl
+  refine ⟨unlink r nz, removeNode_node? g r z nz hn hne, ?_, ?_, ?_⟩
+  · intro k hk0 hk1
+    rw [hcs] at hk1
+    obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
+    refine ⟨w, hwm, hws, ?_, hwP⟩
+    rw [removeNode_gowners, List.mem_filter]
+    exact ⟨hwg, bne_iff_ne.mpr (fun he => hPr (by rw [← he]; exact hwP))⟩
+  · intro h1
+    obtain ⟨p, hpm, hpP⟩ := hpar h1
+    exact ⟨p, parents_unlink_keeps r nz p hpm (fun he => hPr (by rw [← he]; exact hpP)), hpP⟩
+  · intro h2
+    rw [hcs] at h2
+    obtain ⟨t, htm, htP⟩ := hson h2
+    exact ⟨t, sons_unlink_keeps r nz t htm (fun he => hPr (by rw [← he]; exact htP)), htP⟩
+
+/-- **Y con los tres, el paso entero del review.**
+
+    Anchored g P z  →  z ≠ r  →  ¬ P r  →  Anchored (cleanStep g r) P z
+
+El caso genérico queda cerrado: **mientras el review mire a un nodo que no está protegido, el
+invariante pasa al otro lado intacto**, sin pedir nada del estado ni de la fórmula. Ni punto fijo,
+ni cadenas, ni pasos vecinos.
+
+Lo que falta del paso es solo el caso en que el review mira **a un protegido**, y ahí la clave ya
+está demostrada: un protegido es válido (`isValidNode_of_Anchored`), y el review no borra nodos
+válidos. -/
+theorem Anchored_cleanStep (g : GPathM) (P : PathNodeId → Prop) (z r : PathNodeId)
+    (hne : z ≠ r) (hPr : ¬ P r) (h : Anchored g P z) : Anchored (cleanStep g r) P z := by
+  cases hnr : g.node? r with
+  | none => rw [cleanStep_none g r hnr]; exact h
+  | some d =>
+    rw [cleanStep_some g r d hnr]
+    unfold intersectOrDrop
+    have h' := Anchored_unlinkIncompatible _ P z r hne hPr
+      (Anchored_updateAt g P z r
+        (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) hne h)
+    split
+    · exact h'
+    · exact Anchored_removeNode _ P z r hne hPr h'
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_removeNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_removeNode
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_cleanStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_cleanStep
+
 end AbsSat.GraphPath.Model.PinAliveChain
