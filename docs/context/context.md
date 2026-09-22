@@ -1137,3 +1137,71 @@ Lo siguiente que haría, y es barato: **medir `ParentMeet`** con una sonda sobre
 Si se cumple siempre, es la hipótesis declarada que yo pondría en lugar de `SingleParents` — más
 débil, local, y con el veredicto ya demostrado detrás. Si falla, el contraejemplo es un nodo
 concreto con su tabla, que es el objeto más pequeño con el que se ha podido mirar este hueco.
+
+### 5.16 `ParentMeet` medido: falso, pero todos los fallos son espurios
+
+Medido con `lake exe row-degree pm` (sonda nueva, `parentMeetAt` + `parentMeetAllAt` +
+`witnessesClique`). Tres resultados, y el primero me obliga a corregir §5.15.
+
+#### 1. Como lo escribí en §5.15, `ParentMeet` **era** `SingleParents`
+
+La sonda dio 0% entre los nodos con dos padres, sin una sola excepción — y en cuanto lo vi salió la
+razón, que además estaba en el lema del mismo commit. **El otro padre es él mismo un owner del
+nodo**, y por `parents_never_own_each_other` ningún padre vive en la tabla de otro padre. Así que
+con dos padres ningún candidato puede servir, nunca.
+
+Demostrado: **`singleParent_of_parentMeetAll`** — pedirlo de *todos* los owners obliga a padre
+único. Mi «estrictamente más débil» de §5.15 era falso, y lo retiro.
+
+La reparación es de una línea y es la correcta: el descenso solo pregunta por los picks **por
+encima** del nodo (en `commonOwner_of_parentMeet` los `y` son `sel k` con `k ≥ lo`). Con la cota
+`x.id.step ≤ y.id.step`, los padres quedan fuera del cuantificador y el enunciado deja de
+colapsar. Ese es el `ParentMeet` que ahora está en `Descent.lean`.
+
+#### 2. Con la cota ya no colapsa — pero sigue siendo falso
+
+| | in-deg 1 | `ParentMeetAll` | `ParentMeet` | ídem, solo nodos de ≥2 padres |
+|---|---|---|---|---|
+| `test_sat_medium` | 90,0% | 90,0% | **97,1%** | 45/63 (71,4%) |
+| `simple_test` | 92,1% | 92,1% | **98,2%** | 14/18 (77,7%) |
+| `test_unsat` | 95,9% | 95,9% | **100%** | 14/14 (100%) |
+| seed 2026 (12 fórmulas) | 93,9% | 93,9% | **98,3%** | 571/783 (72,9%) |
+| seed 7 (12 fórmulas) | 94,8% | 94,8% | **98,7%** | 435/576 (75,5%) |
+
+La columna de `ParentMeetAll` **coincide exactamente** con el in-degree 1 en las cinco filas, que es
+el colapso del punto 1 visto en números. Y `ParentMeet` con la cota sí gana terreno de verdad —
+entre el 71% y el 100% de los nodos ambiguos lo cumplen— pero **falla**: 212 y 141 nodos en los
+barridos aleatorios, 22 en los ficheros.
+
+#### 3. Los 375 fallos son espurios, todos
+
+Para cada fallo la sonda extrae **un testigo por padre** (el owner de arriba que no lleva a ese
+padre) y mira si los testigos son compatibles entre sí. Si no lo son, no pueden ser picks de la
+misma cadena parcial, y el fallo no dice nada contra `CommonOwner`.
+
+> **375 fallos examinados, 375 con testigos incompatibles, 0 reales.** En los cinco barridos.
+
+#### Y por qué eso cierra la pregunta en vez de abrirla
+
+La reparación obvia —cuantificar solo sobre owners que **puedan** compartir cadena— es exactamente
+`CommonOwner`. Demostrado (**`commonOwner_gives_parent`**): el nodo que `CommonOwner` entrega está
+un paso por debajo del pick, y un owner un paso por debajo **es un padre**
+(`owners_below_iff_parents`). Así que la versión con cliques no es una hipótesis intermedia: es el
+objetivo.
+
+El intervalo, entonces, y creo que esto es lo que hay que llevarse:
+
+```
+ParentMeetAll  ⟺  SingleParents        (demostrado; demasiado fuerte)
+ParentMeet     →  CommonOwner          (demostrado; pero MEDIDO FALSO, 375 fallos)
+ParentMeetC    ⟺  CommonOwner          (demostrado; es el objetivo)
+```
+
+**No hay sitio para una hipótesis de esta forma entre `SingleParents` y el objetivo.** La única que
+cabía es falsa, y falla justo por donde no importa.
+
+Lo que sí deja, y es utilizable: los 375 fallos son todos del mismo tipo —dos testigos
+incompatibles— así que **la hipótesis que queda viva es la de los testigos**: *si dos owners de un
+nodo, ambos por encima de él, no comparten ningún padre del nodo, entonces no se poseen
+mutuamente.* Eso es un enunciado sobre **un nodo y dos de sus owners**, medido sin excepción en
+375 casos, y es lo más pequeño a lo que ha bajado este hueco hasta ahora.

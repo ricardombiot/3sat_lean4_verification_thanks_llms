@@ -78,6 +78,20 @@ structure Acc where
   cellMax   : Nat := 0
   nodeClean : Nat := 0         -- nodos con TODAS sus celdas decididas
   nodeDirty : Nat := 0         -- ... donde queda algún pin a >=3
+  /-- `Descent.ParentMeet`: ¿hay un padre que TODO owner del nodo posee? -/
+  pmNodes   : Nat := 0         -- nodos con paso ≥1 y en rango
+  pmOk      : Nat := 0
+  pmFail    : Nat := 0
+  pmMulti   : Nat := 0         -- ... de ellos, los que tienen ≥2 padres
+  pmMultiOk : Nat := 0
+  pmOwnMax  : Nat := 0         -- owners del nodo más cargado que pasó el test
+  pmAllOk   : Nat := 0         -- la versión sin cota (ParentMeetAll)
+  pmAllMultiOk : Nat := 0
+  pmwTried  : Nat := 0         -- fallos de ParentMeet examinados
+  pmwClique : Nat := 0         -- ... con los testigos compatibles entre sí (fallo REAL)
+  pmwNo     : Nat := 0         -- ... con testigos incompatibles (fallo espurio)
+  pmwNote   : String := "-"
+  pmFailAt  : String := "-"
   deriving Repr
 
 def bump (a : Acc) (d : Nat) (lit : Bool) : Acc :=
@@ -155,6 +169,81 @@ def failingPair (g : GPathM) (x : PathNodeId) (n : PNodeM) (cap : Nat) :
           if !(n.parents.any (fun c => (ownersOf g u).contains c && (ownersOf g w).contains c)) then
             return some (u, w)
     return none
+
+/-- **`Descent.ParentMeet`, nodo a nodo.** ¿Existe un padre `c` del nodo tal que **todo** owner del
+nodo —que sea a su vez nodo del estado y esté en rango— lleve a `c` en su propia tabla?
+
+Es exactamente lo que `Descent.commonOwner_of_parentMeet` consume, y `SingleParents` es el caso
+degenerado en que solo hay un padre que probar. Ojo: con un solo padre el test **no** es trivial —
+ese padre tiene que estar en la tabla de todos los owners, que es lo que
+`parentMeet_of_singleParents` deduce de la criba. -/
+def parentMeetAt (g : GPathM) (n : PNodeM) : Bool :=
+  let ys := n.owners.filter
+    (fun y => decide (n.id.id.step ≤ y.id.step ∧ y.id.step < g.current_step))
+  let tabs := ys.filterMap (fun y => (g.node? y).map (·.owners))
+  n.parents.any (fun c => tabs.all (fun os => os.contains c))
+
+/-- `Descent.ParentMeetAll`: lo mismo **sin** la cota, o sea incluyendo los owners por debajo del
+nodo. `singleParent_of_parentMeetAll` demuestra que eso obliga a padre único; se mide para ver el
+contraste, no porque haga falta. -/
+def parentMeetAllAt (g : GPathM) (n : PNodeM) : Bool :=
+  let ys := n.owners.filter (fun y => decide (0 ≤ y.id.step ∧ y.id.step < g.current_step))
+  let tabs := ys.filterMap (fun y => (g.node? y).map (·.owners))
+  n.parents.any (fun c => tabs.all (fun os => os.contains c))
+
+/-- Dos nodos que se poseen mutuamente: condición necesaria para ser picks de una misma cadena. -/
+def mutuallyOwn (g : GPathM) (u v : PathNodeId) : Bool :=
+  match g.node? u, g.node? v with
+  | some mu, some mv => mu.owners.contains v && mv.owners.contains u
+  | _, _ => false
+
+/-- Para un nodo que falla `ParentMeet`, un testigo por cada padre: el owner de arriba que **no**
+lleva a ese padre. Si falla, hay testigo para todos. -/
+def parentMeetWitnesses (g : GPathM) (n : PNodeM) : Option (List PathNodeId) :=
+  let ys := n.owners.filter
+    (fun y => decide (n.id.id.step ≤ y.id.step ∧ y.id.step < g.current_step))
+  let pick (c : PathNodeId) : Option PathNodeId :=
+    ys.find? (fun y => match g.node? y with
+                       | none => false
+                       | some m => !m.owners.contains c)
+  let ws := n.parents.filterMap pick
+  if ws.length == n.parents.length then some ws else none
+
+/-- ¿Son los testigos compatibles entre sí? Si no lo son, no pueden ser picks de la misma cadena
+parcial, y el fallo de `ParentMeet` **no** contradice `CommonOwner`. -/
+def witnessesClique (g : GPathM) (ws : List PathNodeId) : Bool :=
+  ws.all (fun u => ws.all (fun v => u == v || mutuallyOwn g u v))
+
+/-- Solo el in-degree y `ParentMeet`, sin las sondas caras. -/
+def scanStatePM (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for n in g.nodes do
+    if n.id.id.step > 0 then
+      a := bump a n.parents.length (n.id.id.step < lb)
+      if n.id.id.step < g.current_step then
+        let ok := parentMeetAt g n
+        let okAll := parentMeetAllAt g n
+        let multi := n.parents.length > 1
+        a := { a with pmNodes := a.pmNodes + 1
+                    , pmOk := a.pmOk + (if ok then 1 else 0)
+                    , pmFail := a.pmFail + (if ok then 0 else 1)
+                    , pmMulti := a.pmMulti + (if multi then 1 else 0)
+                    , pmMultiOk := a.pmMultiOk + (if multi && ok then 1 else 0)
+                    , pmAllOk := a.pmAllOk + (if okAll then 1 else 0)
+                    , pmAllMultiOk := a.pmAllMultiOk + (if multi && okAll then 1 else 0)
+                    , pmOwnMax := if ok then max a.pmOwnMax n.owners.length else a.pmOwnMax }
+        if !ok then
+          a := { a with pmFailAt :=
+            s!"{label} paso {n.id.id.step}, {n.parents.length} padres, {n.owners.length} owners" }
+          match parentMeetWitnesses g n with
+          | none => pure ()
+          | some ws =>
+            let cl := witnessesClique g ws
+            a := { a with pmwTried := a.pmwTried + 1
+                        , pmwClique := a.pmwClique + (if cl then 1 else 0)
+                        , pmwNo := a.pmwNo + (if cl then 0 else 1)
+                        , pmwNote := s!"{label} paso {n.id.id.step} testigos {ws.length} {if cl then "COMPATIBLES" else "incompatibles"}" }
+  return a
 
 def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run do
   let mut a := { a with states := a.states + 1 }
@@ -302,6 +391,40 @@ def report (name : String) (a : Acc) (ms : Nat) : IO Unit := do
     IO.println s!"     queda algun pin a >=3 pasos                 : {a.loDirty}  ({pct a.loDirty a.loTot})"
   IO.println s!"   ({ms} ms)"
 
+def runFormulaPM (φ : Cnf) (a : Acc) : Acc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for i in [0:steps] do
+    line := pureAdvanceW φ line
+    for kv in line do
+      a := scanStatePM (litBlock φ) s!"linea {i+1} clave ⟨{kv.1.step},{kv.1.index}⟩" kv.2 a
+  return a
+
+def reportPM (name : String) (a : Acc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, nodos por encima del paso 0: {a.nodes}"
+  IO.println s!"   in-degree 1  : {a.deg1}  ({pct a.deg1 a.nodes})"
+  IO.println s!"   in-degree ≥2 : {a.degMore}  ({pct a.degMore a.nodes})   max {a.degMax}"
+  IO.println s!"   ParentMeet ({a.pmNodes} nodos en rango):"
+  IO.println s!"     algun padre lo poseen TODOS : {a.pmOk}  ({pct a.pmOk a.pmNodes})"
+  IO.println s!"     ningun padre sirve (FALLO)  : {a.pmFail}"
+  IO.println s!"     entre los de ≥2 padres      : {a.pmMultiOk}/{a.pmMulti}  ({pct a.pmMultiOk a.pmMulti})"
+  IO.println s!"     tabla mas grande que pasa   : {a.pmOwnMax} owners"
+  IO.println s!"   ParentMeet: {if a.pmFail == 0 then "SE CUMPLE" else "FALLA"}"
+  IO.println s!"   ParentMeetAll (sin la cota, el colapso demostrado):"
+  IO.println s!"     lo cumplen                  : {a.pmAllOk}  ({pct a.pmAllOk a.pmNodes})"
+  IO.println s!"     entre los de ≥2 padres      : {a.pmAllMultiOk}/{a.pmMulti}"
+  if a.pmFail > 0 then IO.println s!"     primero: {a.pmFailAt}"
+  if a.pmwTried > 0 then
+    IO.println s!"   los fallos, examinados ({a.pmwTried}):"
+    IO.println s!"     testigos compatibles entre si (fallo REAL) : {a.pmwClique}"
+    IO.println s!"     testigos incompatibles (fallo espurio)     : {a.pmwNo}"
+    IO.println s!"     ultimo: {a.pmwNote}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -342,6 +465,23 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormula φ {})
         let t1 ← IO.monoMsNow
         report path a (t1 - t0)
+  | "pm" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaPM φ {})
+        let t1 ← IO.monoMsNow
+        reportPM path a (t1 - t0)
+  | "pm" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : Acc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaPM φ a
+      let t1 ← IO.monoMsNow
+      reportPM s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
@@ -351,4 +491,4 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       report s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | _ =>
-    IO.println "usage: row-degree file <cnf>... | row-degree random <cases> <minVars> <seed>..."
+    IO.println "usage: row-degree [pm] file <cnf>... | row-degree [pm] random <cases> <minVars> <seed>..."
