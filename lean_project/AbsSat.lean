@@ -200,6 +200,7 @@ import AbsSat.GraphPath.Model.RunNoBorrow
 import AbsSat.GraphPath.Model.LiveSolution
 import AbsSat.GraphPath.Model.RunInhabited
 import AbsSat.GraphPath.Model.RunSteps
+import AbsSat.GraphPath.Model.AncestorOwned
 import AbsSat.GraphPath.Model.SupportedRun
 import AbsSat.GraphPath.Model.WeakNoop
 import AbsSat.GraphPath.Model.ClausePins

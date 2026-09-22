@@ -1188,6 +1188,249 @@ def reportA (name : String) (a : AAcc) (ms : Nat) : IO Unit := do
   IO.println s!"     fantasma    : {a.cGhost}  ({pct a.cGhost a.cEntries})"
   IO.println s!"   ({ms} ms)"
 
+-- ============================================================
+-- ¿Posee todo nodo a todos sus ancestros? (`AncOwned`)
+-- ============================================================
+
+/-! La frase del autor sobre el diseño: *cuando se construye un nuevo nodo se le da la
+compatibilidad con todos sus ancestros, siendo sus owners la union de los de sus padres*.
+`AncestorOwned.ancOwned_addNode` demuestra que el `up` la conserva; esta sonda mide si la
+conservan tambien el `doJoin` y la revision.
+
+Importa porque `AncestorOwned.pairwiseOwned_of_ancOwned` la convierte de un tiron en
+`SupportedRun.ChainPairwise`, que era el residuo entero de la ruta B. -/
+
+structure NAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  nodes    : Nat := 0
+  badNodes : Nat := 0          -- nodos con algun ancestro fuera de su tabla
+  pairs    : Nat := 0          -- pares (nodo, ancestro estricto)
+  bad      : Nat := 0          -- ... que NO estan en la tabla
+  badAt    : String := "-"
+  deriving Repr
+
+/-- Los ancestros estrictos de `y`: padres iterados, sin repetir, acotado por el numero de pasos. -/
+def ancestorsOf (g : GPathM) (y : PathNodeId) : List PathNodeId := Id.run do
+  let mut frontier : List PathNodeId := [y]
+  let mut acc : List PathNodeId := []
+  for _ in [0:(g.current_step + 1).toNat] do
+    let mut next : List PathNodeId := []
+    for p in frontier do
+      match g.node? p with
+      | some n =>
+        for c in n.parents do
+          if !acc.contains c then
+            acc := c :: acc
+            next := c :: next
+      | none => pure ()
+    frontier := next
+  return acc
+
+def scanAnc (label : String) (g : GPathM) (a : NAcc) : NAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for n in g.nodes do
+    let mut badHere := 0
+    for c in ancestorsOf g n.id do
+      a := { a with pairs := a.pairs + 1 }
+      if !n.owners.contains c then
+        badHere := badHere + 1
+        let at' := s!"{label} nodo paso {n.id.id.step} ({n.parents.length} padres, {n.owners.length} owners), ancestro paso {c.id.step}"
+        a := { a with bad := a.bad + 1, badAt := if a.bad == 0 then at' else a.badAt }
+    a := { a with nodes := a.nodes + 1 }
+    if badHere > 0 then a := { a with badNodes := a.badNodes + 1 }
+  return a
+
+/-- Sobre los estados que el lector lee. -/
+def runFormulaN (φ : Cnf) (a : NAcc) : NAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := scanAnc s!"⟨{kv.1.step},{kv.1.index}⟩" g a
+  return a
+
+/-- Y sobre TODOS los estados de TODAS las lineas. -/
+def runFormulaNAll (φ : Cnf) (a : NAcc) : NAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for i in [0:steps] do
+    line := pureAdvanceW φ line
+    for kv in line do
+      a := scanAnc s!"linea {i+1} ⟨{kv.1.step},{kv.1.index}⟩" kv.2 a
+  return a
+
+def reportN (name : String) (a : NAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, nodos {a.nodes}"
+  IO.println s!"   pares (nodo, ancestro) : {a.pairs}"
+  IO.println s!"     ancestro EN la tabla : {a.pairs - a.bad}  ({pct (a.pairs - a.bad) a.pairs})"
+  IO.println s!"     ancestro FUERA       : {a.bad}  ({pct a.bad a.pairs})"
+  IO.println s!"   nodos con algun ancestro fuera: {a.badNodes}  ({pct a.badNodes a.nodes})"
+  if a.bad > 0 then IO.println s!"     primero: {a.badAt}"
+  IO.println s!"   AncOwned: {if a.bad == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **¿Donde nace el fallo?** El `up` real es
+`up (filterAllAgg (filterWeakAll g ws) reqs) d`, y `addNode` va el ULTIMO —y ese paso esta
+demostrado (`AncestorOwned.ancOwned_addNode`)—. Asi que el culpable solo puede ser el filtro+criba
+de delante, o el `doJoin` que funde el envio con lo que ya habia. Esta sonda saca cuatro fotos por
+envio y compara. -/
+
+def measureAnc (g : GPathM) : Nat × Nat := Id.run do
+  let mut tot := 0
+  let mut bad := 0
+  for n in g.nodes do
+    for c in ancestorsOf g n.id do
+      tot := tot + 1
+      if !n.owners.contains c then bad := bad + 1
+  return (tot, bad)
+
+/-- Diagnostico del primer estado con fallo: cuantos ancestros que faltan NO son owner global,
+cuantos no son nodo, y cuantos SI estan en la tabla de algun padre del nodo. -/
+def diagAnc (g : GPathM) : String := Id.run do
+  let mut bad := 0
+  let mut noGow := 0
+  let mut noNode := 0
+  let mut inParent := 0
+  let mut adjacent := 0
+  let mut sample := ""
+  for n in g.nodes do
+    for c in ancestorsOf g n.id do
+      if !n.owners.contains c then
+        bad := bad + 1
+        if !g.gowners.contains c then noGow := noGow + 1
+        if (g.node? c).isNone then noNode := noNode + 1
+        if n.parents.contains c then adjacent := adjacent + 1
+        if n.parents.any (fun p => match g.node? p with
+                                   | some mp => mp.owners.contains c
+                                   | none => false) then inParent := inParent + 1
+        if sample == "" then
+          sample := s!"nodo@{n.id.id.step} ({n.parents.length} padres) ancestro@{c.id.step}"
+  return s!"faltan {bad}: sin gowner {noGow}, sin nodo {noNode}, padre directo {adjacent}, en tabla de algun padre {inParent}; {sample}"
+
+/-- Reconstruye la tabla de cada nodo **como la construye el `up`**: la union de las de sus padres,
+recortada a `gowners`. De abajo arriba, para que lo añadido se propague. Es la regla de `rowOwners`
+aplicada a un nodo que ya existe — que es justo lo que un nodo fusionado deberia ser. -/
+def rebuildOwners (g : GPathM) : GPathM := Id.run do
+  let mut g := g
+  for k in intRange 1 (g.current_step - 1) do
+    for id in ((g.line k).map (·.id)) do
+      match g.node? id with
+      | none => pure ()
+      | some n =>
+        let uni := (unionOwnersOf g n.parents).filter (fun q => g.gowners.contains q)
+        let extra := uni.filter (fun q => !n.owners.contains q)
+        if !extra.isEmpty then
+          g := updateAt g id (fun m => { m with owners := m.owners ++ extra })
+  return g
+
+structure N4 where
+  formulas    : Nat := 0
+  sends       : Nat := 0
+  joins       : Nat := 0
+  tSrc  : Nat := 0
+  bSrc  : Nat := 0
+  tFil  : Nat := 0
+  bFil  : Nat := 0
+  tUp   : Nat := 0
+  bUp   : Nat := 0
+  tJoin : Nat := 0
+  bJoin : Nat := 0
+  tRev  : Nat := 0
+  bRev  : Nat := 0
+  tReb  : Nat := 0
+  bReb  : Nat := 0
+  rebBroke : Nat := 0
+  sendsBadFil : Nat := 0
+  sendsBadUp  : Nat := 0
+  joinsBad    : Nat := 0
+  filAt  : String := "-"
+  joinAt : String := "-"
+  diag   : String := "-"
+  deriving Repr
+
+def sendToN (φ : Cnf) (label : String) (g : GPathM) (st : PureLine × N4) (d : NodeId) :
+    PureLine × N4 := Id.run do
+  let (next, a0) := st
+  let mut a := a0
+  let ws := weakReqOfCnf φ d
+  let rs := reqOfCnf φ d
+  let h := upFilteringWeak g ws rs d ""
+  if !isValid h then return (next, a)
+  let f := AggressiveReview.filterAllAgg (filterWeakAll g ws) rs
+  let (t0, b0) := measureAnc g
+  let (t1, b1) := measureAnc f
+  let (t2, b2) := measureAnc h
+  a := { a with sends := a.sends + 1
+              , tSrc := a.tSrc + t0, bSrc := a.bSrc + b0
+              , tFil := a.tFil + t1, bFil := a.bFil + b1
+              , tUp  := a.tUp  + t2, bUp  := a.bUp  + b2
+              , sendsBadFil := a.sendsBadFil + (if b1 > b0 then 1 else 0)
+              , sendsBadUp  := a.sendsBadUp  + (if b2 > b1 then 1 else 0)
+              , filAt := if b1 > b0 && a.sendsBadFil == 0 then
+                           s!"{label}→⟨{d.step},{d.index}⟩: {b0} antes, {b1} tras filtro+criba"
+                         else a.filAt }
+  match next.find? (fun kv => kv.1 == d) with
+  | some (_, existing) =>
+    let j := doJoin existing h
+    let (_, be) := measureAnc existing
+    let (tj, bj) := measureAnc j
+    let (tr, br) := measureAnc (AggressiveReview.reviewAgg j)
+    let jb := AggressiveReview.reviewAgg (rebuildOwners j)
+    let (tb, bb) := measureAnc jb
+    a := { a with joins := a.joins + 1
+                , tJoin := a.tJoin + tj, bJoin := a.bJoin + bj
+                , tRev := a.tRev + tr, bRev := a.bRev + br
+                , tReb := a.tReb + tb, bReb := a.bReb + bb
+                , rebBroke := a.rebBroke + (if isValid jb then 0 else 1)
+                , diag := if bj > be + b2 && a.diag == "-" then diagAnc j else a.diag
+                , joinsBad := a.joinsBad + (if bj > be + b2 then 1 else 0)
+                , joinAt := if bj > be + b2 && a.joinsBad == 0 then
+                              s!"{label}→⟨{d.step},{d.index}⟩: {be}+{b2} en los dos lados, {bj} tras el join"
+                            else a.joinAt }
+    return (next.map (fun kv => if kv.1 == d then (d, j) else kv), a)
+  | none => return (next ++ [(d, h)], a)
+
+def advanceN (φ : Cnf) (line : PureLine) (a : N4) : PureLine × N4 :=
+  line.foldl (fun st kv =>
+    (mapSons φ kv.1.step kv.1.index).foldl (sendToN φ s!"⟨{kv.1.step},{kv.1.index}⟩" kv.2) st)
+    ((([] : PureLine)), a)
+
+def runFormulaN4 (φ : Cnf) (a : N4) : N4 := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  let steps := (stepCount φ - 1).toNat
+  for _ in [0:steps] do
+    let (l', a') := advanceN φ line a
+    line := l'
+    a := a'
+  return a
+
+def reportN4 (name : String) (a : N4) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, envios {a.sends}, de ellos JOINS: {a.joins}"
+  IO.println s!"   ancestros FUERA de la tabla, por foto:"
+  IO.println s!"     1. estado de partida       : {a.bSrc} / {a.tSrc}  ({pct a.bSrc a.tSrc})"
+  IO.println s!"     2. tras filtro + criba     : {a.bFil} / {a.tFil}  ({pct a.bFil a.tFil})"
+  IO.println s!"     3. tras addNode (el up)    : {a.bUp} / {a.tUp}  ({pct a.bUp a.tUp})"
+  IO.println s!"     4. tras doJoin             : {a.bJoin} / {a.tJoin}  ({pct a.bJoin a.tJoin})"
+  IO.println s!"     5. join + reviewAgg        : {a.bRev} / {a.tRev}  ({pct a.bRev a.tRev})"
+  IO.println s!"     6. join + tabla del up + review: {a.bReb} / {a.tReb}  ({pct a.bReb a.tReb})"
+  IO.println s!"        (de esos, estados que la reconstruccion invalida: {a.rebBroke})"
+  IO.println s!"   envios donde el filtro+criba EMPEORA : {a.sendsBadFil}/{a.sends}"
+  if a.sendsBadFil > 0 then IO.println s!"     primero: {a.filAt}"
+  IO.println s!"   envios donde addNode EMPEORA         : {a.sendsBadUp}/{a.sends}"
+  IO.println s!"   joins que CREAN ancestros sin tabla  : {a.joinsBad}/{a.joins}"
+  if a.joinsBad > 0 then IO.println s!"     primero: {a.joinAt}"
+  IO.println s!"   diagnostico: {a.diag}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1262,6 +1505,44 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "anc4" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaN4 φ {})
+        let t1 ← IO.monoMsNow
+        reportN4 path a (t1 - t0)
+  | "anc4" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : N4 := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaN4 φ a
+      let t1 ← IO.monoMsNow
+      reportN4 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "anc" :: "file" :: paths | "anc-all" :: "file" :: paths =>
+    let allStates := args.headD "" == "anc-all"
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ =>
+          if allStates then runFormulaNAll φ {} else runFormulaN φ {})
+        let t1 ← IO.monoMsNow
+        reportN path a (t1 - t0)
+  | "anc" :: "random" :: cases :: nvMin :: seeds
+  | "anc-all" :: "random" :: cases :: nvMin :: seeds =>
+    let allStates := args.headD "" == "anc-all"
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := if allStates then runFormulaNAll φ a else runFormulaN φ a
+      let t1 ← IO.monoMsNow
+      reportN s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "sup" :: "file" :: paths | "sup-all" :: "file" :: paths =>
     let allStates := args.headD "" == "sup-all"
     for path in paths do
