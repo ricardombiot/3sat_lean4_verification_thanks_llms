@@ -593,6 +593,61 @@ theorem readerVerdictW_of_rootPinChained (h : RootPinChained) (φ : Cnf) (kv : N
     (progressAgg_of_chains _ (pinKeepsChain_of_rootChained _ hR₀ h₀
       (rootChained_readFrom h _ hR₀ ht₀)))
 
+/-- **Y el residuo se cierra con PARES: el pin se cae solo.**
+
+La supervivencia al pin da un testigo `z` en el paso pinchado que la raíz y `w` **comparten**
+(`SupportedRun.shared_pin_witness`, vía `AggOk` del estado pinchado). `TablesSound` del estado de
+antes da una cadena por `w` **y por `z`** —un par, no un trío—, y esa cadena pasa por el pin porque
+`z` lleva el pin. Luego sobrevive a la criba.
+
+**No se pega nada.** Es lo que `ChainMerge` no podía hacer y aquí no hace falta, porque la pata de
+la raíz se tiró antes.
+
+Y con eso queda dicha la estructura entera del problema:
+
+* el lector necesita **singles** — que haya una cadena (`HasChain`);
+* propagar `RootChained` (singles) por un pin pide **pares** — `TablesSound`, medido al 100% sobre
+  150.124 entradas de estados de lectura sin una sola excepción;
+* propagar `TablesSound` (pares) por un pin pide **tríos** — `PinPairSound`, y ahí está el muro,
+  que es la frontera 2-vs-3 que esta sesión ha visto caer cinco hipótesis.
+
+El lector, por tanto, **no añade nada** al problema abierto de la máquina. -/
+theorem rootChained_pin_of_tablesSound (g : GPathM) (hR : ReadableAgg g)
+    (ht : Exactness.TablesSound g) (r : NodeId) (hr0 : 0 ≤ r.step)
+    (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (hpms : Sons.PMS (filterAllAgg g [r])) (hsn : Sons.SN (filterAllAgg g [r])) :
+    RootChained (filterAllAgg g [r]) := by
+  intro x n hx hx0 w hwn hw0 hw1
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  have hRr := ReadableAgg_filterAllAgg g hR [r]
+  have rcr := RCtx_of_readableAgg _ hRr
+  have rcg := RCtx_of_readableAgg g hR
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+  -- `w` es nodo del estado pinchado
+  have hwg := ctxR.ownGow x n hx w hwn hw0 hw1
+  obtain ⟨mw, hmw⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff _ w).mp (rcr.gn w hwg))
+  -- el testigo compartido en el paso del pin
+  obtain ⟨z, hzid, _, hzw⟩ :=
+    SupportedRun.shared_pin_witness g hR r hvr hr0 hrs hpms hsn x w n mw hx hmw
+      (by omega) (by omega) hw0 hw1 hwn
+  -- y el par `(w, z)` en el estado de antes
+  obtain ⟨mw₀, hmw₀, hid, hown, _⟩ := hpr.nodes_derived mw (List.mem_of_find?_eq_some hmw)
+  have hwid := node?_id_eq _ w mw hmw
+  have hw₀ : g.node? w = some mw₀ := by rw [← hwid, hid]; exact node?_of_mem rcg.nodup mw₀ hmw₀
+  have hzs : z.id.step = r.step := by rw [hzid]
+  obtain ⟨sel, hsc, hsw, hsz⟩ :=
+    ht w mw₀ hw₀ hw0 (by rw [← hcs]; exact hw1) z (by rw [hzs]; exact hr0)
+      (by rw [hzs, ← hcs]; exact hrs) (hown z hzw)
+  exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+    rw [List.mem_singleton.mp hreq, ← hzs, hsz, hzid]), hsw⟩
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.rootChained_pin_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms rootChained_pin_of_tablesSound
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_rootPinChained' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_of_rootPinChained
