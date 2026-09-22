@@ -1478,8 +1478,8 @@ invariante mantiene válidos. -/
 def Anchored (g : GPathM) (P : PathNodeId → Prop) (z : PathNodeId) : Prop :=
   ∃ nz, g.node? z = some nz ∧
     (∀ k, 0 ≤ k → k < g.current_step → ∃ w ∈ nz.owners, w.id.step = k ∧ w ∈ g.gowners ∧ P w) ∧
-    (1 ≤ z.id.step → ∃ p ∈ nz.parents, P p) ∧
-    (z.id.step ≤ g.current_step - 2 → ∃ t ∈ nz.sons, P t)
+    (1 ≤ z.id.step → ∃ p ∈ nz.parents, P p ∧ p ∈ nz.owners ∧ p ∈ g.gowners) ∧
+    (z.id.step ≤ g.current_step - 2 → ∃ t ∈ nz.sons, P t ∧ t ∈ nz.owners ∧ t ∈ g.gowners)
 
 /-- **Y de él la validez del nodo sale sin ninguna propiedad de punto fijo.** -/
 theorem isValidNode_of_Anchored (g : GPathM) (P : PathNodeId → Prop) (z : PathNodeId)
@@ -1497,9 +1497,9 @@ theorem isValidNode_of_Anchored (g : GPathM) (P : PathNodeId → Prop) (z : Path
     simp only [hasStepEntry, List.any_eq_true]
     exact ⟨w, hw, beq_iff_eq.mpr hws⟩
   have hp : 1 ≤ z.id.step → nz.parents ≠ [] := fun h1 =>
-    let ⟨p, hpm, _⟩ := hpar h1; List.ne_nil_of_mem hpm
+    let ⟨p, hpm, _, _, _⟩ := hpar h1; List.ne_nil_of_mem hpm
   have hs : z.id.step ≤ g.current_step - 2 → nz.sons ≠ [] := fun h2 =>
-    let ⟨t, htm, _⟩ := hson h2; List.ne_nil_of_mem htm
+    let ⟨t, htm, _, _, _⟩ := hson h2; List.ne_nil_of_mem htm
   have hnr : ¬(nz.id.parent_id.isNone = true) → 1 ≤ z.id.step := by
     intro hr
     by_cases h1 : 1 ≤ z.id.step
@@ -1657,14 +1657,18 @@ theorem Anchored_unlinkIncompatible (g : GPathM) (P : PathNodeId → Prop) (z r 
       exact ⟨w, by rw [owners_unlinkMap]; exact hwm, hws,
         by rw [gowners_unlinkIncompatible]; exact hwg, hwP⟩
     · intro h1
-      obtain ⟨p, hpm, hpP⟩ := hpar h1
+      obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
       exact ⟨p, parents_unlinkMap_keeps n r nz (by rw [hid]; exact hne) p hpm
-        (fun he => hPr (by rw [← he]; exact hpP)), hpP⟩
+        (fun he => hPr (by rw [← he]; exact hpP)), hpP,
+        by rw [owners_unlinkMap]; exact hpo,
+        by rw [gowners_unlinkIncompatible]; exact hpg⟩
     · intro h2
       rw [current_step_unlinkIncompatible] at h2
-      obtain ⟨t, htm, htP⟩ := hson h2
+      obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
       exact ⟨t, sons_unlinkMap_keeps n r nz (by rw [hid]; exact hne) t htm
-        (fun he => hPr (by rw [← he]; exact htP)), htP⟩
+        (fun he => hPr (by rw [← he]; exact htP)), htP,
+        by rw [owners_unlinkMap]; exact hto,
+        by rw [gowners_unlinkIncompatible]; exact htg⟩
 
 /-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_updateAt' depends on axioms: [propext] -/
 #guard_msgs in
@@ -1696,12 +1700,18 @@ theorem Anchored_removeNode (g : GPathM) (P : PathNodeId → Prop) (z r : PathNo
     rw [removeNode_gowners, List.mem_filter]
     exact ⟨hwg, bne_iff_ne.mpr (fun he => hPr (by rw [← he]; exact hwP))⟩
   · intro h1
-    obtain ⟨p, hpm, hpP⟩ := hpar h1
-    exact ⟨p, parents_unlink_keeps r nz p hpm (fun he => hPr (by rw [← he]; exact hpP)), hpP⟩
+    obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
+    refine ⟨p, parents_unlink_keeps r nz p hpm (fun he => hPr (by rw [← he]; exact hpP)),
+      hpP, hpo, ?_⟩
+    rw [removeNode_gowners, List.mem_filter]
+    exact ⟨hpg, bne_iff_ne.mpr (fun he => hPr (by rw [← he]; exact hpP))⟩
   · intro h2
     rw [hcs] at h2
-    obtain ⟨t, htm, htP⟩ := hson h2
-    exact ⟨t, sons_unlink_keeps r nz t htm (fun he => hPr (by rw [← he]; exact htP)), htP⟩
+    obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
+    refine ⟨t, sons_unlink_keeps r nz t htm (fun he => hPr (by rw [← he]; exact htP)),
+      htP, hto, ?_⟩
+    rw [removeNode_gowners, List.mem_filter]
+    exact ⟨htg, bne_iff_ne.mpr (fun he => hPr (by rw [← he]; exact htP))⟩
 
 /-- **Y con los tres, el paso entero del review.**
 
@@ -1735,5 +1745,84 @@ theorem Anchored_cleanStep (g : GPathM) (P : PathNodeId → Prop) (z r : PathNod
 /-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_cleanStep' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Anchored_cleanStep
+
+-- ============================================================
+-- Cuarto ladrillo: el review mirando A UN PROTEGIDO no lo borra
+-- ============================================================
+
+/-- **El nodo que el review somete a examen, cuando mira a un protegido, es válido.**
+
+Y con eso el `if` de `intersectOrDrop` va por la rama que **no borra**.
+
+Los tres campos del anclaje sobreviven al corte contra la tabla global por la misma razón: **todos
+están ya dentro de ella** —los testigos por la cobertura, el padre y el hijo anclados por los dos
+conjuntos que el invariante les añade—, así que `intersectOwners` los conserva
+(`mem_intersectOwners_of_mem`), y `relinkSelf`, que filtra los enlaces contra los owners nuevos, los
+conserva también.
+
+Nótese que esto es, por fin, el enunciado que hacía falta para cerrar el paso del review por ambos
+lados: los no protegidos se tratan con `Anchored_cleanStep`, y el protegido con éste. -/
+theorem isValidNode_relink_of_Anchored (g : GPathM) (P : PathNodeId → Prop) (r : PathNodeId)
+    (nr : PNodeM) (hrz : Sons.RootAtZero g) (hr0 : 0 ≤ r.id.step)
+    (hr1 : r.id.step < g.current_step) (hn : g.node? r = some nr) (h : Anchored g P r) :
+    isValidNode g (relink (intersectOwners nr.owners g.gowners) nr) = true := by
+  obtain ⟨nr', hn', hcov, hpar, hson⟩ := h
+  have hnn : nr' = nr := Option.some.inj (hn'.symm.trans hn)
+  subst hnn
+  have hid : nr'.id = r := node?_id_eq g r nr' hn'
+  -- los owners nuevos siguen cubriendo todos los pasos
+  have hcov' : ∀ k, 0 ≤ k → k < g.current_step → ∃ w ∈ (intersectOwners nr'.owners g.gowners), w.id.step = k := by
+    intro k hk0 hk1
+    obtain ⟨w, hwm, hws, hwg, _⟩ := hcov k hk0 hk1
+    exact ⟨w, mem_intersectOwners_of_mem _ _ w hwm hwg, hws⟩
+  have howners : (intRange 0 (g.current_step - 1)).all
+      (fun k => hasStepEntry (relink (intersectOwners nr'.owners g.gowners) nr').owners k) = true := by
+    simp only [List.all_eq_true]
+    intro k hk
+    obtain ⟨w, hwm, hws⟩ := hcov' k (mem_intRange_lower hk)
+      (by have := mem_intRange_upper hk; omega)
+    simp only [hasStepEntry, List.any_eq_true]
+    exact ⟨w, hwm, beq_iff_eq.mpr hws⟩
+  -- el padre y el hijo anclados sobreviven al corte y al re-enlace
+  have hp : 1 ≤ r.id.step → (relink (intersectOwners nr'.owners g.gowners) nr').parents ≠ [] := by
+    intro h1
+    obtain ⟨p, hpm, _, hpo, hpg⟩ := hpar h1
+    exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨hpm,
+      by simpa using mem_intersectOwners_of_mem _ _ p hpo hpg⟩)
+  have hs : r.id.step ≤ g.current_step - 2 → (relink (intersectOwners nr'.owners g.gowners) nr').sons ≠ [] := by
+    intro h2
+    obtain ⟨t, htm, _, hto, htg⟩ := hson h2
+    exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨htm,
+      by simpa using mem_intersectOwners_of_mem _ _ t hto htg⟩)
+  have hidr : (relink (intersectOwners nr'.owners g.gowners) nr').id = r := hid
+  have hnr : ¬((relink (intersectOwners nr'.owners g.gowners) nr').id.parent_id.isNone = true) → 1 ≤ r.id.step := by
+    intro hr
+    by_cases h1 : 1 ≤ r.id.step
+    · exact h1
+    · exact absurd (by
+        rw [show (relink (intersectOwners nr'.owners g.gowners) nr').id = nr'.id from rfl,
+          hrz nr' (List.mem_of_find?_eq_some hn') (by rw [hid]; omega)]; rfl) hr
+  have hlast : ((relink (intersectOwners nr'.owners g.gowners) nr').id.id.step == g.current_step - 1)
+      = (r.id.step == g.current_step - 1) := by rw [hidr]
+  have hnotlast : ¬((r.id.step == g.current_step - 1) = true) → r.id.step ≤ g.current_step - 2 := by
+    intro hl
+    have : r.id.step ≠ g.current_step - 1 := fun he => hl (by rw [he]; exact beq_iff_eq.mpr rfl)
+    omega
+  simp only [isValidNode, hlast]
+  split
+  · split
+    · exact howners
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hs (hnotlast hl)), Bool.and_self]
+  · next hr =>
+    split
+    · simp only [howners, not_isEmpty_of_ne_nil _ (hp (hnr hr)), Bool.and_self]
+    · next hl =>
+      simp only [howners, not_isEmpty_of_ne_nil _ (hp (hnr hr)),
+        not_isEmpty_of_ne_nil _ (hs (hnotlast hl)), Bool.and_self]
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValidNode_relink_of_Anchored' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValidNode_relink_of_Anchored
 
 end AbsSat.GraphPath.Model.PinAliveChain
