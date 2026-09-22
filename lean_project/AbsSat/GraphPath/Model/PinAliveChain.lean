@@ -418,4 +418,80 @@ Los owners de `q` comparten paso con `q` por construcción, y `aggPair` solo des
 #guard_msgs in
 #print axioms pinAlive_of_pinKeepsPinned
 
+-- ============================================================
+-- El pin es un no-op completo para el nodo elegido
+-- ============================================================
+
+/-- **El pin no puede invalidar NINGÚN nodo.** Por `rfl`.
+
+`isValidNode` mira el paso actual y el propio nodo —su tabla, sus padres, sus hijos—, y
+**no lee `gowners` en ningún sitio**. `filterRequire` solo reescribe `gowners`. Así que ni el nodo
+elegido ni ningún otro cambia de estado al pinchar.
+
+Es la frase más barata de todo el módulo y sin embargo cierra una mitad: **todo lo que el pin
+pueda romper lo rompe a través del review, nunca por sí mismo.** -/
+theorem isValidNode_filterRequire (g : GPathM) (req : NodeId) (n : PNodeM) :
+    isValidNode (filterRequire g req) n = isValidNode g n := rfl
+
+/-- **Y la tabla del nodo elegido sobrevive entera al pin.**
+
+No una entrada por paso (`pin_keeps_own_owners`): **todas**. Los owners de `q` de otros pasos el
+filtro ni los mira, y el del paso de `q` es `q` mismo por `OOS`, que es justo lo que el filtro
+deja. Así que cuando el review corte las tablas contra `gowners` —`intersectOwners n.owners gow`,
+lo primero que hace `cleanInvalid`— **la tabla de `q` no pierde nada**. -/
+theorem pin_owners_stay (g : GPathM) (hw : OwnersWithin g) (hoos : SelfOwn.OOS g)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) :
+    ∀ w ∈ nq.owners, w ∈ (filterRequire g q.id).gowners := by
+  intro w hwm
+  have hqid : nq.id = q := node?_id_eq g q nq hq
+  rw [PickInduction.filterRequire_gowners, List.mem_filter]
+  refine ⟨hw nq (List.mem_of_find?_eq_some hq) w hwm, ?_⟩
+  rcases int_eq_or_ne w.id.step q.id.step with hs | hs
+  · have hwq : w = nq.id := hoos nq (List.mem_of_find?_eq_some hq) w hwm (by rw [hs, hqid])
+    simp only [Bool.or_eq_true, beq_iff_eq]
+    exact Or.inr (by rw [hwq, hqid])
+  · simp only [Bool.or_eq_true, bne_iff_ne]
+    exact Or.inl hs
+
+/-- **El pin, entero, visto desde el nodo elegido: no pasa nada.**
+
+Sigue estando (`filterRequire` no toca `nodes`), sigue siendo válido (`isValidNode` no lee
+`gowners`), y conserva su tabla completa dentro de los owners globales (`pin_owners_stay`).
+
+Con `isValid_of_survivor`, eso vuelve a dar la validez del estado pinchado sin pasar por los pasos
+uno a uno — y deja dicho que **el único que puede hacer daño es el review**. -/
+theorem pin_is_noop_for_pinned (g : GPathM) (hw : OwnersWithin g) (hoos : SelfOwn.OOS g)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) (hval : isValidNode g nq = true) :
+    (filterRequire g q.id).node? q = some nq ∧
+      isValidNode (filterRequire g q.id) nq = true ∧
+      (∀ w ∈ nq.owners, w ∈ (filterRequire g q.id).gowners) :=
+  ⟨hq, hval, pin_owners_stay g hw hoos q nq hq⟩
+
+/-! ## Y entonces el frente es todavía más pequeño
+
+Del pin ya no queda nada: para el nodo elegido es un **no-op completo** —sigue, sigue válido, y su
+tabla entera sigue dentro de `gowners`—. Toda la obligación vive en el review, y dentro del review
+en un solo mecanismo, porque los `gowners` solo encogen por `removeNode` y `removeNode` solo
+dispara cuando `isValidNode` falla.
+
+Así que `q` solo puede morir **por contagio**: alguno de sus owners `w` muere, la siguiente vuelta
+de `cleanInvalid` corta `w` de la tabla de `q`, y si `w` era el único owner de `q` en su paso, `q`
+se queda inválido.
+
+O sea que lo que falta es exactamente esto:
+
+> fijar `q` no puede matar a **todos** los owners de `q` de ningún paso.
+
+Y aquí es donde el diseño habla: los owners de `q` son, por construcción, los nodos con los que
+`q` tiene camino común. Matarlos a todos en un paso sería decir que `q` no tenía camino — y `q`
+estaba vivo. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValidNode_filterRequire' does not depend on any axioms -/
+#guard_msgs in
+#print axioms isValidNode_filterRequire
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pin_owners_stay' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pin_owners_stay
+
 end AbsSat.GraphPath.Model.PinAliveChain
