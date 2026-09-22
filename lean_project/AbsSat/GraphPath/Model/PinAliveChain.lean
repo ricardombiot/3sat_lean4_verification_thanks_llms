@@ -1884,4 +1884,77 @@ una inversión de `unlinkIncompatible_node?` con `NodupIds`; y con ellas, el pas
 #guard_msgs in
 #print axioms Sym_cut
 
+-- ============================================================
+-- Las dos inversiones, y con ellas `Sym` entera
+-- ============================================================
+
+/-- **Inversión del desenlace: todo nodo del resultado viene de uno del original, con su misma
+tabla.** -/
+theorem unlinkIncompatible_node?_inv (g : GPathM) (hnd : NodupIds g) (r x : PathNodeId)
+    (nx : PNodeM) (hx : (unlinkIncompatible g r).node? x = some nx) :
+    ∃ nx0, g.node? x = some nx0 ∧ nx.owners = nx0.owners := by
+  cases hnr : g.node? r with
+  | none =>
+    have he : unlinkIncompatible g r = g := by unfold unlinkIncompatible; rw [hnr]
+    rw [he] at hx
+    exact ⟨nx, hx, rfl⟩
+  | some n =>
+    have hshape : (unlinkIncompatible g r).nodes = g.nodes.map (unlinkMap n r) := by
+      simp only [unlinkIncompatible, hnr]
+    have hmem : nx ∈ (unlinkIncompatible g r).nodes := List.mem_of_find?_eq_some hx
+    rw [hshape] at hmem
+    obtain ⟨nx0, hnx0, heq⟩ := List.mem_map.mp hmem
+    have hxid : nx.id = x := node?_id_eq _ x nx hx
+    have h0id : nx0.id = x := by rw [← hxid, ← heq, unlinkMap_id]
+    exact ⟨nx0, by rw [← h0id]; exact node?_of_mem hnd nx0 hnx0, by rw [← heq, owners_unlinkMap]⟩
+
+/-- **Inversión del borrado, igual.** `removeNode` filtra y re-enlaza, pero no toca tablas. -/
+theorem removeNode_node?_inv (g : GPathM) (hnd : NodupIds g) (r x : PathNodeId)
+    (nx : PNodeM) (hx : (removeNode g r).node? x = some nx) :
+    ∃ nx0, g.node? x = some nx0 ∧ nx.owners = nx0.owners := by
+  have hmem : nx ∈ (removeNode g r).nodes := List.mem_of_find?_eq_some hx
+  rw [removeNode_nodes] at hmem
+  obtain ⟨nx0, hnx0, heq⟩ := List.mem_map.mp hmem
+  have hxid : nx.id = x := node?_id_eq _ x nx hx
+  have h0id : nx0.id = x := by rw [← hxid, ← heq]; rfl
+  exact ⟨nx0, by rw [← h0id]; exact node?_of_mem hnd nx0 (List.mem_filter.mp hnx0).1,
+    by rw [← heq]; rfl⟩
+
+/-- **Y entonces el desenlace conserva la simetría.** Las tablas no cambian, así que no hay nada
+que conservar más que el propio enunciado. -/
+theorem Sym_unlinkIncompatible (g : GPathM) (hnd : NodupIds g) (P : PathNodeId → Prop)
+    (r : PathNodeId) (h : Sym g P) : Sym (unlinkIncompatible g r) P := by
+  intro x y nx ny hx hy hnx hny hyx
+  obtain ⟨nx0, hnx0, hxo⟩ := unlinkIncompatible_node?_inv g hnd r x nx hnx
+  obtain ⟨ny0, hny0, hyo⟩ := unlinkIncompatible_node?_inv g hnd r y ny hny
+  rw [hyo]
+  exact h x y nx0 ny0 hx hy hnx0 hny0 (by rw [hxo] at hyx; exact hyx)
+
+/-- **Y el borrado también.** -/
+theorem Sym_removeNode (g : GPathM) (hnd : NodupIds g) (P : PathNodeId → Prop)
+    (r : PathNodeId) (h : Sym g P) : Sym (removeNode g r) P := by
+  intro x y nx ny hx hy hnx hny hyx
+  obtain ⟨nx0, hnx0, hxo⟩ := removeNode_node?_inv g hnd r x nx hnx
+  obtain ⟨ny0, hny0, hyo⟩ := removeNode_node?_inv g hnd r y ny hny
+  rw [hyo]
+  exact h x y nx0 ny0 hx hy hnx0 hny0 (by rw [hxo] at hyx; exact hyx)
+
+/-! ## `Sym` cruza el paso entero
+
+Las tres operaciones, las tres cerradas: el corte por `Sym_cut` —que es la única con contenido, y
+usa que `P` está dentro de la tabla global—, y el desenlace y el borrado porque **no tocan ninguna
+tabla**, que es lo que las dos inversiones dicen.
+
+Con `Sym` disponible en todo momento, el caso «el review mira a un protegido» tiene ya sus dos
+mitades: el protegido no se borra (`isValidNode_relink_of_Anchored`) y los anclajes ajenos
+sobreviven, porque `unlinkMap` no toca a quien el mirado posee y `Sym` dice que lo posee. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_unlinkIncompatible' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Sym_unlinkIncompatible
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_removeNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Sym_removeNode
+
 end AbsSat.GraphPath.Model.PinAliveChain
