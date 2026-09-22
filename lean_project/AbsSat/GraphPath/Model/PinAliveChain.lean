@@ -809,4 +809,95 @@ elecciones — es una frase sobre **los enlaces padre-hijo de un nodo cuya tabla
 #guard_msgs in
 #print axioms owner_of_pinned_keeps_cover
 
+-- ============================================================
+-- Los enlaces: el review deja el nodo elegido literalmente igual
+-- ============================================================
+
+/-- **Intersecar con algo que ya contiene todo no quita nada.** -/
+theorem intersectOwners_eq_self_of_subset (a b : List PathNodeId) (h : ∀ q ∈ a, q ∈ b) :
+    intersectOwners a b = a :=
+  List.filter_eq_self.mpr (fun q hq => by
+    simp only [Bool.or_eq_true]
+    exact Or.inr (by simpa using h q hq))
+
+/-- **Los enlaces de un nodo están dentro de su tabla.**
+
+Es lo que `relinkSelf` impone en cada vuelta: padres e hijos se filtran contra los propios owners
+(`n.owners.contains p`). Otra propiedad del punto fijo del review, como `OwnersWithin`. -/
+def LinksWithin (g : GPathM) : Prop :=
+  ∀ n ∈ g.nodes, (∀ p ∈ n.parents, p ∈ n.owners) ∧ (∀ s ∈ n.sons, s ∈ n.owners)
+
+/-- **Y entonces el re-enlace no hace nada.** Si los enlaces ya están dentro de la tabla, filtrarlos
+contra la tabla los deja como estaban. -/
+theorem relinkSelf_eq_self (n : PNodeM) (hp : ∀ p ∈ n.parents, p ∈ n.owners)
+    (hs : ∀ s ∈ n.sons, s ∈ n.owners) : relinkSelf n = n := by
+  unfold relinkSelf
+  rw [List.filter_eq_self.mpr (fun p hp' => by simpa using hp p hp'),
+      List.filter_eq_self.mpr (fun s hs' => by simpa using hs s hs')]
+
+/-- **El corte del review sobre el nodo elegido es la identidad.**
+
+`cleanInvalid` hace, por nodo: cortar la tabla contra `gowners` y re-enlazar
+(`relink (intersectOwners d.owners gow) d`). Sobre el nodo elegido las dos cosas son la identidad —
+el corte porque su tabla entera sigue dentro de `gowners` (`pin_owners_stay`), y el re-enlace porque
+sus enlaces ya estaban dentro de su tabla.
+
+O sea: **el review no le toca ni un campo.** -/
+theorem relink_eq_self (n : PNodeM) (gow : List PathNodeId) (hsub : ∀ q ∈ n.owners, q ∈ gow)
+    (hp : ∀ p ∈ n.parents, p ∈ n.owners) (hs : ∀ s ∈ n.sons, s ∈ n.owners) :
+    relink (intersectOwners n.owners gow) n = n := by
+  unfold relink
+  rw [intersectOwners_eq_self_of_subset n.owners gow hsub]
+  exact relinkSelf_eq_self n hp hs
+
+/-- **Y el desenlace tampoco, visto desde el propio nodo.** `unlinkIncompatible` filtra los enlaces
+del nodo contra su tabla, que es otra vez la identidad. -/
+theorem unlinkMap_self_eq (n : PNodeM) (hp : ∀ p ∈ n.parents, p ∈ n.owners)
+    (hs : ∀ s ∈ n.sons, s ∈ n.owners) : unlinkMap n n.id n = n := by
+  unfold unlinkMap
+  simp only [beq_self_eq_true, if_true]
+  rw [List.filter_eq_self.mpr (fun p hp' => by simpa using hp p hp'),
+      List.filter_eq_self.mpr (fun s hs' => by simpa using hs s hs')]
+
+/-- **El nodo elegido, tras el pin y el corte del review: idéntico.**
+
+Las tres piezas juntas sobre `q`. Su tabla no pierde nada (`pin_owners_stay`), su re-enlace es la
+identidad (`relink_eq_self`) y su desenlace también (`unlinkMap_self_eq`). -/
+theorem review_step_noop_on_pinned (g : GPathM) (hw : OwnersWithin g) (hl : LinksWithin g)
+    (hoos : SelfOwn.OOS g) (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) :
+    relink (intersectOwners nq.owners (filterRequire g q.id).gowners) nq = nq ∧
+      unlinkMap nq nq.id nq = nq :=
+  let hlq := hl nq (List.mem_of_find?_eq_some hq)
+  ⟨relink_eq_self nq _ (pin_owners_stay g hw hoos q nq hq) hlq.1 hlq.2,
+   unlinkMap_self_eq nq hlq.1 hlq.2⟩
+
+/-! ## Y el residuo, con el mecanismo entero a la vista
+
+`q` no puede perder nada por sí mismo: el pin no lo toca, el corte del review es la identidad sobre
+él, y su cobertura de owners está protegida en todas las vueltas
+(`owner_of_pinned_keeps_cover`). La **única** manera de que `q` muera es que `removeNode` se lleve a
+un vecino suyo, porque `removeNode` sí filtra los enlaces de todos los nodos que quedan.
+
+Y aquí es donde el residuo se vuelve pequeño de verdad, porque los vecinos de `q` son sus owners
+(`LinksWithin`), y de sus owners ya sabemos que **no pueden perder cobertura**. Así que un vecino de
+`q` solo puede morir a su vez por **sus** enlaces, y sus enlaces son sus owners, un paso más abajo
+o más arriba.
+
+Es decir: la cascada de enlaces baja por la cadena de padres y sube por la de hijos, y **las dos
+son finitas** —el paso decrece hacia 0 y crece hacia `current_step - 1`—, y en los extremos
+`isValidNode` **no pide enlace**: un nodo del paso 0 es raíz y no necesita padres, uno del último
+paso no necesita hijos.
+
+Lo que queda por escribir es esa recursión sobre el paso. No es un enunciado sobre elecciones ni
+sobre caminos: es una inducción sobre los pasos, con el caso base ya dado por la propia definición
+de `isValidNode`. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.relink_eq_self' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms relink_eq_self
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.review_step_noop_on_pinned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms review_step_noop_on_pinned
+
 end AbsSat.GraphPath.Model.PinAliveChain
