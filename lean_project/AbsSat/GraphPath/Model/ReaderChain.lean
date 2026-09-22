@@ -784,6 +784,59 @@ theorem pinKeepsPartner_of_ownTable (h : PinKeepsOwnTable) : PinKeepsPartner := 
   obtain ⟨nx', hnx', hkeep⟩ := h P hR hv x nx hx hvr
   exact ⟨nx', hnx', hkeep q hqn hne⟩
 
+/-- **Y la vuelta: `TablesSound` da `PinKeepsOwnTable`.**
+
+Si toda entrada de la tabla de `x` está en una cadena, esa cadena pasa por `x`, luego **pasa el
+pin** `x.id` por construcción, luego sobrevive entera a la revisión
+(`ChainSound_filterAllAgg`) — y en el estado pinchado sus picks se siguen poseyendo, así que la
+entrada sigue ahí.
+
+Lo escribo porque es el dato que cierra el círculo, y conviene que quede constancia: **la única
+garantía de conservación que la criba ofrece es «estar en una cadena»**. Por eso toda reformulación
+de `TablesSound` —`PinPairSound`, `RootPinChained`, `PinKeepsPartner`, `PinKeepsOwnTable`— termina
+pidiendo `TablesSound` otra vez. No es mala suerte: es que el punto fijo de la criba no sabe
+conservar nada más.
+
+**Consecuencia para el ataque**: la prueba de `TablesSound` no puede salir del punto fijo. Tiene que
+salir de la **construcción** de la máquina —`up`, `doJoin`, filtro, revisión—, que es donde
+`ConservationImproves.pureRunW_full_chain` vive y donde `readerVerdictBT_iff` se cerró sin
+hipótesis. Y de esos cuatro, tres están: la revisión es `RunInhabited.soundAt_review`, y el que
+falta es el **filtro**, que es exactamente `RunSteps.FilterSoundAt`. -/
+theorem ownTable_of_tablesSound (P : GPathM) (ht : Exactness.TablesSound P)
+    (x : PathNodeId) (nx : PNodeM) (hx : P.node? x = some nx)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < P.current_step) (hself : x ∈ nx.owners) :
+    ∃ nx', (filterAllAgg P [x.id]).node? x = some nx' ∧
+      ∀ u ∈ nx.owners, u.id.step ≠ x.id.step → 0 ≤ u.id.step → u.id.step < P.current_step →
+        u ∈ nx'.owners := by
+  have hcs : (filterAllAgg P [x.id]).current_step = P.current_step :=
+    (pruned_filterAllAgg P [x.id]).step_eq
+  -- la cadena por `x` consigo mismo sobrevive al pin, así que `x` sigue siendo nodo
+  have hkeep : ∀ (v : PathNodeId) (sel : Int → PathNodeId), ChainSound P sel →
+      sel x.id.step = x → ChainSound (filterAllAgg P [x.id]) sel := by
+    intro _ sel hsc hsx
+    exact ChainSound_filterAllAgg P [x.id] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq, hsx])
+  obtain ⟨sel₀, hsc₀, hsx₀, _⟩ := ht x nx hx hx0 hx1 x hx0 hx1 hself
+  have hsc₀' := hkeep x sel₀ hsc₀ hsx₀
+  obtain ⟨hsome, _⟩ := hsc₀'.chain.1.1 x.id.step hx0 (by rw [hcs]; exact hx1)
+  rw [hsx₀] at hsome
+  obtain ⟨nx', hnx'⟩ := Option.isSome_iff_exists.mp hsome
+  refine ⟨nx', hnx', ?_⟩
+  intro u hu hne hu0 hu1
+  -- la cadena por `x` y por `u`, que también pasa el pin
+  obtain ⟨sel, hsc, hsx, hsu⟩ := ht x nx hx hx0 hx1 u hu0 hu1 hu
+  have hsc' := hkeep u sel hsc hsx
+  -- y la posesión por pares del estado pinchado devuelve la entrada
+  have hmem := hsc'.chain.2.1 u.id.step x.id.step hu0 hx0
+    (by rw [hcs]; exact hu1) (by rw [hcs]; exact hx1) hne
+  rw [hsu, hsx] at hmem
+  simp only [ownersAt, List.mem_filter, ownersOf, hnx'] at hmem
+  exact hmem.1
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownTable_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownTable_of_tablesSound
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.pinKeepsPartner_of_ownTable' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms pinKeepsPartner_of_ownTable
