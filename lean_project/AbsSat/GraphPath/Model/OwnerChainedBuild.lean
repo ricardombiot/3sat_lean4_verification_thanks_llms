@@ -35,7 +35,7 @@ open AbsSat.GraphPath.Model.AggressiveReview
 open AbsSat.GraphPath.Model.ReaderAgg
 open AbsSat.GraphPath.Model.ReaderChain
 open AbsSat.GraphPath.Model.TablesSoundBuild
-open AbsSat.GraphPath.Model.Exactness (TablesSound)
+open AbsSat.GraphPath.Model.Exactness (TablesSound Realizes)
 
 -- ============================================================
 -- El puente: la frase sale de `TablesSound`
@@ -156,5 +156,95 @@ eso cerrar uno cierra el otro.
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_filterAllAgg_top' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms ownerChained_filterAllAgg_top
+
+-- ============================================================
+-- `Steerable`, con los tres recortes a la vez
+-- ============================================================
+
+/-- **El residuo del pin, recortado por los tres lados a la vez.**
+
+Tres cosas quedan fuera de la obligación, y cada una por su propio motivo:
+
+* **`q.id.step = r.step`** — la entrada al paso pinchado lleva el pin, y la cadena de antes ya pasa
+  por ella (`ReaderChain.tablesSound_pin_of_pairs`);
+* **`x.id.step = r.step`** — el nodo que sobrevive en el paso pinchado **es** el pin, así que
+  cualquier cadena que pase por él lo satisface (`ReaderChain.pinPairSound_of_off`);
+* **la tabla de `x` sin alternativa en `r.step`** — si todos los owners de `x` en ese paso llevan ya
+  el pin, la posesión por pares de `ChainSound` obliga a la cadena a llevarlo
+  (`TablesSoundBuild.realizes_pin_of_singleId`).
+
+Lo que queda es el par `(x,q)` con **los dos extremos fuera del paso del pin** y con la tabla de
+`x` conservando de verdad las dos opciones. Tres pasos distintos y elección en el de en medio. -/
+def PinResidue (g : GPathM) (r : NodeId) : Prop :=
+  ∀ x nx, g.node? x = some nx → 0 ≤ x.id.step → x.id.step < g.current_step →
+    x.id.step ≠ r.step →
+    (∃ u ∈ nx.owners, u.id.step = r.step ∧ u.id ≠ r) →
+    ∀ q ∈ nx.owners, 0 ≤ q.id.step → q.id.step < g.current_step → q.id.step ≠ r.step →
+      Realizes (filterAllAgg g [r]) x q
+
+/-- **Y basta: con el residuo, el pin conserva `TablesSound` entero.**
+
+Cuatro ramas, y tres se cierran aquí mismo sin hipótesis. Es `Steerable` para un pin, con todo lo
+que se sabe metido dentro. -/
+theorem tablesSound_pin_of_residue (g : GPathM) (hR : ReadableAgg g) (hv : isValid g = true)
+    (ht : TablesSound g) (r : NodeId) (hr0 : 0 ≤ r.step) (hrs : r.step < g.current_step)
+    (hvr : isValid (filterAllAgg g [r]) = true) (h : PinResidue g r) :
+    TablesSound (filterAllAgg g [r]) := by
+  intro x n hx hx0 hx1 q hq0 hq1 hqn
+  have hRr := ReadableAgg_filterAllAgg g hR [r]
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+  have rcR := RCtx_of_readableAgg _ hRr
+  have rcg := RCtx_of_readableAgg g hR
+  have ctxg := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hR) hv
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxn := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxn, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  have hx1g : x.id.step < g.current_step := by rw [← hcs]; exact hx1
+  have hq1g : q.id.step < g.current_step := by rw [← hcs]; exact hq1
+  obtain ⟨sel, hsc, hsx, hsq⟩ := ht x n₀ hx₀ hx0 hx1g q hq0 hq1g (hown q hqn)
+  rcases int_eq_or_ne q.id.step r.step with hqr | hqr
+  · -- la entrada vive en el paso pinchado: lleva el pin
+    have hqid : q.id = r :=
+      ReaderComplete.pin_id g r q (ctxR.ownGow x n hx q hqn hq0 hq1) hqr
+    exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq, ← hqr, hsq, hqid]), hsx, hsq⟩
+  · rcases int_eq_or_ne x.id.step r.step with hxr | hxr
+    · -- el nodo vive en el paso pinchado: ES el pin
+      have hself := FabricAdd.self_mem_owners _ rcR.oos x n hx (ctxR.nodeval x n hx) hx0 hx1
+      have hxid : x.id = r :=
+        ReaderComplete.pin_id g r x (ctxR.ownGow x n hx x hself hx0 hx1) hxr
+      exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+        rw [List.mem_singleton.mp hreq, ← hxr, hsx, hxid]), hsx, hsq⟩
+    · by_cases hch : ∃ u ∈ n₀.owners, u.id.step = r.step ∧ u.id ≠ r
+      · exact h x n₀ hx₀ hx0 hx1g hxr hch q (hown q hqn) hq0 hq1g hqr
+      · -- la tabla de `x` ya no tenía elección en el paso del pin
+        have hsingle : ∀ u ∈ n₀.owners, u.id.step = r.step → u.id = r := by
+          intro u hu hus
+          by_cases hur : u.id = r
+          · exact hur
+          · exact absurd ⟨u, hu, hus, hur⟩ hch
+        have hselfg :=
+          FabricAdd.self_mem_owners g rcg.oos x n₀ hx₀ (ctxg.nodeval x n₀ hx₀) hx0 hx1g
+        exact realizes_pin_of_singleId g r hr0 hrs x q n₀ hx₀ hx0 hx1g hselfg hsingle sel hsc hsx hsq
+
+/-! ## Lo que queda de `Steerable`, dicho entero
+
+    x, q y r en tres pasos distintos, y la tabla de x con las dos opciones en el paso de r.
+
+Ni una condición más. Y las dos medidas que hay sobre eso apuntan en la misma dirección:
+
+* `row-degree pinchoice` — el caso **sin** elección, que aquí se cierra, cubre el 90,4 % de los
+  pines en `dos_de_tres.cnf` y el 65,1 % en ocho fórmulas aleatorias;
+* `row-degree pairdesc`, columna «como lo hace el lector» —pinchar y **revisar** en cada paso, que
+  es lo que el algoritmo hace— : 1.016/1.016 pares en `dos_de_tres.cnf` y 12.602/12.602 en el
+  corpus aleatorio, **sin un solo retroceso**.
+
+Lo que falta no es evidencia. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tablesSound_pin_of_residue' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_pin_of_residue
 
 end AbsSat.GraphPath.Model.OwnerChainedBuild

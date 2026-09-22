@@ -1685,4 +1685,74 @@ theorem ownerChained_addNode (g : GPathM) (d : NodeId) (title : String)
 #guard_msgs in
 #print axioms ownerChained_addNode
 
+-- ============================================================
+-- `Steerable`: el paso pinchado es libre por los DOS lados
+-- ============================================================
+
+/-- **El residuo del pin, con el paso pinchado quitado también del lado del nodo.**
+
+`PinPairSound` ya dejaba libre el caso `q.id.step = r.step` (`tablesSound_pin_of_pairs`). Esto
+quita además el caso `x.id.step = r.step`, y el argumento es el mismo por el otro lado: **un nodo
+que sobrevive al pin y vive en el paso pinchado ES el pin.**
+
+Un nodo válido se posee a sí mismo, luego `x` está en los owners globales del estado pinchado, y
+`ReaderComplete.pin_id` dice que allí, en ese paso, no hay más que `r`. Así que cualquier cadena que
+pase por `x` satisface el requisito sin más, y la cadena que `TablesSound` ya daba para el par
+`(x,q)` cruza el filtro entera.
+
+En términos de `Steerable`: **no hay nada que dirigir cuando el par toca el paso del pin.** La
+obligación queda solo para los pares cuyos dos extremos viven en pasos que el pin no fija. -/
+def PinPairSoundOff : Prop :=
+  ∀ g : GPathM, ReadableAgg g → isValid g = true → Exactness.TablesSound g →
+    ∀ r : NodeId, isValid (filterAllAgg g [r]) = true →
+      ∀ x n, (filterAllAgg g [r]).node? x = some n → 0 ≤ x.id.step →
+        x.id.step < (filterAllAgg g [r]).current_step → x.id.step ≠ r.step →
+        ∀ q, 0 ≤ q.id.step → q.id.step < (filterAllAgg g [r]).current_step →
+          q.id.step ≠ r.step → q ∈ n.owners → Realizes (filterAllAgg g [r]) x q
+
+/-- **Y basta con eso: el lado del nodo se cierra solo.** -/
+theorem pinPairSound_of_off (h : PinPairSoundOff) : PinPairSound := by
+  intro g hR hv ht r hvr x n hx hx0 hx1 q hq0 hq1 hqr hqn
+  rcases int_eq_or_ne x.id.step r.step with hxr | hxr
+  · -- el nodo vive en el paso pinchado: entonces el nodo ES el pin
+    have hRr := ReadableAgg_filterAllAgg g hR [r]
+    have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+    have rcR := RCtx_of_readableAgg _ hRr
+    have rcg := RCtx_of_readableAgg g hR
+    have hpr := pruned_filterAllAgg g [r]
+    have hcs := hpr.step_eq
+    have hself := FabricAdd.self_mem_owners _ rcR.oos x n hx (ctxR.nodeval x n hx) hx0 hx1
+    have hxid : x.id = r :=
+      ReaderComplete.pin_id g r x (ctxR.ownGow x n hx x hself hx0 hx1) hxr
+    obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+    have hxn := node?_id_eq _ x n hx
+    have hx₀ : g.node? x = some n₀ := by rw [← hxn, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+    obtain ⟨sel, hsc, hsx, hsq⟩ := ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) q hq0
+      (by rw [← hcs]; exact hq1) (hown q hqn)
+    exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq, ← hxr, hsx, hxid]), hsx, hsq⟩
+  · exact h g hR hv ht r hvr x n hx hx0 hx1 hxr q hq0 hq1 hqr hqn
+
+/-! **Y así queda la pared, con los dos lados recortados.**
+
+Juntando lo que ya había con esto, el filtro conserva `TablesSound` salvo en un solo sitio:
+
+| caso | quién lo cierra |
+|---|---|
+| `reqs = []` (pasos pares, frontera, sobre `fusionTop`) | `tablesSound_filterAllAgg_var` |
+| el requisito es la clave de la cima (pasos impares) | `tablesSound_filterAllAgg_top` |
+| varios requisitos | `SeqPin.pinOneByOne` los reduce a uno |
+| `q.id.step = r.step` | `tablesSound_pin_of_pairs` |
+| **`x.id.step = r.step`** | **`pinPairSound_of_off`** |
+| la tabla ya no tenía elección en `r.step` | `TablesSoundBuild.realizes_pin_of_singleIdAt` |
+| `x`, `q` y `r` en tres pasos distintos, con elección | **abierto** |
+
+Que es, dicho en limpio, la frontera de siempre: **los enunciados sobre dos cosas se cierran; el
+que queda es sobre tres.** Y no es casual que sea el último: `x`, `q` y `r` en tres pasos con
+elección es exactamente la configuración que el 3-SAT pone en el mapa. -/
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.pinPairSound_of_off' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinPairSound_of_off
+
 end AbsSat.GraphPath.Model.ReaderChain
