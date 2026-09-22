@@ -1044,4 +1044,91 @@ tabla. -/
 #guard_msgs in
 #print axioms aggPair_noop_on_pinned
 
+-- ============================================================
+-- Los ladrillos de la inducción: qué toca la tabla global y qué no
+-- ============================================================
+
+/-- Actualizar un nodo no toca la tabla global. -/
+theorem gowners_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM) :
+    (updateAt g id f).gowners = g.gowners := rfl
+
+/-- Desenlazar tampoco. -/
+theorem gowners_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    (unlinkIncompatible g id).gowners = g.gowners := by
+  unfold unlinkIncompatible; split <;> rfl
+
+/-- `aggPair` tampoco: sus dos ramas son `updateAt`. -/
+theorem gowners_aggPair (g : GPathM) (x w : PathNodeId) :
+    (aggPair g x w).gowners = g.gowners := by
+  unfold aggPair
+  split
+  · split
+    · rfl
+    · split
+      · rfl
+      · rfl
+  · rfl
+
+/-- **Y `removeNode` solo se lleva el nodo que borra.** -/
+theorem mem_gowners_removeNode (g : GPathM) (id z : PathNodeId) (hz : z ∈ g.gowners)
+    (hne : z ≠ id) : z ∈ (removeNode g id).gowners := by
+  simp only [removeNode, List.mem_filter]
+  exact ⟨hz, bne_iff_ne.mpr hne⟩
+
+/-- **El paso del review conserva toda entrada que no sea la que está mirando.**
+
+Es el ladrillo que la inducción necesita: `cleanStep` intercala `updateAt` y `unlinkIncompatible`
+—que no tocan la tabla global— y termina, como mucho, en un `removeNode` del **propio** id. -/
+theorem mem_gowners_cleanStep (g : GPathM) (id z : PathNodeId) (hz : z ∈ g.gowners)
+    (hne : z ≠ id) : z ∈ (cleanStep g id).gowners := by
+  unfold cleanStep
+  split
+  · exact hz
+  · unfold intersectOrDrop
+    have hg : ∀ f : PNodeM → PNodeM,
+        z ∈ (unlinkIncompatible (updateAt g id f) id).gowners := by
+      intro f; rw [gowners_unlinkIncompatible, gowners_updateAt]; exact hz
+    split
+    · exact hg _
+    · exact mem_gowners_removeNode _ id z (hg _) hne
+
+/-- **Y por tanto una vuelta entera de `cleanInvalid` conserva lo que no mira.** -/
+theorem mem_gowners_cleanInvalidGo (z : PathNodeId) :
+    ∀ (ids : List PathNodeId) (g : GPathM), z ∈ g.gowners → z ∉ ids →
+      z ∈ (cleanInvalidGo g ids).gowners := by
+  intro ids
+  induction ids with
+  | nil => intro g hz _; exact hz
+  | cons id rest ih =>
+    intro g hz hnot
+    rw [cleanInvalidGo_cons]
+    exact ih _ (mem_gowners_cleanStep g id z hz (fun he => hnot (he ▸ List.mem_cons_self)))
+      (fun hm => hnot (List.mem_cons_of_mem _ hm))
+
+/-! ## Lo que falta de la inducción, y es un solo caso
+
+Con estos ladrillos, el invariante
+
+    I(h) :  ∀ z ∈ (tabla de q), z ∈ h.gowners
+
+solo puede romperse cuando el review **mira exactamente a un `z` de la tabla de `q`** — en los
+demás pasos `mem_gowners_cleanStep` lo conserva sin condiciones. Y en ese caso la pregunta es una
+sola: si `isValidNode` de `z` aguanta el corte.
+
+Y aguanta, por lo ya demostrado: `z` es un owner de `q`, luego comparte paso con `q` en **todos**
+los pasos (`AggOk`), luego conserva cobertura mientras `I` valga (`owner_of_pinned_keeps_cover`), y
+la cobertura basta para la validez (`isValidNode_of_cover`). El invariante se sostiene a sí mismo.
+
+Lo que queda por escribir es esa implicación dentro del `if` de `intersectOrDrop`, y después
+propagarla por `reviewFuel`, `aggSweep` y `reviewAggFuel`. Ya no hay ninguna pregunta abierta de
+diseño: hay tres recursiones que recorrer con un invariante que se conserva. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_gowners_cleanStep' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms mem_gowners_cleanStep
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_gowners_cleanInvalidGo' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms mem_gowners_cleanInvalidGo
+
 end AbsSat.GraphPath.Model.PinAliveChain
