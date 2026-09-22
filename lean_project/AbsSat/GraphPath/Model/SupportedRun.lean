@@ -234,6 +234,68 @@ theorem shared_pin_witness (g : GPathM) (hR : ReadableAgg g)
     a.ctx.ownGow x n hx z hzx (by rw [hzs]; exact hrs0) (by rw [hzs]; exact hrs)
   exact ⟨z, ReaderComplete.pin_id g r z hzg hzs, hzx, hzq⟩
 
+
+/-- **El ataque, montado: las tres parejas salen, y el pegado NO puede ser puro.**
+
+Junta `shared_pin_witness` con `SoundAt` y entrega lo que la frase abierta consume: un testigo `z`
+que es el valor pinchado, y **cadena para las tres parejas** `(x,q)`, `(x,z)`, `(q,z)` en el estado
+de antes del pin. Todo demostrado, sin hipótesis nueva.
+
+Y con eso a la vista se ve lo que queda: *pegar* las tres en una. **Eso, como enunciado general
+sobre cadenas, es falso**, y conviene dejarlo escrito para que nadie lo intente:
+
+> Sea `φ` con soluciones exactamente `{110, 101, 011}`. Tómese `x` el nodo que fija el bit 1,
+> `q` el que fija el bit 2, `z` el que fija el bit 3. Las tres parejas tienen cadena —`110` lleva
+> `x` y `q`, `101` lleva `x` y `z`, `011` lleva `q` y `z`— y la terna necesitaría `111`, que no es
+> solución.
+
+Así que la prueba no puede salir de las tres parejas. Tiene que usar el estado **pinchado**: en ese
+ejemplo, tras fijar el bit 3 la criba de `P` compara `x` y `q` y **no comparten owner en el paso del
+bit 1**, así que `aggPair` borra el par y la obligación ni se plantea.
+
+Dicho de otro modo, y es la lectura útil: `PinPairSoundAt` no es un teorema de pegado de cadenas,
+es un teorema sobre **qué sobrevive al punto fijo de la criba en el estado pinchado**. Los tres
+`Realizes` de abajo son datos de entrada; el trabajo está en `AggOk (filterAllAgg g [r])`, que
+`shared_pin_witness` ya empieza a usar y que ningún intento anterior de la sesión tocaba. -/
+theorem triple_data_of_survival (g : GPathM) (hR : ReadableAgg g)
+    (ht : SoundAt (LitStep φ) g)
+    (r : NodeId) (hr : LitStep φ r.step) (hr0 : 0 ≤ r.step)
+    (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (hpms : Sons.PMS (filterAllAgg g [r])) (hsn : Sons.SN (filterAllAgg g [r]))
+    (x q : PathNodeId) (n mq : PNodeM)
+    (hx : (filterAllAgg g [r]).node? x = some n) (hq : (filterAllAgg g [r]).node? q = some mq)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < (filterAllAgg g [r]).current_step)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < (filterAllAgg g [r]).current_step)
+    (hqn : q ∈ n.owners) (hL : LitStep φ q.id.step) :
+    ∃ z, z.id = r ∧ Realizes g x q ∧ Realizes g x z ∧ Realizes g q z := by
+  obtain ⟨z, hzr, hzx, hzq⟩ :=
+    shared_pin_witness g hR r hvr hr0 hrs hpms hsn x q n mq hx hq hx0 hx1 hq0 hq1 hqn
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  have rcg := RCtx_of_readableAgg g hR
+  -- `x` y `q` en el estado de antes, con sus tablas mayores
+  obtain ⟨n₀, hn₀, hidx, hownx, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hx₀ : g.node? x = some n₀ := by
+    rw [← node?_id_eq _ x n hx, hidx]; exact node?_of_mem rcg.nodup n₀ hn₀
+  obtain ⟨m₀, hm₀, hidq, hownq, _⟩ := hpr.nodes_derived mq (List.mem_of_find?_eq_some hq)
+  have hq₀ : g.node? q = some m₀ := by
+    rw [← node?_id_eq _ q mq hq, hidq]; exact node?_of_mem rcg.nodup m₀ hm₀
+  have hxg1 : x.id.step < g.current_step := by rw [← hcs]; exact hx1
+  have hqg1 : q.id.step < g.current_step := by rw [← hcs]; exact hq1
+  have hzs : z.id.step = r.step := by rw [hzr]
+  have hzL : LitStep φ z.id.step := by rw [hzs]; exact hr
+  have hz0 : 0 ≤ z.id.step := by rw [hzs]; exact hr0
+  have hz1 : z.id.step < g.current_step := by rw [hzs, ← hcs]; exact hrs
+  exact ⟨z, hzr,
+    ht x n₀ hx₀ hx0 hxg1 q hq0 hqg1 hL (hownx q hqn),
+    ht x n₀ hx₀ hx0 hxg1 z hz0 hz1 hzL (hownx z hzx),
+    ht q m₀ hq₀ hq0 hqg1 z hz0 hz1 hzL (hownq z hzq)⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SupportedRun.triple_data_of_survival' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms triple_data_of_survival
+
 /-- info: 'AbsSat.GraphPath.Model.SupportedRun.shared_pin_witness' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms shared_pin_witness

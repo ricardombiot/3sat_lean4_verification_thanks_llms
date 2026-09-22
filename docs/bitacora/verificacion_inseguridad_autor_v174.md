@@ -267,6 +267,29 @@ retroceso no hace falta nunca, que el descenso siempre baja al paso 0.
 **Abierto**: `TriplePin`, caso de variables distintas, con testigo compartido. Y la cota de coste del
 lector sin retroceso, que es la misma frase.
 
-Lo que yo miraría primero mañana: `shared_pin_witness` da `z` compartido; `SoundAt` da cadena por
-`x` y `z`, y por `q` y `z`. Las tres parejas tienen cadena y el tercero es el mismo. Si de ahí sale
-la terna, la ruta cierra.
+### 6.1 Addendum: el ataque montado, y un callejón cerrado con ejemplo
+
+`triple_data_of_survival` junta `shared_pin_witness` con `SoundAt` y entrega lo que la frase abierta
+consume: el testigo `z` que es el valor pinchado, y **cadena para las tres parejas** `(x,q)`,
+`(x,z)`, `(q,z)` en el estado de antes del pin. Todo demostrado, sin hipótesis nueva.
+
+Y con eso delante se ve que **el pegado puro es falso**, así que conviene no intentarlo:
+
+> Sea `φ` con soluciones exactamente `{110, 101, 011}`. Tómese `x` el nodo que fija el bit 1, `q` el
+> que fija el bit 2, `z` el que fija el bit 3. Las tres parejas tienen cadena —`110` lleva `x` y
+> `q`, `101` lleva `x` y `z`, `011` lleva `q` y `z`— y la terna necesitaría `111`, que no es
+> solución.
+
+Es el mismo tipo de contraejemplo que mató a `ChainMerge`, un piso más arriba: no basta con que las
+tres parejas sean realizables.
+
+**Y esa es la lectura que me llevo, que corrige el plan de ayer.** En ese mismo ejemplo, tras fijar
+el bit 3 la criba del estado pinchado compara `x` y `q` y **no comparten owner en el paso del bit
+1**, así que `aggPair` borra el par y la obligación ni se plantea. O sea:
+
+> `PinPairSoundAt` **no es un teorema de pegado de cadenas**. Es un teorema sobre **qué sobrevive al
+> punto fijo de la criba en el estado pinchado**.
+
+Los tres `Realizes` son datos de entrada; el trabajo está en `AggOk (filterAllAgg g [r])`, que
+`shared_pin_witness` ya empieza a usar y que ningún intento de esta sesión —ni de las anteriores—
+tocaba. Ahí es donde yo miraría mañana, y ya no en el pegado.
