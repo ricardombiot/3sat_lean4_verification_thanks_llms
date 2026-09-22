@@ -1299,4 +1299,80 @@ sobre listas. -/
 #guard_msgs in
 #print axioms unlinkIncompatible_keeps
 
+-- ============================================================
+-- El invariante, en su forma definitiva: la COBERTURA
+-- ============================================================
+
+/-- **Un nodo vivo cuya tabla cubre todos los pasos dentro de la tabla global.**
+
+Éste es el invariante bueno, y no el valor del nodo: los enlaces de un nodo cambian cuando muere un
+vecino, pero **su tabla no** —`removeNode` filtra padres e hijos y no toca los owners de nadie—.
+Y por `isValidNode_of_cover` la validez sale de la cobertura, no de los enlaces. -/
+def Cover (g : GPathM) (z : PathNodeId) : Prop :=
+  ∃ nz, g.node? z = some nz ∧
+    ∀ k, 0 ≤ k → k < g.current_step → ∃ w ∈ nz.owners, w.id.step = k ∧ w ∈ g.gowners
+
+/-- **Y un solo nodo con cobertura hace válido el estado. Sin ninguna hipótesis.**
+
+Mejor que `isValid_of_survivor`, que pedía `OwnersWithin`: aquí los testigos vienen ya dentro de la
+tabla global, que es lo que la cobertura dice. -/
+theorem isValid_of_Cover (g : GPathM) (z : PathNodeId) (hc : Cover g z) : isValid g = true := by
+  obtain ⟨_, _, hcov⟩ := hc
+  simp only [isValid, List.all_eq_true]
+  intro k hk
+  obtain ⟨w, _, hws, hwg⟩ := hcov k (mem_intRange_lower hk)
+    (by have := mem_intRange_upper hk; omega)
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq]
+  exact ⟨w, hwg, hws⟩
+
+/-- **Borrar un nodo no toca la tabla de nadie.** `removeNode` filtra padres, hijos y la tabla
+global; los owners los deja intactos. -/
+theorem owners_removeNode (g : GPathM) (id z : PathNodeId) (nz : PNodeM)
+    (hz : g.node? z = some nz) (hne : z ≠ id) :
+    (removeNode g id).node? z = some (unlink id nz) ∧ (unlink id nz).owners = nz.owners :=
+  ⟨removeNode_node? g id z nz hz hne, rfl⟩
+
+/-- **Y entonces la cobertura sobrevive a una muerte, salvo que el muerto fuera su único testigo.**
+
+Que es exactamente lo que había que aislar: la cascada no puede romper la cobertura de `z` por
+efectos laterales —ni por enlaces, ni por cortes de tabla—, **solo** quitándole un testigo. -/
+theorem Cover_removeNode (g : GPathM) (id z : PathNodeId) (nz : PNodeM) (hne : z ≠ id)
+    (hz : g.node? z = some nz)
+    (hcov : ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ w ∈ nz.owners, w.id.step = k ∧ w ∈ g.gowners ∧ w ≠ id) :
+    Cover (removeNode g id) z := by
+  refine ⟨unlink id nz, removeNode_node? g id z nz hz hne, ?_⟩
+  intro k hk0 hk1
+  obtain ⟨w, hwm, hws, hwg, hwne⟩ := hcov k hk0 hk1
+  exact ⟨w, hwm, hws, by
+    rw [removeNode_gowners, List.mem_filter]
+    exact ⟨hwg, bne_iff_ne.mpr hwne⟩⟩
+
+/-! ## Por qué la cobertura es el invariante y no otro
+
+Las tres operaciones que el review encadena se comportan, frente a la cobertura, así:
+
+| operación | tabla del nodo | tabla global | cobertura |
+|---|---|---|---|
+| `updateAt` (el corte) | la corta contra `gowners` | intacta | **intacta** si la tabla ya estaba dentro |
+| `unlinkIncompatible` | no la toca | intacta | **intacta** |
+| `removeNode id` | **no la toca** | pierde `id` | intacta salvo que `id` fuera testigo |
+
+O sea que la cobertura solo se puede perder de **una** manera, y está aislada: que muera un owner
+que era el único testigo de algún paso. Los enlaces ya no entran —la validez sale de la cobertura
+(`isValidNode_of_cover`)— y el estado entero ya no entra —la validez del estado sale de una sola
+cobertura (`isValid_of_Cover`, sin hipótesis)—.
+
+Y para la tabla de `q` esa única manera está cerrada por la simetría y el cruce de `AggOk`: sus
+owners comparten paso con `q` en todos los pasos, así que mientras su tabla esté en pie ninguno se
+queda sin testigos. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValid_of_Cover' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_of_Cover
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Cover_removeNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Cover_removeNode
+
 end AbsSat.GraphPath.Model.PinAliveChain
