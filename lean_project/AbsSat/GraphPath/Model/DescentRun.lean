@@ -61,7 +61,7 @@ open AbsSat.GraphPath.Model.ReaderAgg
 open AbsSat.GraphPath.Model.PureDriverImproves
 open AbsSat.GraphPath.Model.PureDriver (PureLine pureInit insertPure)
 open AbsSat.GraphPath.Model.BranchLines (insert_src sendToW_eq advance_inv sent)
-open AbsSat.GraphPath.Model.NoDeadEnd (NoDeadEnd)
+open AbsSat.GraphPath.Model.NoDeadEnd (NoDeadEnd SoundFrom upd)
 open AbsSat.GraphPath.Model.ReaderAggRun (MInv LineInv LineInv_init LineInv_steps)
 open AbsSat.GraphPath.Model.ConservationFilter (StateOkF)
 
@@ -117,6 +117,135 @@ theorem reqCompletion_of_noDeadEnd (g : GPathM) (reqs : List NodeId)
     (List.mem_of_find?_eq_some hn) (by rw [hnid]; exact hstepk)
   rw [hnid] at hpin
   exact hpin
+
+-- ============================================================
+-- The pins immediately below a chain are free
+-- ============================================================
+
+/-- **The pin one step below a node is written in the node's identifier.** A node of the filtered
+state above step 0 has a parent there; that parent sits on the step below, so `node_id_of_pin`
+forces its map node to be the pin, and `PMP` copies it into the node's `parent_id`. -/
+theorem parent_id_of_pin (g : GPathM) (reqs : List NodeId)
+    (ctx : Pinned.Ctx (filterAllAgg g reqs)) (rc : Reader.RCtx (filterAllAgg g reqs))
+    (x : PathNodeId) (n : PNodeM) (hn : (filterAllAgg g reqs).node? x = some n)
+    (hx0 : 0 < x.id.step) (req : NodeId) (hreq : req ∈ reqs) (hs : req.step = x.id.step - 1) :
+    x.parent_id = some req := by
+  have hmem : n ∈ (filterAllAgg g reqs).nodes := List.mem_of_find?_eq_some hn
+  have hid : n.id = x := node?_id_eq _ x n hn
+  -- above step 0 the node is not a root, so it has a parent in the filtered state
+  have hroot : n.id.parent_id.isNone = false := by
+    have hne : n.id.parent_id ≠ none := rc.shape.notroot n hmem (by rw [hid]; exact hx0)
+    cases hp : n.id.parent_id with
+    | none => exact absurd hp hne
+    | some _ => rfl
+  obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode _ n (ctx.nodeval x n hn) hroot)
+  obtain ⟨mc, hmc, hmcid⟩ := rc.shape.pn n hmem c hc
+  have hcstep : c.id.step = req.step := by
+    have := rc.shape.pbelow n hmem c hc
+    rw [hid] at this; omega
+  -- its map node is the pin
+  have hcid : c.id = req := by
+    rw [← hmcid]
+    exact PairChain.node_id_of_pin g reqs ctx rc.below rc.nodup req hreq
+      (by rw [← hcstep]; have := rc.snn mc hmc; rw [hmcid] at this; exact this) mc hmc
+      (by rw [hmcid]; exact hcstep)
+  -- and `PMP` copies it into the identifier
+  have hpmp := rc.pmp n hmem c hc
+  rw [hid, hcid] at hpmp
+  exact hpmp.symm
+
+/-- **The pin two steps below is written in the identifier too** — that is the third component, and
+the reason the window was widened. `GPMP` reads it off the parent's own `parent_id`, which
+`parent_id_of_pin` has just identified with the pin. -/
+theorem gparent_id_of_pin (g : GPathM) (reqs : List NodeId)
+    (ctx : Pinned.Ctx (filterAllAgg g reqs)) (rc : Reader.RCtx (filterAllAgg g reqs))
+    (x : PathNodeId) (n : PNodeM) (hn : (filterAllAgg g reqs).node? x = some n)
+    (hx0 : 1 < x.id.step) (req : NodeId) (hreq : req ∈ reqs) (hs : req.step = x.id.step - 2) :
+    x.gparent_id = some req := by
+  have hmem : n ∈ (filterAllAgg g reqs).nodes := List.mem_of_find?_eq_some hn
+  have hid : n.id = x := node?_id_eq _ x n hn
+  have hroot : n.id.parent_id.isNone = false := by
+    have hne : n.id.parent_id ≠ none := rc.shape.notroot n hmem (by rw [hid]; omega)
+    cases hp : n.id.parent_id with
+    | none => exact absurd hp hne
+    | some _ => rfl
+  obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode _ n (ctx.nodeval x n hn) hroot)
+  obtain ⟨mc, hmc, hmcid⟩ := rc.shape.pn n hmem c hc
+  have hcstep : c.id.step = x.id.step - 1 := by
+    have := rc.shape.pbelow n hmem c hc
+    rw [hid] at this; exact this
+  -- the parent's own `parent_id` is the pin, by the previous lemma one step down
+  have hcpar : c.parent_id = some req :=
+    parent_id_of_pin g reqs ctx rc c mc (by rw [← hmcid]; exact node?_of_mem rc.nodup mc hmc)
+      (by rw [hcstep]; omega) req hreq (by rw [hcstep]; omega)
+  -- and `GPMP` copies it into the identifier's third component
+  have hgpmp := rc.gpmp.1 n hmem c hc
+  rw [hid, hcpar] at hgpmp
+  exact hgpmp
+
+/-- **So the two picks the descent makes just below a chain cannot miss their pins.**
+
+The identifier of the chain's lowest pick carries the pinned map nodes of the two steps below it
+(`parent_id_of_pin`, `gparent_id_of_pin`), and in `g` the picks are parent-linked, so `PMP` and
+`GPMP` force their map nodes to be exactly those. With a window of two only the first of the two
+would be free; the third component buys the second.
+
+This is the residue of `(★)` cut by `w - 1 = 2` steps: what is left to steer are the pins **three
+or more** steps below the chain's lowest pick. -/
+theorem pins_below_free (g : GPathM) (reqs : List NodeId)
+    (rcg : Reader.RCtx g) (ctx : Pinned.Ctx (filterAllAgg g reqs))
+    (rc : Reader.RCtx (filterAllAgg g reqs))
+    (sel : Int → PathNodeId) (lo : Int) (hlo : 0 < lo)
+    (hs : SoundFrom (filterAllAgg g reqs) sel lo)
+    (hlohi : lo ≤ (filterAllAgg g reqs).current_step - 1)
+    (sel' : Int → PathNodeId) (hagree : ∀ i, lo ≤ i → sel' i = sel i)
+    (hs' : SoundFrom g sel' 0) :
+    (∀ req ∈ reqs, 0 ≤ req.step → req.step = lo - 1 → (sel' req.step).id = req) ∧
+      (∀ req ∈ reqs, 0 ≤ req.step → req.step = lo - 2 → (sel' req.step).id = req) := by
+  have hcsF : (filterAllAgg g reqs).current_step = g.current_step :=
+    (pruned_filterAllAgg g reqs).step_eq
+  -- the lowest pick of the chain, as a node of the filtered state
+  obtain ⟨hsome, hstep⟩ := hs.node lo (Int.le_refl _) (by omega)
+  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp hsome
+  have hxlo : sel' lo = sel lo := hagree lo (Int.le_refl _)
+  -- the pick at `lo - 1` is a parent of `sel lo` in `g`, so `PMP` fixes its map node
+  have hpar : sel' (lo - 1) ∈ ((g.node? (sel' (lo - 1 + 1))).map PNodeM.parents).getD [] :=
+    hs'.parent_link (lo - 1) (by omega) (by rw [← hcsF]; omega)
+  rw [show lo - 1 + 1 = lo from by omega] at hpar
+  obtain ⟨mx, hmx⟩ := Option.isSome_iff_exists.mp (hs'.node lo (by omega) (by rw [← hcsF]; omega)).1
+  rw [hmx] at hpar
+  simp only [Option.map_some, Option.getD_some] at hpar
+  have hmxid : mx.id = sel' lo := node?_id_eq g _ mx hmx
+  have hpmp := rcg.pmp mx (List.mem_of_find?_eq_some hmx) _ hpar
+  rw [hmxid, hxlo] at hpmp
+  refine ⟨fun req hreq hr0 hrs => ?_, fun req hreq hr0 hrs => ?_⟩
+  · -- one step below: `parent_id_of_pin` plus `PMP` in `g`
+    have := parent_id_of_pin g reqs ctx rc (sel lo) nx hnx (by rw [hstep]; omega) req hreq
+      (by rw [hstep]; omega)
+    rw [this] at hpmp
+    rw [hrs]
+    exact Option.some.inj hpmp
+  · -- two steps below: the same, one level deeper, through `GPMP`
+    have hgp := gparent_id_of_pin g reqs ctx rc (sel lo) nx hnx (by rw [hstep]; omega) req hreq
+      (by rw [hstep]; omega)
+    -- the pick at `lo - 2` is a parent of the pick at `lo - 1`
+    have hpar2 : sel' (lo - 2) ∈ ((g.node? (sel' (lo - 2 + 1))).map PNodeM.parents).getD [] :=
+      hs'.parent_link (lo - 2) (by omega) (by rw [← hcsF]; omega)
+    rw [show lo - 2 + 1 = lo - 1 from by omega] at hpar2
+    obtain ⟨mc, hmc⟩ :=
+      Option.isSome_iff_exists.mp (hs'.node (lo - 1) (by omega) (by rw [← hcsF]; omega)).1
+    rw [hmc] at hpar2
+    simp only [Option.map_some, Option.getD_some] at hpar2
+    have hmcid : mc.id = sel' (lo - 1) := node?_id_eq g _ mc hmc
+    have hpmp2 := rcg.pmp mc (List.mem_of_find?_eq_some hmc) _ hpar2
+    -- `GPMP` in `g`: the grandparent the lowest pick declares is the parent of its parent
+    have hgpg := rcg.gpmp.1 mx (List.mem_of_find?_eq_some hmx) _ hpar
+    rw [hmxid, hxlo, hgp] at hgpg
+    rw [hmcid, ← hgpg] at hpmp2
+    rw [hrs]
+    exact Option.some.inj hpmp2
 
 -- ============================================================
 -- One send
@@ -251,6 +380,18 @@ theorem sat_of_reqCompletion (hwf : WF φ) (hR : ReqAll)
   refine NoDeadEndVerdict.sat_of_noDeadEnd φ hwf kv hkv hv ?_
   exact DescentFilter.noDeadEnd_filterAllAgg_of_completion kv.2 [] (by
     rw [hstep]; exact ConservationCore.stepCount_pos φ) (hR kv.2 [])
+
+/-- info: 'AbsSat.GraphPath.Model.DescentRun.parent_id_of_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms parent_id_of_pin
+
+/-- info: 'AbsSat.GraphPath.Model.DescentRun.gparent_id_of_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gparent_id_of_pin
+
+/-- info: 'AbsSat.GraphPath.Model.DescentRun.pins_below_free' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pins_below_free
 
 /-- info: 'AbsSat.GraphPath.Model.DescentRun.reqCompletion_of_noDeadEnd' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

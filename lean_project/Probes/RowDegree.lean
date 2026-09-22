@@ -61,6 +61,16 @@ structure Acc where
   huntNone  : Nat := 0         -- no hay cadena que pase por los dos
   huntOut   : Nat := 0         -- presupuesto agotado, indeciso
   huntNote  : String := "-"
+  /-- la distancia de los pines al pick más bajo de una cadena -/
+  pinTot    : Nat := 0
+  pinD1     : Nat := 0         -- a 1 paso: gratis con ventana 2
+  pinD2     : Nat := 0         -- a 2 pasos: gratis solo con ventana 3
+  pinD3     : Nat := 0         -- a >=3 pasos: el residuo
+  pinAbove  : Nat := 0         -- por encima o al mismo paso: gratis por node_id_of_pin
+  pinMax    : Nat := 0
+  loTot     : Nat := 0         -- pares (d, lo) con algún pin
+  loClean   : Nat := 0         -- ... donde TODO pin está gratis (arriba, a 1 o a 2)
+  loDirty   : Nat := 0         -- ... donde queda algún pin a >=3
   deriving Repr
 
 def bump (a : Acc) (d : Nat) (lit : Bool) : Acc :=
@@ -181,9 +191,46 @@ def scanState (lb : Int) (label : String) (g : GPathM) (a : Acc) : Acc := Id.run
     k := k + 1
   return a
 
+/-- **A qué distancia del pick más bajo caen los pines.** Para cada nodo de mapa `d` que el mapa
+visita, `reqOfCnf φ d` son los pines que el envío a `d` aplica; el pick más bajo de una cadena
+parcial puede estar en cualquier paso `lo` del estado. Se cuenta, para cada `(d, lo)` posible, la
+distancia `lo - req.step` de cada pin: `1` y `2` son gratis (`pins_below_free`), `≥3` es el
+residuo, y `≤0` es gratis por `node_id_of_pin`. -/
+def scanPins (φ : Cnf) (a : Acc) : Acc := Id.run do
+  let mut a := a
+  let cs := stepCount φ
+  let mut k : Int := 0
+  while k < cs do
+    for d in mapNodes φ k do
+      -- ¿a este `lo` le queda algún pin a distancia >= 3?
+      let mut lo2 : Int := 1
+      while lo2 ≤ d.step do
+        let pins := reqOfCnf φ d
+        if !pins.isEmpty then
+          let far := pins.any (fun req => lo2 - req.step ≥ 3)
+          a := { a with loTot := a.loTot + 1
+                      , loClean := a.loClean + (if far then 0 else 1)
+                      , loDirty := a.loDirty + (if far then 1 else 0) }
+        lo2 := lo2 + 1
+      for req in reqOfCnf φ d do
+        -- el envío a `d` deja el estado con `current_step = d.step + 1`, así que el pick más
+        -- bajo de una cadena parcial vive en `1 .. d.step`
+        let mut lo : Int := 1
+        while lo ≤ d.step do
+          let dist := lo - req.step
+          a := { a with pinTot := a.pinTot + 1
+                      , pinAbove := a.pinAbove + (if dist ≤ 0 then 1 else 0)
+                      , pinD1 := a.pinD1 + (if dist == 1 then 1 else 0)
+                      , pinD2 := a.pinD2 + (if dist == 2 then 1 else 0)
+                      , pinD3 := a.pinD3 + (if dist ≥ 3 then 1 else 0)
+                      , pinMax := max a.pinMax (if dist ≤ 0 then 0 else dist.toNat) }
+          lo := lo + 1
+    k := k + 1
+  return a
+
 /-- Every line of the run, not just the last. -/
 def runFormula (φ : Cnf) (a : Acc) : Acc := Id.run do
-  let mut a := { a with formulas := a.formulas + 1 }
+  let mut a := scanPins φ { a with formulas := a.formulas + 1 }
   let mut line : PureLine := pureInit φ
   let steps := (stepCount φ - 1).toNat
   for i in [0:steps] do
@@ -216,6 +263,15 @@ def report (name : String) (a : Acc) (ms : Nat) : IO Unit := do
     IO.println s!"     no hay cadena por los dos (relajacion debil)  : {a.huntNone}"
     IO.println s!"     indeciso (presupuesto agotado)                : {a.huntOut}"
     IO.println s!"     ultimo: {a.huntNote}"
+  if a.pinTot > 0 then
+    IO.println s!"   distancia de los pines al pick mas bajo ({a.pinTot} pares (pin, lo)):"
+    IO.println s!"     por encima o igual (gratis, node_id_of_pin) : {a.pinAbove}  ({pct a.pinAbove a.pinTot})"
+    IO.println s!"     a 1 paso  (gratis ya con ventana 2)        : {a.pinD1}  ({pct a.pinD1 a.pinTot})"
+    IO.println s!"     a 2 pasos (gratis SOLO con ventana 3)      : {a.pinD2}  ({pct a.pinD2 a.pinTot})"
+    IO.println s!"     a >=3 pasos (EL RESIDUO)                   : {a.pinD3}  ({pct a.pinD3 a.pinTot})   max {a.pinMax}"
+    IO.println s!"   y por (d, lo): de {a.loTot} posiciones del pick mas bajo,"
+    IO.println s!"     TODOS los pines gratis (arriba, a 1 o a 2)  : {a.loClean}  ({pct a.loClean a.loTot})"
+    IO.println s!"     queda algun pin a >=3 pasos                 : {a.loDirty}  ({pct a.loDirty a.loTot})"
   IO.println s!"   ({ms} ms)"
 
 def loadCnf (path : String) : IO (Option Cnf) := do

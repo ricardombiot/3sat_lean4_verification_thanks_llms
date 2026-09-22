@@ -60,53 +60,74 @@ fallar es que `sel'` no pase por los pines por debajo de `lo`. Es decir:
 
 > **(★) ⟸ `NoDeadEnd g` + «el descenso puede dirigirse por los pines por debajo de `lo`».**
 
-## 4. Lo que la ventana regala aquí — y es nuevo
+## 4. Lo que la ventana regala aquí — demostrado
 
-*(Verificado a mano paso por paso, **no** demostrado en Lean. Lo digo porque en esta sesión ya
-me he pasado de listo dos veces.)*
+**`DescentRun.pins_below_free`**, sin axiomas, bajo `#guard_msgs`. Con sus dos lemas:
 
-Los pines por encima de `lo` son gratis (`node_id_of_pin`). La pregunta es cuántos pasos **por
-debajo** de `lo` siguen siendo gratis. Y la respuesta es: **`w - 1 = 2`**.
+```lean
+parent_id_of_pin   -- (sel lo).parent_id  es el pin de lo-1
+gparent_id_of_pin  -- (sel lo).gparent_id es el pin de lo-2
+pins_below_free    -- y el descenso no puede fallarlos
+```
 
-* `sel lo` es un nodo del estado **filtrado**, y no es raíz (`root_shape`, `lo > 0`), así que
-  tiene padres ahí (un punto fijo de la revisión exige padres a un nodo no raíz).
-* Ese padre está al paso `lo-1` en el filtrado, luego por `node_id_of_pin` su id de mapa **es**
-  el pin de `lo-1`. Y por **`PMP`**, `(sel lo).parent_id = some (ese id de mapa)`.
-  → **`(sel lo).parent_id` es el pin de `lo-1`.**
-* Ese padre tampoco es raíz, así que tiene padre en el filtrado al paso `lo-2`, con id de mapa =
-  el pin de `lo-2`. Y por **`GPMP`**, `(sel lo).gparent_id = (ese padre).parent_id`.
-  → **`(sel lo).gparent_id` es el pin de `lo-2`.**
-* Y ahora, en `g`: por `PMP`, el pick del descenso al paso `lo-1` es un padre de `sel lo`, luego
-  su id de mapa **está forzado** a `(sel lo).parent_id`. Por `GPMP`, el pick al paso `lo-2` está
-  forzado a `(sel lo).gparent_id`.
+La cadena del argumento, ya en Lean:
 
-> **Los pines de `lo-1` y `lo-2` se cumplen solos.** El identificador de `sel lo` los lleva
-> escritos, y `PMP`/`GPMP` obligan al descenso a respetarlos.
+* `sel lo` es nodo del estado **filtrado** y no es raíz (`Parents.NotRoot`), así que tiene padres
+  ahí (`SelfOwn.have_parents_of_isValidNode` sobre `isValidNode`);
+* ese padre está al paso `lo-1`, luego `PairChain.node_id_of_pin` fuerza su id de mapa al pin, y
+  **`PMP`** lo copia en `(sel lo).parent_id`;
+* el padre tampoco es raíz, así que el mismo paso una vez más da el pin de `lo-2`, y **`GPMP`** lo
+  copia en `(sel lo).gparent_id`;
+* y en `g`, `PMP` y `GPMP` fuerzan los picks del descenso a esos ids de mapa.
 
-Con ventana 2 solo saldría gratis `lo-1`. **El residuo empieza en `lo-3`, y ensanchar la ventana
-lo empuja un paso más abajo cada vez.** Es la primera vez en todo el proyecto que la ventana
-compra algo *cuantificable* en esta ruta: `w-1` pasos de dirección.
+> Con ventana 2 solo saldría gratis `lo-1`. **El tercer componente compra el segundo paso.**
 
-### Y lo que eso no resuelve
+## 4bis. Y cuánto vale eso, medido
 
-Los pines son `reqOfCnf φ d`: los requisitos del destino, que viven en **pasos de literal**.
-Pueden estar arbitrariamente por debajo de `lo`. Así que «gratis en `lo-1` y `lo-2`» ayuda cuando
-los pines caen cerca y no ayuda cuando caen lejos. **No cierra (★).** Lo que hace es dar la forma
-exacta del residuo:
+`lake exe row-degree random 20 4 11` — 138.100 pares (pin, posición del pick más bajo):
 
-> el descenso tiene que dirigirse por los pines que estén **tres o más pasos** por debajo del
-> pick más bajo de la cadena.
+| distancia del pin al pick más bajo | | |
+|---|---|---|
+| por encima o igual — gratis por `node_id_of_pin` | 30.994 | 22,4 % |
+| a **1** paso — gratis ya con ventana 2 | 6.502 | 4,7 % |
+| a **2** pasos — gratis **solo** con ventana 3 | 6.300 | 4,5 % |
+| a **≥3** pasos — **el residuo** | 94.304 | **68,2 %** (máx. 48) |
 
-## 5. Cómo seguiría
+Y la métrica que de verdad decide, porque la completación necesita **todos** los pines a la vez:
 
-1. **Demostrar el §4** (los dos pasos gratis). Es acotado, usa solo `PMP`, `GPMP`,
-   `node_id_of_pin` y `have_parents_of_isValidNode`, y deja (★) con el residuo recortado y
-   dicho con precisión. Es lo que yo haría: pequeño, cerrado, y convierte una observación en
-   teorema.
-2. **Medir el residuo.** ¿A qué distancia de `lo` caen los pines que la máquina pone de verdad?
-   Si la mayoría cae a ≤2 pasos, el §4 casi cierra (★) y merece la pena buscar el resto. Si
-   cae lejos, hay que cambiar de ángulo. Es una línea en la sonda `row-degree`.
-3. **No seguir por `ReqCompletion` como si fuera una reducción.** Por el §2, no lo es.
+| de 46.736 posiciones posibles del pick más bajo | | |
+|---|---|---|
+| todos sus pines gratis (arriba, a 1 o a 2) | 8.754 | **18,7 %** |
+| queda algún pin a ≥3 pasos | 37.982 | **81,2 %** |
+
+**Así que no: el §4 no casi cierra (★).** Es un teorema real y corta una rebanada real, pero la
+rebanada es el 18,7 % de las posiciones. Yo esperaba más; los pines caen lejos.
+
+**Y esto zanja otra cosa.** Cada componente extra del identificador compra **un** paso más, y el
+histograma decae despacio (4,7 % → 4,5 % → …) con cola hasta 48. Para cubrir la cola haría falta
+ventana 49. **Ensanchar la ventana no es el camino aquí** — es la segunda vez en esta sesión que
+los datos dicen lo mismo (la primera fue `parents_differ_below`, §5.7 del contexto).
+
+## 5. Cómo seguiría, revisado tras medir
+
+Lo que escribí antes de medir era: *«demostrar el §4 y luego medir; si la mayoría de los pines
+cae a ≤2 pasos, casi cierra»*. Medido: **cae lejos**, y el §4 cubre el 18,7 %. Así que:
+
+1. **No insistir en la dirección «acercar los pines».** Ni ensanchando la ventana (cola 48) ni
+   afinando `pins_below_free` (ya es óptimo: `w-1` pasos es todo lo que el identificador sabe).
+2. **Cambiar lo que se dirige.** El residuo es *«el descenso debe pasar por un pin que está muy
+   por debajo»*. Dos formas de atacarlo que no pasan por el identificador:
+   * **descender en el estado filtrado en vez de en `g`** — ahí los pines son gratis a cualquier
+     distancia (`node_id_of_pin`), y es justo lo que hace `reqCompletion_of_noDeadEnd`. El
+     problema se convierte entonces en `NoDeadEnd (filtrado)` sin pasar por `g`, o sea el
+     objetivo otra vez; pero **sin** la obligación de los pines, que es lo que este documento
+     pensaba atacar. El muro vuelve a ser el descenso puro.
+   * **`ChainSound_filterAllAgg` al revés**: para cadenas **completas** el filtro no pierde nada.
+     Lo que falta es la versión parcial. Es el mismo enunciado que (★) y hay que decidir si se
+     ataca ahí o en el descenso puro.
+3. **El corolario útil de todo esto**, y es el que yo me llevaría: la obligación de los pines **no
+   es el muro**. Se puede quitar de encima descendiendo en el filtrado. El muro es, otra vez, el
+   descenso: `NoDeadEnd`. Todo lo que este documento explora acaba devolviéndonos ahí.
 
 ## 6. Lo que aprendí, y que habría sido mejor saber antes
 
