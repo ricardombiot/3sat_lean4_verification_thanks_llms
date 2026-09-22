@@ -339,4 +339,83 @@ theorem pinAlive_of_reviewKeeps
 #guard_msgs in
 #print axioms pin_keeps_own_owners
 
+-- ============================================================
+-- Y el review: la tabla de UN nodo vivo basta para validar el estado
+-- ============================================================
+
+/-- **Las tablas viven dentro de los owners globales.**
+
+Es lo que `cleanInvalid` impone en cada vuelta: la tabla de cada nodo se corta contra `gowners`
+(`intersectOwners n.owners gow`). Una propiedad del punto fijo del review, no una hipótesis sobre
+el problema. -/
+def OwnersWithin (g : GPathM) : Prop :=
+  ∀ n ∈ g.nodes, ∀ q ∈ n.owners, q ∈ g.gowners
+
+/-- **Y entonces basta UN nodo vivo y válido para que el estado entero sea válido.**
+
+Éste es el punto. *La tabla de un nodo es su camino*: un nodo válido tiene un owner en **todos** los
+pasos (`owners_ok_of_isValidNode`), y esos owners están en la tabla global. Así que ningún paso
+puede estar vacío mientras quede un solo nodo vivo.
+
+Dicho al revés, que es como hay que leerlo: **para que el review invalide un estado tiene que
+matarlos a todos.** No puede vaciar un paso suelto. -/
+theorem isValid_of_survivor (g : GPathM) (hw : OwnersWithin g)
+    (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (hval : isValidNode g nx = true) : isValid g = true := by
+  simp only [isValid, List.all_eq_true]
+  intro k hk
+  have hok := owners_ok_of_isValidNode g nx hval
+  simp only [List.all_eq_true] at hok
+  obtain ⟨w, hwm, hws⟩ := List.any_eq_true.mp (hok k hk)
+  simp only [hasStepEntry, List.any_eq_true]
+  exact ⟨w, hw nx (List.mem_of_find?_eq_some hx) w hwm, hws⟩
+
+/-- **Y con eso `PinAlive` se dice en cinco palabras: seleccionar un nodo vivo no lo mata.**
+
+Todo lo demás está cerrado:
+
+* el **filtro** no invalida nada (`isValid_filterRequire_of_live`);
+* el filtro deja en cada paso un owner del propio `q` (`pin_keeps_own_owners`);
+* y si `q` sale vivo del review, su tabla sola valida el estado entero
+  (`isValid_of_survivor`), porque para invalidarlo el review tendría que matar **todos** los nodos.
+
+Así que la obligación entera es que el review no mate al nodo que se acaba de elegir. Y eso es lo
+que el autor viene diciendo del algoritmo desde el principio: *si el nodo `x` sigue presente es
+porque tiene un camino de compatibles que lo lleva a configurar una solución* — elegirlo no puede
+quitárselo. -/
+theorem pinAlive_of_pinKeepsPinned
+    (h : ∀ g : GPathM, DCtx g → isValid g = true →
+      ∀ q ∈ g.gowners, 0 ≤ q.id.step → q.id.step < g.current_step →
+        OwnersWithin (filterAllAgg g [q.id]) ∧
+        ∃ nq, (filterAllAgg g [q.id]).node? q = some nq ∧
+              isValidNode (filterAllAgg g [q.id]) nq = true) : PinAlive := by
+  intro g ctx hv q hq h0 h1
+  obtain ⟨hw, nq, hnq, hval⟩ := h g ctx hv q hq h0 h1
+  exact isValid_of_survivor _ hw q nq hnq hval
+
+/-! ## El frente, en una frase
+
+    Pinchar un nodo vivo no lo mata.
+
+No hay nada más. Ni parejas, ni ternas, ni tablas cruzadas, ni cadenas que pegar: un nodo, y que
+siga ahí después de elegirlo.
+
+Y la estructura del review dice por dónde: los `gowners` **solo encogen por `removeNode`**
+—`updateAt`, `unlinkIncompatible`, `relink` y `dropOwnerPair` tocan tablas, nunca la tabla
+global—, y `removeNode` solo dispara cuando `isValidNode` falla, o sea cuando la tabla del nodo se
+queda sin owner en algún paso. Así que la pregunta final es concreta:
+
+> ¿puede fijar `q` dejar a `q` sin owner en algún paso?
+
+Los owners de `q` comparten paso con `q` por construcción, y `aggPair` solo desenlaza pares que
+**dejan** de compartir. Fijar `q` no quita nada de la tabla de `q`: el filtro ni la toca. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.isValid_of_survivor' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_of_survivor
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pinAlive_of_pinKeepsPinned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinAlive_of_pinKeepsPinned
+
 end AbsSat.GraphPath.Model.PinAliveChain
