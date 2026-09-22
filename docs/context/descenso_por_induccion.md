@@ -54,27 +54,34 @@ testigo del descenso sigue siéndolo.
 
 ## 2. Lo que falta, en orden de coste
 
-### (a) El ensamblaje — mecánico, y es lo que yo haría primero
+### (a) El ensamblaje — ✅ **HECHO** (`DescentRun.lean`)
 
-**No existe ningún teorema que componga los cuatro casos.** Nadie fuera de los propios
-módulos `Descent*` los usa: el grep de `noDeadEnd_addNode`, `noDeadEnd_join` y
-`noDeadEnd_filterAllAgg_of_completion` fuera de ahí sale vacío.
+Escrito en `AbsSat/GraphPath/Model/DescentRun.lean`, cuatro teoremas, todos en
+`[propext, Quot.sound]` bajo `#guard_msgs`, build entero verde (232 jobs):
 
-Lo que falta es una inducción sobre `Reachable` (o sobre el driver) que dé
+| teorema | dice |
+|---|---|
+| `noDeadEnd_sent` | un envío conserva el descenso: filtro (`ReqCompletion`) y luego fila (`noDeadEnd_addNode`) |
+| `noDeadEnd_advance` | un avance de línea lo conserva, incluidas las fusiones (`JoinCoveredF`) |
+| `noDeadEnd_run` | toda la corrida |
+| `sat_of_reqCompletion` | **el veredicto** |
 
-```lean
-theorem noDeadEnd_run (φ : Cnf) (hwf : WF φ) (kv : NodeId × GPathM) (hkv : kv ∈ pureRunW φ)
-    (hJ : ∀ …, JoinCoveredF …) (hR : ∀ …, ReqCompletion …) :
-    NoDeadEnd (filterAllAgg kv.2 [])
-```
+Las hipótesis que pedía `noDeadEnd_addNode` —`Pinned.Ctx`, `NodupIds`, `MachineOk`, `below`,
+`isValid`— salen todas de `MInv` vía `ReadableAgg`, como se esperaba. Sin sorpresas ahí.
 
-y con `NoDeadEndVerdict.sat_of_noDeadEnd` detrás, **el veredicto con exactamente dos
-hipótesis con nombre**. Es trabajo de fontanería —descargar las hipótesis de
-`noDeadEnd_addNode` (`Pinned.Ctx`, `NodupIds`, `MachineOk`, `below`, `isValid`) desde `MInv`,
-que ya las tiene todas— pero es lo que convierte cuatro lemas sueltos en una ruta.
+**Dos cosas que el ensamblaje hizo visibles, y ninguna se veía desde fuera.**
 
-**Por qué primero:** hasta que exista, no se sabe si los cuatro casos encajan de verdad, y
-cualquier trabajo sobre (b) o (c) es a ciegas. Y si no encajan, mejor saberlo ahora.
+1. **El descenso no se propaga a lo largo de la corrida.** `noDeadEnd_advance` no lee nunca la
+   línea anterior: `advance_inv` arranca la línea nueva desde `[]`, y cada estado enviado saca
+   su descenso de **su propio** filtro, no del estado del que vino. La inducción sobre la
+   corrida lo es solo de nombre; el contenido es por envío.
+2. **Y el veredicto necesita solo la completación.** Un estado del lector se lee tras un
+   `filterAllAgg` más, así que `noDeadEnd_filterAllAgg_of_completion` se le aplica directamente:
+   `sat_of_reqCompletion` toma `ReqAll` y **no** `JoinAll`. El join y el `up` son lo que haría
+   falta para *demostrar* la completación por inducción, no para usarla.
+
+Eso reordena (b) y (c): **`JoinCoveredF` deja de estar en el camino crítico del veredicto** y
+pasa a ser instrumental para (b). Si (b) se demostrara por otra vía, (c) no haría falta.
 
 ### (b) `ReqCompletion` — el contenido de verdad
 
@@ -136,19 +143,18 @@ Ya está reducido dos veces y **ya está medido**:
 
 ## 3. Cómo lo plantearía
 
-**Fase 1 — el esqueleto (días, no semanas).** Escribir `noDeadEnd_run`. Descargar las
-hipótesis de `noDeadEnd_addNode` desde `MInv`/`StateOkF`, que ya las contienen todas. Dejar
-`JoinCoveredF` y `ReqCompletion` como hipótesis del teorema. Resultado: un `sat_of_*` con dos
-hipótesis con nombre, y la certeza de que los cuatro casos encajan.
+**Fase 1 — el esqueleto.** ✅ Hecho, y con dos hallazgos que cambian las fases siguientes
+(§2(a)): el descenso es por envío, no por corrida, y el veredicto cuelga de **una sola**
+hipótesis, `ReqCompletion`.
 
 **Fase 2 — `ReqCompletion` desde la hipótesis inductiva.** Probar la reducción del §2(b):
 `NoDeadEnd g` + pines-en-pasos-≥-`lo`-gratis, dejando como residuo solo *«el descenso puede
 dirigirse por los pines por debajo de `lo`»*. Aunque el residuo quede abierto, el enunciado
 que queda es **mucho más pequeño** y dice algo que se puede medir con una sonda.
 
-**Fase 3 — elegir entre el residuo de (b) y el de (c).** Con las dos fases anteriores hechas,
-las dos hipótesis restantes están al mismo nivel de granularidad y se puede comparar por
-esfuerzo en vez de por corazonada. Hoy no se puede.
+**Fase 3 — `JoinCoveredF`, solo si (b) lo pide.** Con la fase 1 hecha sabemos que no está en
+el camino crítico del veredicto: solo haría falta para demostrar `ReqCompletion` por inducción
+sobre la construcción. Si la fase 2 encuentra otra vía, esta fase desaparece.
 
 ### Lo que NO haría
 
