@@ -1505,6 +1505,30 @@ def reportP (name : String) (a : PAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   PinReachable: {if a.noChain == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`TablesSound` a lo largo de la lectura.** Es la hipotesis exacta de
+`ReaderChain.readerVerdictW_of_tablesSound`: toda entrada de toda tabla de todo estado que el
+lector visita es realizable. `scanSoundAt` con `lb = current_step` cuenta TODAS las entradas, no
+solo las del bloque literal. -/
+
+partial def walkTS (label : String) (g : GPathM) (fuel : Nat) (a : AAcc) : AAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanSoundAt label g.current_step g 40000 60 a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkTS label (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaTS (φ : Cnf) (a : AAcc) : AAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkTS s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat a
+  return a
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -1579,6 +1603,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaF2 φ a
       let t1 ← IO.monoMsNow
       reportF2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "tsread" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTS φ {})
+        let t1 ← IO.monoMsNow
+        reportA path a (t1 - t0)
+  | "tsread" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : AAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTS φ a
+      let t1 ← IO.monoMsNow
+      reportA s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pinreach" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
