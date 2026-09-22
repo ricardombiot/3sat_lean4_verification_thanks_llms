@@ -840,6 +840,66 @@ theorem ownTable_of_tablesSound (P : GPathM) (ht : Exactness.TablesSound P)
   simp only [ownersAt, List.mem_filter, ownersOf, hnx'] at hmem
   exact hmem.1
 
+-- ============================================================
+-- «Si el nodo sigue presente es porque tiene camino»
+-- ============================================================
+
+/-- **La frase del autor, y sale de menos de lo que parecía.**
+
+> *si el nodo `x` sigue presente es porque tiene un camino de compatibles que lo lleva a configurar
+> una solución*
+
+Para que un superviviente tenga cadena **no hace falta la sanidad de todas sus entradas**: basta la
+de las entradas **en el paso del pin**. `RunSteps.realizes_pin_at` hace el resto — el nodo vivo
+tiene un owner en el paso pinchado, ese owner lleva el pin (`ReaderComplete.pin_id`), la cadena que
+lo realizaba antes del pin pasa por él, y por tanto sobrevive al filtro.
+
+Es un recorte real de la hipótesis: `SupportedS` del estado pinchado —*todo nodo tiene camino*—
+cuelga solo de los pares `(x, owner de x en el paso del pin)`, no de todos los pares. Y de esos,
+los que no tienen elección ya están cerrados
+(`TablesSoundBuild.realizes_pin_of_singleId`, el 65–90 % medido). -/
+theorem supportedS_pin_of_pinStepSound (g : GPathM) (hR : ReadableAgg g) (r : NodeId)
+    (hr0 : 0 ≤ r.step) (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (ht : ∀ x n₀, g.node? x = some n₀ → ∀ w, w.id.step = r.step → w ∈ n₀.owners →
+      Exactness.Realizes g x w) :
+    SupportedS (filterAllAgg g [r]) := by
+  have hRp : ReadableAgg (filterAllAgg g [r]) := ReadableAgg_filterAllAgg g hR [r]
+  have rc := RCtx_of_readableAgg _ hRp
+  intro x n hx
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid : n.id = x := node?_id_eq _ x n hx
+  have hx0 : 0 ≤ x.id.step := by have := rc.snn n hmem; rwa [hid] at this
+  have hx1 : x.id.step < (filterAllAgg g [r]).current_step := by
+    have := rc.below n hmem; rwa [hid] at this
+  obtain ⟨_, _, _, sel, hsc, hsx, _⟩ :=
+    RunSteps.realizes_pin_at g hR r hr0 hvr hrs x n hx hx0 hx1
+      (fun n₀ h₀ w hwr hwn => ht x n₀ h₀ w hwr hwn)
+  exact ⟨sel, hsc, hsx⟩
+
+/-- **Y con la frase del autor, el lector tiene su cadena.** `SupportedS` da una cadena por cada
+nodo, y basta una: la del nodo del paso 0 que la validez garantiza. -/
+theorem hasChain_of_pinStepSound (g : GPathM) (hR : ReadableAgg g) (r : NodeId)
+    (hr0 : 0 ≤ r.step) (hr1 : r.step < g.current_step)
+    (hvr : isValid (filterAllAgg g [r]) = true)
+    (ht : ∀ x n₀, g.node? x = some n₀ → ∀ w, w.id.step = r.step → w ∈ n₀.owners →
+      Exactness.Realizes g x w) :
+    HasChain (filterAllAgg g [r]) := by
+  have hcs : (filterAllAgg g [r]).current_step = g.current_step :=
+    (pruned_filterAllAgg g [r]).step_eq
+  have hRp : ReadableAgg (filterAllAgg g [r]) := ReadableAgg_filterAllAgg g hR [r]
+  have rc := RCtx_of_readableAgg _ hRp
+  exact hasChain_of_supportedS _ (by rw [hcs]; omega) hvr rc.gn
+    (supportedS_pin_of_pinStepSound g hR r hr0 hvr (by rw [hcs]; exact hr1) ht)
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.supportedS_pin_of_pinStepSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms supportedS_pin_of_pinStepSound
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.hasChain_of_pinStepSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms hasChain_of_pinStepSound
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.ownTable_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms ownTable_of_tablesSound
