@@ -547,6 +547,64 @@ theorem allParentsOwn_of_singleParents (g : GPathM) (a : Adj g)
   cases hmc
   exact hv'
 
+-- ============================================================
+-- De dónde puede salir `AllParentsOwn`: las tablas nacen cerradas
+-- ============================================================
+
+/-- **La tabla cerrada hacia abajo.** Si la tabla de un nodo contiene a `v`, contiene también a
+todo padre de `v`.
+
+Esto no es una conjetura sobre el algoritmo: es su diseño. `rowOwners` define la tabla de un nodo
+de fila como la unión de las de sus padres recortada a `gowners`, así que contiene entera la de
+**cada** padre (`owners_sub_rowOwners`). Y la tabla de un nodo contiene a sus propios padres
+(`owners_below_iff_parents`). Compuesto: cuando `up` crea la fila nueva, la tabla que hereda ya
+está cerrada hacia abajo si lo estaban las de sus padres — **nace cerrada**.
+
+Lo único que puede romperla es la revisión, que quita: que la criba borre un padre de la tabla y
+deje al hijo dentro. Eso deja la obligación en un enunciado sobre **una pasada de la criba**, que es
+lo más local a lo que ha bajado esto. -/
+def TableDownClosed (g : GPathM) : Prop :=
+  ∀ r nr, g.node? r = some nr → ∀ v ∈ nr.owners, ∀ nv, g.node? v = some nv →
+    ∀ c ∈ nv.parents, c ∈ nr.owners
+
+/-- **El motor del diseño, dicho como lema**: la tabla de un nodo de fila contiene entera la de
+cada uno de sus padres, recortada a lo que sigue globalmente vivo. Es `rowOwners` leído literal. -/
+theorem owners_sub_rowOwners (g : GPathM) (d : NodeId) (pid r : PathNodeId) (nr : PNodeM)
+    (hr : r ∈ rowParents g d pid) (hnr : g.node? r = some nr)
+    (q : PathNodeId) (hq : q ∈ nr.owners) (hgq : g.gowners.contains q = true) :
+    q ∈ rowOwners g d pid := by
+  simp only [rowOwners, List.mem_append, List.mem_filter]
+  exact Or.inl ⟨mem_unionOwnersOf g _ r nr q hr hnr hq, hgq⟩
+
+/-- **Y la cerradura hacia abajo da la intuición.**
+
+Dos pasos y los dos son simetría de `AggOk`: si `v` está en la tabla de `x`, entonces `x` está en la
+de `v`; la tabla de `v` está cerrada hacia abajo, así que contiene a todo padre `c` de `x`; y de
+vuelta, `v` está en la tabla de `c`. Que es `AllParentsOwn`.
+
+Nótese el cambio de sitio del cuantificador: `AllParentsOwn` habla de **todos los padres de `x`** —
+lo que suena fuerte— y `TableDownClosed` habla de **una tabla y los padres de lo que contiene** —
+que es lo que `rowOwners` construye. Son la misma frase vista desde los dos lados de la simetría. -/
+theorem allParentsOwn_of_tableDownClosed (g : GPathM) (a : Adj g) (hok : AggOk g)
+    (hdc : TableDownClosed g) : AllParentsOwn g := by
+  intro x n hx hx1 hxs v hv hv0 hv1 c hc mc hmc
+  -- `v` es nodo: es owner de `x` en rango, luego owner global, luego nodo
+  have hvg : v ∈ g.gowners := a.ctx.ownGow x n hx v hv (by omega) hv1
+  obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff g v).mp (a.rc.gn v hvg))
+  have hcstep : c.id.step = x.id.step - 1 := by
+    have := a.rc.shape.pbelow n (List.mem_of_find?_eq_some hx) c hc
+    rwa [node?_id_eq g x n hx] at this
+  -- simetría: `x` está en la tabla de `v`
+  have hxv : x ∈ nv.owners :=
+    (hok x n v nv hx hnv (by omega) hxs (by omega) hv1 hv
+      (a.ctx.nodeval x n hx) (a.ctx.nodeval v nv hnv)).1
+  -- la tabla de `v` está cerrada hacia abajo, luego contiene al padre
+  have hcv : c ∈ nv.owners := hdc v nv hnv x hxv n hx c hc
+  -- y de vuelta por simetría
+  exact (hok v nv c mc hnv hmc (by omega) hv1 (by omega) (by omega) hcv
+    (a.ctx.nodeval v nv hnv) (a.ctx.nodeval c mc hmc)).1
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -722,6 +780,14 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.parents_own_unique_owner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms parents_own_unique_owner
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.allParentsOwn_of_tableDownClosed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms allParentsOwn_of_tableDownClosed
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.owners_sub_rowOwners' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms owners_sub_rowOwners
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_allParentsOwn' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
