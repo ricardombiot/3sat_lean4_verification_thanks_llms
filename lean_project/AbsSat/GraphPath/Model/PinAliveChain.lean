@@ -2370,4 +2370,61 @@ theorem Prot_cleanInvalid (g : GPathM) (P : PathNodeId → Prop) [DecidablePred 
 #guard_msgs in
 #print axioms Prot_cleanInvalid
 
+-- ============================================================
+-- Y el hallazgo: `PinAlive` y `OwnerChained` son lo mismo
+-- ============================================================
+
+/-- **`PinAlive` se sigue de que el nodo pinchado esté en una cadena.**
+
+Si `q` está en una cadena del estado, pinchar `q` la conserva —la cadena elige `q` en su paso, que
+es justo el requisito— y una cadena hace válido al estado. Tres líneas. -/
+theorem pinAlive_of_ownerChained
+    (h : ∀ g, DCtx g → isValid g = true → OwnerChained g) : PinAlive := by
+  intro g ctx hv q hq h0 h1
+  obtain ⟨sel, hsc, hsel⟩ := h g ctx hv q hq h0 h1
+  exact PickInduction.isValid_of_ChainG _ sel
+    (ChainSound_filterAllAgg g [q.id] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq]; exact hsel)).chain
+
+/-- **Y por tanto las dos son equivalentes.**
+
+`chained_of_pinAlive` da la ida y esto la vuelta. No son dos frentes: es uno.
+
+**Y eso corrige una impresión que convendría no tener.** `PinAlive` parecía estrictamente más fácil
+que `OwnerChained` —una frase sobre validez en vez de sobre cadenas—, y no lo es. El trabajo de este
+módulo sobre `Anchored` no es un atajo alrededor de la cadena: es una forma de escribir la cadena
+que se puede llevar por dentro de los bucles del review. -/
+theorem pinAlive_iff_ownerChained :
+    PinAlive ↔ ∀ g, DCtx g → isValid g = true → OwnerChained g :=
+  ⟨fun h g ctx hv => ownerChained_of_pinAlive h g ctx hv, pinAlive_of_ownerChained⟩
+
+/-! ## Dónde se ve eso, y qué significa para lo que queda
+
+`reviewNode` no corta la tabla contra la tabla **global** —eso es `cleanInvalid`, ya cerrado— sino
+contra la **unión de las tablas de los vecinos** (`unionOwnersOf g (nb d)`). Así que para que el
+testigo `w` de un protegido `z` sobreviva a `reviewParents` hace falta que `w` esté en la tabla de
+algún padre de `z`. Y el padre natural es el anclado, que está en `P`.
+
+O sea: el invariante tiene que decir además que **los testigos de `z` son testigos de su padre y de
+su hijo anclados**. Y una familia con cobertura mutua, anclada y con las tablas encajando así **es
+una cadena**. En ese punto `AddNode.ChainSound_review` ya lo demuestra, y la vuelta de tuerca deja
+de comprar nada.
+
+Lo cual no invalida el módulo: lo sitúa. Lo que aquí se ha demostrado, y no estaba, es que
+`cleanInvalid` —la parte del review que corta contra la tabla global y borra nodos— conserva un
+invariante **estrictamente más débil que una cadena**: cobertura, anclajes y simetría. Los dos
+pasos por vecinos son los que fuerzan la cadena, y eso es información sobre **dónde** vive la
+dificultad, no sobre si existe.
+
+Y el enunciado a atacar vuelve a ser el de siempre, ahora con la equivalencia demostrada:
+**que todo nodo vivo esté en una cadena.** -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pinAlive_of_ownerChained' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinAlive_of_ownerChained
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pinAlive_iff_ownerChained' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinAlive_iff_ownerChained
+
 end AbsSat.GraphPath.Model.PinAliveChain
