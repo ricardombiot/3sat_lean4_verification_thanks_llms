@@ -176,11 +176,11 @@ Tres cosas quedan fuera de la obligación, y cada una por su propio motivo:
 Lo que queda es el par `(x,q)` con **los dos extremos fuera del paso del pin** y con la tabla de
 `x` conservando de verdad las dos opciones. Tres pasos distintos y elección en el de en medio. -/
 def PinResidue (g : GPathM) (r : NodeId) : Prop :=
-  ∀ x nx, g.node? x = some nx → 0 ≤ x.id.step → x.id.step < g.current_step →
-    x.id.step ≠ r.step →
-    (∃ u ∈ nx.owners, u.id.step = r.step ∧ u.id ≠ r) →
-    ∀ q ∈ nx.owners, 0 ≤ q.id.step → q.id.step < g.current_step → q.id.step ≠ r.step →
-      Realizes (filterAllAgg g [r]) x q
+  ∀ x n, (filterAllAgg g [r]).node? x = some n → 0 ≤ x.id.step →
+    x.id.step < (filterAllAgg g [r]).current_step → x.id.step ≠ r.step →
+    (∀ nx, g.node? x = some nx → ∃ u ∈ nx.owners, u.id.step = r.step ∧ u.id ≠ r) →
+    ∀ q ∈ n.owners, 0 ≤ q.id.step → q.id.step < (filterAllAgg g [r]).current_step →
+      q.id.step ≠ r.step → Realizes (filterAllAgg g [r]) x q
 
 /-- **Y basta: con el residuo, el pin conserva `TablesSound` entero.**
 
@@ -218,7 +218,8 @@ theorem tablesSound_pin_of_residue (g : GPathM) (hR : ReadableAgg g) (hv : isVal
       exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
         rw [List.mem_singleton.mp hreq, ← hxr, hsx, hxid]), hsx, hsq⟩
     · by_cases hch : ∃ u ∈ n₀.owners, u.id.step = r.step ∧ u.id ≠ r
-      · exact h x n₀ hx₀ hx0 hx1g hxr hch q (hown q hqn) hq0 hq1g hqr
+      · refine h x n hx hx0 hx1 hxr (fun nx' hx' => ?_) q hqn hq0 hq1 hqr
+        rw [← Option.some.inj (hx₀.symm.trans hx')]; exact hch
       · -- la tabla de `x` ya no tenía elección en el paso del pin
         have hsingle : ∀ u ∈ n₀.owners, u.id.step = r.step → u.id = r := by
           intro u hu hus
@@ -246,5 +247,84 @@ Lo que falta no es evidencia. -/
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tablesSound_pin_of_residue' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tablesSound_pin_of_residue
+
+-- ============================================================
+-- Y el requisito deja de ser un id: pasa a ser un nodo de las dos tablas
+-- ============================================================
+
+/-- **La terna, con el tercero COMPARTIDO.**
+
+El residuo pedía una cadena por `x` y `q` que además *eligiera el id `r`* en su paso. Esto pide
+menos trabajo de búsqueda y más información: que la cadena pase por `x`, por `q` y por un **nodo
+concreto `z`** que las tablas de los dos contienen y que **es** el valor pinchado.
+
+La diferencia no es cosmética. `z ∈ nx.owners` es algo que la posesión por pares de `ChainSound`
+sabe usar —una cadena por `x` elige, en cada paso, un owner de `x`—, mientras que «elegir el id
+`r`» no dice nada de las tablas. El tercer punto pasa de ser una condición sobre identificadores a
+ser un **dato de la estructura**. -/
+def SharedTripleChain (g : GPathM) (r : NodeId) : Prop :=
+  ∀ x nx q nq z, g.node? x = some nx → g.node? q = some nq →
+    0 ≤ x.id.step → x.id.step < g.current_step →
+    0 ≤ q.id.step → q.id.step < g.current_step →
+    q ∈ nx.owners → z.id = r → z ∈ nx.owners → z ∈ nq.owners →
+      ∃ sel, ChainSound g sel ∧ sel x.id.step = x ∧ sel q.id.step = q ∧ sel z.id.step = z
+
+/-- **Y el testigo lo pone la supervivencia, no la hipótesis.**
+
+`SupportedRun.shared_pin_witness`: si `x` y `q` sobreviven al pin y `q` sigue en la tabla de `x`,
+el punto fijo de la criba en el estado **pinchado** (`AggOk`) los obliga a compartir un owner en
+todos los pasos, y en el paso del pin ese owner común lleva el pin. Así que `z` existe siempre; no
+hay que suponerlo.
+
+Con eso el residuo del filtro queda enteramente dentro de `SharedTripleChain`. -/
+theorem pinResidue_of_sharedTriple (g : GPathM) (hR : ReadableAgg g)
+    (r : NodeId) (hr0 : 0 ≤ r.step) (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (hpms : Sons.PMS (filterAllAgg g [r])) (hsn : Sons.SN (filterAllAgg g [r]))
+    (h : SharedTripleChain g r) : PinResidue g r := by
+  intro x n hx hx0 hx1 _ _ q hqn hq0 hq1 _
+  have hRr := ReadableAgg_filterAllAgg g hR [r]
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+  have rcR := RCtx_of_readableAgg _ hRr
+  have rcg := RCtx_of_readableAgg g hR
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  -- `q` es un nodo del estado pinchado
+  obtain ⟨mq, hmq⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff _ q).mp (rcR.gn q (ctxR.ownGow x n hx q hqn hq0 hq1)))
+  -- el testigo compartido, del punto fijo de la criba en el estado pinchado
+  obtain ⟨z, hzid, hzx, hzq⟩ := SupportedRun.shared_pin_witness g hR r hvr hr0 hrs hpms hsn
+    x q n mq hx hmq hx0 hx1 hq0 hq1 hqn
+  -- las dos tablas de antes del pin
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxn := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxn, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  obtain ⟨m₀, hm₀, hidq, hownq, _⟩ := hpr.nodes_derived mq (List.mem_of_find?_eq_some hmq)
+  have hqn' := node?_id_eq _ q mq hmq
+  have hq₀ : g.node? q = some m₀ := by rw [← hqn', hidq]; exact node?_of_mem rcg.nodup m₀ hm₀
+  obtain ⟨sel, hsc, hsx, hsq, hsz⟩ := h x n₀ q m₀ z hx₀ hq₀ hx0 (by rw [← hcs]; exact hx1)
+    hq0 (by rw [← hcs]; exact hq1) (hown q hqn) hzid (hown z hzx) (hownq z hzq)
+  refine ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsq⟩
+  have hzs : z.id.step = r.step := by rw [hzid]
+  rw [List.mem_singleton.mp hreq, ← hzs, hsz, hzid]
+
+/-! ## El residuo, en su forma más débil hasta ahora
+
+    x, q y un tercero z que las tablas de los dos contienen, en una misma cadena.
+
+Y conviene tener presente **por dónde no sale**, que está medido y escrito en
+`SupportedRun.triple_data_of_survival`: las tres parejas `(x,q)`, `(x,z)`, `(q,z)` tienen cadena
+—eso es `TablesSound` del estado de antes, gratis— y **pegarlas es falso** en general. Con
+soluciones `{110, 101, 011}` cada pareja tiene su testigo y la terna necesitaría `111`.
+
+Lo que ese contraejemplo también dice es dónde está la salida: en ese caso, tras pinchar, la criba
+del estado pinchado compara `x` y `q` y **no comparten owner** en el paso del tercer bit, así que
+`aggPair` borra el par y la obligación ni llega a plantearse. Por eso `SharedTripleChain` se
+alimenta de `shared_pin_witness` y no de las tres parejas: el testigo `z` **existe porque el par
+sobrevivió al punto fijo**, y ése es justamente el dato que el contraejemplo no tiene. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.pinResidue_of_sharedTriple' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinResidue_of_sharedTriple
 
 end AbsSat.GraphPath.Model.OwnerChainedBuild
