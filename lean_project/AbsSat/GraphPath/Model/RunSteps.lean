@@ -161,12 +161,13 @@ of `g` through `x` and it — and that chain passes the pin, so it is a chain of
 
 So a pin never creates a dead end, and `PinPairSoundAt` is exactly the *second* demand: that the
 chain can be made to pick a given second entry as well. -/
-theorem realizes_pin_gen (L : Int → Prop) (g : GPathM) (hR : ReadableAgg g) (ht : SoundAt L g)
-    (r : NodeId) (hr : L r.step) (hr0 : 0 ≤ r.step)
+theorem realizes_pin_at (g : GPathM) (hR : ReadableAgg g)
+    (r : NodeId) (hr0 : 0 ≤ r.step)
     (hvr : isValid (filterAllAgg g [r]) = true)
     (hrs : r.step < (filterAllAgg g [r]).current_step)
     (x : PathNodeId) (n : PNodeM) (hx : (filterAllAgg g [r]).node? x = some n)
-    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < (filterAllAgg g [r]).current_step) :
+    (_hx0 : 0 ≤ x.id.step) (_hx1 : x.id.step < (filterAllAgg g [r]).current_step)
+    (ht : ∀ n₀, g.node? x = some n₀ → ∀ w, w.id.step = r.step → w ∈ n₀.owners → Realizes g x w) :
     ∃ w ∈ n.owners, w.id = r ∧ Realizes (filterAllAgg g [r]) x w := by
   have hRr := ReadableAgg_filterAllAgg g hR [r]
   have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
@@ -185,10 +186,23 @@ theorem realizes_pin_gen (L : Int → Prop) (g : GPathM) (hR : ReadableAgg g) (h
   obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
   have hxid := node?_id_eq _ x n hx
   have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
-  obtain ⟨sel, hsc, hsx, hsw⟩ := ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) w (by omega)
-    (by rw [← hcs]; omega) (by rw [hwstep]; exact hr) (hown w hw)
+  obtain ⟨sel, hsc, hsx, hsw⟩ := ht n₀ hx₀ w hwstep (hown w hw)
   refine ⟨w, hw, hwid, sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsw⟩
   rw [List.mem_singleton.mp hreq, ← hwstep, hsw, hwid]
+
+/-- **Con un invariante de entradas global.** El pin solo necesita que las entradas del nodo que se
+mira sean realizables. -/
+theorem realizes_pin_gen (L : Int → Prop) (g : GPathM) (hR : ReadableAgg g) (ht : SoundAt L g)
+    (r : NodeId) (hr : L r.step) (hr0 : 0 ≤ r.step)
+    (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (x : PathNodeId) (n : PNodeM) (hx : (filterAllAgg g [r]).node? x = some n)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < (filterAllAgg g [r]).current_step) :
+    ∃ w ∈ n.owners, w.id = r ∧ Realizes (filterAllAgg g [r]) x w := by
+  have hcs := (pruned_filterAllAgg g [r]).step_eq
+  refine realizes_pin_at g hR r hr0 hvr hrs x n hx hx0 hx1 (fun n₀ hx₀ w hwr hwn => ?_)
+  exact ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) w (by rw [hwr]; exact hr0)
+    (by rw [hwr, ← hcs]; exact hrs) (by rw [hwr]; exact hr) hwn
 
 /-- **Con el bloque literal**, que es la instancia que usa la corrida de la máquina. -/
 theorem realizes_pin (g : GPathM) (hR : ReadableAgg g) (ht : SoundAt (LitStep φ) g)

@@ -359,6 +359,127 @@ theorem readerVerdictW_of_pinPair (h : PinPairSound) (φ : Cnf) (kv : NodeId × 
     readerVerdictW φ = true :=
   readerVerdictW_of_tablesSound φ kv hkv hR₀ hv h₀ (tablesSound_readFrom h _ hR₀ ht₀)
 
+-- ============================================================
+-- Más estrecho todavía: solo la tabla de la raíz
+-- ============================================================
+
+/-- **El invariante que el lector consume de verdad.**
+
+No las entradas de **todas** las tablas, sino las de la tabla del nodo del paso 0: todo lo que la
+raíz posee está en un camino completo.
+
+Es la frase del autor dicha desde la raíz — *el review deja solo nodos con camino* — y es
+literalmente eso, porque toda cadena pasa por el paso 0. -/
+def RootSound (g : GPathM) : Prop :=
+  ∀ x n, g.node? x = some n → x.id.step = 0 →
+    ∀ w, w ∈ n.owners → 0 ≤ w.id.step → w.id.step < g.current_step → Realizes g x w
+
+theorem rootSound_of_tablesSound (g : GPathM) (_hpos : 0 < g.current_step)
+    (h : Exactness.TablesSound g) : RootSound g :=
+  fun x n hx hx0 w hwn hw0 hw1 => h x n hx (by omega) (by omega) w hw0 hw1 hwn
+
+/-- **Y basta para que el pin conserve la cadena.** `realizes_pin_at` solo mira las entradas del
+nodo que se le pasa, y aquí ese nodo es el del paso 0. -/
+theorem hasChain_pin_of_rootSound (g : GPathM) (hR : ReadableAgg g) (hv : isValid g = true)
+    (ht : RootSound g) (mid : NodeId) (h0 : 0 ≤ mid.step) (h1 : mid.step < g.current_step)
+    (hvr : isValid (filterAllAgg g [mid]) = true) : HasChain (filterAllAgg g [mid]) := by
+  have hcs : (filterAllAgg g [mid]).current_step = g.current_step :=
+    (pruned_filterAllAgg g [mid]).step_eq
+  have hRp : ReadableAgg (filterAllAgg g [mid]) :=
+    PinExact.readableAgg_of_readFrom g hR _ (ReadFrom.pin g mid ReadFrom.start hv)
+  have rc := RCtx_of_readableAgg _ hRp
+  have hpos : 0 < (filterAllAgg g [mid]).current_step := by rw [hcs]; omega
+  have hent := hasStepEntry_of_isValid _ hvr 0 (Int.le_refl 0) hpos
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+  obtain ⟨q, hq, hqs⟩ := hent
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff _ q).mp (rc.gn q hq))
+  obtain ⟨_, _, _, sel, hsc, _, _⟩ :=
+    RunSteps.realizes_pin_at g hR mid h0 hvr (by rw [hcs]; exact h1) q n hn (by omega) (by omega)
+      (fun n₀ hx₀ w hwr hwn =>
+        ht q n₀ hx₀ hqs w hwn (by rw [hwr]; exact h0) (by rw [hwr]; exact h1))
+  exact ⟨sel, hsc⟩
+
+/-- **El residuo, ahora solo sobre la tabla de la raíz.**
+
+Lo mismo que `PinPairSound` pero con `x` obligado al paso 0. Es la forma más estrecha a la que ha
+bajado el frente en esta sesión. -/
+def RootPairSound : Prop :=
+  ∀ g : GPathM, ReadableAgg g → isValid g = true → RootSound g →
+    ∀ r : NodeId, isValid (filterAllAgg g [r]) = true →
+      ∀ x n, (filterAllAgg g [r]).node? x = some n → x.id.step = 0 →
+        ∀ w, w ∈ n.owners → 0 ≤ w.id.step → w.id.step < (filterAllAgg g [r]).current_step →
+          w.id.step ≠ r.step → Realizes (filterAllAgg g [r]) x w
+
+/-- **El paso pinchado sigue siendo gratis**, también desde la raíz. -/
+theorem rootSound_pin_of_pairs (h : RootPairSound) (g : GPathM) (hR : ReadableAgg g)
+    (hv : isValid g = true) (ht : RootSound g) (r : NodeId)
+    (hvr : isValid (filterAllAgg g [r]) = true) : RootSound (filterAllAgg g [r]) := by
+  intro x n hx hx0 w hwn hw0 hw1
+  rcases int_eq_or_ne w.id.step r.step with hwr | hwr
+  · have hRr := ReadableAgg_filterAllAgg g hR [r]
+    have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+    have rcg := RCtx_of_readableAgg g hR
+    have hpr := pruned_filterAllAgg g [r]
+    have hcs := hpr.step_eq
+    obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+    have hxid := node?_id_eq _ x n hx
+    have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+    have hwg := ctxR.ownGow x n hx w hwn hw0 hw1
+    have hwid : w.id = r := ReaderComplete.pin_id g r w hwg hwr
+    obtain ⟨sel, hsc, hsx, hsw⟩ :=
+      ht x n₀ hx₀ hx0 w (hown w hwn) hw0 (by rw [← hcs]; exact hw1)
+    refine ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsw⟩
+    rw [List.mem_singleton.mp hreq, ← hwr, hsw, hwid]
+  · exact h g hR hv ht r hvr x n hx hx0 w hwn hw0 hw1 hwr
+
+theorem rootSound_readFrom (h : RootPairSound) (g₀ : GPathM) (hR₀ : ReadableAgg g₀)
+    (ht₀ : RootSound g₀) : ∀ g, ReadFrom g₀ g → isValid g = true → RootSound g := by
+  intro g hF
+  induction hF with
+  | start => intro _; exact ht₀
+  | pin g' mid hF' hv' ih =>
+    intro hv
+    exact rootSound_pin_of_pairs h g' (PinExact.readableAgg_of_readFrom g₀ hR₀ g' hF') hv'
+      (ih hv') mid hv
+
+theorem pinKeepsChain_of_rootSound (g₀ : GPathM) (hR₀ : ReadableAgg g₀) (h₀ : HasChain g₀)
+    (hrs : ∀ g, ReadFrom g₀ g → isValid g = true → RootSound g) :
+    ∀ g, ReadFrom g₀ g → isValid g = true → HasChain g := by
+  intro g hF
+  induction hF with
+  | start => intro _; exact h₀
+  | pin g' mid hF' hv' ih =>
+    intro hv
+    have hR' : ReadableAgg g' := PinExact.readableAgg_of_readFrom g₀ hR₀ g' hF'
+    if hin : 0 ≤ mid.step ∧ mid.step < g'.current_step then
+      exact hasChain_pin_of_rootSound g' hR' hv' (hrs g' hF' hv') mid hin.1 hin.2 hv
+    else
+      exact hasChain_out_of_range g' mid (ih hv') hin
+
+/-- **El lector sin retroceso, completo desde la frase más estrecha de la sesión.**
+
+`RootPairSound` habla de **un estado, un pin, y la tabla de la raíz**. No menciona φ, no cuantifica
+sobre nodos, y no pide nada de las tablas de los demás. -/
+theorem readerVerdictW_of_rootPair (h : RootPairSound) (φ : Cnf) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hR₀ : ReadableAgg (filterAllAgg kv.2 []))
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (h₀ : HasChain (filterAllAgg kv.2 []))
+    (ht₀ : RootSound (filterAllAgg kv.2 [])) :
+    readerVerdictW φ = true :=
+  readerVerdictW_complete φ kv hkv hv
+    (progressAgg_of_chains _ (pinKeepsChain_of_rootSound _ hR₀ h₀
+      (rootSound_readFrom h _ hR₀ ht₀)))
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_rootPair' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_of_rootPair
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.rootSound_pin_of_pairs' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms rootSound_pin_of_pairs
+
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_pinPair' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_of_pinPair
