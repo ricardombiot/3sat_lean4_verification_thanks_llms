@@ -573,4 +573,92 @@ con los que `q` comparte camino. -/
 #guard_msgs in
 #print axioms lines_nonempty_of_survivor
 
+-- ============================================================
+-- El contagio, acotado: la primera muerte solo alcanza a los incompatibles
+-- ============================================================
+
+/-- **El pin solo puede quitar entradas de su propio paso.**
+
+`gowners` cambia únicamente en el paso pinchado, así que el corte contra `gowners` que hace
+`cleanInvalid` no puede tocar ninguna entrada de otro paso. Sin hipótesis más allá de que las
+tablas ya estuvieran dentro de la tabla global. -/
+theorem pin_keeps_owners_off_step (g : GPathM) (hw : OwnersWithin g) (q : PathNodeId)
+    (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx) :
+    ∀ w ∈ nx.owners, w.id.step ≠ q.id.step → w ∈ (filterRequire g q.id).gowners := by
+  intro w hwm hne
+  rw [PickInduction.filterRequire_gowners, List.mem_filter]
+  exact ⟨hw nx (List.mem_of_find?_eq_some hx) w hwm,
+    by simp only [Bool.or_eq_true, bne_iff_ne]; exact Or.inl hne⟩
+
+/-- **Y un nodo COMPATIBLE con la elección no pierde nada que le haga falta.**
+
+«Compatible» es justo lo que el autor dice: que su tabla contenga el valor elegido. Si lo contiene,
+entonces tras pinchar sigue teniendo un owner en **todos** los pasos y todos dentro de la tabla
+global: en los pasos distintos del pinchado porque el filtro no los mira
+(`pin_keeps_owners_off_step`), y en el pinchado porque lo que conserva es precisamente el valor
+elegido.
+
+Ésta es la frase del autor convertida en teorema: **el filtro limpia los nodos que no son
+compatibles con los requisitos** — y solo ésos. -/
+theorem compat_owners_survive_pin (g : GPathM) (hw : OwnersWithin g) (q : PathNodeId)
+    (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (hval : isValidNode g nx = true)
+    (hcompat : ∃ u ∈ nx.owners, u.id = q.id) :
+    ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ w ∈ nx.owners, w.id.step = k ∧ w ∈ (filterRequire g q.id).gowners := by
+  intro k hk0 hk1
+  have hok := owners_ok_of_isValidNode g nx hval
+  simp only [List.all_eq_true] at hok
+  obtain ⟨w, hwm, hws⟩ := List.any_eq_true.mp (hok k (mem_intRange hk0 (by omega)))
+  have hwstep : w.id.step = k := eq_of_beq hws
+  rcases int_eq_or_ne k q.id.step with hkq | hkq
+  · -- el paso pinchado: lo que se conserva es el valor elegido
+    obtain ⟨u, hum, huid⟩ := hcompat
+    refine ⟨u, hum, by rw [huid, ← hkq], ?_⟩
+    rw [PickInduction.filterRequire_gowners, List.mem_filter]
+    exact ⟨hw nx (List.mem_of_find?_eq_some hx) u hum,
+      by simp only [Bool.or_eq_true, beq_iff_eq]; exact Or.inr huid⟩
+  · -- cualquier otro paso: el filtro no lo mira
+    exact ⟨w, hwm, hwstep,
+      pin_keeps_owners_off_step g hw q x nx hx w hwm (by rw [hwstep]; exact hkq)⟩
+
+/-- **Y el nodo elegido es compatible consigo mismo**, así que la primera criba no lo roza.
+
+`SelfOwned` pone a `q` en su propia tabla, y su id es el valor elegido. Sin más. -/
+theorem pinned_is_compat (g : GPathM) (hso : Ownership.SelfOwned g)
+    (q : PathNodeId) (nq : PNodeM) (hq : g.node? q = some nq) :
+    ∃ u ∈ nq.owners, u.id = q.id :=
+  ⟨q, hso q nq hq, rfl⟩
+
+/-! ## El contagio, con su primera vuelta cerrada
+
+Queda dicho lo que el pin puede y no puede hacer, y no es poco:
+
+* solo puede quitar entradas **del paso pinchado** (`pin_keeps_owners_off_step`);
+* a un nodo **compatible** con la elección no le quita nada que le haga falta
+  (`compat_owners_survive_pin`): sigue con owner en todos los pasos y todos en la tabla global;
+* y el nodo elegido es compatible consigo mismo (`pinned_is_compat`), así que **la primera criba no
+  lo roza**.
+
+Así que la muerte, si empieza, empieza en los incompatibles — exactamente los que el filtro está
+ahí para limpiar. Lo que queda abierto es solo la **propagación**: que ninguna de esas muertes
+vuelva, vuelta a vuelta, hasta vaciar un paso de la tabla de `q`.
+
+Y contra eso juega la simetría del punto fijo (`AggFixpoint.AggOk`): si `w` es owner de `q`,
+entonces `q` es owner de `w`. De modo que mientras `q` viva, `w` tiene owner en el paso de `q`, y no
+puede morir *por ahí*. La muerte de un owner de `q` tendría que venirle de un tercer paso, y eso es
+lo único que falta acotar. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pin_keeps_owners_off_step' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pin_keeps_owners_off_step
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.compat_owners_survive_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms compat_owners_survive_pin
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.pinned_is_compat' does not depend on any axioms -/
+#guard_msgs in
+#print axioms pinned_is_compat
+
 end AbsSat.GraphPath.Model.PinAliveChain
