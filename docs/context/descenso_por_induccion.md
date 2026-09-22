@@ -147,10 +147,13 @@ Ya está reducido dos veces y **ya está medido**:
 (§2(a)): el descenso es por envío, no por corrida, y el veredicto cuelga de **una sola**
 hipótesis, `ReqCompletion`.
 
-**Fase 2 — `ReqCompletion` desde la hipótesis inductiva.** Probar la reducción del §2(b):
-`NoDeadEnd g` + pines-en-pasos-≥-`lo`-gratis, dejando como residuo solo *«el descenso puede
-dirigirse por los pines por debajo de `lo`»*. Aunque el residuo quede abierto, el enunciado
-que queda es **mucho más pequeño** y dice algo que se puede medir con una sonda.
+**Fase 2 — explorada, y corregida.** Ver [reqcompletion.md](reqcompletion.md). Resultado
+negativo y demostrado: `ReqCompletion g reqs` ⟺ `NoDeadEnd (filterAllAgg g reqs)`
+(`DescentRun.reqCompletion_of_noDeadEnd`), así que **no es una reducción, es el objetivo
+reescrito**. El paso que la inducción necesita de verdad es
+*(★) `NoDeadEnd g` ⟹ `NoDeadEnd (filterAllAgg g reqs)`* — «la revisión no crea callejones».
+Y ahí la ventana sí regala algo cuantificable: los pines de `lo-1` y `lo-2` se cumplen solos por
+`PMP`/`GPMP`, o sea **`w-1` pasos de dirección gratis**.
 
 **Fase 3 — `JoinCoveredF`, solo si (b) lo pide.** Con la fase 1 hecha sabemos que no está en
 el camino crítico del veredicto: solo haría falta para demostrar `ReqCompletion` por inducción

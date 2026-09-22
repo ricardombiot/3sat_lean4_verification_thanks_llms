@@ -5,6 +5,8 @@ import AbsSat.GraphPath.Model.DescentFilter
 import AbsSat.GraphPath.Model.BranchLines
 import AbsSat.GraphPath.Model.NoDeadEndVerdict
 import AbsSat.GraphPath.Model.PinHistory
+import AbsSat.GraphPath.Model.SubsetSemantics
+import AbsSat.GraphPath.Model.PairChain
 
 /-!
 # The descent, assembled over the run
@@ -76,6 +78,45 @@ def ReqAll : Prop :=
 
 def JoinAll : Prop :=
   ∀ g₁ g₂ : GPathM, DescentJoin.JoinCoveredF g₁ g₂
+
+-- ============================================================
+-- `ReqCompletion` is the goal restated
+-- ============================================================
+
+/-- **The converse of `DescentFilter.noDeadEnd_filterAllAgg_of_completion`.**
+
+Descend *inside* the filtered state instead of inside `g`: the chain that comes out is a chain of
+`g` (`ChainSound_of_pruned`), and it meets every pin **for free**, because in the filtered state
+every node of a pinned step already carries the pinned map node (`PairChain.node_id_of_pin`).
+
+Together with the forward direction this says `ReqCompletion g reqs` and
+`NoDeadEnd (filterAllAgg g reqs)` are **the same statement**. So the filter case of the descent
+induction is not a reduction: it is the goal, rewritten as a completion inside the unfiltered
+state. That is worth knowing before spending effort on it. -/
+theorem reqCompletion_of_noDeadEnd (g : GPathM) (reqs : List NodeId)
+    (hnd : NodupIds g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (ctx : Pinned.Ctx (filterAllAgg g reqs))
+    (hbelow : ∀ n ∈ (filterAllAgg g reqs).nodes,
+      n.id.id.step < (filterAllAgg g reqs).current_step)
+    (hndF : NodupIds (filterAllAgg g reqs))
+    (h : NoDeadEnd (filterAllAgg g reqs)) : DescentFilter.ReqCompletion g reqs := by
+  intro sel lo hlo0 hlo hs
+  have hstep : (filterAllAgg g reqs).current_step = g.current_step :=
+    (pruned_filterAllAgg g reqs).step_eq
+  obtain ⟨sel', hagree, hs'⟩ :=
+    NoDeadEnd.descend _ h lo.toNat sel lo (Nat.le_refl _) (by omega) hlo hs
+  have hcsF : ChainSound (filterAllAgg g reqs) sel' :=
+    (NoDeadEnd.chainSound_iff_soundFrom_zero _ sel' (by rw [hstep]; exact hpos)).mpr hs'
+  refine ⟨sel', SubsetSemantics.ChainSound_of_pruned (pruned_filterAllAgg g reqs) hnd hsmp sel' hcsF,
+    fun k hk _ => hagree k hk, ?_⟩
+  intro req hreq h0 h1
+  obtain ⟨hsome, hstepk⟩ := hs'.node req.step h0 (by rw [hstep]; exact h1)
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have hnid : n.id = sel' req.step := node?_id_eq _ _ n hn
+  have hpin := PairChain.node_id_of_pin g reqs ctx hbelow hndF req hreq h0 n
+    (List.mem_of_find?_eq_some hn) (by rw [hnid]; exact hstepk)
+  rw [hnid] at hpin
+  exact hpin
 
 -- ============================================================
 -- One send
@@ -210,6 +251,10 @@ theorem sat_of_reqCompletion (hwf : WF φ) (hR : ReqAll)
   refine NoDeadEndVerdict.sat_of_noDeadEnd φ hwf kv hkv hv ?_
   exact DescentFilter.noDeadEnd_filterAllAgg_of_completion kv.2 [] (by
     rw [hstep]; exact ConservationCore.stepCount_pos φ) (hR kv.2 [])
+
+/-- info: 'AbsSat.GraphPath.Model.DescentRun.reqCompletion_of_noDeadEnd' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms reqCompletion_of_noDeadEnd
 
 /-- info: 'AbsSat.GraphPath.Model.DescentRun.noDeadEnd_sent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
