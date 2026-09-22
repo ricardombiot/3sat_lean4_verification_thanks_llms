@@ -683,6 +683,97 @@ theorem aggPair_sym_second_leg (g : GPathM) (hsym : Threaded.OwnSymmetric g) (x 
     nx.owners.contains w = true → nw.owners.contains x = true := fun h1 =>
   List.elem_eq_true_of_mem (hsym x nx w nw hx hw (List.mem_of_elem_eq_true h1))
 
+/-- **`up` conserva la intuición: la fila nueva se hereda uniformemente.**
+
+Si un nodo viejo `x` gana el nodo de fila `pid` como owner, **todo padre `c` de `x` lo gana
+también**. La razón es literalmente `rowOwners`: `x` entra en la tabla de `pid` porque algún padre
+`q` de `pid` —un nodo de la última fila— tiene a `x` en su tabla; `AllParentsOwn` en el estado de
+antes pone ahí también a `c`; y `owners_sub_rowOwners` se lleva la tabla de `q` entera a `pid`.
+
+**Y esta es exactamente la diferencia con `TableDownClosed`**, que el `up` no conserva: la herencia
+de `rowOwners` es uniforme **hacia arriba** —todo lo que un padre de la fila posee pasa a la fila—
+y solo por rama **hacia abajo**. `AllParentsOwn` habla de arriba (`x.id.step ≤ v.id.step`), así que
+cae del lado bueno del diseño; `TableDownClosed` hablaba de abajo y caía del malo.
+
+Queda por tanto localizado dónde puede romperse la intuición: **no en el `up`**. Solo en `doJoin`
+—que funde dos procedencias bajo la misma clave y une las listas de padres— y en la revisión. -/
+theorem gained_of_parent (g : GPathM) (d : NodeId) (hsym : Threaded.OwnSymmetric g)
+    (hap : AllParentsOwn g) {x c : PathNodeId} {n mc : PNodeM}
+    (hx : g.node? x = some n) (hmc : g.node? c = some mc) (hc : c ∈ n.parents)
+    (hx1 : 1 ≤ x.id.step) (hxs : x.id.step < g.current_step)
+    (hcg : g.gowners.contains c = true)
+    (hrow : ∀ q ∈ newParents g, q.id.step = g.current_step - 1)
+    {pid : PathNodeId} (hne : x ≠ pid) (hpid : x ∈ rowOwners g d pid) :
+    c ∈ rowOwners g d pid := by
+  -- `x` no es el nodo nuevo, así que está en la unión de las tablas de los padres de la fila
+  have hin : x ∈ (unionOwnersOf g (rowParents g d pid)).filter (fun q => g.gowners.contains q) := by
+    simp only [rowOwners, List.mem_append, List.mem_singleton] at hpid
+    rcases hpid with h | h
+    · exact h
+    · exact absurd h hne
+  obtain ⟨hu, _⟩ := List.mem_filter.mp hin
+  obtain ⟨q, hq, mq, hmq, hxq⟩ := exists_owner_of_mem_unionOwnersOf g _ x hu
+  have hqs : q.id.step = g.current_step - 1 := by
+    have : q ∈ newParents g := by
+      simp only [rowParents, List.mem_filter] at hq; exact hq.1
+    exact hrow q this
+  -- simetría: `q` está en la tabla de `x`
+  have hqn : q ∈ n.owners := hsym q mq x n hmq hx hxq
+  -- la intuición en el estado de antes: el padre `c` posee a `q`
+  have hqc : q ∈ mc.owners := hap x n hx hx1 hxs q hqn (by omega) (by omega) c hc mc hmc
+  -- y de vuelta: `c` está en la tabla de `q`, que `rowOwners` se lleva entera
+  exact owners_sub_rowOwners g d pid q mq hq hmq c (hsym c mc q mq hmc hmq hqc) hcg
+
+/-- **Tres pines consecutivos determinan el nodo entero, no solo su nodo de mapa.**
+
+Un pin fija el **id de mapa** de un paso (`ReaderComplete.pin_id`), no el `PathNodeId`: varios nodos
+del mismo paso pueden compartir id de mapa y diferir en su historia. Pero con la ventana de tres eso
+se arregla solo en cuanto están pinchados los **tres** pasos de la ventana: `PMP` lee el segundo
+componente del padre y `GPMP` el tercero del abuelo, y los dos están pinchados también. El
+`PathNodeId` queda escrito.
+
+**Por qué importa**: es el único mecanismo de la máquina que convierte *«mismo id de mapa»* en
+*«mismo nodo»*, y «mismo nodo» es justo lo que `parents_own_unique_owner` pide para que el descenso
+no tenga que elegir padre. O sea: **por debajo de una zona pinchada de tres pasos, el descenso es
+gratis**, sin `SingleParents`, sin `PairMeet` y sin `AllParentsOwn`.
+
+Y de ahí sale la sugerencia sobre el algoritmo: el lector pincha hoy el **primer** paso con elección
+(`ReaderExec.firstChoice`). Si pinchara el **último** —de arriba abajo— iría dejando detrás
+precisamente esa zona de tres pasos determinada, que es donde el descenso no pide nada. El coste es
+cero: el mismo número de pines, la misma cota `measure`, y el veredicto no depende del orden
+(`readerVerdictW_sound` no lo lee). -/
+theorem pid_of_three_pins (g : GPathM)
+    (hpmp : ParentId.PMP g) (hgpmp : ParentId.GPMP g)
+    {r0 r1 r2 : NodeId}
+    (hq0 : ∀ q ∈ g.gowners, q.id.step = r0.step → q.id = r0)
+    (hq1 : ∀ q ∈ g.gowners, q.id.step = r1.step → q.id = r1)
+    (hq2 : ∀ q ∈ g.gowners, q.id.step = r2.step → q.id = r2)
+    {w : PathNodeId} {nw : PNodeM} (hw : g.node? w = some nw) (hwg : w ∈ g.gowners)
+    (hws : w.id.step = r0.step)
+    {p : PathNodeId} (hp : p ∈ nw.parents) {np : PNodeM} (hnp : g.node? p = some np)
+    (hpg : p ∈ g.gowners) (hps : p.id.step = r1.step)
+    {p' : PathNodeId} (hp' : p' ∈ np.parents) (hp'g : p' ∈ g.gowners)
+    (hp's : p'.id.step = r2.step) :
+    w = { id := r0, parent_id := some r1, gparent_id := some r2 } := by
+  have hwid : nw.id = w := node?_id_eq g w nw hw
+  have hnpid : np.id = p := node?_id_eq g p np hnp
+  have h0 : w.id = r0 := hq0 w hwg hws
+  -- el segundo componente: `PMP` lo lee del padre, que el pin de abajo fija
+  have h1 : w.parent_id = some r1 := by
+    have h := hpmp nw (List.mem_of_find?_eq_some hw) p hp
+    rw [hwid] at h
+    rw [← h, hq1 p hpg hps]
+  -- el tercero: `GPMP` lo lee del abuelo, que el pin de más abajo fija
+  have h2 : w.gparent_id = some r2 := by
+    have hg := hgpmp.1 nw (List.mem_of_find?_eq_some hw) p hp
+    have hpp := hpmp np (List.mem_of_find?_eq_some hnp) p' hp'
+    rw [hnpid] at hpp
+    rw [hwid] at hg
+    rw [hg, ← hpp, hq2 p' hp'g hp's]
+  obtain ⟨i, pi, gi⟩ := w
+  simp only at h0 h1 h2
+  rw [h0, h1, h2]
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -858,6 +949,14 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.parents_own_unique_owner' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms parents_own_unique_owner
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.pid_of_three_pins' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms pid_of_three_pins
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.gained_of_parent' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gained_of_parent
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.singleParent_of_tableDownClosed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
