@@ -1825,4 +1825,63 @@ theorem isValidNode_relink_of_Anchored (g : GPathM) (P : PathNodeId → Prop) (r
 #guard_msgs in
 #print axioms isValidNode_relink_of_Anchored
 
+-- ============================================================
+-- La simetría dentro del conjunto protegido, y que el corte la conserva
+-- ============================================================
+
+/-- **Dentro de `P`, poseer es mutuo.**
+
+Es la primera componente de `AggFixpoint.AggOk` restringida al conjunto protegido, y hace falta
+para el caso en que el review mira **a un protegido que es anclaje de otro**: `unlinkMap` deja
+intacto a todo nodo que el mirado posea, así que la mutualidad es lo que impide que un anclaje se
+pierda. -/
+def Sym (g : GPathM) (P : PathNodeId → Prop) : Prop :=
+  ∀ x y nx ny, P x → P y → g.node? x = some nx → g.node? y = some ny →
+    y ∈ nx.owners → x ∈ ny.owners
+
+/-- **Y el corte la conserva.**
+
+La dirección delicada es la de vuelta: si el corte quitara `x` de la tabla de `y` mientras `y` sigue
+en la de `x`, la simetría se rompería. No puede: el corte solo quita lo que no está en la tabla
+global, y **los miembros de `P` están en la tabla global**.
+
+Es la primera vez que se usa `P ⊆ gowners`, y es justo para esto. -/
+theorem Sym_cut (g : GPathM) (P : PathNodeId → Prop) (r : PathNodeId)
+    (hPg : ∀ x, P x → x ∈ g.gowners) (h : Sym g P) :
+    Sym (updateAt g r (fun n => { n with owners := intersectOwners n.owners g.gowners })) P := by
+  intro x y nx ny hx hy hnx hny hyx
+  obtain ⟨nx0, hnx0, hxe⟩ :=
+    Reader.updateAt_node?_inv g r (fun n => { n with owners := intersectOwners n.owners g.gowners })
+      (fun _ => rfl) x nx hnx
+  obtain ⟨ny0, hny0, hye⟩ :=
+    Reader.updateAt_node?_inv g r (fun n => { n with owners := intersectOwners n.owners g.gowners })
+      (fun _ => rfl) y ny hny
+  have hyx0 : y ∈ nx0.owners := by
+    subst hxe
+    cases hb : nx0.id == r with
+    | true =>
+      simp only [hb, intersectOwners, List.mem_filter] at hyx
+      exact hyx.1
+    | false => simp only [hb] at hyx; exact hyx
+  have hxy0 : x ∈ ny0.owners := h x y nx0 ny0 hx hy hnx0 hny0 hyx0
+  subst hye
+  cases hb : ny0.id == r with
+  | true => exact mem_intersectOwners_of_mem _ _ x hxy0 (hPg x hx)
+  | false => exact hxy0
+
+/-! ## Qué falta para cerrar el paso del review para TODO `r`
+
+El caso `¬ P r` está cerrado (`Anchored_cleanStep`) y el nodo protegido no se borra
+(`isValidNode_relink_of_Anchored`). Lo que queda del caso `P r` es que los **anclajes** de los demás
+protegidos sobrevivan al `unlinkMap` de `r`, y para eso `unlinkMap` ofrece la salida buena: **deja
+intacto a todo nodo que el mirado posea**. `Sym` es exactamente esa hipótesis, y `Sym_cut` dice que
+el corte previo no la estropea.
+
+Faltan las dos conservaciones restantes de `Sym` —frente al desenlace y al borrado—, que necesitan
+una inversión de `unlinkIncompatible_node?` con `NodupIds`; y con ellas, el paso entero. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_cut' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Sym_cut
+
 end AbsSat.GraphPath.Model.PinAliveChain
