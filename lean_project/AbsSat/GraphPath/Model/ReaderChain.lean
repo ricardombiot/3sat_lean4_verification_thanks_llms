@@ -767,9 +767,16 @@ theorem partner_after_filterRequire (P : GPathM) (req : NodeId) (x q : PathNodeI
 Todo lo que está en la tabla de `x` es compatible con `x` — es lo que la tabla *significa* —, así
 que pinchar `x` no debería poder quitárselo. Ni a `x` mismo.
 
-Medido (`row-degree owntable`, sobre los estados que el lector recorre): **1.016 de 1.016 entradas
-sobre `dos_de_tres.cnf`, ninguna perdida, y el nodo no desaparece nunca.** Es justo la fórmula del
-contraejemplo al pegado puro.
+Medido (`row-degree owntable`, sobre los estados que el lector recorre):
+
+| corpus | nodos | entradas | perdidas |
+|---|---|---|---|
+| `dos_de_tres.cnf` | 73 | 1.016 | **0** |
+| 12 fórmulas aleatorias (semilla 1) | 1.012 | 78.552 | **0** |
+| 12 fórmulas aleatorias (semilla 7) | 1.176 | 125.523 | **0** |
+| **total** | **2.261** | **205.091** | **0** |
+
+Y el nodo nunca desaparece: pinchar el propio nodo deja el grafo válido en los 2.261 casos.
 
 Con ella `PinKeepsPartner` es inmediato, y con `partner_survives_pin` cierra el descenso con
 revisión por pares. -/
