@@ -520,6 +520,60 @@ def PinChoiceOnly (g : GPathM) (r : NodeId) : Prop :=
     ∀ q ∈ nx.owners, 0 ≤ q.id.step → q.id.step < g.current_step →
       Realizes (filterAllAgg g [r]) x q
 
+/-- **La tabla de todo nodo lleva un solo id de mapa en un paso: el que se fijó allí.** -/
+def SingleIdAt (g : GPathM) (r : NodeId) : Prop :=
+  ∀ x nx, g.node? x = some nx → ∀ u ∈ nx.owners, u.id.step = r.step → u.id = r
+
+/-- **El filtro la establece en cada paso que pide.** Es `owners_pinned_after_filter` envuelto. -/
+theorem singleIdAt_filterAllAgg (P : GPathM) (reqs : List NodeId)
+    (ctx : Pinned.Ctx (filterAllAgg P reqs))
+    (r : NodeId) (hr : r ∈ reqs) (hr0 : 0 ≤ r.step)
+    (hrs : r.step < (filterAllAgg P reqs).current_step) :
+    SingleIdAt (filterAllAgg P reqs) r := by
+  intro x nx hx u hu hus
+  exact owners_pinned_after_filter P reqs ctx x nx hx u hu
+    (by rw [hus]; exact hr0) (by rw [hus]; exact hrs) r hr hus
+
+/-- **Y podar no la deshace: un paso pinchado se queda pinchado.**
+
+Las tablas solo encogen, así que nadie puede devolverle a un nodo el valor que el filtro le quitó.
+Vale para la revisión, para los filtros siguientes y para todo lo que el lector haga después. -/
+theorem singleIdAt_of_pruned {g g' : GPathM} (hpr : Pruned g g') (hnd : NodupIds g) (r : NodeId)
+    (h : SingleIdAt g r) : SingleIdAt g' r := by
+  intro x nx hx u hu hus
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid : nx.id = x := node?_id_eq g' x nx hx
+  obtain ⟨n₀, hn₀, hid₀, hown, _⟩ := hpr.nodes_derived nx hmem
+  have hx₀ : g.node? x = some n₀ := by
+    rw [← hid, hid₀]; exact node?_of_mem hnd n₀ hn₀
+  exact h x n₀ hx₀ u (hown u hu) hus
+
+/-- **Y entonces el residuo del pin solo puede venir de pasos que nadie ha fijado todavía.**
+
+Juntando las tres piezas: el filtro deja `SingleIdAt` en cada paso que pide
+(`singleIdAt_filterAllAgg`), podar no la deshace (`singleIdAt_of_pruned`), y donde vale, la cadena
+pasa sola (`realizes_pin_of_singleId`).
+
+Así que **la zona ya pinchada no vuelve a dar trabajo nunca**, y el residuo vive exclusivamente en
+los pasos que siguen teniendo elección. Como el lector pincha de abajo arriba y cada pin fija un
+paso más, la zona de residuo **encoge en cada ronda**. -/
+theorem realizes_pin_of_singleIdAt (g : GPathM) (r : NodeId) (hr0 : 0 ≤ r.step)
+    (hrs : r.step < g.current_step) (h : SingleIdAt g r)
+    (x q : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < g.current_step) (hself : x ∈ nx.owners)
+    (sel : Int → PathNodeId) (hsc : ChainSound g sel) (hsx : sel x.id.step = x)
+    (hsq : sel q.id.step = q) :
+    Realizes (filterAllAgg g [r]) x q :=
+  realizes_pin_of_singleId g r hr0 hrs x q nx hx hx0 hx1 hself (h x nx hx) sel hsc hsx hsq
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.singleIdAt_of_pruned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms singleIdAt_of_pruned
+
+/-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.realizes_pin_of_singleIdAt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms realizes_pin_of_singleIdAt
+
 /-- info: 'AbsSat.GraphPath.Model.TablesSoundBuild.realizes_pin_of_singleId' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms realizes_pin_of_singleId
