@@ -154,6 +154,46 @@ theorem pinStep_of_pairs (h : PinPairSoundAt φ) : PinStepSoundAt φ := by
     rw [List.mem_singleton.mp hreq, ← hqr, hsq, hqid]
   · exact h g hR hv ht r hr hvr x n hx hx0 hx1 q hq0 hq1 hL hqr hqn
 
+/-- **One pin: every node still standing is on a chain that passes the pin.** No extra hypothesis
+beyond the induction's own: a live node owns something at the pinned step, what it owns carries the
+pin (`ReaderComplete.pin_id`), the pinned step is a literal step, so `SoundAt g` hands over a chain
+of `g` through `x` and it — and that chain passes the pin, so it is a chain of the pinned state.
+
+So a pin never creates a dead end, and `PinPairSoundAt` is exactly the *second* demand: that the
+chain can be made to pick a given second entry as well. -/
+theorem realizes_pin (g : GPathM) (hR : ReadableAgg g) (ht : SoundAt (LitStep φ) g)
+    (r : NodeId) (hr : LitStep φ r.step) (hr0 : 0 ≤ r.step)
+    (hvr : isValid (filterAllAgg g [r]) = true)
+    (hrs : r.step < (filterAllAgg g [r]).current_step)
+    (x : PathNodeId) (n : PNodeM) (hx : (filterAllAgg g [r]).node? x = some n)
+    (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < (filterAllAgg g [r]).current_step) :
+    ∃ w ∈ n.owners, w.id = r ∧ Realizes (filterAllAgg g [r]) x w := by
+  have hRr := ReadableAgg_filterAllAgg g hR [r]
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+  have rcg := RCtx_of_readableAgg g hR
+  have hpr := pruned_filterAllAgg g [r]
+  have hcs := hpr.step_eq
+  -- a live node owns something at the pinned step, and the pin fixes what
+  have hok := owners_ok_of_isValidNode _ n (ctxR.nodeval x n hx)
+  simp only [List.all_eq_true] at hok
+  have hent := hok r.step (mem_intRange hr0 (by omega))
+  obtain ⟨w, hw, hws⟩ := List.any_eq_true.mp hent
+  have hwstep : w.id.step = r.step := eq_of_beq hws
+  have hwid : w.id = r :=
+    ReaderComplete.pin_id g r w (ctxR.ownGow x n hx w hw (by omega) (by omega)) hwstep
+  -- pull `x` back to `g` and realize the pair there
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+  have hxid := node?_id_eq _ x n hx
+  have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  obtain ⟨sel, hsc, hsx, hsw⟩ := ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) w (by omega)
+    (by rw [← hcs]; omega) (by rw [hwstep]; exact hr) (hown w hw)
+  refine ⟨w, hw, hwid, sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsw⟩
+  rw [List.mem_singleton.mp hreq, ← hwstep, hsw, hwid]
+
+/-- info: 'AbsSat.GraphPath.Model.RunSteps.realizes_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms realizes_pin
+
 /-- **The verdict by construction, from its single steps.** -/
 theorem sat_of_steps (hwf : WF φ) (hW : WeakStepSoundAt φ) (hP : PinPairSoundAt φ)
     (kv : NodeId × GPathM) (hkv : kv ∈ PureDriverImproves.pureRunW φ)

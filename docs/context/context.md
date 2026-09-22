@@ -901,3 +901,95 @@ demostradas (`filterSoundAt_of_sends`, `filterSoundAt_of_pins`).
 > Cuarta equivalencia, mismo método, otra vez por debajo de treinta líneas de vuelta. Ya no es
 > casualidad: en este repo **las hipótesis que hablan del estado final tienden a ser el objetivo**,
 > y las que hablan de *qué entradas* y *qué fijaciones* son las que de verdad recortan.
+
+### 5.13 `FilterSoundAt` atacado: qué es libre, qué no se puede factorizar, y qué cambiaría en la máquina
+
+Primero el test de §5.11: **`FilterSoundAt` no es una equivalencia**. Es un invariante sobre todos
+los estados de la ejecución y el objetivo es un bit (`Satisfiable φ`); no hay vuelta. Pasa el test,
+y por eso es el sitio donde trabajar.
+
+**La cadena ya está reducida al mínimo en el repo**, y conviene tenerla a la vista:
+
+`FilterSoundAt` ⟸ `SendPinSoundAt` (los requisitos débiles no hacen nada, v144) ⟸ `PinStepSoundAt`
+(un pin cada vez, v143) ⟸ **`PinPairSoundAt`** — *un solo pin `r`, y solo las entradas hacia pasos
+literales **distintos** del pinchado*. El paso pinchado ya está demostrado (`pinStep_of_pairs`).
+
+#### Lo nuevo: el pin no crea callejones sin salida
+
+**`RunSteps.realizes_pin`** (demostrado, `[propext, Quot.sound]`, sin hipótesis nuevas):
+
+> tras un pin `r`, **todo nodo que sigue en pie está en una cadena del estado pinchado que pasa por
+> el pin**.
+
+La prueba es corta y dice exactamente dónde está el filo: un nodo vivo posee algo en el paso
+pinchado; lo que posee lleva el pin (`ReaderComplete.pin_id`); el paso pinchado **es un paso
+literal**, así que el invariante de la inducción entrega una cadena de `g` por `x` y por él; y esa
+cadena pasa el pin, luego sobrevive.
+
+Consecuencia de lectura: `Inhabited`/«no hay zombis» **para un paso de pin** sale gratis del
+invariante. Lo que `PinPairSoundAt` pide de más es la **segunda** marca: que la cadena se pueda
+obligar además a pasar por una entrada `q` dada.
+
+#### Por qué `L = LitStep` es exactamente el tamaño correcto (un callejón que comprobé)
+
+`SoundAt` está parametrizado por un conjunto de pasos `L`, y toda la cadena
+(`soundAt_initSeed`/`join`/`addNode`/`sent_ofL`) solo pide `L 0` y que `L` sea cerrado hacia abajo.
+El veredicto (`sat_of_lineSound`) solo usa **la diagonal en el paso 0**. Tentación obvia: tomar
+`L := (· ≤ 0)` y quedarse con un invariante mucho más pequeño.
+
+**No sirve, y la razón es informativa**: los dos únicos resultados libres que hay sobre un pin —la
+rama gratis de `pinStep_of_pairs` y el nuevo `realizes_pin`— aplican el invariante **en el paso
+pinchado**. Si `L` no contiene los pasos de los pines, se pierden los dos. `LitStep` es el menor
+`L` cerrado hacia abajo que contiene el 0 **y todos los pasos donde caen pines**. Está calibrado,
+no elegido a ojo.
+
+#### Lo que no se puede factorizar (y ahorra una ruta entera)
+
+La tentación siguiente es sacar el filtro de la ecuación: tenemos cadena por `(x,q)` y cadena por
+`(x,r)`; ¿basta un lema puro de *fusión de cadenas*?
+
+> `ChainMerge`: dos cadenas de un mismo estado que pasan ambas por `x` se pueden fusionar en una que
+> pase por `x`, por la marca de una y por la marca de la otra.
+
+**`ChainMerge` es falso**, y sin necesidad de buscar nada: basta una fórmula donde `v1` puede ser
+cierta, `v2` puede ser cierta, y no a la vez. En un estado con ambas entradas en la tabla de un
+mismo nodo, cada una realizable por separado, `ChainMerge` afirmaría una asignación con las dos.
+
+Lo que eso dice: **la hipótesis de supervivencia al review no es decorado**. `PinPairSoundAt` no es
+«pares realizables ⟹ triple realizable»; es «pares realizables **y la entrada sobrevive al filtro
+agresivo** ⟹ triple realizable». Toda reducción que tire el filtro es falsa, así que no hay que
+gastar tiempo en buscarla.
+
+#### Cambios en el algoritmo, y lo que cuesta cada uno
+
+Puesto en el lenguaje estándar: la máquina guarda una tabla por **par** de nodos y exige simetría
+más «comparten owner en todo paso» — es decir, **consistencia de caminos (3-consistencia)** sobre un
+grafo de restricciones **completo** (hay tabla entre todos los pares de pasos). El resultado clásico
+de Freuder es que con grafo completo de `n` variables hace falta `n`-consistencia; 3 no basta *en
+general*.
+
+| cambio | qué compraría | coste |
+|---|---|---|
+| guardar tablas de **tripletas** (4-consistencia) | el pin pasa a ser consulta en un nivel | ×N por nivel; **polinómico**, pero la escalera no termina: cada nivel reproduce la obligación un piso arriba |
+| tablas **condicionadas** por (variable, valor) | `PinPairSoundAt` se vuelve consulta | ×2n; mismo problema: condicionar por dos variables reaparece |
+| que el identificador lleve **toda** la asignación | 2-consistencia ⟹ global, trivial | 2^n identificadores; **muere** |
+| ventana de identificador de tamaño `k` (hoy `k=3`) | fuerza el encaje local hasta `k` | `|mapa|^k`, polinómico con `k` fijo; cierra si el ancho inducido del incidence graph es `< k`, que en 3-SAT no está acotado |
+| **no unir filas cuando la unión crearía in-degree > 1** | `SingleParents` vale en todo estado, y su veredicto **ya está demostrado** (`sat_of_singleParents`) | ramifica en el 7,3% de las filas (medido §5.5: in-degree 1 en el 92,7%, máx 3–4) |
+
+La última es la única que **cierra** algo, y por eso merece decirse con precisión: el `doJoin` del
+driver —unir dos estados con la misma clave— es exactamente el punto donde la máquina cambia
+ramificación por tablas. Es lo que la mantiene polinómica, y es lo que rompe `SingleParents`.
+
+> Dicho al revés, y creo que es la forma más útil de tenerlo: **la máquina ya tiene una demostración
+> completa para la parte del mapa donde no hay uniones, y el hueco abierto es exactamente el precio
+> de las uniones.** No es un hueco difuso repartido por el algoritmo; está localizado en una
+> operación y medido (7,3% de las filas).
+
+#### Lo que yo atacaría a continuación
+
+Dentro de `PinPairSoundAt`, el caso más prometedor es **`q` en un paso literal de la misma variable
+que el pin**: `WeakNoop.lit_consistent` ya demuestra que un nodo vivo en un paso literal coincide
+con todo pin sobre su misma variable, y el mapa enlaza `2v → 2v+1` **cruzado**, así que el `id` y el
+`parent_id` de `q` quedan forzados por el pin. Lo único que no queda forzado es el **`gparent_id`**
+—el tercer componente de la ventana—, y ahí es donde entraría un paso de descenso, uno solo. Es el
+sitio del repo donde la ventana de 3 y el hueco abierto se tocan directamente.
