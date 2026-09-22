@@ -50,6 +50,7 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview
 open AbsSat.GraphPath.Model.ReaderAgg
 open AbsSat.GraphPath.Model.ReaderExec
+open AbsSat.GraphPath.Model.Exactness (Realizes)
 
 /-- **El estado tiene una cadena.** Lo único que `progressAgg_of_chains` pide de cada estado. -/
 def HasChain (g : GPathM) : Prop := ∃ sel, ChainSound g sel
@@ -281,6 +282,90 @@ theorem readerVerdictW_of_tablesSound (φ : Cnf) (kv : NodeId × GPathM)
       Exactness.TablesSound g) :
     readerVerdictW φ = true :=
   readerVerdictW_complete φ kv hkv hv (progressAgg_of_tablesSound _ hR₀ h₀ hts)
+
+-- ============================================================
+-- La propagación: qué le hace un pin al invariante de entradas
+-- ============================================================
+
+/-- **El residuo del pin, sin restringir el paso.**
+
+Es `RunSteps.PinPairSoundAt` quitándole el bloque literal, y nótese lo que se gana: **no menciona
+φ**. Es una frase sobre un estado de la máquina y un pin — si tras pinchar `r` un nodo `x` sigue
+vivo y conserva una entrada `q` hacia un paso **distinto** del pinchado, entonces hay una cadena
+del estado pinchado por `x` y por `q`.
+
+El paso pinchado no aparece porque es gratis (`tablesSound_pin_of_pairs`, abajo). -/
+def PinPairSound : Prop :=
+  ∀ g : GPathM, ReadableAgg g → isValid g = true → Exactness.TablesSound g →
+    ∀ r : NodeId, isValid (filterAllAgg g [r]) = true →
+      ∀ x n, (filterAllAgg g [r]).node? x = some n → 0 ≤ x.id.step →
+        x.id.step < (filterAllAgg g [r]).current_step →
+        ∀ q, 0 ≤ q.id.step → q.id.step < (filterAllAgg g [r]).current_step →
+          q.id.step ≠ r.step → q ∈ n.owners → Realizes (filterAllAgg g [r]) x q
+
+/-- **El paso pinchado es gratis, y el resto es el residuo.**
+
+Una entrada al paso pinchado lleva el pin (`ReaderComplete.pin_id`), la entrada estaba en un camino
+antes de pinchar, y ese camino pasa por el pin — luego sobrevive. Es la misma prueba que
+`RunSteps.pinStep_of_pairs`, sin la restricción al bloque literal. -/
+theorem tablesSound_pin_of_pairs (h : PinPairSound) (g : GPathM) (hR : ReadableAgg g)
+    (hv : isValid g = true) (ht : Exactness.TablesSound g) (r : NodeId)
+    (hvr : isValid (filterAllAgg g [r]) = true) :
+    Exactness.TablesSound (filterAllAgg g [r]) := by
+  intro x n hx hx0 hx1 q hq0 hq1 hqn
+  rcases int_eq_or_ne q.id.step r.step with hqr | hqr
+  · have hRr := ReadableAgg_filterAllAgg g hR [r]
+    have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+    have rcg := RCtx_of_readableAgg g hR
+    have hpr := pruned_filterAllAgg g [r]
+    have hcs := hpr.step_eq
+    obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived n (List.mem_of_find?_eq_some hx)
+    have hxid := node?_id_eq _ x n hx
+    have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+    have hqg := ctxR.ownGow x n hx q hqn hq0 hq1
+    have hqid : q.id = r := ReaderComplete.pin_id g r q hqg hqr
+    obtain ⟨sel, hsc, hsx, hsq⟩ := ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) q hq0
+      (by rw [← hcs]; exact hq1) (hown q hqn)
+    refine ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => ?_), hsx, hsq⟩
+    rw [List.mem_singleton.mp hreq, ← hqr, hsq, hqid]
+  · exact h g hR hv ht r hvr x n hx hx0 hx1 q hq0 hq1 hqr hqn
+
+/-- **Y entonces el invariante viaja con el lector**, por inducción sobre `ReadFrom`. -/
+theorem tablesSound_readFrom (h : PinPairSound) (g₀ : GPathM) (hR₀ : ReadableAgg g₀)
+    (ht₀ : Exactness.TablesSound g₀) :
+    ∀ g, ReadFrom g₀ g → isValid g = true → Exactness.TablesSound g := by
+  intro g hF
+  induction hF with
+  | start => intro _; exact ht₀
+  | pin g' mid hF' hv' ih =>
+    intro hv
+    exact tablesSound_pin_of_pairs h g' (PinExact.readableAgg_of_readFrom g₀ hR₀ g' hF') hv'
+      (ih hv') mid hv
+
+/-- **El lector sin retroceso, completo desde UNA sola frase abierta.**
+
+`PinPairSound` es lo único que queda, y es la misma frase de la que cuelga la corrida de la
+máquina (`RunSteps.PinPairSoundAt`, su versión restringida al bloque literal). Las dos rutas de esta
+sesión terminan en el mismo sitio.
+
+Lo demás son condiciones sobre la **semilla**: que tenga una cadena y que sus tablas sean sanas —
+los dos invariantes de la corrida, no del lector. -/
+theorem readerVerdictW_of_pinPair (h : PinPairSound) (φ : Cnf) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hR₀ : ReadableAgg (filterAllAgg kv.2 []))
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (h₀ : HasChain (filterAllAgg kv.2 []))
+    (ht₀ : Exactness.TablesSound (filterAllAgg kv.2 [])) :
+    readerVerdictW φ = true :=
+  readerVerdictW_of_tablesSound φ kv hkv hR₀ hv h₀ (tablesSound_readFrom h _ hR₀ ht₀)
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_pinPair' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_of_pinPair
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderChain.tablesSound_pin_of_pairs' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesSound_pin_of_pairs
 
 /-- info: 'AbsSat.GraphPath.Model.ReaderChain.readerVerdictW_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
