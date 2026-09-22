@@ -794,6 +794,41 @@ def MapPinnedFrom (g : GPathM) (j : Int) : Prop :=
   ∀ k, j ≤ k → k < g.current_step → ∃ r : NodeId, r.step = k ∧
     ∀ q ∈ g.gowners, q.id.step = k → q.id = r
 
+/-- **Un owner dos pasos por encima llega por un hijo.** `cohS` deja la tabla de un nodo contenida
+en la unión de las de sus hijos, así que lo que un nodo posee dos pasos arriba lo posee ya alguno de
+sus hijos — y por `owners_above_iff_sons` ese owner es a su vez hijo suyo. Es el escalón que le
+permite a la ventana llevar un pin **dos** niveles más abajo, no solo uno. -/
+theorem owner_two_above_via_son (g : GPathM) (a : Adj g) {x : PathNodeId} {n : PNodeM}
+    (hx : g.node? x = some n) (hx0 : 0 ≤ x.id.step) (hxl : x.id.step + 2 < g.current_step)
+    (w : PathNodeId) (hw : w ∈ n.owners) (hws : w.id.step = x.id.step + 2) :
+    ∃ s ∈ n.sons, ∃ ms, g.node? s = some ms ∧ w ∈ ms.owners ∧ s.id.step = x.id.step + 1 := by
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid := node?_id_eq g x n hx
+  -- todo hijo está un paso por encima
+  have sonStep : ∀ c ∈ n.sons, ∀ m, g.node? c = some m → c.id.step = x.id.step + 1 := by
+    intro c hc m hm
+    have hxp : n.id ∈ m.parents := a.pms n hmem c hc m (List.mem_of_find?_eq_some hm)
+      (node?_id_eq g c m hm)
+    have := a.rc.shape.pbelow m (List.mem_of_find?_eq_some hm) n.id hxp
+    rw [hid, node?_id_eq g c m hm] at this
+    omega
+  -- hay al menos un hijo, y su tabla tiene entrada en el paso de `w`
+  have hnl : (n.id.id.step == g.current_step - 1) = false := by
+    rw [hid]; exact beq_false_of_ne (by omega)
+  obtain ⟨s0, hs0⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_sons_of_isValidNode g n (a.ctx.nodeval x n hx) hnl)
+  obtain ⟨m0, hm0, hm0id⟩ := a.sn n hmem s0 hs0
+  have hs0node : g.node? s0 = some m0 := by rw [← hm0id]; exact node?_of_mem a.rc.nodup m0 hm0
+  have hent : hasStepEntry (unionOwnersOf g n.sons) w.id.step = true := by
+    have hall := owners_ok_of_isValidNode g m0 (a.ctx.nodeval s0 m0 hs0node)
+    have := List.all_eq_true.mp hall w.id.step (mem_intRange (by omega) (by omega))
+    simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at this ⊢
+    obtain ⟨z, hz, hzs⟩ := this
+    exact ⟨z, mem_unionOwnersOf g n.sons s0 m0 z hs0 hs0node hz, hzs⟩
+  have hcoh := a.cohS _ (mem_intRange hx0 (by omega)) x (Threaded.mem_line_of_node? g x n hx) n hx
+  obtain ⟨s, hs, ms, hms, hwms⟩ := mem_union_of_coherent g n.sons n.owners w hcoh hw hent
+  exact ⟨s, hs, ms, hms, hwms, sonStep s hs ms hms⟩
+
 /-- Un padre del nodo, con su nodo, su paso y su condición de owner global. La cadena de hechos de
 forma que los dos casos altos necesitan, empaquetada una vez. -/
 theorem parent_facts (g : GPathM) (a : Adj g)
@@ -830,7 +865,7 @@ theorem decided_in_pinned_zone (g : GPathM) (a : Adj g)
     (hpmp : ParentId.PMP g) (hgpmp : ParentId.GPMP g)
     (hpar : ∀ y ny, g.node? y = some ny → 1 ≤ y.id.step → ∃ c, c ∈ ny.parents)
     {j : Int} (hpin : MapPinnedFrom g j)
-    {x : PathNodeId} {n : PNodeM} (hx : g.node? x = some n) (hxj : j ≤ x.id.step)
+    {x : PathNodeId} {n : PNodeM} (hx : g.node? x = some n) (hxj : j - 1 ≤ x.id.step)
     {w w' : PathNodeId} (hw : w ∈ n.owners) (hw' : w' ∈ n.owners)
     (hge : x.id.step ≤ w.id.step) (heq : w.id.step = w'.id.step) : w = w' := by
   have hmem := List.mem_of_find?_eq_some hx
@@ -878,8 +913,49 @@ theorem decided_in_pinned_zone (g : GPathM) (a : Adj g)
     obtain ⟨mw, hmw, hwg⟩ := hnode w hw (by omega) hws
     obtain ⟨mw', hmw', hw'g⟩ := hnode w' hw' (by omega) hw's
     rw [son w hw hcase mw hmw hwg, son w' hw' (by rw [← heq]; exact hcase) mw' hmw' hw'g]
-  · -- (3) dos o más arriba: los tres pasos de la ventana caen en la zona
+  · -- (3) dos o más arriba
     have hgt : x.id.step + 2 ≤ w.id.step := by omega
+    by_cases hdeep : j ≤ w.id.step - 2
+    case neg =>
+      -- `x` está justo debajo de la zona y `w` dos pasos arriba: la ventana lo lleva por el hijo
+      obtain ⟨r0, hr0s, hr0⟩ := hpin w.id.step (by omega) hws
+      obtain ⟨r1, hr1s, hr1⟩ := hpin (x.id.step + 1) (by omega) (by omega)
+      have det : ∀ u, u ∈ n.owners → u.id.step = w.id.step →
+          ∀ mu, g.node? u = some mu → u = ⟨r0, some r1, some x.id⟩ := by
+        intro u hu hus mu hmu
+        obtain ⟨sn, hsn, ms, hms, hums, hss⟩ :=
+          owner_two_above_via_son g a hx (by omega) (by omega) u hu (by omega)
+        have husons : u ∈ ms.sons :=
+          (owners_above_iff_sons g a sn ms hms (by omega) u (by omega)).mp hums
+        have hsu : sn ∈ mu.parents := by
+          have := a.pms ms (List.mem_of_find?_eq_some hms) u husons mu
+            (List.mem_of_find?_eq_some hmu) (node?_id_eq g u mu hmu)
+          rwa [node?_id_eq g sn ms hms] at this
+        have hxs : x ∈ ms.parents := by
+          have := a.pms n hmem sn hsn ms (List.mem_of_find?_eq_some hms)
+            (node?_id_eq g sn ms hms)
+          rwa [hid] at this
+        have hsg : sn ∈ g.gowners :=
+          a.ctx.ownGow x n hx sn ((a.links x n hx).2 sn hsn) (by omega) (by omega)
+        have hug : u ∈ g.gowners := a.ctx.ownGow x n hx u hu (by omega) (by omega)
+        have h1 : u.id = r0 := hr0 u hug (by rw [hus, ← hr0s])
+        have h2 : u.parent_id = some sn.id := by
+          have := hpmp mu (List.mem_of_find?_eq_some hmu) sn hsu
+          rw [node?_id_eq g u mu hmu] at this; rw [← this]
+        have h3 : u.gparent_id = sn.parent_id := by
+          have := hgpmp.1 mu (List.mem_of_find?_eq_some hmu) sn hsu
+          rwa [node?_id_eq g u mu hmu] at this
+        have h4 : sn.parent_id = some x.id := by
+          have := hpmp ms (List.mem_of_find?_eq_some hms) x hxs
+          rw [node?_id_eq g sn ms hms] at this; rw [← this]
+        have h5 : sn.id = r1 := hr1 sn hsg (by rw [hss])
+        obtain ⟨i, pi, gi⟩ := u
+        simp only at h1 h2 h3
+        rw [h1, h2, h3, h4, h5]
+      obtain ⟨mw, hmw, _⟩ := hnode w hw (by omega) hws
+      obtain ⟨mw', hmw', _⟩ := hnode w' hw' (by omega) hw's
+      rw [det w hw rfl mw hmw, det w' hw' heq.symm mw' hmw']
+    case pos =>
     obtain ⟨r0, hr0s, hr0⟩ := hpin w.id.step (by omega) hws
     obtain ⟨r1, hr1s, hr1⟩ := hpin (w.id.step - 1) (by omega) (by omega)
     obtain ⟨r2, hr2s, hr2⟩ := hpin (w.id.step - 2) (by omega) (by omega)
@@ -916,7 +992,7 @@ theorem extend_below_pinned (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp : Son
     (hpar : ∀ y ny, g.node? y = some ny → 1 ≤ y.id.step → ∃ c, c ∈ ny.parents)
     {j : Int} (hpin : MapPinnedFrom g j)
     (sel : Int → PathNodeId) (lo : Int) (hlo0 : 0 < lo) (hlo : lo ≤ g.current_step - 1)
-    (hjlo : j ≤ lo) (hs : SoundFrom g sel lo) :
+    (hjlo : j - 1 ≤ lo) (hs : SoundFrom g sel lo) :
     ∃ c nc, g.node? c = some nc ∧ c.id.step = lo - 1 ∧
       ∀ k, lo ≤ k → k < g.current_step → c ∈ ownersOf g (sel k) := by
   obtain ⟨hsome, hstep⟩ := hs.node lo (Int.le_refl _) (by omega)
