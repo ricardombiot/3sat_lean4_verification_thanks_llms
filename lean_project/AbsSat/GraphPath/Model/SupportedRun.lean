@@ -96,13 +96,22 @@ theorem supportedS_pin_of_soundAt (g : GPathM) (hR : ReadableAgg g) (ht : SoundA
 Si hay cadena por `x` y por `q`, y el pin `r` deja el estado válido, entonces hay una cadena por
 `x`, por `q` **y por `r`**.
 
-Es lo único que `PinPairSoundAt` pide de más, y esta forma tiene dos ventajas sobre aquella: habla
+Es lo único que `PinPairSoundAt` pide de más, y esta forma tiene tres ventajas sobre aquella: habla
 de **un solo estado**, el de antes de pinchar —no del pinchado, que es el resultado de un punto
-fijo— y no menciona el filtro más que como condición. Medirla es mirar tres nodos de un grafo. -/
+fijo—; no menciona el filtro más que como condición; y **solo lo pide de nodos que sobreviven al
+pin**.
+
+Lo último no es cosmético. `ChainMerge` es falso (v145): de «hay cadena por `x` y `q`» y «hay cadena
+por `x` y `r`» **no** se sigue «hay cadena por los tres», y el contraejemplo es de una línea —una
+fórmula donde `v1` puede ser cierta, `v2` puede ser cierta, y no a la vez—. Así que toda versión de
+esta frase que no use la supervivencia al review es falsa. La hipótesis de supervivencia es la
+única información que queda por explotar, y por eso está aquí. -/
 def TriplePin : Prop :=
   ∀ g : GPathM, ReadableAgg g → isValid g = true → SoundAt (LitStep φ) g →
     ∀ r : NodeId, LitStep φ r.step → isValid (filterAllAgg g [r]) = true →
       ∀ x q : PathNodeId, Realizes g x q → q.id.step ≠ r.step →
+        ((filterAllAgg g [r]).node? x).isSome = true →
+        ((filterAllAgg g [r]).node? q).isSome = true →
         ∃ sel, ChainSound g sel ∧ sel x.id.step = x ∧ sel q.id.step = q ∧ (sel r.step).id = r
 
 /-- **Y basta.** `SoundAt` da la cadena por `x` y `q` antes del pin, la terna la reencamina por `r`,
@@ -121,7 +130,14 @@ theorem pinPair_of_triplePin (h : TriplePin φ) : RunSteps.PinPairSoundAt φ := 
   have hx₀ : g.node? x = some n₀ := by rw [← hxid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
   have hxq : Realizes g x q :=
     ht x n₀ hx₀ hx0 (by rw [← hcs]; exact hx1) q hq0 (by rw [← hcs]; exact hq1) hL (hown q hqn)
-  obtain ⟨sel, hsc, hsx, hsq, hsr⟩ := h g hR hv ht r hr hvr x q hxq hqr
+  -- `x` y `q` sobreviven al pin: `x` por hipótesis, `q` por ser owner suyo en el estado pinchado
+  have hRr := ReadableAgg_filterAllAgg g hR [r]
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hvr
+  have hqg : q ∈ (filterAllAgg g [r]).gowners := ctxR.ownGow x n hx q hqn hq0 hq1
+  have hqnode : ((filterAllAgg g [r]).node? q).isSome = true :=
+    (GownersNodes.hasNode_iff _ q).mp ((RCtx_of_readableAgg _ hRr).gn q hqg)
+  obtain ⟨sel, hsc, hsx, hsq, hsr⟩ :=
+    h g hR hv ht r hr hvr x q hxq hqr (by rw [hx]; rfl) hqnode
   exact ⟨sel, ChainSound_filterAllAgg g [r] sel hsc (fun req hreq _ _ => by
     rw [List.mem_singleton.mp hreq]; exact hsr), hsx, hsq⟩
 
