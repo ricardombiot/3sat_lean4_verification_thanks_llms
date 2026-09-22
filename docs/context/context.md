@@ -789,3 +789,53 @@ Y nótese lo barato de la última fila: no hace falta `PinExact` en todos los ow
 > (la multiplicidad de las tablas) es exactamente lo que E disuelve por construcción, porque E
 > decide antes de andar. D y E no son dos intentos independientes: son el problema visto desde el
 > estado estático y desde la dinámica.
+
+### 5.10 Y el lector tampoco reduce: `PickSome` ⟺ `Inhabited`
+
+La intuición de §5.9 —*el lector decide antes de andar, así que la multiplicidad no le afecta*— es
+**correcta como mecanismo y está demostrada en el repo**:
+
+> `Reader.isValid_pin_of_chain` — *«el lector siempre puede seguir una cadena que exista: pinchar
+> el nodo de mapa que la cadena elige en un paso mantiene el grafo válido — a través del pin, de la
+> pasada de `cleanInvalid` **y de las dos pasadas de coherencia**»*.
+
+O sea: **si hay camino, la multiplicidad da igual**, exactamente como decías. El pin no lo rompe en
+ninguna de las tres operaciones.
+
+**Pero eso cierra el círculo en vez de abrirlo.** `Reader.PickSome_of_Inhabited` está demostrado, y
+con `Inhabited_of_pickSome_readable` en la otra dirección el repo lo dice sin rodeos:
+
+> *«`PickSome` e `Inhabited` caen o se sostienen juntos. Así que el `throw("GRAVE ERROR")` del
+> lector no es un asidero más débil que "no hay zombis": **es el mismo enunciado**.»*
+
+Así que la familia **E no es una condición suficiente independiente: es equivalente al objetivo.**
+No hay nada que ganar atacándola esperando que sea más barata.
+
+### 5.11 Tres equivalencias, y lo que quedan de rutas
+
+Corrección al mapa de §5.6, que las presentaba como seis condiciones suficientes independientes.
+**Dos de las seis son equivalencias al objetivo**, demostradas:
+
+| | |
+|---|---|
+| **E** `PickSome` ⟺ `Inhabited` | `Reader.PickSome_of_Inhabited` + `Inhabited_of_pickSome_readable` |
+| **D**, caso del filtro: `ReqCompletion g reqs` ⟺ `NoDeadEnd (filterAllAgg g reqs)` | `DescentRun.reqCompletion_of_noDeadEnd` + `DescentFilter.noDeadEnd_filterAllAgg_of_completion` |
+
+Y `PinExact`/`PinCovers` viven dentro de E, así que heredan lo mismo: son formas de decir *«hay
+camino en el nodo que se pincha»*.
+
+**Lo que eso deja en pie**, y es la lista corta que yo usaría de ahora en adelante:
+
+* lo que está **cerrado sin hipótesis**: la conservación (`pureRunW_ne_nil`), la corrección de las
+  tres respuestas (`answer_*_sound`), el veredicto para la clase `SingleParents`
+  (`sat_of_singleParents`), y que el lector nunca se equivoca cuando termina
+  (`readerVerdictW_sound`);
+* lo que es **equivalente al objetivo** y por tanto no es un atajo: E entera, el caso del filtro
+  de D, `PinExact`, `ValidHasChain`, `Inhabited`, `SupportedG`;
+* lo que sigue siendo **genuinamente una condición suficiente más fuerte**, o sea donde de verdad
+  se puede ganar terreno: `GhostsLine` (A, y es la más local de todas), el tronco de B
+  (`SideKeepAt` con sus seis puertas), C/C' y F.
+
+> La lección de método: antes de invertir en una hipótesis de este repo, **comprobar si es
+> equivalente al objetivo**. Tres de las que parecían reducciones no lo eran, y las tres se
+> detectan demostrando la vuelta, que en los tres casos salió en menos de treinta líneas.
