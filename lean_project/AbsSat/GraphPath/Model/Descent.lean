@@ -961,6 +961,55 @@ theorem commonOwner_of_mapPinned (g : GPathM) (a : Adj g) (hok : AggOk g) (hsmp 
   extend_below_pinned g a hok hsmp a.rc.pmp a.rc.gpmp (parents_exists g a) hpin sel lo hlo0 hlo
     (by omega) hs
 
+-- ============================================================
+-- El argumento del lector, formalizado hasta donde llega
+-- ============================================================
+
+/-- **Todo candidato del lector es compatible con algo en cada paso, en los dos sentidos.**
+
+Es el argumento de que el lector no puede bloquearse, escrito: el nodo `q` que va a pinchar es
+válido, así que `isValidNode` le da una entrada en **cada** paso; esa entrada es owner global luego
+es nodo; y la simetría de `AggOk` la devuelve, así que `q` está también en su tabla.
+
+O sea: **el pin nunca se queda sin candidato en ningún paso.** Lo que el lector sabe de antemano
+cuando elige `q` es exactamente esto, y es cierto.
+
+Lo que *no* da, y es el único hueco: que los `z_j` de distintos pasos sean compatibles **entre
+sí**. `AggOk` compara un nodo con cada uno de sus owners, nunca dos owners entre ellos
+(`aggPair` solo dispara sobre pares ya enlazados), así que de aquí sale 2-consistencia con `q` y no
+la cadena. Medido: 52.720 de 380.746 tríos ordenados incumplen la transitividad de la posesión.
+
+Desde `ReaderBT.readerVerdictBT_iff` eso ya **no afecta a la corrección** de la máquina: el
+retroceso lo cubre. Afecta solo a cuántas veces puede retroceder, que medido es cero. -/
+theorem pin_compatible_at_every_step (g : GPathM) (a : Adj g) (hok : AggOk g)
+    {q : PathNodeId} {nq : PNodeM} (hq : g.node? q = some nq)
+    (hq0 : 0 ≤ q.id.step) (hqs : q.id.step < g.current_step)
+    (j : Int) (hj0 : 0 ≤ j) (hj1 : j < g.current_step) :
+    ∃ z nz, g.node? z = some nz ∧ z.id.step = j ∧ z ∈ nq.owners ∧ q ∈ nz.owners := by
+  -- `isValidNode` le da a `q` una entrada en el paso `j`
+  have hent : hasStepEntry nq.owners j = true :=
+    List.all_eq_true.mp (owners_ok_of_isValidNode g nq (a.ctx.nodeval q nq hq)) j
+      (mem_intRange hj0 (by omega))
+  simp only [hasStepEntry, List.any_eq_true, beq_iff_eq] at hent
+  obtain ⟨z, hz, hzs⟩ := hent
+  -- esa entrada es owner global, luego nodo
+  have hzg : z ∈ g.gowners := a.ctx.ownGow q nq hq z hz (by rw [hzs]; exact hj0) (by rw [hzs]; exact hj1)
+  obtain ⟨nz, hnz⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff g z).mp (a.rc.gn z hzg))
+  -- y `AggOk` la devuelve: `q` está también en su tabla
+  exact ⟨z, nz, hnz, hzs, hz,
+    (hok q nq z nz hq hnz hq0 hqs (by rw [hzs]; exact hj0) (by rw [hzs]; exact hj1) hz
+      (a.ctx.nodeval q nq hq) (a.ctx.nodeval z nz hnz)).1⟩
+
+/-- **Y lo que falta, dicho como definición para que se vea que es una sola frase.**
+
+`pin_compatible_at_every_step` da los `z_j`. `CompatChain` pide que se puedan elegir compatibles
+entre sí. Con ella, `q` está en una cadena y el lector no retrocede nunca. Es la misma frase que
+`NoDeadEnd`, `Inhabited` y `ValidHasChain`, vista desde el candidato del lector. -/
+def CompatChain (g : GPathM) : Prop :=
+  ∀ q nq, g.node? q = some nq → 0 ≤ q.id.step → q.id.step < g.current_step →
+    ∃ sel : Int → PathNodeId, ChainSound g sel ∧ sel q.id.step = q
+
 /-- **At most two parents per node.** Any three parents of a node have two equal. Measured: the
 in-degree never exceeded 2 on any state of any run of the corpus. -/
 def TwoParents (g : GPathM) : Prop :=
@@ -1148,6 +1197,10 @@ theorem pairMeet_of_singleParents (g : GPathM) (a : Adj g) (hok : AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.Descent.commonOwner_of_mapPinned' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms commonOwner_of_mapPinned
+
+/-- info: 'AbsSat.GraphPath.Model.Descent.pin_compatible_at_every_step' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pin_compatible_at_every_step
 
 /-- info: 'AbsSat.GraphPath.Model.Descent.pid_of_three_pins' depends on axioms: [propext] -/
 #guard_msgs in
