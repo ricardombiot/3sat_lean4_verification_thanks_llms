@@ -732,4 +732,81 @@ que es lo único que el lector comprueba. -/
 #guard_msgs in
 #print axioms owners_of_pinned_survive_pin
 
+-- ============================================================
+-- La cascada, acotada: `sharesEveryStep` protege TODAS las vueltas
+-- ============================================================
+
+/-- **Si la tabla del elegido está intacta, la de un compañero suyo no se queda vacía en ningún
+paso.** Y esto vale para **cualquier** estado posterior, no solo para el primer corte.
+
+La entrada es la segunda componente de `AggFixpoint.AggOk`, la que hasta ahora no se había usado en
+esta línea: dos tablas que se poseen **comparten una entrada en todos los pasos**. Así que en cada
+paso `k` hay un `z` que está en la tabla de `q` **y** en la de `w`; si la tabla de `q` sigue dentro
+de los owners globales, ese `z` sobrevive al corte, y con él la cobertura de `w`.
+
+Dicho en el lenguaje de la máquina: *los caminos de `q` y de `w` se cruzan en cada paso*, así que
+mientras el camino de `q` esté en pie el de `w` no puede quedarse sin nada. -/
+theorem partner_keeps_cover (g h : GPathM) (_q _w : PathNodeId) (nq nw : PNodeM)
+    (hshare : sharesEveryStep g.current_step nq.owners nw.owners = true)
+    (hwval : isValidNode g nw = true)
+    (hI : ∀ z ∈ nq.owners, z ∈ h.gowners) :
+    ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ z ∈ nw.owners, z.id.step = k ∧ z ∈ h.gowners := by
+  intro k hk0 hk1
+  simp only [sharesEveryStep, List.all_eq_true] at hshare
+  have hk := hshare k (mem_intRange hk0 (by omega))
+  have hwe : hasStepEntry nw.owners k = true := by
+    have hok := owners_ok_of_isValidNode g nw hwval
+    simp only [List.all_eq_true] at hok
+    exact hok k (mem_intRange hk0 (by omega))
+  rw [hwe] at hk
+  simp only [Bool.not_true, Bool.false_or, List.any_eq_true] at hk
+  obtain ⟨z, hz, hzc⟩ := hk
+  obtain ⟨hzq, hzs⟩ := List.mem_filter.mp hz
+  exact ⟨z, List.mem_of_elem_eq_true hzc, eq_of_beq hzs, hI z hzq⟩
+
+/-- **Y entonces ningún owner del nodo elegido puede perder su cobertura, en ninguna vuelta.**
+
+`AggOk` da las dos cosas de golpe para el par `(q, w)`: la simetría y el cruce en todos los pasos.
+Con la tabla de `q` intacta, `w` conserva en cada paso un owner vivo.
+
+Esto cierra la parte de **owners** de la cascada entera —no solo el primer corte—, porque no
+depende de qué estado sea `h`: solo de que la tabla de `q` siga dentro de sus owners globales. -/
+theorem owner_of_pinned_keeps_cover (g h : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (q w : PathNodeId) (nq nw : PNodeM) (hq : g.node? q = some nq) (hwn : g.node? w = some nw)
+    (hq0 : 0 ≤ q.id.step) (hq1 : q.id.step < g.current_step)
+    (hw0 : 0 ≤ w.id.step) (hw1 : w.id.step < g.current_step)
+    (hwm : w ∈ nq.owners) (hI : ∀ z ∈ nq.owners, z ∈ h.gowners) :
+    ∀ k, 0 ≤ k → k < g.current_step →
+      ∃ z ∈ nw.owners, z.id.step = k ∧ z ∈ h.gowners :=
+  partner_keeps_cover g h q w nq nw
+    (hok q nq w nw hq hwn hq0 hq1 hw0 hw1 hwm (ctx.nodeval q nq hq) (ctx.nodeval w nw hwn)).2
+    (ctx.nodeval w nw hwn) hI
+
+/-! ## La cascada, ya solo por los enlaces
+
+`isValidNode` pide dos cosas: que la tabla cubra todos los pasos (`owners_ok`) y que el nodo tenga
+padres o hijos según dónde esté. Con lo de arriba, **la primera ya no puede fallarle a ningún owner
+del nodo elegido, en ninguna vuelta del review**:
+
+* la simetría del punto fijo hace a todo owner de `q` compatible con la elección
+  (`owner_of_pinned_is_compat`);
+* y el cruce en todos los pasos le conserva la cobertura mientras la tabla de `q` esté en pie
+  (`owner_of_pinned_keeps_cover`);
+* y con la tabla de `q` en pie, ninguna fila se vacía y el estado es válido
+  (`lines_nonempty_of_survivor`, `isValid_of_survivor`).
+
+Lo único por donde la cascada puede aún entrar es la **segunda** mitad de `isValidNode`: que
+`relink` o `unlinkIncompatible` dejen a un owner de `q` sin padres o sin hijos. Y ahí conviene
+notar de qué tamaño es lo que queda: no es una frase sobre caminos, ni sobre tablas, ni sobre
+elecciones — es una frase sobre **los enlaces padre-hijo de un nodo cuya tabla está intacta**. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.partner_keeps_cover' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms partner_keeps_cover
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.owner_of_pinned_keeps_cover' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms owner_of_pinned_keeps_cover
+
 end AbsSat.GraphPath.Model.PinAliveChain
