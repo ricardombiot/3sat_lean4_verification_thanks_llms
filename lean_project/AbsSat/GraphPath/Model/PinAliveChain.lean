@@ -1618,4 +1618,60 @@ tiene su lema con nombre. -/
 #guard_msgs in
 #print axioms parents_unlink_keeps
 
+-- ============================================================
+-- Primer ladrillo del ensamblaje: `Anchored` cruza el corte
+-- ============================================================
+
+/-- **El corte de otro nodo no afecta a un anclado.** `updateAt` solo toca al nodo que nombra, y la
+tabla global y el paso actual no se mueven. -/
+theorem Anchored_updateAt (g : GPathM) (P : PathNodeId → Prop) (z r : PathNodeId)
+    (f : PNodeM → PNodeM) (hf : ∀ n, (f n).id = n.id) (hne : z ≠ r)
+    (h : Anchored g P z) : Anchored (updateAt g r f) P z := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  have hid : nz.id = z := node?_id_eq g z nz hn
+  refine ⟨nz, ?_, hcov, hpar, hson⟩
+  rw [updateAt_node? g r f hf z nz hn,
+      show (nz.id == r) = false from beq_eq_false_iff_ne.mpr (by rw [hid]; exact hne)]
+
+/-- **Y cruza el desenlace, si el desenlazado no es de los protegidos.**
+
+Los tres campos, cada uno por su lema: la tabla no la toca `unlinkMap`, la tabla global tampoco, y
+el padre y el hijo anclados sobreviven porque están en `P` y el desenlazado no.
+
+Es el primer sitio donde se ve funcionar el cierre del invariante: **lo único que podría hacer daño
+está excluido por ser miembro de `P`.** -/
+theorem Anchored_unlinkIncompatible (g : GPathM) (P : PathNodeId → Prop) (z r : PathNodeId)
+    (hne : z ≠ r) (hPr : ¬ P r) (h : Anchored g P z) :
+    Anchored (unlinkIncompatible g r) P z := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  have hid : nz.id = z := node?_id_eq g z nz hn
+  cases hnr : g.node? r with
+  | none =>
+    have he : unlinkIncompatible g r = g := by unfold unlinkIncompatible; rw [hnr]
+    rw [he]; exact ⟨nz, hn, hcov, hpar, hson⟩
+  | some n =>
+    refine ⟨unlinkMap n r nz, unlinkIncompatible_node? g r n hnr z nz hn, ?_, ?_, ?_⟩
+    · intro k hk0 hk1
+      rw [current_step_unlinkIncompatible] at hk1
+      obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
+      exact ⟨w, by rw [owners_unlinkMap]; exact hwm, hws,
+        by rw [gowners_unlinkIncompatible]; exact hwg, hwP⟩
+    · intro h1
+      obtain ⟨p, hpm, hpP⟩ := hpar h1
+      exact ⟨p, parents_unlinkMap_keeps n r nz (by rw [hid]; exact hne) p hpm
+        (fun he => hPr (by rw [← he]; exact hpP)), hpP⟩
+    · intro h2
+      rw [current_step_unlinkIncompatible] at h2
+      obtain ⟨t, htm, htP⟩ := hson h2
+      exact ⟨t, sons_unlinkMap_keeps n r nz (by rw [hid]; exact hne) t htm
+        (fun he => hPr (by rw [← he]; exact htP)), htP⟩
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_updateAt' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms Anchored_updateAt
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_unlinkIncompatible' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_unlinkIncompatible
+
 end AbsSat.GraphPath.Model.PinAliveChain
