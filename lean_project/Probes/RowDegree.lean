@@ -5,6 +5,7 @@ import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.ReaderDescent
 import AbsSat.GraphPath.Model.ReaderTop
 import AbsSat.GraphPath.Model.ReaderBT
+import AbsSat.GraphPath.Model.CleanTwoPhase
 
 /-! # The in-degree of the row
 
@@ -5915,6 +5916,121 @@ def reportFKC (name : String) (a : FKCAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primero: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`clean2`: el `cleanInvalid` en dos fases frente al actual** (v181 §6, paso 6.0). En cada envío y
+en cada pin del lector: ¿dejan `reviewAgg` y `reviewAgg₂` el mismo estado (validez, global, nodos con
+tablas, padres e hijos, como conjuntos)? Y tras cada `cleanInvalid₂` de cada vuelta de `review₂`: las
+postcondiciones (tablas dentro de la global, global = nodos, nodos válidos, enlaces mutuos y dentro de
+las tablas) y las condiciones de `PState` con ids muertos incluidos (`checkPH`). -/
+
+structure C2Acc where
+  formulas : Nat := 0
+  sends : Nat := 0
+  sendsDiff : Nat := 0
+  pins : Nat := 0
+  pinsDiff : Nat := 0
+  validDiff : Nat := 0
+  cleans : Nat := 0
+  tableOut : Nat := 0
+  globalNotNode : Nat := 0
+  invalidNode : Nat := 0
+  linkBad : Nat := 0
+  ph : PHCell := {}
+  first : String := ""
+  deriving Repr
+
+def setEqIds (a b : List PathNodeId) : Bool :=
+  a.all (fun x => b.contains x) && b.all (fun x => a.contains x)
+
+def sameState2 (g h : GPathM) : Bool :=
+  isValid g == isValid h &&
+  (!isValid g ||
+    (setEqIds g.gowners h.gowners && g.nodes.length == h.nodes.length &&
+     g.nodes.all (fun n => match h.node? n.id with
+       | some m => setEqIds n.owners m.owners && setEqIds n.parents m.parents && setEqIds n.sons m.sons
+       | none => false)))
+
+def post2 (h : GPathM) (a : C2Acc) : C2Acc := Id.run do
+  if !isValid h then return a
+  let mut a := { a with cleans := a.cleans + 1, ph := checkPH h a.ph }
+  if h.nodes.any (fun n => n.owners.any (fun q => !h.gowners.contains q)) then
+    a := { a with tableOut := a.tableOut + 1 }
+  if h.gowners.any (fun q => (h.node? q).isNone) then
+    a := { a with globalNotNode := a.globalNotNode + 1 }
+  if h.nodes.any (fun n => !isValidNode h n) then
+    a := { a with invalidNode := a.invalidNode + 1 }
+  let mutualOk (n : PNodeM) (y : PathNodeId) : Bool :=
+    n.owners.contains y && (match h.node? y with | some m => m.owners.contains n.id | none => false)
+  let parentOk (n : PNodeM) (p : PathNodeId) : Bool :=
+    mutualOk n p && (match h.node? p with | some m => m.sons.contains n.id | none => false)
+  let sonOk (n : PNodeM) (s : PathNodeId) : Bool :=
+    mutualOk n s && (match h.node? s with | some m => m.parents.contains n.id | none => false)
+  if h.nodes.any (fun n => !(n.parents.all (parentOk n) && n.sons.all (sonOk n))) then
+    a := { a with linkBad := a.linkBad + 1 }
+  return a
+
+/-- `review₂` instrumented: the postconditions after every `cleanInvalid₂`. -/
+def review2Post (F : GPathM) (a : C2Acc) : C2Acc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut fuel := GPathM.measure g + 1
+  while fuel > 0 do
+    fuel := fuel - 1
+    if !isValid g then fuel := 0
+    else
+      let g0 := g
+      let h := CleanTwoPhase.cleanInvalid₂ g
+      a := post2 h a
+      g := reviewSons (reviewParents h)
+      if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
+  return a
+
+def compare2 (lab : String) (pin : Bool) (F : GPathM) (a : C2Acc) : C2Acc := Id.run do
+  let R := AggressiveReview.reviewAgg F
+  let R₂ := CleanTwoPhase.reviewAgg₂ F
+  let same := sameState2 R R₂
+  let mut a := review2Post F a
+  if pin then a := { a with pins := a.pins + 1, pinsDiff := a.pinsDiff + (if same then 0 else 1) }
+  else a := { a with sends := a.sends + 1, sendsDiff := a.sendsDiff + (if same then 0 else 1) }
+  if isValid R != isValid R₂ then a := { a with validDiff := a.validDiff + 1 }
+  if !same && a.first == "" then
+    a := { a with first := s!"{lab} ({if pin then "pin" else "envio"}): valido {isValid R}/{isValid R₂}, nodos {R.nodes.length}/{R₂.nodes.length}, global {R.gowners.length}/{R₂.gowners.length}" }
+  return a
+
+partial def walkC2 (lab : String) (g : GPathM) (fuel : Nat) (a : C2Acc) : C2Acc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := compare2 lab true ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkC2 lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaC2 (lab : String) (φ : Cnf) (a : C2Acc) : C2Acc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := compare2 lab false F a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkC2 lab g (stepCount φ).toNat a
+  return a
+
+def reportC2 (name : String) (a : C2Acc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   reviewAgg vs reviewAgg₂: envios {a.sends} (distintos {a.sendsDiff}), pines {a.pins} (distintos {a.pinsDiff}), validez distinta {a.validDiff}"
+  IO.println s!"   tras cleanInvalid₂ ({a.cleans} estados validos): tabla fuera de la global {a.tableOut}, global sin nodo {a.globalNotNode}, nodo invalido {a.invalidNode}, enlace no mutuo {a.linkBad}"
+  reportPHCell "PState con ids muertos, tras cleanInvalid₂" a.ph
+  if a.first != "" then IO.println s!"   primer distinto: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -6423,6 +6539,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "clean2" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaC2 path φ {})
+        let t1 ← IO.monoMsNow
+        reportC2 path a (t1 - t0)
+  | "clean2" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : C2Acc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaC2 s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportC2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "doomed" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
