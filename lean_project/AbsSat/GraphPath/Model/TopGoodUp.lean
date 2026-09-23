@@ -307,4 +307,76 @@ theorem anyOptionStep_of_topGood (g : GPathM) (ctx : Threaded.TCtx g)
 #guard_msgs in
 #print axioms anyOptionStep_of_topGood
 
+-- ============================================================
+-- El `doJoin`: cada cadena es de un lado
+-- ============================================================
+
+/-- **Lo que `TopGood` pide de una cadena**, empaquetado: el anfitrión es un nodo, la cadena arranca
+en la cima, está enlazada por padres, poseída por pares y poseída mutuamente con el anfitrión. -/
+def ChainFrom (g : GPathM) (a : PathNodeId) (sel : Int → PathNodeId) (lo : Int) : Prop :=
+  ∃ na, g.node? a = some na ∧ 0 ≤ lo ∧ lo ≤ g.current_step - 1 ∧
+    Extendable.PartialChain g sel lo (g.current_step - 1) ∧
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ g.current_step - 1 → j ≤ g.current_step - 1 → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) ∧
+    (∀ j, lo ≤ j → j ≤ g.current_step - 1 →
+      sel j ∈ na.owners ∧ ∀ nj, g.node? (sel j) = some nj → a ∈ nj.owners)
+
+/-- **La hipótesis: la unión no mezcla.** Toda cadena desde la cima del estado unido es cadena, con
+sus propias tablas y padres, de uno de los dos lados.
+
+Medido (`row-degree joinmix`), en cada `doJoin` real de la línea: `dos_de_tres.cnf` 744 + 387 de
+1.131; aleatorias semilla 1, 312.559 + 147.964 de 460.523 en 711 uniones. **Ninguna mezclada.** -/
+def NoMix (J A B : GPathM) : Prop :=
+  ∀ a sel lo, ChainFrom J a sel lo → ChainFrom A a sel lo ∨ ChainFrom B a sel lo
+
+/-- **Lo bueno de un lado lo es en un estado que lo contiene.** Si `g` crece a `J` (`Grown`: las
+tablas solo ganan), la entrada común que `TopGood g` da para una cadena de `g` sigue siendo común en
+`J`. -/
+theorem common_of_grown {g J : GPathM} (hgr : Grown g J) (hg : TopGood g)
+    (a : PathNodeId) (sel : Int → PathNodeId) (lo : Int) (hc : ChainFrom g a sel lo)
+    (na : PNodeM) (hna : J.node? a = some na) (i : Int) (hi0 : 0 ≤ i) (hi1 : i < lo) :
+    ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+      ∀ j, lo ≤ j → j ≤ J.current_step - 1 → ∀ nj, J.node? (sel j) = some nj → r ∈ nj.owners := by
+  obtain ⟨ga, hga, hlo0, hlo1, hch, hpw, hhost⟩ := hc
+  obtain ⟨r, hrs, hra, hrall⟩ := hg a ga hga sel lo hlo0 hlo1 hch hpw hhost i hi0 hi1
+  obtain ⟨na', hna', hown, _, _⟩ := hgr.node?_grown a ga hga
+  rw [hna] at hna'; cases hna'
+  refine ⟨r, hrs, hown r hra, fun j hj1 hj2 nj hnj => ?_⟩
+  rw [hgr.step_eq] at hj2
+  obtain ⟨hs, _⟩ := hch.1 j hj1 hj2
+  obtain ⟨gj, hgj⟩ := Option.isSome_iff_exists.mp hs
+  obtain ⟨nj', hnj', hownj, _, _⟩ := hgr.node?_grown _ gj hgj
+  rw [hnj] at hnj'; cases hnj'
+  exact hownj r (hrall j hj1 hj2 gj hgj)
+
+/-- **Dos lados buenos que no se mezclan dan un estado bueno.** -/
+theorem topGood_of_sides {J A B : GPathM} (hA : Grown A J) (hB : Grown B J)
+    (tA : TopGood A) (tB : TopGood B) (hmix : NoMix J A B) : TopGood J := by
+  intro a na hna sel lo hlo0 hlo1 hch hpw hhost i hi0 hi1
+  rcases hmix a sel lo ⟨na, hna, hlo0, hlo1, hch, hpw, hhost⟩ with hc | hc
+  · exact common_of_grown hA tA a sel lo hc na hna i hi0 hi1
+  · exact common_of_grown hB tB a sel lo hc na hna i hi0 hi1
+
+/-- **El `doJoin` conserva `TopGood`**, con la unión sin mezcla como única hipótesis. Si los dos
+lados no casan, `doJoin` devuelve el de la izquierda tal cual. -/
+theorem topGood_doJoin (A B : GPathM) (tA : TopGood A) (tB : TopGood B)
+    (hmix : okJoin A B = true → NoMix (join A B) A B) : TopGood (doJoin A B) := by
+  unfold doJoin
+  split
+  · next hok =>
+    exact topGood_of_sides (grown_join_left A B) (grown_join_right A B hok) tA tB (hmix hok)
+  · exact tA
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.common_of_grown' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms common_of_grown
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.topGood_of_sides' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topGood_of_sides
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.topGood_doJoin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topGood_doJoin
+
 end AbsSat.GraphPath.Model.TopGoodUp
