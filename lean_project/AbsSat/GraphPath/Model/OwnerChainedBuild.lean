@@ -1567,4 +1567,101 @@ theorem descentStep_of_low (g : GPathM) (hok : AggFixpoint.AggOk g)
 #guard_msgs in
 #print axioms descentStep_of_low
 
+-- ============================================================
+-- Por encima del paso 1: la ventana la fija el paso `k - 2`
+-- ============================================================
+
+/-- **El `gparent_id` de un nodo es el id de mapa de un abuelo que es entrada global.**
+
+Del nodo a un padre (`GPMP`: el `gparent_id` del nodo es el `parent_id` del padre), y del padre a
+su padre (`PMP`: ese `parent_id` es el id del abuelo). El abuelo es un nodo, luego se posee y está
+en la tabla global. -/
+theorem gparent_of_node (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (p : PathNodeId) (np : PNodeM) (hp : g.node? p = some np)
+    (h2 : 2 ≤ p.id.step) (hc : p.id.step < g.current_step) :
+    ∃ d ∈ g.gowners, d.id.step = p.id.step - 2 ∧ p.gparent_id = some d.id := by
+  have hm := List.mem_of_find?_eq_some hp
+  have hid := node?_id_eq g p np hp
+  have hroot : np.id.parent_id.isNone = false := by
+    cases hpp : np.id.parent_id with
+    | none => exact absurd hpp (adj.ctx.shape.notroot np hm (by rw [hid]; omega))
+    | some _ => rfl
+  obtain ⟨c, hcp⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode g np (adj.ctx.nodeval p np hp) hroot)
+  obtain ⟨mc, hmc, hmcid⟩ := adj.ctx.shape.pn np hm c hcp
+  have hcs : c.id.step = p.id.step - 1 := by
+    have := adj.ctx.shape.pbelow np hm c hcp
+    rw [hid] at this; exact this
+  have hmcnode : g.node? c = some mc := by rw [← hmcid]; exact node?_of_mem adj.rc.nodup mc hmc
+  have hrootc : mc.id.parent_id.isNone = false := by
+    cases hpp : mc.id.parent_id with
+    | none => exact absurd hpp (adj.ctx.shape.notroot mc hmc (by rw [hmcid]; omega))
+    | some _ => rfl
+  obtain ⟨d, hdp⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode g mc (adj.ctx.nodeval c mc hmcnode) hrootc)
+  obtain ⟨md, hmd, hmdid⟩ := adj.ctx.shape.pn mc hmc d hdp
+  have hds : d.id.step = p.id.step - 2 := by
+    have := adj.ctx.shape.pbelow mc hmc d hdp
+    rw [hmcid, hcs] at this; omega
+  have hmdnode : g.node? d = some md := by rw [← hmdid]; exact node?_of_mem adj.rc.nodup md hmd
+  refine ⟨d, adj.ctx.ownGow d md hmdnode d (adj.ctx.self d md hmdnode) (by omega) (by omega),
+    hds, ?_⟩
+  rw [← hid, adj.ctx.gpmp.1 np hm c hcp, ← hmcid]
+  exact (adj.ctx.pmp mc hmc d hdp).symm
+
+/-- **Si la tabla global ya no elige id de mapa en el paso `b - 3`, la tabla de `b` tiene una sola
+entrada en el paso de abajo.**
+
+`below_same_window` deja libre solo el `gparent_id`, y `gparent_of_node` dice que es el id de un
+nodo del paso `b - 3`: si ahí hay un solo id, no queda nada libre. -/
+theorem singleBelow_of_pinned (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (b : PathNodeId) (nb : PNodeM) (hb : g.node? b = some nb)
+    (hb3 : 3 ≤ b.id.step) (hbc : b.id.step < g.current_step)
+    (hmap : ∀ d ∈ g.gowners, ∀ e ∈ g.gowners, d.id.step = b.id.step - 3 →
+      e.id.step = b.id.step - 3 → d.id = e.id)
+    (p : PathNodeId) (hp : p ∈ nb.owners) (hps : p.id.step = b.id.step - 1)
+    (q : PathNodeId) (hq : q ∈ nb.owners) (hqs : q.id.step = b.id.step - 1) : p = q := by
+  obtain ⟨hid, hpar⟩ := below_same_window g adj b nb hb (by omega) p q hp hps hq hqs
+  have hnode : ∀ r ∈ nb.owners, r.id.step = b.id.step - 1 → ∃ nr, g.node? r = some nr :=
+    fun r hr hrs => Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g r).mp
+      (adj.ctx.gn r (adj.ctx.ownGow b nb hb r hr (by omega) (by omega))))
+  obtain ⟨np, hnp⟩ := hnode p hp hps
+  obtain ⟨nq, hnq⟩ := hnode q hq hqs
+  obtain ⟨d, hd, hds, hgp⟩ := gparent_of_node g adj p np hnp (by omega) (by omega)
+  obtain ⟨e, he, hes, hgq⟩ := gparent_of_node g adj q nq hnq (by omega) (by omega)
+  have hde := hmap d hd e he (by rw [hds, hps]; omega) (by rw [hes, hqs]; omega)
+  have hg : p.gparent_id = q.gparent_id := by rw [hgp, hgq, hde]
+  cases p; cases q; simp_all
+
+/-- **El paso del descenso en `k ≥ 2`, cuando el lector ya fijó el paso `k - 2`.** -/
+theorem descentStep_of_pinned (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (adj : AdjacentOwners.Adj g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
+    (k : Int) (sel : Int → PathNodeId) (hk2 : 2 ≤ k) (hk1 : k + 1 < g.current_step)
+    (hmap : ∀ d ∈ g.gowners, ∀ e ∈ g.gowners, d.id.step = k - 2 → e.id.step = k - 2 → d.id = e.id)
+    (hpl : ∀ j, k < j → j < g.current_step → (g.node? (sel j)).isSome ∧ (sel j).id.step = j)
+    (hin : ∀ j, k < j → j < g.current_step → sel j ∈ na.owners)
+    (hown : ∀ i j, k < i → k < j → i < g.current_step → j < g.current_step → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) :
+    ∃ u ∈ na.owners, u.id.step = k ∧
+      (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners) := by
+  have hbs := (hpl (k + 1) (by omega) (by omega)).2
+  exact descentStep_of_singleBelow g hok adj.ctx a na hna ha0 ha1 k sel (by omega) hk1 hpl hin hown
+    (fun nb hnb p hp hps q hq hqs => singleBelow_of_pinned g adj (sel (k + 1)) nb hnb
+      (by omega) (by omega)
+      (fun d hd e he hds hes => hmap d hd e he (by rw [hds, hbs]; omega) (by rw [hes, hbs]; omega))
+      p hp (by rw [hps, hbs]; omega) q hq (by rw [hqs, hbs]; omega))
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.gparent_of_node' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gparent_of_node
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.singleBelow_of_pinned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms singleBelow_of_pinned
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descentStep_of_pinned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms descentStep_of_pinned
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
