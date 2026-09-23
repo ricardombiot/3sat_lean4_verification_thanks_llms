@@ -3719,6 +3719,67 @@ def reportSP (name : String) (a : SPAcc) (ms : Nat) : IO Unit := do
   row "tras cada nodo borrado          " a.removes
   IO.println s!"   ({ms} ms)"
 
+/-! **`sweepcheck`: con las funciones reales.** En cada envío, `G = review F`: ¿`aggSweep G` quita
+algo? ¿`reviewAgg F` difiere de `review F`? Y lo mismo en los pines del lector. -/
+
+structure SCAcc where
+  formulas : Nat := 0
+  sends : Nat := 0
+  sweepFires : Nat := 0
+  aggDiffers : Nat := 0
+  pins : Nat := 0
+  pinFires : Nat := 0
+  pinDiffers : Nat := 0
+  deriving Repr
+
+def nodeCount (g : GPathM) : Nat × Nat := (g.nodes.length, GPathM.measure g)
+
+partial def walkSC (g : GPathM) (fuel : Nat) (a : SCAcc) : SCAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        let F := [q.id].foldl filterRequire g
+        let G := review F
+        a := { a with pins := a.pins + 1 }
+        if isValid G then
+          if GPathM.measure (AggressiveReview.aggSweep G) < GPathM.measure G then
+            a := { a with pinFires := a.pinFires + 1 }
+        if GPathM.measure (AggressiveReview.reviewAgg F) != GPathM.measure G then
+          a := { a with pinDiffers := a.pinDiffers + 1 }
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkSC (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaSC (φ : Cnf) (a : SCAcc) : SCAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        let G := review F
+        a := { a with sends := a.sends + 1 }
+        if isValid G then
+          if GPathM.measure (AggressiveReview.aggSweep G) < GPathM.measure G then
+            a := { a with sweepFires := a.sweepFires + 1 }
+        if GPathM.measure (AggressiveReview.reviewAgg F) != GPathM.measure G then
+          a := { a with aggDiffers := a.aggDiffers + 1 }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkSC g (stepCount φ).toNat a
+  return a
+
+def reportSC (name : String) (a : SCAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   CONSTRUCCION: envios {a.sends}, aggSweep(review F) quita algo: {a.sweepFires}, reviewAgg F ≠ review F: {a.aggDiffers}"
+  IO.println s!"   LECTOR      : pines {a.pins}, aggSweep(review F) quita algo: {a.pinFires}, reviewAgg F ≠ review F: {a.pinDiffers}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3895,6 +3956,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "sweepcheck" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSC φ {})
+        let t1 ← IO.monoMsNow
+        reportSC path a (t1 - t0)
+  | "sweepcheck" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SCAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSC φ a
+      let t1 ← IO.monoMsNow
+      reportSC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "sweeppairs" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
