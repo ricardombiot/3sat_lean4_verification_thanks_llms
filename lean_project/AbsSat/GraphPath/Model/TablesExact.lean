@@ -21,7 +21,7 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview
 open AbsSat.GraphPath.Model.FullExt (FullChainG chainSound_of_fullChain fullChain_of_chainSound)
 open AbsSat.GraphPath.Model.PinPairs (FrontierPairs)
-open AbsSat.GraphPath.Model.FullExt1 (FullExt1)
+open AbsSat.GraphPath.Model.FullExt1 (FullExt1 fullChain_of_grown)
 open AbsSat.GraphPath.Model.Extendable (upd upd_self upd_other)
 open AbsSat.GraphPath.Model.ReaderAgg
 open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak)
@@ -253,5 +253,46 @@ theorem tablesExact_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step 
 /-- info: 'AbsSat.GraphPath.Model.TablesExact.tablesExact_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tablesExact_addNode
+
+-- ============================================================
+-- La unión
+-- ============================================================
+
+/-- **Los owners de un nodo están en la tabla global.** -/
+def OwnIn (g : GPathM) : Prop := ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, q ∈ g.gowners
+
+/-- **La unión conserva la verdad de las tablas**: una entrada de la tabla unida de `r` viene de la
+tabla de `r` en un lado, y la cadena de ese lado es cadena de la unión. -/
+theorem tablesExact_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (hnd₁ : NodupIds g₁) (hnd₂ : NodupIds g₂)
+    (hs₁ : ∀ pid n, g₁.node? pid = some n → pid ∈ n.owners)
+    (hs₂ : ∀ pid n, g₂.node? pid = some n → pid ∈ n.owners)
+    (hi₁ : OwnIn g₁) (hi₂ : OwnIn g₂) (h₁ : TablesExact g₁) (h₂ : TablesExact g₂) :
+    TablesExact (join g₁ g₂) := by
+  have G₁ := grown_join_left g₁ g₂
+  have G₂ := grown_join_right g₁ g₂ hok
+  -- la pareja en un lado da la cadena en la unión
+  have side : ∀ (g : GPathM), Grown g (join g₁ g₂) → NodupIds g →
+      (∀ pid n, g.node? pid = some n → pid ∈ n.owners) → OwnIn g → TablesExact g →
+      ∀ r q' (n : PNodeM), n ∈ g.nodes → n.id = r → q' ∈ n.owners → q'.id.step ≠ r.id.step →
+      0 ≤ r.id.step → r.id.step < (join g₁ g₂).current_step →
+      ∃ s, FullChainG (join g₁ g₂) s ∧ s r.id.step = r ∧ s q'.id.step = q' := by
+    intro g G hnd hs hi hE r q' n hn hnid hq hne h0 h1
+    have hng : g.node? r = some n := by rw [← hnid]; exact node?_of_mem hnd n hn
+    obtain ⟨s, hsc, hsr, hsq⟩ := hE r (hi r n hng r (hs r n hng)) q' (hi r n hng q' hq) hne h0
+      (by rw [← G.step_eq]; exact h1) ⟨n, hng, hq⟩
+    exact ⟨s, fullChain_of_grown G s hsc, hsr, hsq⟩
+  rintro r _ q' _ hne h0 h1 ⟨nr, hnr, hown⟩
+  have hnrid : nr.id = r := node?_id_eq _ r nr hnr
+  rcases ParentOwners.mem_join_nodes' (List.mem_of_find?_eq_some hnr) with
+    ⟨a, ha, hida, hsrc⟩ | hn₂
+  · rcases hsrc q' hown with hqa | ⟨b, hb, hbid, hqb⟩
+    · exact side g₁ G₁ hnd₁ hs₁ hi₁ h₁ r q' a ha (by rw [← hida, hnrid]) hqa hne h0 h1
+    · exact side g₂ G₂ hnd₂ hs₂ hi₂ h₂ r q' b hb (by rw [hbid, ← hida, hnrid]) hqb hne h0 h1
+  · exact side g₂ G₂ hnd₂ hs₂ hi₂ h₂ r q' nr hn₂ hnrid hown hne h0 h1
+
+/-- info: 'AbsSat.GraphPath.Model.TablesExact.tablesExact_join' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesExact_join
 
 end AbsSat.GraphPath.Model.TablesExact
