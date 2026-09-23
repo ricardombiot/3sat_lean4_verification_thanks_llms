@@ -230,6 +230,7 @@ import AbsSat.GraphPath.Model.ExactSeq
 import AbsSat.GraphPath.Model.Ladder2
 import AbsSat.GraphPath.Model.TopGoodLadder
 import AbsSat.GraphPath.Model.PassCtx
+import AbsSat.GraphPath.Model.PassSons
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid
