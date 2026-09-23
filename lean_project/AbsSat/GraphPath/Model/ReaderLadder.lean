@@ -87,4 +87,114 @@ info: 'AbsSat.GraphPath.Model.ReaderLadder.readerVerdictW_iff_of_filterReviewCom
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_filterReviewComplete
 
+-- ============================================================
+-- Dónde la completitud sale sola
+-- ============================================================
+
+/-- **Sin filtro, la completitud sale de `FullExtG`**: un tramo dentro de la global ya se extiende
+dentro de ella, y esa cadena es `ChainSound` por la forma del estado. -/
+theorem reviewCompleteCS_of_fullExtG (g : GPathM)
+    (hself : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP g) (hroot : Sons.RootAtZero g) (hnr : Parents.NotRoot g)
+    (hpos : 0 < g.current_step) (hF : FullExtG g) : ReviewCompleteCS g := by
+  intro sel lo hi hlo0 hlohi hhi hs hsg _ _
+  obtain ⟨s, hsF, hsg', hag⟩ := hF sel lo hi hlo0 hlohi hhi hs hsg
+  exact ⟨s, chainSound_of_fullChain g hself hsmp hroot hnr hpos s ⟨hsF, hsg'⟩, hag⟩
+
+/-- Los pines solo tocan la tabla global. -/
+theorem foldl_filterRequire_nodes (reqs : List NodeId) :
+    ∀ g : GPathM, (reqs.foldl filterRequire g).nodes = g.nodes ∧
+      (reqs.foldl filterRequire g).current_step = g.current_step := by
+  induction reqs with
+  | nil => intro g; exact ⟨rfl, rfl⟩
+  | cons r rs ih => intro g; exact ih (filterRequire g r)
+
+/-- Los pines solo encogen la tabla global. -/
+theorem gowners_foldl_filterRequire_sub (reqs : List NodeId) :
+    ∀ (g : GPathM) (q : PathNodeId), q ∈ (reqs.foldl filterRequire g).gowners → q ∈ g.gowners := by
+  induction reqs with
+  | nil => intro g q hq; exact hq
+  | cons r rs ih => intro g q hq; exact (List.mem_filter.mp (ih (filterRequire g r) q hq)).1
+
+/-- Una entrada que cumple todos los pines sigue en la tabla global. -/
+theorem mem_gowners_foldl_filterRequire (reqs : List NodeId) :
+    ∀ (g : GPathM) (q : PathNodeId), q ∈ g.gowners →
+      (∀ r ∈ reqs, q.id.step = r.step → q.id = r) → q ∈ (reqs.foldl filterRequire g).gowners := by
+  induction reqs with
+  | nil => intro g q hq _; exact hq
+  | cons r rs ih =>
+    intro g q hq hr
+    refine ih (filterRequire g r) q (List.mem_filter.mpr ⟨hq, ?_⟩)
+      (fun r' hr' => hr r' (List.mem_cons_of_mem _ hr'))
+    if hs : q.id.step = r.step then
+      have := hr r List.mem_cons_self hs
+      simp [this]
+    else
+      simp [hs]
+
+/-- **Tras los requisitos DUROS de un envío, la completitud sale de `FullExtG` del estado de antes**:
+es el argumento de la cima. Toda cadena completa del estado pasa por la cima, que solo lleva `d`, y
+una cadena poseída por pares cumple sola los requisitos de todo nodo que elige
+(`MapChain.reqSatisfying_of_pairwiseOwned`); así que el filtro no le quita nada. -/
+theorem reviewCompleteCS_of_hardReqs (reqOf : NodeId → List NodeId) (P : GPathM) (d : NodeId)
+    (htop : TablesSoundBuild.TopSingleId P d) (hpos : 0 < P.current_step)
+    (hrf : ReqFiltered reqOf P)
+    (hback : ∀ n ∈ P.nodes, ∀ req ∈ reqOf n.id.id, req.step < n.id.id.step)
+    (hself : ∀ pid n, P.node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP P) (hroot : Sons.RootAtZero P) (hnr : Parents.NotRoot P)
+    (hF : FullExtG P) : ReviewCompleteCS ((reqOf d).foldl filterRequire P) := by
+  obtain ⟨hnodes, hcs⟩ := foldl_filterRequire_nodes (reqOf d) P
+  have hnode : ∀ y, ((reqOf d).foldl filterRequire P).node? y = P.node? y := by
+    intro y; simp only [node?, hnodes]
+  -- un tramo del filtrado es tramo del de antes, y al revés
+  have segEq : ∀ sel lo hi, Seg ((reqOf d).foldl filterRequire P) sel lo hi ↔ Seg P sel lo hi := by
+    intro sel lo hi
+    simp only [Seg, Extendable.PartialChain, hnode]
+  have hgsub : ∀ q ∈ ((reqOf d).foldl filterRequire P).gowners, q ∈ P.gowners :=
+    fun q hq => gowners_foldl_filterRequire_sub (reqOf d) P q hq
+  intro sel lo hi hlo0 hlohi hhi hs hsg _ _
+  rw [hcs] at hhi
+  obtain ⟨s, hsF, hsg', hag⟩ := hF sel lo hi hlo0 hlohi hhi ((segEq sel lo hi).mp hs)
+    (fun j hj1 hj2 => hgsub _ (hsg j hj1 hj2))
+  -- la cadena cumple los requisitos de la cima
+  have hchain := Extendable.isChain_of_partial P s hsF.1
+  have howned : PairwiseOwned P s := by
+    intro i j hi0 hj0 hi1 hj1 hij
+    obtain ⟨hsj, _⟩ := hsF.1.1 j hj0 (by omega)
+    obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp hsj
+    obtain ⟨_, hstep⟩ := hsF.1.1 i hi0 (by omega)
+    refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstep⟩
+    simp only [ownersOf, hnj]
+    exact hsF.2 i j hi0 hj0 (by omega) (by omega) hij nj hnj
+  have hrs := MapChain.reqSatisfying_of_pairwiseOwned reqOf P hrf hback s hchain howned
+  have htopid : (s (P.current_step - 1)).id = d :=
+    htop _ (hsg' _ (by omega) (Int.le_refl _)) (hsF.1.1 _ (by omega) (Int.le_refl _)).2
+  have hkeep : ∀ j, 0 ≤ j → j ≤ P.current_step - 1 →
+      s j ∈ ((reqOf d).foldl filterRequire P).gowners := by
+    intro j hj0 hj1
+    refine mem_gowners_foldl_filterRequire (reqOf d) P (s j) (hsg' j hj0 hj1) (fun r hr hrs' => ?_)
+    have hjs := (hsF.1.1 j hj0 hj1).2
+    have hr0 : 0 ≤ r.step := by rw [← hrs', hjs]; exact hj0
+    have hr1 : r.step < P.current_step := by rw [← hrs', hjs]; omega
+    have := hrs (P.current_step - 1) (by omega) (by omega) r (by rw [htopid]; exact hr) hr0 hr1
+    rw [← hjs, hrs', this]
+  -- y es una cadena completa del filtrado, dentro de su global
+  have hfull : FullChainG ((reqOf d).foldl filterRequire P) s := by
+    refine ⟨(segEq s 0 _).mpr ?_, fun j hj0 hj1 => hkeep j hj0 (by rw [hcs] at hj1; exact hj1)⟩
+    rw [hcs]; exact hsF
+  have hself' : ∀ pid n, ((reqOf d).foldl filterRequire P).node? pid = some n → pid ∈ n.owners :=
+    fun pid n h => hself pid n (by rw [← hnode]; exact h)
+  have hsmp' : Sons.SMP ((reqOf d).foldl filterRequire P) := by
+    intro n hn; rw [hnodes] at hn ⊢; exact hsmp n hn
+  have hroot' : Sons.RootAtZero ((reqOf d).foldl filterRequire P) := by
+    intro n hn; rw [hnodes] at hn; exact hroot n hn
+  have hnr' : Parents.NotRoot ((reqOf d).foldl filterRequire P) := by
+    intro n hn; rw [hnodes] at hn; exact hnr n hn
+  exact ⟨s, chainSound_of_fullChain _ hself' hsmp' hroot' hnr' (by rw [hcs]; exact hpos) s hfull,
+    hag⟩
+
+/-- info: 'AbsSat.GraphPath.Model.ReaderLadder.reviewCompleteCS_of_hardReqs' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms reviewCompleteCS_of_hardReqs
+
 end AbsSat.GraphPath.Model.ReaderLadder
