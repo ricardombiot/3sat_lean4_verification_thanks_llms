@@ -1982,6 +1982,166 @@ def reportHD2 (name : String) (a : HD2Acc) (ms : Nat) : IO Unit := do
   IO.println s!"   HopDown restringido: {if a.bad == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **¿Es la tabla de un nodo una clique bajo la posesion?** Si dos entradas cualesquiera de la
+tabla de `a`, en pasos distintos, se poseen mutuamente, entonces `TableChainOwned` es inmediato y
+con ella toda la escalera. Es la pregunta de fondo de `DistantOwned`. -/
+
+structure CQAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  tables   : Nat := 0
+  pairs    : Nat := 0
+  ok       : Nat := 0
+  bad      : Nat := 0
+  badAdj   : Nat := 0          -- fallos entre pasos CONTIGUOS (deberian ser 0)
+  firstBad : String := "-"
+  deriving Repr
+
+def scanClique (label : String) (g : GPathM) (cap : Nat) (a : CQAcc) : CQAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for na in g.nodes.take cap do
+    a := { a with tables := a.tables + 1 }
+    for u in na.owners do
+      for v in na.owners do
+        if u.id.step != v.id.step then
+          match g.node? v with
+          | none => pure ()
+          | some nv =>
+            a := { a with pairs := a.pairs + 1 }
+            if nv.owners.contains u then
+              a := { a with ok := a.ok + 1 }
+            else
+              let adj := u.id.step == v.id.step + 1 || v.id.step == u.id.step + 1
+              let fb := if a.bad == 0 then
+                  s!"{label} a@{na.id.id.step} u@{u.id.step} v@{v.id.step}"
+                else a.firstBad
+              let nadj := if adj then a.badAdj + 1 else a.badAdj
+              a := { a with bad := a.bad + 1, firstBad := fb, badAdj := nadj }
+  return a
+
+partial def walkCQ (label : String) (g : GPathM) (fuel cap : Nat) (a : CQAcc) : CQAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanClique label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkCQ label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaCQ (φ : Cnf) (cap : Nat) (a : CQAcc) : CQAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkCQ s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat cap a
+  return a
+
+def reportCQ (name : String) (a : CQAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, tablas {a.tables}"
+  IO.println s!"   pares (u,v) de una misma tabla en pasos distintos: {a.pairs}"
+  IO.println s!"     se poseen    : {a.ok}  ({pct a.ok a.pairs})"
+  IO.println s!"     NO se poseen : {a.bad}  ({pct a.bad a.pairs})"
+  IO.println s!"       de ellos contiguos : {a.badAdj}"
+  if a.bad > 0 then IO.println s!"     primero: {a.firstBad}"
+  IO.println s!"   la tabla es clique: {if a.bad == 0 then "SI en lo medido" else "NO"}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`TableChainOwned`, medido de verdad.** La tabla de un nodo no es clique (sonda `clique`,
+7,9% de pares no se poseen), pero eso no decide nada: la hipotesis pide una cadena **enlazada por
+padres** dentro de la tabla, no una seleccion cualquiera. Esta sonda construye esa cadena
+—descenso ávido por enlaces de padre sin salir de la tabla de `a`— y comprueba si sus pares
+distantes se poseen. -/
+
+structure TCAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  tables   : Nat := 0
+  chains   : Nat := 0          -- tablas en las que el descenso llega al paso 0
+  stuck    : Nat := 0          -- ... en las que se atasca
+  pairs    : Nat := 0
+  ok       : Nat := 0
+  bad      : Nat := 0
+  firstBad : String := "-"
+  deriving Repr
+
+partial def descendInTable (g : GPathM) (na : PNodeM) (k : Int) (cur : PathNodeId)
+    (acc : List PathNodeId) : Option (List PathNodeId) :=
+  if k < 0 then some acc
+  else
+    match g.node? cur with
+    | none => none
+    | some nc =>
+      match (ownersAt na.owners k).find? (fun u => nc.parents.contains u) with
+      | none => none
+      | some u => descendInTable g na (k - 1) u (u :: acc)
+
+def tableChain (g : GPathM) (na : PNodeM) : Option (List PathNodeId) :=
+  match (ownersAt na.owners (g.current_step - 1)).head? with
+  | none => none
+  | some t => descendInTable g na (g.current_step - 2) t [t]
+
+def scanTableChain (label : String) (g : GPathM) (cap : Nat) (a : TCAcc) : TCAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for na in g.nodes.take cap do
+    a := { a with tables := a.tables + 1 }
+    match tableChain g na with
+    | none => a := { a with stuck := a.stuck + 1 }
+    | some ch =>
+      a := { a with chains := a.chains + 1 }
+      for u in ch do
+        for v in ch do
+          if u.id.step != v.id.step then
+            match g.node? v with
+            | none => pure ()
+            | some nv =>
+              a := { a with pairs := a.pairs + 1 }
+              if nv.owners.contains u then
+                a := { a with ok := a.ok + 1 }
+              else
+                let fb := if a.bad == 0 then
+                    s!"{label} a@{na.id.id.step} u@{u.id.step} v@{v.id.step}"
+                  else a.firstBad
+                a := { a with bad := a.bad + 1, firstBad := fb }
+  return a
+
+partial def walkTC (label : String) (g : GPathM) (fuel cap : Nat) (a : TCAcc) : TCAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanTableChain label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkTC label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaTC (φ : Cnf) (cap : Nat) (a : TCAcc) : TCAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkTC s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat cap a
+  return a
+
+def reportTC (name : String) (a : TCAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, tablas {a.tables}"
+  IO.println s!"   el descenso por padres dentro de la tabla llega al paso 0: {a.chains}  ({pct a.chains a.tables})"
+  IO.println s!"     se atasca: {a.stuck}"
+  IO.println s!"   pares (u,v) de esa cadena en pasos distintos: {a.pairs}"
+  IO.println s!"     se poseen    : {a.ok}  ({pct a.ok a.pairs})"
+  IO.println s!"     NO se poseen : {a.bad}  ({pct a.bad a.pairs})"
+  if a.bad > 0 then IO.println s!"     primero: {a.firstBad}"
+  IO.println s!"   TableChainOwned: {if a.bad == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **¿Cuanto cubre `realizes_pin_of_singleId`?** Cierra el caso en que la tabla de `x` NO tiene
 eleccion en el paso del pin: todos sus owners alli llevan ya el pin. Esta sonda lo cuenta sobre los
 pines que el lector se plantea de verdad. -/
@@ -2189,6 +2349,40 @@ def main (args : List String) : IO Unit := do
         a := runFormulaHD2 φ 40 a
       let t1 ← IO.monoMsNow
       reportHD2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "clique" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaCQ φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportCQ path a (t1 - t0)
+  | "clique" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : CQAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCQ φ 40 a
+      let t1 ← IO.monoMsNow
+      reportCQ s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "tablechain" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTC φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportTC path a (t1 - t0)
+  | "tablechain" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TCAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTC φ 40 a
+      let t1 ← IO.monoMsNow
+      reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pairdesc" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
