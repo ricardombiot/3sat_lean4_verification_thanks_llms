@@ -1,6 +1,7 @@
 -- lean_project/AbsSat/GraphPath/Model/OwnerChainedBuild.lean
 import AbsSat.GraphPath.Model.ReaderChain
 import AbsSat.GraphPath.Model.TablesSoundBuild
+import AbsSat.GraphPath.Model.PinExactBoundary
 
 /-!
 # La semilla de `OwnerChained`: la frase del autor en el estado de la línea final
@@ -429,5 +430,80 @@ multiplica: **una sola frase, sobre un solo invariante.** -/
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.pinPairChained_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pinPairChained_of_tablesSound
+
+-- ============================================================
+-- La unificación: el hueco del lector ES el residuo de `Threaded`
+-- ============================================================
+
+/-- **La cadena que vive dentro de la tabla de un nodo está poseída por pares.**
+
+`Threaded` demuestra que la tabla de todo nodo vivo **contiene una cadena entera** —enlazada de
+padre a hijo, del paso 0 a la cima, y que pasa por el propio nodo
+(`Threaded.chain_through_of_symmetric`)—. Lo único que esa cadena no trae demostrado es que sus
+nodos **se posean entre sí**, y su propio docstring lo dice: *«That is now the whole of the
+residue.»*
+
+Esto le pone nombre. -/
+def TableChainOwned (g : GPathM) : Prop :=
+  ∀ a n, g.node? a = some n → ∀ sel, IsChain g sel →
+    (∀ i, 0 ≤ i → i < g.current_step → sel i ∈ n.owners) → PairwiseOwned g sel
+
+/-- **Y con ella, la frase del autor sale entera.**
+
+Un owner global es un nodo, un nodo válido se posee a sí mismo, `Threaded` le da la cadena que vive
+en su tabla y que pasa por él, y `SupportedRun.chainSound_of_chain` la eleva a `ChainSound` en
+cuanto está poseída por pares.
+
+Y esto **unifica las dos líneas de ataque del repositorio**: el hueco que le queda al lector sin
+retroceso y el residuo que `Threaded` dejó anotado hace mucho son **el mismo enunciado**. No son dos
+frentes.
+
+Nótese además que es mejor que pasar por `TablesSound`: no pide cadena por un **par**, solo por el
+nodo. -/
+theorem ownerChained_of_tableChainOwned (g : GPathM)
+    (adj : AdjacentOwners.Adj g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g)
+    (hgn : GownersNodes.GN g) (hpo : TableChainOwned g) :
+    ReaderChain.OwnerChained g := by
+  intro q hq h0 h1
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g q).mp (hgn q hq))
+  have hself := FabricAdd.self_mem_owners g hoos q n hn (ctx.nodeval q n hn) h0 h1
+  obtain ⟨sel, hchain, hsx, hin⟩ :=
+    Threaded.chain_through_of_symmetric g ctx hsym hoos q n hn hself h0 h1
+  exact ⟨sel,
+    SupportedRun.chainSound_of_chain g adj hsmp hpos sel hchain (hpo q n hn sel hchain hin),
+    by rw [hsx]⟩
+
+/-- **Y la simetría de tablas no es una hipótesis: la da el punto fijo de la criba.**
+
+`AggFixpoint.AggOk` —los dos tests del autor sobre cada par de owners— implica
+`Threaded.OwnSymmetric`, y `AggOk` vale en todo estado que sale de `reviewAgg`
+(`AggFixpoint.aggOk_reviewAgg`). Así que de las dos hipótesis que `Threaded` dejaba, **una se paga
+con el barrido agresivo** y solo queda la otra. -/
+theorem ownSymmetric_of_reviewed (g : GPathM) (hok : AggFixpoint.AggOk g) (hsnn : SelfOwn.SNN g)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hval : ∀ pid n, g.node? pid = some n → isValidNode g n = true) :
+    Threaded.OwnSymmetric g :=
+  PinExactBoundary.ownSymmetric_of_aggOk g hok hsnn hbelow hval
+
+/-! ## El hueco, unificado
+
+    readerVerdictW  ⟸  PinAlive  ≡  OwnerChained  ⟸  TableChainOwned
+
+y `TableChainOwned` es, palabra por palabra, el residuo que `Threaded` dejó anotado: **que la cadena
+que vive dentro de la tabla de un nodo esté poseída por pares.**
+
+Lo que esto cambia no es el tamaño del hueco sino su número: las dos líneas —la del lector sin
+retroceso y la de `Threaded`— apuntaban al mismo sitio sin saberlo. Y la simetría, que `Threaded`
+dejaba como hipótesis medida, la paga `AggOk`: es uno de los dos tests que el barrido agresivo del
+autor aplica a cada par de owners. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_of_tableChainOwned' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_tableChainOwned
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownSymmetric_of_reviewed' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms ownSymmetric_of_reviewed
 
 end AbsSat.GraphPath.Model.OwnerChainedBuild
