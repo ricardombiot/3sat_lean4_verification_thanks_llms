@@ -43,7 +43,7 @@ variable (φ : Cnf)
 /-- **Tras los filtros de un envío, el estado revisado cumple `FullExt1`**, si el que envía lo
 cumplía y el envío sale válido. Es lo que `row-degree ext1` mide. -/
 def SendExt1 : Prop :=
-  ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 →
+  ∀ (k : Int) (kv : NodeId × GPathM), 0 ≤ k → StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 →
     Ownership.SelfOwned kv.2 → ∀ d ∈ mapSons φ kv.1.step kv.1.index,
       isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true →
       FullExt1 (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))
@@ -104,7 +104,7 @@ theorem fullExt1_sent (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k) (kv : NodeId 
     simp only [upFilteringWeak, GPathM.up, F, W] at hvF ⊢
     rw [if_pos hvF]
   rw [heq]
-  have hFF : FullExt1 F := hS k kv hkv hm hF hso d hd hval
+  have hFF : FullExt1 F := hS k kv hk0 hkv hm hF hso d hd hval
   have ctxF := Reader.Ctx_of_readable F (readable_of_readableAgg F hRF) hvF
   have hstepF : F.current_step = k + 1 := by rw [hk.1.step_eq, hkv.step]
   exact fullExt1_addNode F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega) rcF.below rcF.gn
