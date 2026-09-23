@@ -6055,6 +6055,134 @@ def reportC2 (name : String) (a : C2Acc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer distinto: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`minnode`: ¿es la tabla del nodo con menos owners un punto fijo?** (idea del autor, 2026-09-23:
+`ReaderMinOwner`). En cada estado que visita el lector (la línea final tras `reviewAgg`, y cada pin,
+hermanos incluidos) se toma `m`, el nodo con menos owners, y su tabla `T`:
+
+* (sym) todo `w ∈ T` tiene a `m` en su tabla;
+* (a) `T ⊆ tabla de w` para todo `w ∈ T` — que todo miembro posea a todo miembro (`Survive.Woven.own`);
+* (b) `Survive.Closed` sobre `T`: miembros en la global y nodos; en cada paso cada miembro posee un
+  miembro; un miembro no raíz tiene un padre miembro; uno no último es padre de un miembro; los
+  enlazados se poseen;
+* (c) restringir la global a `T` y aplicar `reviewAgg`: ¿válido? ¿sigue `T` entera en la global?
+* (d) pasos con más de un owner en `T` (0 = el camino ya está resuelto);
+* (any) ¿cumple (a) algún nodo del estado, aunque no sea el mínimo? -/
+
+structure MNAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  symFail : Nat := 0
+  aFail : Nat := 0
+  aPairs : Nat := 0
+  aPairsFail : Nat := 0
+  closedFail : Nat := 0
+  wovenOk : Nat := 0
+  restrictValid : Nat := 0
+  restrictKeepsT : Nat := 0
+  solved : Nat := 0
+  multiSteps : Nat := 0
+  anyA : Nat := 0
+  anyWoven : Nat := 0
+  tSize : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def tableOf (G : GPathM) (p : PathNodeId) : List PathNodeId :=
+  match G.node? p with | some n => n.owners | none => []
+
+/-- (a) for a node `x`: every member of its table owns the whole table. -/
+def ownsAll (G : GPathM) (T : List PathNodeId) : Bool :=
+  T.all (fun w => T.all (fun v => (tableOf G w).contains v))
+
+/-- (b) `Survive.Closed` for the set `T`. -/
+def closedOn (G : GPathM) (T : List PathNodeId) : Bool :=
+  let inT := fun (q : PathNodeId) => T.contains q
+  T.all (fun p =>
+    G.gowners.contains p &&
+    (match G.node? p with
+     | none => false
+     | some n =>
+       (intRange 0 (G.current_step - 1)).all (fun l => n.owners.any (fun v => inT v && v.id.step == l)) &&
+       (p.parent_id.isNone || n.parents.any inT) &&
+       (p.id.step == G.current_step - 1 ||
+         T.any (fun c => match G.node? c with | some m => m.parents.contains p | none => false)) &&
+       n.parents.all (fun c => !inT c ||
+         (n.owners.contains c && (tableOf G c).contains p))))
+
+def measureMN (lab : String) (G : GPathM) (a : MNAcc) : MNAcc := Id.run do
+  if !isValid G then return a
+  match G.nodes.head? with
+  | none => return a
+  | some n0 =>
+  let m := G.nodes.foldl (fun b n => if n.owners.length < b.owners.length then n else b) n0
+  let T := m.owners
+  let mut a := { a with states := a.states + 1, tSize := a.tSize + T.length }
+  if !T.all (fun w => (tableOf G w).contains m.id) then a := { a with symFail := a.symFail + 1 }
+  let pairs := T.length * T.length
+  let bad := (T.map (fun w => (T.filter (fun v => !(tableOf G w).contains v)).length)).sum
+  a := { a with aPairs := a.aPairs + pairs, aPairsFail := a.aPairsFail + bad }
+  let aok := bad == 0
+  if !aok then a := { a with aFail := a.aFail + 1 }
+  let cok := closedOn G T
+  if !cok then a := { a with closedFail := a.closedFail + 1 }
+  if aok && cok then a := { a with wovenOk := a.wovenOk + 1 }
+  let G' : GPathM := { G with gowners := G.gowners.filter (fun q => T.contains q) }
+  let R := AggressiveReview.reviewAgg G'
+  if isValid R then
+    a := { a with restrictValid := a.restrictValid + 1 }
+    if T.all (fun q => R.gowners.contains q) then a := { a with restrictKeepsT := a.restrictKeepsT + 1 }
+  let multi := ((intRange 0 (G.current_step - 1)).filter
+    (fun l => (T.filter (fun q => q.id.step == l)).length > 1)).length
+  if multi == 0 then a := { a with solved := a.solved + 1 }
+  a := { a with multiSteps := a.multiSteps + multi }
+  if G.nodes.any (fun x => ownsAll G x.owners) then a := { a with anyA := a.anyA + 1 }
+  if G.nodes.any (fun x => ownsAll G x.owners && closedOn G x.owners) then
+    a := { a with anyWoven := a.anyWoven + 1 }
+  if (!aok || !cok) && a.first == "" then
+    a := { a with first := s!"{lab}: |T|={T.length}, pares sin poseer {bad}/{pairs}, closed {cok}, algun nodo con (a) {G.nodes.any (fun x => ownsAll G x.owners)}" }
+  return a
+
+partial def walkMN (lab : String) (g : GPathM) (fuel : Nat) (a : MNAcc) : MNAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      let mut next : Option GPathM := none
+      for q in ownersAt g.gowners k do
+        let h := filterAllAgg g [q.id]
+        if isValid h then
+          a := measureMN lab h a
+          if next.isNone then next := some h
+      match next with
+      | none => return a
+      | some h => return walkMN lab h (fuel - 1) a
+
+def runFormulaMN (lab : String) (φ : Cnf) (a : MNAcc) : MNAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := measureMN lab g a
+      a := walkMN lab g (stepCount φ).toNat a
+  return a
+
+def reportMN (name : String) (a : MNAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   estados del lector: {a.states}; |T| medio {if a.states == 0 then 0 else a.tSize / a.states}"
+  IO.println s!"   (sym) algun w de T sin m: {a.symFail}"
+  IO.println s!"   (a) T no contenida en alguna tabla de T: {a.aFail} estados; pares (w,v) con v no en tabla(w): {a.aPairsFail} de {a.aPairs}"
+  IO.println s!"   (b) Closed falla: {a.closedFail};  Woven (a y b) se cumple: {a.wovenOk}"
+  IO.println s!"   (c) restringir a T y reviewAgg: valido {a.restrictValid}, conserva T entera {a.restrictKeepsT}"
+  IO.println s!"   (d) ya resuelto (un owner por paso): {a.solved}; pasos con varios owners (total): {a.multiSteps}"
+  IO.println s!"   (any) algun nodo cumple (a): {a.anyA}; alguno cumple Woven: {a.anyWoven}"
+  if a.first != "" then IO.println s!"   primer fallo: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -6563,6 +6691,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "minnode" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaMN path φ {})
+        let t1 ← IO.monoMsNow
+        reportMN path a (t1 - t0)
+  | "minnode" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : MNAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaMN s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportMN s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "clean2" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
