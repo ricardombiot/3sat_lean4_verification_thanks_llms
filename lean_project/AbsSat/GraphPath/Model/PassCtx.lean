@@ -597,4 +597,63 @@ theorem i1L_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL 
 #guard_msgs in
 #print axioms i1L_reviewNode_parents
 
+/-- **La pasada de padres conserva `I1sL`.** El caso con contenido: `x` hijo de un nodo vivo `y` que
+lo tiene en su tabla. `LocSymUp` en `[y]` pone a `y` en la tabla de `x`; `y` es padre de `x`
+(`I1L`) y se posee, así que queda en el corte y el desenlace no lo toca. -/
+theorem i1sL_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL g) (hI1 : I1L g)
+    (hI1s : I1sL g) (hself : SelfL g) (hlsym : SegReview.LocSym g) (hlsymU : SegReview.LocSymUp g)
+    (hnr : Parents.NotRoot g) (x : PathNodeId) (hx1 : 1 ≤ x.id.step)
+    (hxc : x.id.step ≤ g.current_step - 1) :
+    I1sL (reviewNode g (·.parents) x) := by
+  have hsub := NodeIds.ids_reviewNode g (·.parents) x
+  have liveG : ∀ w, ((reviewNode g (·.parents) x).node? w).isSome → (g.node? w).isSome :=
+    fun w h => node_of_mem_ids g w (hsub.subset (mem_ids_of_node _ w h))
+  intro y ny hy w hw hwl hws
+  cases hd : g.node? x with
+  | none =>
+    have hR : reviewNode g (·.parents) x = g := by unfold reviewNode; rw [hd]
+    rw [hR] at hy hwl
+    exact hI1s y ny hy w hw hwl hws
+  | some d =>
+    have hk := kept_reviewNode_parents g hsgl hI1 hI1s hself hlsym hnr x d hd hx1 hxc
+    obtain ⟨n, hn, _, _⟩ := SegReview.reviewNode_owners g hnd (·.parents) x y ny hy
+    have hform := node_after g (·.parents) x d hd hk y n hn
+    rw [hy] at hform
+    have hny := Option.some.inj hform
+    have hwlg := liveG w hwl
+    if hyx : y = x then
+      subst hyx
+      rw [if_pos rfl, PinAliveChain.unlinkMap_self
+        { d with owners := intersectOwners d.owners (unionOwnersOf g d.parents) } y
+        (node?_id_eq g y d hd)] at hny
+      rw [hny] at hw ⊢
+      have hwd : w ∈ d.owners := (List.mem_filter.mp hw).1
+      have hws' := hI1s y d hd w hwd hwlg hws
+      exact List.mem_filter.mpr ⟨hws', List.elem_iff.mpr hw⟩
+    else
+      rw [if_neg hyx] at hny
+      have hnid : n.id = y := node?_id_eq g y n hn
+      have hwn : w ∈ n.owners := by rw [hny, PinAliveChain.owners_unlinkMap] at hw; exact hw
+      have hws' := hI1s y n hn w hwn hwlg hws
+      if hwx : w = x then
+        subst hwx
+        have hsy := seg_single g y n hn
+        have hyd : y ∈ d.owners := hlsymU (fun _ => y) y.id.step y.id.step (Int.le_refl _) hsy w d hd
+          (by omega) (fun _ _ _ nj hnj => by rw [← Option.some.inj (hn.symm.trans hnj)]; exact hwn)
+          y.id.step (Int.le_refl _) (Int.le_refl _)
+        have hyl : (g.node? y).isSome := by rw [hn]; rfl
+        have hyp : y ∈ d.parents := hI1 w d hd y hyd hyl (by omega)
+        have hyT : y ∈ intersectOwners d.owners (unionOwnersOf g d.parents) :=
+          SegReview.mem_intersect_of_parent g d y hyd y hyp n hn (hself y n hn)
+        rw [PinAliveChain.unlinkMap_keeps _ _ _ (by rw [hnid]; exact hyx)
+          (by rw [hnid]; exact List.elem_iff.mpr hyT)] at hny
+        rw [hny]; exact hws'
+      else
+        rw [hny]
+        exact PinAliveChain.sons_unlinkMap_keeps _ x n (by rw [hnid]; exact hyx) w hws' hwx
+
+/-- info: 'AbsSat.GraphPath.Model.PassCtx.i1sL_reviewNode_parents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms i1sL_reviewNode_parents
+
 end AbsSat.GraphPath.Model.PassCtx
