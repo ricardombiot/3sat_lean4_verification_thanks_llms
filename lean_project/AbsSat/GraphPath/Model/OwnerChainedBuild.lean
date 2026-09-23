@@ -1014,4 +1014,80 @@ Medido, ese residuo es el 4,7 % (`dos_de_tres`) y el 11,9 % (aleatorias) de los 
 #guard_msgs in
 #print axioms mem_owners_of_pinnedPrefix
 
+-- ============================================================
+-- La frase del autor, escrita: la posesión hacia arriba
+-- ============================================================
+
+/-- **«La posesión entre el nodo de la frontera y los de arriba está garantizada por el review
+agresivo.»**
+
+Escrita sobre la cadena que vive dentro de la tabla de un nodo: si `sel` es la cadena y `i < j`,
+entonces el nodo de abajo está en la tabla del de arriba. -/
+def OwnedFromAbove (g : GPathM) : Prop :=
+  ∀ a na, g.node? a = some na → ∀ sel, IsChain g sel →
+    (∀ k, 0 ≤ k → k < g.current_step → sel k ∈ na.owners) →
+    ∀ i j, 0 ≤ i → i < j → j < g.current_step →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners
+
+/-- **Y con ella, `TableChainOwned` entero.** La dirección de bajada la devuelve la simetría de
+tablas, que `AggOk` paga (`ownSymmetric_of_reviewed`). -/
+theorem tableChainOwned_of_ownedFromAbove (g : GPathM) (hsym : Threaded.OwnSymmetric g)
+    (h : OwnedFromAbove g) : TableChainOwned g := by
+  intro a na hna sel hchain hin i j hi0 hj0 hi1 hj1 hij
+  obtain ⟨hsi, hstepi⟩ := hchain.1 i hi0 hi1
+  obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (hchain.1 j hj0 hj1).1
+  refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstepi⟩
+  simp only [ownersOf, hnj]
+  by_cases hlt : i < j
+  · exact h a na hna sel hchain hin i j hi0 hlt hj1 nj hnj
+  · obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp hsi
+    exact hsym (sel i) ni (sel j) nj hni hnj
+      (h a na hna sel hchain hin j i hj0 (by omega) hi1 ni hni)
+
+/-- **Y el teorema entero desde tu frase.**
+
+    OwnedFromAbove  →  OwnerChained  →  PinAlive  →  (readerVerdictW φ = true ↔ Satisfiable φ)
+
+Todo lo demás de la escalera está cerrado. -/
+theorem ownerChained_of_ownedFromAbove (g : GPathM)
+    (adj : AdjacentOwners.Adj g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g)
+    (hgn : GownersNodes.GN g) (h : OwnedFromAbove g) : ReaderChain.OwnerChained g :=
+  ownerChained_of_tableChainOwned g adj hsmp hpos ctx hsym hoos hgn
+    (tableChainOwned_of_ownedFromAbove g hsym h)
+
+/-! ## Qué he podido y qué no de esa frase
+
+**Lo que sí.** La he escrito, y con ella cae todo: `TableChainOwned`, `OwnerChained`, `PinAlive` y el
+veredicto. También su dirección de bajada, que sale sola de la simetría de tablas — y **la simetría
+sí la paga el barrido**: es la primera componente de `AggFixpoint.AggOk`
+(`ownSymmetric_of_reviewed`, cierre `[propext]`).
+
+**Lo que no, todavía.** No he conseguido derivarla de `AggOk`, y conviene decir exactamente dónde se
+me para el argumento, porque puede que sea solo que me falta una pieza:
+
+* la segunda componente de `AggOk` es `sharesEveryStep na.owners nj.owners`: al paso `i` las dos
+  tablas comparten **alguna** entrada. Eso da un `z ∈ ownersAt na.owners i` con `z ∈ nj.owners`;
+* para concluir hace falta `z = sel i`, y eso lo da la unicidad —`mem_owners_of_singleAt`—, que es
+  justo lo que falla en el 4,7 % / 11,9 % de los pares;
+* la ruta alternativa, empujar la posesión desde los padres (`PinAliveChain.HopDown`), está **medida
+  falsa**: el barrido hace la tabla del hijo más exacta que la unión de las de sus padres.
+
+Así que lo que le falta al argumento es cerrar el hueco entre «comparten alguna entrada» y
+«comparten **esa** entrada». Si el barrido lo garantiza, tiene que ser por algo que `aggPair` hace y
+que yo no he sabido leer todavía: sus dos tests son la simetría y el cruce, y el cruce es existencial.
+
+**Y la medida está de tu lado**: la cadena de la tabla, construida por descenso de padres, sale
+poseída por pares en **194.850 de 194.850 pares** (`row-degree tablechain`), y la tabla **no** es
+clique (7,9 % de pares cualesquiera fallan), así que lo que se cumple es precisamente el enunciado
+restringido a la cadena, no una propiedad gratuita de las tablas. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableChainOwned_of_ownedFromAbove' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableChainOwned_of_ownedFromAbove
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_of_ownedFromAbove' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_ownedFromAbove
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
