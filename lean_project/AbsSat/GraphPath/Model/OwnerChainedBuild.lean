@@ -1160,8 +1160,25 @@ Dado lo ya elegido por encima del paso `k` —una cadena parcial dentro de la ta
 pares—, hay una entrada de la tabla de `a` en el paso `k` que es **padre** de la de `k+1` y está
 **poseída por todas** las de arriba.
 
-Un solo paso. El resto es la recursión, y `AggOk` da el material en cada paso. -/
+Un solo paso. El resto es la recursión, y `AggOk` da el material en cada paso.
+
+**Corrección (v179): lo de arriba es una CADENA.** La primera redacción —`DescentStepAny`, abajo—
+no pedía que `sel` fuera cadena por encima de `k`, y así es **falsa** en cuanto hay un nodo en el
+paso 2 (`not_descentStepAny`). La recursión (`step_down_O`) siempre la tiene, así que añadirla no
+cuesta nada. -/
 def DescentStepOwned (g : GPathM) : Prop :=
+  ∀ a na, g.node? a = some na → ∀ (k : Int) (sel : Int → PathNodeId), 0 ≤ k →
+    k + 1 < g.current_step →
+    Extendable.PartialChain g sel (k + 1) (g.current_step - 1) →
+    (∀ j, k < j → j < g.current_step → sel j ∈ na.owners) →
+    (∀ i j, k < i → k < j → i < g.current_step → j < g.current_step → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) →
+    ∃ u ∈ na.owners, u.id.step = k ∧
+      (∀ nk1, g.node? (sel (k + 1)) = some nk1 → u ∈ nk1.parents) ∧
+      (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners)
+
+/-- **La primera redacción, sin la cadena. MEDIDO — DEMOSTRADO — FALSO.** -/
+def DescentStepAny (g : GPathM) : Prop :=
   ∀ a na, g.node? a = some na → ∀ (k : Int) (sel : Int → PathNodeId), 0 ≤ k →
     k + 1 < g.current_step →
     (∀ j, k < j → j < g.current_step → sel j ∈ na.owners) →
@@ -1170,6 +1187,26 @@ def DescentStepOwned (g : GPathM) : Prop :=
     ∃ u ∈ na.owners, u.id.step = k ∧
       (∀ nk1, g.node? (sel (k + 1)) = some nk1 → u ∈ nk1.parents) ∧
       (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners)
+
+/-- **Y por qué es falsa: `sel` constante en `a`.** Un nodo se posee a sí mismo, así que la lista
+constante cumple las dos hipótesis; la conclusión con `k = 0` pide un padre de `a` en el paso 0, y
+los padres de `a` viven en `a.id.step - 1 ≥ 1`. -/
+theorem not_descentStepAny (g : GPathM) (ctx : Threaded.TCtx g) (hoos : SelfOwn.OOS g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (ha2 : 2 ≤ a.id.step) (ha1 : a.id.step < g.current_step) : ¬ DescentStepAny g := by
+  intro hds
+  have hself := FabricAdd.self_mem_owners g hoos a na hna (ctx.nodeval a na hna) (by omega) ha1
+  obtain ⟨u, _, hus, hpar, _⟩ := hds a na hna 0 (fun _ => a) (Int.le_refl 0) (by omega)
+    (fun _ _ _ => hself)
+    (fun _ _ _ _ _ _ _ nj hnj => by rw [← Option.some.inj (hna.symm.trans hnj)]; exact hself)
+  have hup := hpar na hna
+  have hstep := ctx.shape.pbelow na (List.mem_of_find?_eq_some hna) u hup
+  rw [node?_id_eq g a na hna] at hstep
+  omega
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.not_descentStepAny' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms not_descentStepAny
 
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_of_tableHasOwnedChain' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -1202,6 +1239,7 @@ theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSym
     (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
     (hp : OPart g na sel lo) : ∃ c, OPart g na (upd sel (lo - 1) c) (lo - 1) := by
   obtain ⟨u, hun, hus, hupar, huown⟩ := hds a na hna (lo - 1) sel (by omega) (by omega)
+    (by rw [show lo - 1 + 1 = lo from by omega]; exact hp.chain)
     (fun j hj1 hj2 => hp.inTable j (by omega) (by omega))
     (fun i j hi1 hj1 hi2 hj2 hij nj hnj => by
       have := hp.owned i j (by omega) (by omega) (by omega) (by omega) hij
