@@ -67,14 +67,16 @@ theorem tablesExact_reviewAgg (g : GPathM) (hnd : NodupIds g)
 -- Un filtro de un paso
 -- ============================================================
 
-/-- **Las ternas del paso filtrado**: `r` y `q'` en la tabla una de otra y `c` del paso `k` en las
-dos tablas tienen una cadena completa común dentro de la global. -/
-def StepTriples (T : GPathM) (k : Int) : Prop :=
-  ∀ r ∈ T.gowners, ∀ q' ∈ T.gowners, ∀ c ∈ T.gowners, r.id.step ≠ k → q'.id.step ≠ k →
-    q'.id.step ≠ r.id.step → c.id.step = k →
-    (∃ nr, T.node? r = some nr ∧ q' ∈ nr.owners ∧ c ∈ nr.owners) →
-    (∃ nq, T.node? q' = some nq ∧ c ∈ nq.owners) →
-    ∃ s, FullChainG T s ∧ s r.id.step = r ∧ s q'.id.step = q' ∧ s k = c
+/-- **Las ternas que sobreviven al paso filtrado**: si tras el filtro `(k, A)` y su review `r` y `q'`
+están en la tabla una de otra y `c` del paso `k` está en las dos tablas, las tres estaban ya en una
+cadena completa común dentro de la global de antes. Es lo que `row-degree triplestep` mide. -/
+def StepTriples (T : GPathM) (e : Int × List NodeId) : Prop :=
+  ∀ r ∈ (reviewAgg (filterWeak T e)).gowners, ∀ q' ∈ (reviewAgg (filterWeak T e)).gowners,
+    ∀ c ∈ (reviewAgg (filterWeak T e)).gowners, r.id.step ≠ e.1 → q'.id.step ≠ e.1 →
+    q'.id.step ≠ r.id.step → c.id.step = e.1 →
+    (∃ nr, (reviewAgg (filterWeak T e)).node? r = some nr ∧ q' ∈ nr.owners ∧ c ∈ nr.owners) →
+    (∃ nq, (reviewAgg (filterWeak T e)).node? q' = some nq ∧ c ∈ nq.owners) →
+    ∃ s, FullChainG T s ∧ s r.id.step = r ∧ s q'.id.step = q' ∧ s e.1 = c
 
 /-- En el revisado, una tabla de un nodo del revisado viene de la del mismo nodo antes. -/
 theorem node_before {T R : GPathM} (hpr : Pruned T R) (hnd : NodupIds T) (x : PathNodeId)
@@ -86,11 +88,11 @@ theorem node_before {T R : GPathM} (hpr : Pruned T R) (hnd : NodupIds T) (x : Pa
   exact ⟨n0, this, ho⟩
 
 /-- **Un filtro de un paso y su review conservan la verdad de las tablas**, desde las parejas y las
-ternas de ese paso. El review agresivo da la entrada común `c` del paso filtrado
+ternas de ese paso que sobreviven. El review agresivo da la entrada común `c` del paso filtrado
 (`AggFixpoint.aggOk_reviewAgg`); la cadena por `r`, `q'` y `c` pasa el filtro y sobrevive. -/
 theorem tablesExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
     (hE : TablesExact T) (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
-    (hTri : StepTriples T e.1) (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
+    (hTri : StepTriples T e) (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
     TablesExact (reviewAgg (filterWeak T e)) := by
   let R := reviewAgg (filterWeak T e)
   have hprX : Pruned (filterWeak T e) R := pruned_reviewAgg _
@@ -141,13 +143,17 @@ theorem tablesExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx 
   have hcq' : c ∈ nq.owners := List.elem_iff.mp hcq
   have hcR : c ∈ R.gowners :=
     cR.ownGow r nr hnrR c hcr (by rw [hcs]; exact he0) (by rw [hcs, hcsR]; exact he1)
-  obtain ⟨m0, hm0, hmo⟩ := node_before hprR hnd q' nq hnqR
-  obtain ⟨s, hs, hsr, hsq, hsc⟩ := hTri r hrT q' hqT c (hprR.gowners_sub c hcR) hrk hqk hne hcs
-    ⟨n0, hn0, ho0 q' hown, ho0 c hcr⟩ ⟨m0, hm0, hmo c hcq'⟩
+  obtain ⟨s, hs, hsr, hsq, hsc⟩ := hTri r hr q' hq' c hcR hrk hqk hne hcs
+    ⟨nr, hnrR, hown, hcr⟩ ⟨nq, hnqR, hcq'⟩
   exact ⟨s, keep s hs (by rw [hsc]; exact clean c hcR hcs), hsr, hsq⟩
 
 /-- info: 'AbsSat.GraphPath.Model.TablesExact.tablesExact_stepFilter' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tablesExact_stepFilter
+
+/-- **Un pin es un filtro de un paso** con un solo id admitido. -/
+theorem filterRequire_eq_filterWeak (g : GPathM) (req : NodeId) :
+    filterRequire g req = filterWeak g (req.step, [req]) := by
+  simp only [filterRequire, filterWeak, List.contains_cons, List.contains_nil, Bool.or_false]
 
 end AbsSat.GraphPath.Model.TablesExact
