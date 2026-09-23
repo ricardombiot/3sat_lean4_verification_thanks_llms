@@ -5635,6 +5635,79 @@ def reportPH (name : String) (a : PHAcc) (ms : Nat) : IO Unit := do
   reportPHCell "pasada de hijos " a.sons
   IO.println s!"   ({ms} ms)"
 
+/-! **`cleanpass`: qué deja en pie `cleanInvalid` a pasada entera.** En cada vuelta del review de cada
+envío y de cada pin del lector: las condiciones de `PState` (I1 vivos, I1-hijos vivos, padres e hijos
+vivos, autoposesión, `SegGood` con entrada viva) en el estado de ENTRADA de `cleanInvalid` y en el de
+SALIDA. -/
+
+structure CPAcc where
+  formulas : Nat := 0
+  input : PHCell := {}
+  output : PHCell := {}
+  rinput : PHCell := {}
+  routput : PHCell := {}
+  deriving Repr
+
+def reviewCP (F : GPathM) (a : CPAcc) : CPAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut fuel := GPathM.measure g + 1
+  while fuel > 0 do
+    fuel := fuel - 1
+    if !isValid g then fuel := 0
+    else
+      let g0 := g
+      a := { a with input := checkPH g a.input }
+      let h := cleanInvalid g
+      if isValid h then a := { a with output := checkPH h a.output }
+      let h3 := reviewSons (reviewParents h)
+      g := h3
+      if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+  return a
+
+def merged (x y : PHCell) : PHCell :=
+  { states := x.states + y.states, i1all := x.i1all + y.i1all, i1live := x.i1live + y.i1live
+  , i1sall := x.i1sall + y.i1sall, i1slive := x.i1slive + y.i1slive, plive := x.plive + y.plive
+  , slive := x.slive + y.slive, self := x.self + y.self, segs := x.segs + y.segs
+  , segDead := x.segDead + y.segDead, segNone := x.segNone + y.segNone
+  , removed := x.removed + y.removed, removedSole := x.removedSole + y.removedSole }
+
+partial def walkCP (g : GPathM) (fuel : Nat) (a : CPAcc) : CPAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        let b := reviewCP ([q.id].foldl filterRequire g) { a with input := {}, output := {} }
+        a := { a with rinput := merged a.rinput b.input, routput := merged a.routput b.output }
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkCP (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaCP (φ : Cnf) (a : CPAcc) : CPAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewCP F a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkCP g (stepCount φ).toNat a
+  return a
+
+def reportCP (name : String) (a : CPAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportPHCell "ENVIOS entrada de cleanInvalid" a.input
+  reportPHCell "ENVIOS salida de cleanInvalid " a.output
+  reportPHCell "PINES entrada de cleanInvalid" a.rinput
+  reportPHCell "PINES salida de cleanInvalid " a.routput
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -6251,6 +6324,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaPH φ a
       let t1 ← IO.monoMsNow
       reportPH s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "cleanpass" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaCP φ {})
+        let t1 ← IO.monoMsNow
+        reportCP path a (t1 - t0)
+  | "cleanpass" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : CPAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCP φ a
+      let t1 ← IO.monoMsNow
+      reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
