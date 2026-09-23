@@ -2551,6 +2551,89 @@ def reportCH (name : String) (c : CHAcc) (ms : Nat) : IO Unit := do
   if c.firstBad != "" then IO.println s!"   primero: {c.firstBad}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`upextend`: ¿el `up` prolonga las cadenas buenas desde la cima?** En cada envío de la máquina,
+`P` es el estado revisado que el `up` recibe y `U = addNode P d`. Para cada cadena buena de `P` desde
+su cima (anfitrión `a`, enlazada por padres, poseída por pares, con entrada común por debajo), se
+mira cada hijo `v` de la cima en la fila nueva: si `v` se posee mutuamente con `a` y con la cadena
+en `U`, y si la cadena alargada sigue con entrada común por debajo. -/
+
+structure UEAcc where
+  formulas : Nat := 0
+  sends    : Nat := 0
+  chains   : Nat := 0
+  good     : Nat := 0
+  noSon    : Nat := 0
+  someExt  : Nat := 0
+  allExt   : Nat := 0
+  sons     : Nat := 0
+  sonsOk   : Nat := 0
+  cut      : Nat := 0
+  firstBad : String := ""
+  deriving Repr
+
+def extendsUp (U : GPathM) (a : PathNodeId) (P : List PathNodeId) (lo : Int) (v : PathNodeId) : Bool :=
+  mutuallyOwn U v a && P.all (fun y => mutuallyOwn U v y) && chainCommonBelow U a (P ++ [v]) lo
+
+partial def dfsUp (Pst U : GPathM) (label : String) (a : PathNodeId) (top : PathNodeId)
+    (P : List PathNodeId) (acc : UEAcc × Nat) : UEAcc × Nat :=
+  let (c, budget) := acc
+  if budget == 0 then ({ c with cut := c.cut + 1 }, 0)
+  else
+    match P with
+    | [] => (c, budget)
+    | low :: _ =>
+      let lo := low.id.step
+      let c := { c with chains := c.chains + 1 }
+      let c := if chainCommonBelow Pst a P lo then
+          let sons := (U.nodes.filter (fun m => m.id.id.step == Pst.current_step && m.parents.contains top)).map (·.id)
+          let oks := sons.filter (fun v => extendsUp U a P lo v)
+          { c with good := c.good + 1, sons := c.sons + sons.length, sonsOk := c.sonsOk + oks.length
+                 , noSon := c.noSon + (if sons.isEmpty then 1 else 0)
+                 , someExt := c.someExt + (if oks.isEmpty then 0 else 1)
+                 , allExt := c.allExt + (if !sons.isEmpty && oks.length == sons.length then 1 else 0)
+                 , firstBad := if c.firstBad == "" && oks.length != sons.length then
+                     s!"{label} a@{a.id.step} cadena {P.map (·.id.step)} hijos {sons.length} validos {oks.length}"
+                   else c.firstBad }
+        else c
+      let ps := match Pst.node? low with
+        | some n => n.parents.filter (fun p => mutuallyOwn Pst p a && P.all (fun y => mutuallyOwn Pst p y))
+        | none => []
+      ps.foldl (fun acc p => dfsUp Pst U label a top (p :: P) acc) (c, budget - 1)
+
+def measureSend (label : String) (Pst U : GPathM) (cap budget : Nat) (c : UEAcc) : UEAcc := Id.run do
+  let mut c := { c with sends := c.sends + 1 }
+  for na in Pst.nodes.take cap do
+    let a := na.id
+    for t in ownersAt na.owners (Pst.current_step - 1) do
+      if mutuallyOwn Pst t a then
+        let (c', _) := dfsUp Pst U label a t [t] (c, budget)
+        c := c'
+  return c
+
+def runFormulaUE (label : String) (φ : Cnf) (cap budget : Nat) (c : UEAcc) : UEAcc := Id.run do
+  let mut c := { c with formulas := c.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let Pst := filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)
+        if isValid Pst then
+          c := measureSend s!"{label} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" Pst
+            (addNode Pst d "") cap budget c
+    line := pureAdvanceW φ line
+  return c
+
+def reportUE (name : String) (c : UEAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {c.formulas}, envios validos {c.sends}, cadenas desde la cima {c.chains} (recortes {c.cut})"
+  IO.println s!"   buenas (entrada comun por debajo): {c.good}"
+  IO.println s!"     la cima no tiene hijo en la fila : {c.noSon}"
+  IO.println s!"     algun hijo la prolonga           : {c.someExt}"
+  IO.println s!"     TODOS los hijos la prolongan     : {c.allExt}"
+  IO.println s!"   hijos probados {c.sons}, validos {c.sonsOk}"
+  if c.firstBad != "" then IO.println s!"   primero con algun hijo que no: {c.firstBad}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2727,6 +2810,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "upextend" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaUE path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportUE path a (t1 - t0)
+  | "upextend" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : UEAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaUE s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportUE s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "chainshare" :: "file" :: paths | "chainline" :: "file" :: paths =>
     let lineToo := args.head! == "chainline"
     for path in paths do
