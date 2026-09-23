@@ -3780,6 +3780,124 @@ def reportSC (name : String) (a : SCAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   LECTOR      : pines {a.pins}, aggSweep(review F) quita algo: {a.pinFires}, reviewAgg F ≠ review F: {a.pinDiffers}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`extfire`: `ExtCtx` en los barridos que disparan.** Se rehace `reviewAgg` en cada envío (y en
+cada pin del lector) y, en el barrido, antes de cada `aggPair` que quita algo se comprueban las
+piezas de `ExtCtx` en el estado de antes: (I1), (I1-hijos), padres e hijos vivos, cada nodo se posee,
+y la simetría local entre nodos vivos por los dos bordes. Tras el par, `SegGood`. -/
+
+structure EFAcc where
+  formulas : Nat := 0
+  sweeps   : Nat := 0
+  fired    : Nat := 0
+  i1 : Nat := 0
+  i1s : Nat := 0
+  plive : Nat := 0
+  slive : Nat := 0
+  self : Nat := 0
+  lsymLive : Nat := 0
+  lsymNone : Nat := 0
+  segAfter : TGCell := {}
+  first : String := ""
+  deriving Repr
+
+def extChecks (g : GPathM) (cap budget : Nat) : Bool × Bool × Bool × Bool × Bool × Bool × Bool := Id.run do
+  let mut b1 := false
+  let mut b4 := false
+  let mut bp := false
+  let mut bs := false
+  let mut bself := false
+  for n in g.nodes do
+    if !n.owners.contains n.id then bself := true
+    for p in n.parents do
+      if (g.node? p).isNone then bp := true
+    for q in n.sons do
+      if (g.node? q).isNone then bs := true
+    for w in n.owners do
+      if w.id.step + 1 == n.id.id.step && !n.parents.contains w then b1 := true
+      if w.id.step == n.id.id.step + 1 && !n.sons.contains w then b4 := true
+  let c := checkLS "" g cap budget {}
+  let live := c.pairsBad - c.badDead
+  return (b1, b4, bp, bs, bself, live > 0, c.segsNone > 0)
+
+def sweepEF (lab : String) (g0 : GPathM) (cap budget : Nat) (a : EFAcc) : GPathM × EFAcc := Id.run do
+  let mut g := g0
+  let mut a := { a with sweeps := a.sweeps + 1 }
+  for k in (intRange 0 (g0.current_step - 1)).reverse do
+    for x in (g.line k).map (·.id) do
+      match g.node? x with
+      | none => pure ()
+      | some nx =>
+        if isValidNode g nx then
+          for kw in (intRange 0 (g.current_step - 1)).reverse do
+            for w in AggressiveReview.ownersAtNow g x kw do
+              let g' := AggressiveReview.aggPair g x w
+              if GPathM.measure g' < GPathM.measure g then
+                let (b1, b4, bp, bs, bself, bls, bnone) := extChecks g cap budget
+                a := { a with fired := a.fired + 1
+                            , i1 := a.i1 + (if b1 then 1 else 0), i1s := a.i1s + (if b4 then 1 else 0)
+                            , plive := a.plive + (if bp then 1 else 0), slive := a.slive + (if bs then 1 else 0)
+                            , self := a.self + (if bself then 1 else 0)
+                            , lsymLive := a.lsymLive + (if bls then 1 else 0)
+                            , lsymNone := a.lsymNone + (if bnone then 1 else 0)
+                            , first := if a.first == "" && (b1 || b4 || bp || bs || bself || bls) then
+                                s!"{lab} par {x.id.step}/{w.id.step} I1={b1} I1s={b4} pvivos={!bp} hvivos={!bs} self={!bself} locsym={!bls}"
+                              else a.first }
+                a := { a with segAfter := measureSEG s!"{lab} tras par" g' cap budget a.segAfter }
+              g := g'
+        match g.node? x with
+        | none => pure ()
+        | some n1 => if !isValidNode g n1 then g := removeNode g x
+  return (g, a)
+
+def reviewAggEF (lab : String) (F : GPathM) (cap budget : Nat) (a : EFAcc) : EFAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    g := review g
+    if !isValid g then outer := 0
+    else
+      let (g2, a') := sweepEF lab g cap budget a
+      a := a'
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  return a
+
+partial def walkEF (lab : String) (g : GPathM) (fuel cap budget : Nat) (a : EFAcc) : EFAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewAggEF s!"{lab} pin" ([q.id].foldl filterRequire g) cap budget a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkEF lab (filterAllAgg g [q.id]) (fuel - 1) cap budget a
+
+def runFormulaEF (label : String) (φ : Cnf) (cap budget : Nat) (a : EFAcc) : EFAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewAggEF s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkEF s!"{label} lector" g (stepCount φ).toNat cap budget a
+  return a
+
+def reportEF (name : String) (a : EFAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   barridos {a.sweeps}, pares que disparan {a.fired}"
+  IO.println s!"   estados de antes del par que violan: (I1) {a.i1}, (I1-hijos) {a.i1s}, padres vivos {a.plive}, hijos vivos {a.slive}, self {a.self}, simetria local (vivos) {a.lsymLive}; bordes SIN ninguna entrada comun simetrica: {a.lsymNone}"
+  IO.println s!"   SegGood tras el par: estados {a.segAfter.states}, con fallo {a.segAfter.statesBad}, tramos sin entrada comun {a.segAfter.bad}"
+  if a.first != "" then IO.println s!"   primero: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3956,6 +4074,26 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "extfire" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaEF path φ 20 200 {})
+        let t1 ← IO.monoMsNow
+        reportEF path a (t1 - t0)
+        (← IO.getStdout).flush
+  | "extfire" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : EFAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaEF s!"seed {seed} #{idx}" φ 20 200 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportEF s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "sweepcheck" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
