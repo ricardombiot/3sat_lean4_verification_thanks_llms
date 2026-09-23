@@ -6497,6 +6497,10 @@ structure MSAcc where
   sepAtNeighbour : Nat := 0
   asymEvents : Nat := 0
   asymSepElsewhere : Nat := 0
+  distHist : List (Int × Nat) := []
+  sideBelow : Nat := 0
+  sideAbove : Nat := 0
+  sepAtQ : Nat := 0
   first : String := ""
   deriving Repr
 
@@ -6529,6 +6533,24 @@ def nodeStepMS (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (pa
             j != r.id.step && j != x.id.step &&
             !(d'.owners.any (fun q => q.id.step == j && tr'.contains q)))
           if sepSomewhere then a := { a with asymSepElsewhere := a.asymSepElsewhere + 1 }
+          let seps := (intRange 0 (g.current_step - 1)).filter (fun j =>
+            j != r.id.step && j != x.id.step &&
+            !(d'.owners.any (fun q => q.id.step == j && tr'.contains q)))
+          -- nearest separation step to x, on the side of the pass (below for parents, above for sons)
+          let dists := seps.map (fun j => if parents then x.id.step - j else j - x.id.step)
+          let pos := dists.filter (fun t => t > 0)
+          match pos.min? with
+          | some dmin =>
+            let key := if dmin ≥ 5 then 5 else dmin
+            let h := a.distHist
+            let h := match h.find? (fun p => p.1 == key) with
+              | some _ => h.map (fun p => if p.1 == key then (p.1, p.2 + 1) else p)
+              | none => (key, 1) :: h
+            a := { a with distHist := h, sideBelow := a.sideBelow + 1 }
+          | none => a := { a with sideAbove := a.sideAbove + 1 }
+          -- is it separated at the step where some kept neighbour q (that r owns) lost r?
+          let qsteps := bad.map (fun q => if parents then q.id.step - 1 else q.id.step + 1)
+          if qsteps.any (fun j => seps.contains j) then a := { a with sepAtQ := a.sepAtQ + 1 }
           if a.first == "" then
             a := { a with first := s!"{lab}: x paso {x.id.step}, r paso {r.id.step}, {if parents then "padres" else "hijos"}, q con r: {bad.length}, separados en otro paso: {sepSomewhere}" }
   | _, _ => pure ()
@@ -6604,6 +6626,8 @@ def reportMS (name : String) (a : MSAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   eventos de corte (x pierde una r viva): {a.drops}"
   IO.println s!"     separacion en el paso de los vecinos (vale lost_parents/sons): {a.sepAtNeighbour}"
   IO.println s!"     con asimetria (algun q vecino que conserva x lo tiene r): {a.asymEvents}; de ellos separados en otro paso: {a.asymSepElsewhere}"
+  IO.println s!"     distancia a la separacion mas cercana del lado de la pasada (5 = 5+): {a.distHist.reverse}; solo del otro lado: {a.sideAbove}"
+  IO.println s!"     separados en el paso de los vecinos del q que conserva x (q-1 / q+1): {a.sepAtQ}"
   if a.first != "" then IO.println s!"   primer evento asimetrico: {a.first}"
   IO.println s!"   ({ms} ms)"
 
