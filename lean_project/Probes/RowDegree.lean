@@ -5130,6 +5130,95 @@ def reportTM (name : String) (a : TMAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer fallo de (h): {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`sandwich`: ¿la tabla colectiva es la intersección de dos tablas?** En estados revisados (línea
+tras su review y estados del lector), cadenas desde la cima `P = c_lo … c_top`, y cada paso `i` por
+debajo: (S1) `T_lo ∩ T_top` en `i` está en la tabla de todos; (S2) `T_lo ∩ T_{lo+1}`; (S3) hay alguna
+pareja de miembros cuya intersección en `i` está en todas. -/
+
+structure SWAcc where
+  formulas : Nat := 0
+  cases : Nat := 0
+  s1 : Nat := 0
+  s2 : Nat := 0
+  s3 : Nat := 0
+  withLo : Nat := 0
+  withTop : Nat := 0
+  singleOk : Nat := 0
+  loWithSome : Array Nat := #[]
+  first : String := ""
+  deriving Repr
+
+def checkSW (lab : String) (g : GPathM) (a : SWAcc) : SWAcc := Id.run do
+  if !isValid g then return a
+  let mut a := a
+  for n in g.line (g.current_step - 1) do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        if P.length ≥ 3 then
+          let tabs := P.filterMap (fun y => (g.node? y).map (·.owners))
+          for i in (intRange 0 (low.id.step - 1)) do
+            let ats : List (List PathNodeId) := tabs.map (fun t => ownersAt t i)
+            let inAll : List PathNodeId → Bool := fun xs => xs.all (fun r => ats.all (fun t => t.contains r))
+            let inter : List PathNodeId → List PathNodeId → List PathNodeId :=
+              fun x y => x.filter (fun r => y.contains r)
+            let t0 := ats.headD []
+            let tl := ats.getLastD []
+            let t1 := ats.getD 1 []
+            let b1 : Bool := inAll (inter t0 tl)
+            let b2 : Bool := inAll (inter t0 t1)
+            let b3 : Bool := ats.any (fun x => ats.any (fun y => inAll (inter x y)))
+            let bl : Bool := ats.any (fun y => inAll (inter t0 y))
+            let bt : Bool := ats.any (fun y => inAll (inter tl y))
+            let bs : Bool := ats.any (fun x => inAll x)
+            -- con qué miembro (por distancia al más bajo) empareja el más bajo, la primera vez
+            let idx := (List.range ats.length).find? (fun j => inAll (inter t0 (ats.getD j [])))
+            a := { a with withLo := a.withLo + (if bl then 1 else 0), withTop := a.withTop + (if bt then 1 else 0)
+                        , singleOk := a.singleOk + (if bs then 1 else 0) }
+            match idx with
+            | some j =>
+              let arr := if a.loWithSome.size ≤ j then a.loWithSome ++ Array.replicate (j + 1 - a.loWithSome.size) 0 else a.loWithSome
+              a := { a with loWithSome := arr.modify j (· + 1) }
+            | none => pure ()
+            a := { a with cases := a.cases + 1, s1 := a.s1 + (if b1 then 1 else 0)
+                        , s2 := a.s2 + (if b2 then 1 else 0), s3 := a.s3 + (if b3 then 1 else 0)
+                        , first := if a.first == "" && !b1 then s!"{lab} i={i} cadena {P.map (·.id.step)}" else a.first }
+  return a
+
+partial def walkSW (lab : String) (g : GPathM) (fuel : Nat) (a : SWAcc) : SWAcc :=
+  let a := checkSW lab g a
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkSW lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaSW (label : String) (φ : Cnf) (a : SWAcc) : SWAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := checkSW s!"{label} linea+review paso {step}" (AggressiveReview.reviewAgg kv.2) a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkSW s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportSW (name : String) (a : SWAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   (cadena desde la cima de 3+, paso por debajo): {a.cases}"
+  IO.println s!"     (S1) mas bajo y cima bastan: {a.s1}   (S2) mas bajo y siguiente: {a.s2}   (S3) alguna pareja: {a.s3}"
+  IO.println s!"     alguna pareja con el mas bajo: {a.withLo}   con la cima: {a.withTop}   un solo miembro basta: {a.singleOk}"
+  IO.println s!"     primer companero del mas bajo que basta (por distancia): {a.loWithSome}"
+  if a.first != "" then IO.println s!"   primer fallo de S1: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5659,6 +5748,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportTM s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "sandwich" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSW path φ {})
+        let t1 ← IO.monoMsNow
+        reportSW path a (t1 - t0)
+  | "sandwich" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SWAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSW s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSW s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
