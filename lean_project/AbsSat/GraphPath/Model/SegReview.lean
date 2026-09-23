@@ -29,6 +29,7 @@ open AbsSat.GraphPath.Model
 open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.TopGoodUp
 open AbsSat.GraphPath.Model.PinAliveChain
+open AbsSat.GraphPath.Model.AggressiveReview (sharesEveryStep)
 
 -- ============================================================
 -- Lo que `reviewNode` hace a las tablas
@@ -440,5 +441,376 @@ theorem segGood_reviewNode_sons (g : GPathM) (hnd : NodupIds g)
 /-- info: 'AbsSat.GraphPath.Model.SegReview.segGood_reviewNode_sons' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms segGood_reviewNode_sons
+
+-- ============================================================
+-- El barrido: extender a cadena completa con hipótesis locales
+-- ============================================================
+
+/-- **Las hipótesis locales para extender tramos**, en un estado cualquiera (no hace falta que sea
+punto fijo): (I1) y (I1-hijos), padres e hijos vivos, cada nodo se posee, y la simetría local por
+los dos bordes. -/
+structure ExtCtx (g : GPathM) : Prop where
+  i1 : ∀ y ny, g.node? y = some ny → ∀ w ∈ ny.owners, w.id.step + 1 = y.id.step → w ∈ ny.parents
+  i1s : ∀ y ny, g.node? y = some ny → ∀ w ∈ ny.owners, w.id.step = y.id.step + 1 → w ∈ ny.sons
+  plive : ∀ y ny, g.node? y = some ny → ∀ p ∈ ny.parents, (g.node? p).isSome
+  slive : ∀ y ny, g.node? y = some ny → ∀ q ∈ ny.sons, (g.node? q).isSome
+  self : ∀ y ny, g.node? y = some ny → y ∈ ny.owners
+  lsym : LocSym g
+  lsymU : LocSymUp g
+
+/-- Bajar un paso con las hipótesis locales. -/
+theorem seg_down_loc (g : GPathM) (ec : ExtCtx g) (hseg : SegGood g) (sel : Int → PathNodeId)
+    (lo hi : Int) (hpos : 0 < lo) (hlohi : lo ≤ hi) (hhi : hi ≤ g.current_step - 1)
+    (hs : Seg g sel lo hi) : ∃ r, Seg g (upd sel (lo - 1) r) (lo - 1) hi := by
+  obtain ⟨r0, hr0s, hr0all⟩ := hseg sel lo hi (by omega) hlohi hhi hs.1 hs.2 (lo - 1) (by omega)
+    (by omega) (Or.inl (by omega))
+  obtain ⟨hls, hlstep⟩ := hs.1.1 lo (Int.le_refl _) hlohi
+  obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hls
+  have hr0p : r0 ∈ nl.parents :=
+    ec.i1 _ nl hnl r0 (hr0all lo (Int.le_refl _) hlohi nl hnl) (by rw [hr0s, hlstep]; omega)
+  obtain ⟨nr0, hnr0⟩ := Option.isSome_iff_exists.mp (ec.plive _ nl hnl r0 hr0p)
+  exact ⟨r0, seg_extend g sel lo hi hlohi hs r0 nr0 hnr0 hr0s
+    (fun nl' hnl' => by rw [← Option.some.inj (hnl.symm.trans hnl')]; exact hr0p) hr0all
+    (ec.lsym sel lo hi hlohi hs r0 nr0 hnr0 hr0s hr0all)⟩
+
+/-- Subir un paso con las hipótesis locales. -/
+theorem seg_up_loc (g : GPathM) (ec : ExtCtx g) (hseg : SegGood g) (sel : Int → PathNodeId)
+    (lo hi : Int) (hlo : 0 ≤ lo) (hlohi : lo ≤ hi) (hhi : hi < g.current_step - 1)
+    (hs : Seg g sel lo hi) : ∃ r, Seg g (upd sel (hi + 1) r) lo (hi + 1) := by
+  obtain ⟨r0, hr0s, hr0all⟩ := hseg sel lo hi hlo hlohi (by omega) hs.1 hs.2 (hi + 1) (by omega)
+    (by omega) (Or.inr (by omega))
+  obtain ⟨hhs, hhstep⟩ := hs.1.1 hi hlohi (Int.le_refl _)
+  obtain ⟨nh, hnh⟩ := Option.isSome_iff_exists.mp hhs
+  have hr0son : r0 ∈ nh.sons :=
+    ec.i1s _ nh hnh r0 (hr0all hi hlohi (Int.le_refl _) nh hnh) (by rw [hr0s, hhstep])
+  obtain ⟨nr0, hnr0⟩ := Option.isSome_iff_exists.mp (ec.slive _ nh hnh r0 hr0son)
+  have hback := ec.lsymU sel lo hi hlohi hs r0 nr0 hnr0 hr0s hr0all
+  have hpar : sel hi ∈ nr0.parents :=
+    ec.i1 _ nr0 hnr0 _ (hback hi hlohi (Int.le_refl _)) (by rw [hhstep, hr0s])
+  exact ⟨r0, seg_extend_up g sel lo hi hlohi hs r0 nr0 hnr0 hr0s hpar hr0all hback⟩
+
+/-- **Todo tramo se extiende a una cadena completa**, conservando sus miembros. -/
+theorem seg_full (g : GPathM) (ec : ExtCtx g) (hseg : SegGood g) (sel : Int → PathNodeId)
+    (lo hi : Int) (hlo : 0 ≤ lo) (hlohi : lo ≤ hi) (hhi : hi ≤ g.current_step - 1)
+    (hs : Seg g sel lo hi) :
+    ∃ sel', Seg g sel' 0 (g.current_step - 1) ∧ ∀ j, lo ≤ j → j ≤ hi → sel' j = sel j := by
+  -- bajar
+  have down : ∀ (fuel : Nat) (s : Int → PathNodeId) (l : Int), l.toNat ≤ fuel → 0 ≤ l → l ≤ lo →
+      Seg g s l hi → (∀ j, lo ≤ j → j ≤ hi → s j = sel j) →
+      ∃ s', Seg g s' 0 hi ∧ ∀ j, lo ≤ j → j ≤ hi → s' j = sel j := by
+    intro fuel
+    induction fuel with
+    | zero =>
+      intro s l hm hl0 hll hs' hagree
+      have : l = 0 := by omega
+      subst this; exact ⟨s, hs', hagree⟩
+    | succ fuel ih =>
+      intro s l hm hl0 hll hs' hagree
+      if hpos : 0 < l then
+        obtain ⟨r, hr⟩ := seg_down_loc g ec hseg s l hi hpos (by omega) hhi hs'
+        exact ih _ (l - 1) (by omega) (by omega) (by omega) hr
+          (fun j hj1 hj2 => by rw [upd_other s (l - 1) r (by omega)]; exact hagree j hj1 hj2)
+      else
+        have : l = 0 := by omega
+        subst this; exact ⟨s, hs', hagree⟩
+  obtain ⟨s1, hs1, hag1⟩ := down lo.toNat sel lo (Nat.le_refl _) hlo (Int.le_refl _) hs
+    (fun _ _ _ => rfl)
+  -- subir
+  have up : ∀ (fuel : Nat) (s : Int → PathNodeId) (h : Int),
+      (g.current_step - 1 - h).toNat ≤ fuel → hi ≤ h → h ≤ g.current_step - 1 →
+      Seg g s 0 h → (∀ j, lo ≤ j → j ≤ hi → s j = sel j) →
+      ∃ s', Seg g s' 0 (g.current_step - 1) ∧ ∀ j, lo ≤ j → j ≤ hi → s' j = sel j := by
+    intro fuel
+    induction fuel with
+    | zero =>
+      intro s h hm hh1 hh2 hs' hagree
+      have : h = g.current_step - 1 := by omega
+      subst this; exact ⟨s, hs', hagree⟩
+    | succ fuel ih =>
+      intro s h hm hh1 hh2 hs' hagree
+      if hlt : h < g.current_step - 1 then
+        obtain ⟨r, hr⟩ := seg_up_loc g ec hseg s 0 h (Int.le_refl _) (by omega) hlt hs'
+        exact ih _ (h + 1) (by omega) (by omega) (by omega) hr
+          (fun j hj1 hj2 => by rw [upd_other s (h + 1) r (by omega)]; exact hagree j hj1 hj2)
+      else
+        have : h = g.current_step - 1 := by omega
+        subst this; exact ⟨s, hs', hagree⟩
+  exact up (g.current_step - 1 - hi).toNat s1 hi (Nat.le_refl _) (Int.le_refl _) hhi hs1 hag1
+
+/-- **Dos miembros de una cadena completa comparten entrada en cada paso**: la de la cadena. -/
+theorem shares_of_full (g : GPathM) (hself : ∀ y ny, g.node? y = some ny → y ∈ ny.owners)
+    (s : Int → PathNodeId) (hs : Seg g s 0 (g.current_step - 1)) (a b : Int)
+    (ha0 : 0 ≤ a) (ha1 : a ≤ g.current_step - 1) (hb0 : 0 ≤ b) (hb1 : b ≤ g.current_step - 1)
+    (na nb : PNodeM) (hna : g.node? (s a) = some na) (hnb : g.node? (s b) = some nb) :
+    sharesEveryStep g.current_step na.owners nb.owners = true := by
+  -- la entrada de la cadena en el paso `k` está en la tabla de cualquier miembro
+  have inT : ∀ c k, 0 ≤ c → c ≤ g.current_step - 1 → 0 ≤ k → k ≤ g.current_step - 1 →
+      ∀ nc, g.node? (s c) = some nc → s k ∈ nc.owners := by
+    intro c k hc0 hc1 hk0 hk1 nc hnc
+    rcases int_eq_or_ne k c with he | he
+    · subst he; exact hself _ nc hnc
+    · exact hs.2 k c hk0 hc0 hk1 hc1 he nc hnc
+  simp only [sharesEveryStep, List.all_eq_true]
+  intro k hk
+  have hk0 := mem_intRange_lower hk
+  have hk1 := mem_intRange_upper hk
+  have hks := (hs.1.1 k hk0 hk1).2
+  simp only [Bool.or_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true]
+  right
+  exact List.any_eq_true.mpr ⟨s k, List.mem_filter.mpr ⟨inT a k ha0 ha1 hk0 hk1 na hna,
+    beq_iff_eq.mpr hks⟩, List.elem_iff.mpr (inT b k hb0 hb1 hk0 hk1 nb hnb)⟩
+
+/-- **Una pérdida «mala»**: el par `(y, q)` que el barrido puede romper —asimétrico o sin cruce—. -/
+def BadPair (g : GPathM) (y q : PathNodeId) : Prop :=
+  ∃ ny nq, g.node? y = some ny ∧ g.node? q = some nq ∧
+    (y ∉ nq.owners ∨ sharesEveryStep g.current_step ny.owners nq.owners = false ∨
+      sharesEveryStep g.current_step nq.owners ny.owners = false)
+
+/-- **Si un paso solo quita entradas por pares malos, conserva `SegGood`.** El testigo es el miembro
+de una cadena completa que extiende al tramo: tiene al tramo en su tabla y comparte con cada miembro
+en cada paso, así que ningún par con él es malo. -/
+theorem segGood_of_badDrops (g g' : GPathM) (ec : ExtCtx g) (hseg : SegGood g)
+    (hstep : g'.current_step = g.current_step)
+    (hnode : ∀ y n', g'.node? y = some n' → ∃ n, g.node? y = some n ∧
+      (∀ p ∈ n'.parents, p ∈ n.parents) ∧ (∀ q ∈ n'.owners, q ∈ n.owners) ∧
+      (∀ q ∈ n.owners, q ∉ n'.owners → BadPair g y q)) :
+    SegGood g' := by
+  intro sel lo hi hlo0 hlohi hhi hch' hpw' i hi0 hic hout
+  rw [hstep] at hhi hic
+  have hsG : Seg g sel lo hi := by
+    refine ⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun a b ha1 hb1 ha2 hb2 hab nb hnb => ?_⟩
+    · obtain ⟨hs, hjs⟩ := hch'.1 j hj1 hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _⟩ := hnode _ m hm
+      exact ⟨by rw [hn]; rfl, hjs⟩
+    · obtain ⟨hs, _⟩ := hch'.1 (j + 1) (by omega) hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, hpar, _⟩ := hnode _ m hm
+      have hl := hch'.2 j hj1 hj2
+      rw [hm] at hl
+      rw [hn]
+      simp only [Option.map_some, Option.getD_some] at hl ⊢
+      exact hpar _ hl
+    · obtain ⟨hs, _⟩ := hch'.1 b hb1 hb2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _, hown, _⟩ := hnode _ m hm
+      rw [← Option.some.inj (hn.symm.trans hnb)]
+      exact hown _ (hpw' a b ha1 hb1 ha2 hb2 hab m hm)
+  obtain ⟨s, hsF, hag⟩ := seg_full g ec hseg sel lo hi hlo0 hlohi hhi hsG
+  refine ⟨s i, (hsF.1.1 i hi0 hic).2, fun j hj1 hj2 nj' hnj' => ?_⟩
+  obtain ⟨nj, hnj, _, _, hdrop⟩ := hnode _ nj' hnj'
+  have hjs : s j = sel j := hag j hj1 hj2
+  have hij : i ≠ j := by omega
+  have hnjs : g.node? (s j) = some nj := by rw [hjs]; exact hnj
+  have hin : s i ∈ nj.owners := hsF.2 i j hi0 (by omega) hic (by omega) hij nj hnjs
+  if hkeep : s i ∈ nj'.owners then exact hkeep else
+  exfalso
+  obtain ⟨ny, nq, hny, hnq, hbad⟩ := hdrop _ hin hkeep
+  rw [hny] at hnj; cases hnj
+  have hback : sel j ∈ nq.owners := by
+    rw [← hjs]; exact hsF.2 j i (by omega) hi0 (by omega) hic (fun h => hij h.symm) nq hnq
+  have h1 := shares_of_full g ec.self s hsF j i (by omega) (by omega) hi0 hic nj nq hnjs hnq
+  have h2 := shares_of_full g ec.self s hsF i j hi0 hic (by omega) (by omega) nq nj hnq hnjs
+  rcases hbad with hb | hb | hb
+  · exact hb hback
+  · rw [h1] at hb; exact Bool.noConfusion hb
+  · rw [h2] at hb; exact Bool.noConfusion hb
+
+/-- info: 'AbsSat.GraphPath.Model.SegReview.seg_full' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms seg_full
+
+/-- info: 'AbsSat.GraphPath.Model.SegReview.segGood_of_badDrops' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGood_of_badDrops
+
+-- ============================================================
+-- `aggPair` solo hace pérdidas malas
+-- ============================================================
+
+open AbsSat.GraphPath.Model.AggressiveReview (aggPair dropList dropOwnerPair)
+
+/-- Cortar con `dropList os w` solo quita `w`. -/
+theorem mem_drop_keep (a os : List PathNodeId) (w q : PathNodeId) (hqa : q ∈ a) (hqo : q ∈ os)
+    (hne : q ≠ w) : q ∈ intersectOwners a (dropList os w) := by
+  refine List.mem_filter.mpr ⟨hqa, ?_⟩
+  have hin : q ∈ dropList os w :=
+    List.mem_append_left _ (List.mem_filter.mpr ⟨hqo, bne_iff_ne.mpr hne⟩)
+  simp only [Bool.or_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, List.elem_iff]
+  exact Or.inr hin
+
+theorem mem_of_intersect (a b : List PathNodeId) (q : PathNodeId) (h : q ∈ intersectOwners a b) :
+    q ∈ a := (List.mem_filter.mp h).1
+
+/-- **Lo que `aggPair` quita es siempre un par malo**, y no toca padres. -/
+theorem aggPair_drops (g : GPathM) (x w : PathNodeId) (y : PathNodeId) (n' : PNodeM)
+    (h : (aggPair g x w).node? y = some n') :
+    ∃ n, g.node? y = some n ∧ (∀ p ∈ n'.parents, p ∈ n.parents) ∧
+      (∀ q ∈ n'.owners, q ∈ n.owners) ∧ (∀ q ∈ n.owners, q ∉ n'.owners → BadPair g y q) := by
+  have trivialCase : g.node? y = some n' → ∃ n, g.node? y = some n ∧
+      (∀ p ∈ n'.parents, p ∈ n.parents) ∧ (∀ q ∈ n'.owners, q ∈ n.owners) ∧
+      (∀ q ∈ n.owners, q ∉ n'.owners → BadPair g y q) :=
+    fun hy => ⟨n', hy, fun _ hp => hp, fun _ hq => hq, fun _ hq hnq => absurd hq hnq⟩
+  have hf : ∀ (B : List PathNodeId) (n : PNodeM), (uniMap B n).id = n.id :=
+    fun _ _ => rfl
+  unfold aggPair at h
+  cases hx : g.node? x with
+  | none => rw [hx] at h; exact trivialCase h
+  | some nx =>
+    cases hw : g.node? w with
+    | none => rw [hx, hw] at h; exact trivialCase h
+    | some nw =>
+      rw [hx, hw] at h
+      simp only at h
+      split at h
+      · next hcond =>
+        -- asimétrico: `x` pierde `w`
+        have hxw : x ∉ nw.owners := by
+          intro hm
+          simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true] at hcond
+          have hc : nw.owners.contains x = true := List.elem_iff.mpr hm
+          rw [hc] at hcond
+          exact Bool.noConfusion hcond.2
+        obtain ⟨n, hn, heq⟩ := Reader.updateAt_node?_inv g x _ (hf _) y n' h
+        refine ⟨n, hn, ?_, ?_, ?_⟩ <;> cases hb : n.id == x <;> simp only [hb] at heq <;>
+          subst heq
+        · exact fun _ hp => hp
+        · exact fun _ hp => hp
+        · exact fun _ hq => hq
+        · exact fun q hq => mem_of_intersect _ _ q hq
+        · exact fun q hq hnq => absurd hq hnq
+        · intro q hq hnq
+          have hyx : y = x := by rw [← node?_id_eq g y n hn]; exact eq_of_beq hb
+          subst hyx
+          rw [hx] at hn; cases hn
+          have hqw : q = w := by
+            if hqw : q = w then exact hqw else
+            exact absurd (mem_drop_keep _ _ w q hq hq hqw) hnq
+          subst hqw
+          exact ⟨nx, nw, hx, hw, Or.inl hxw⟩
+      · split at h
+        · next _ hcond =>
+          -- sin cruce: `x` pierde `w` y `w` pierde `x`
+          have hsh : sharesEveryStep g.current_step nx.owners nw.owners = false := by
+            simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true] at hcond
+            exact hcond.2
+          unfold dropOwnerPair at h
+          obtain ⟨n1, hn1, heq2⟩ := Reader.updateAt_node?_inv _ w _ (hf _) y n' h
+          obtain ⟨n, hn, heq1⟩ := Reader.updateAt_node?_inv g x _ (hf _) y n1 hn1
+          have hid : n.id = y := node?_id_eq g y n hn
+          have h1sub : ∀ q ∈ n1.owners, q ∈ n.owners := by
+            cases hb : n.id == x <;> simp only [hb] at heq1 <;> subst heq1
+            · exact fun _ hq => hq
+            · exact fun q hq => mem_of_intersect _ _ q hq
+          have h1id : n1.id = n.id := by
+            cases hb : n.id == x <;> simp only [hb] at heq1 <;> subst heq1 <;> rfl
+          have h2sub : ∀ q ∈ n'.owners, q ∈ n1.owners := by
+            cases hb : n1.id == w <;> simp only [hb] at heq2 <;> subst heq2
+            · exact fun _ hq => hq
+            · exact fun q hq => mem_of_intersect _ _ q hq
+          have h2par : n'.parents = n1.parents := by
+            cases hb : n1.id == w <;> simp only [hb] at heq2 <;> subst heq2 <;> rfl
+          have h1par : n1.parents = n.parents := by
+            cases hb : n.id == x <;> simp only [hb] at heq1 <;> subst heq1 <;> rfl
+          refine ⟨n, hn, fun p hp => by rw [← h1par, ← h2par]; exact hp,
+            fun q hq => h1sub q (h2sub q hq), fun q hq hnq => ?_⟩
+          if hq1 : q ∈ n1.owners then
+            -- la pérdida es de la segunda mitad: `y = w` y `q = x`
+            have hbw : (n1.id == w) = true := by
+              cases hb : n1.id == w
+              · simp only [hb] at heq2; subst heq2; exact absurd hq1 hnq
+              · rfl
+            have hyw : y = w := by rw [← hid, ← h1id]; exact eq_of_beq hbw
+            subst hyw
+            rw [hw] at hn; cases hn
+            simp only [hbw] at heq2; subst heq2
+            have hqx : q = x := by
+              if hqx : q = x then exact hqx else
+              exact absurd (mem_drop_keep _ _ x q hq1 hq hqx) hnq
+            subst hqx
+            exact ⟨nw, nx, hw, hx, Or.inr (Or.inr hsh)⟩
+          else
+            -- la pérdida es de la primera mitad: `y = x` y `q = w`
+            have hbx : (n.id == x) = true := by
+              cases hb : n.id == x
+              · simp only [hb] at heq1; subst heq1; exact absurd hq hq1
+              · rfl
+            have hyx : y = x := by rw [← hid]; exact eq_of_beq hbx
+            subst hyx
+            rw [hx] at hn; cases hn
+            simp only [hbx] at heq1; subst heq1
+            have hqw : q = w := by
+              if hqw : q = w then exact hqw else
+              exact absurd (mem_drop_keep _ _ w q hq hq hqw) hq1
+            subst hqw
+            exact ⟨nx, nw, hx, hw, Or.inr (Or.inl hsh)⟩
+        · exact trivialCase h
+
+/-- **Un par del barrido conserva `SegGood`**, con las hipótesis locales de extensión. -/
+theorem segGood_aggPair (g : GPathM) (ec : ExtCtx g) (hseg : SegGood g) (x w : PathNodeId) :
+    SegGood (aggPair g x w) := by
+  have hstep : (aggPair g x w).current_step = g.current_step := by
+    unfold aggPair
+    split
+    · split
+      · rfl
+      · split
+        · rfl
+        · rfl
+    · rfl
+  exact segGood_of_badDrops g _ ec hseg hstep (aggPair_drops g x w)
+
+/-- info: 'AbsSat.GraphPath.Model.SegReview.aggPair_drops' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms aggPair_drops
+
+/-- info: 'AbsSat.GraphPath.Model.SegReview.segGood_aggPair' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGood_aggPair
+
+/-- **Borrar un nodo conserva `SegGood`**: no toca ninguna tabla, solo enlaces. -/
+theorem segGood_removeNode (g : GPathM) (hnd : NodupIds g) (hseg : SegGood g) (x : PathNodeId) :
+    SegGood (removeNode g x) := by
+  have back : ∀ y n', (removeNode g x).node? y = some n' → ∃ n, g.node? y = some n ∧
+      (∀ p ∈ n'.parents, p ∈ n.parents) ∧ n'.owners = n.owners := by
+    intro y n' h
+    have hmem : n' ∈ (removeNode g x).nodes := List.mem_of_find?_eq_some h
+    rw [removeNode_nodes] at hmem
+    obtain ⟨n0, hn0, heq⟩ := List.mem_map.mp hmem
+    have hid : n'.id = y := node?_id_eq _ y n' h
+    have h0id : n0.id = y := by rw [← hid, ← heq]; rfl
+    refine ⟨n0, by rw [← h0id]; exact node?_of_mem hnd n0 (List.mem_filter.mp hn0).1, ?_, ?_⟩
+    · intro p hp; rw [← heq] at hp; exact (List.mem_filter.mp hp).1
+    · rw [← heq]; rfl
+  intro sel lo hi hlo0 hlohi hhi hch' hpw' i hi0 hic hout
+  have hcs : (removeNode g x).current_step = g.current_step := rfl
+  rw [hcs] at hhi hic
+  have hsG : Seg g sel lo hi := by
+    refine ⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun a b ha1 hb1 ha2 hb2 hab nb hnb => ?_⟩
+    · obtain ⟨hs, hjs⟩ := hch'.1 j hj1 hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _⟩ := back _ m hm
+      exact ⟨by rw [hn]; rfl, hjs⟩
+    · obtain ⟨hs, _⟩ := hch'.1 (j + 1) (by omega) hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, hpar, _⟩ := back _ m hm
+      have hl := hch'.2 j hj1 hj2
+      rw [hm] at hl
+      rw [hn]
+      simp only [Option.map_some, Option.getD_some] at hl ⊢
+      exact hpar _ hl
+    · obtain ⟨hs, _⟩ := hch'.1 b hb1 hb2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _, hown⟩ := back _ m hm
+      rw [← Option.some.inj (hn.symm.trans hnb), ← hown]
+      exact hpw' a b ha1 hb1 ha2 hb2 hab m hm
+  obtain ⟨r, hrs, hrall⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 i hi0 hic hout
+  refine ⟨r, hrs, fun j hj1 hj2 nj' hnj' => ?_⟩
+  obtain ⟨n, hn, _, hown⟩ := back _ nj' hnj'
+  rw [hown]; exact hrall j hj1 hj2 n hn
+
+/-- info: 'AbsSat.GraphPath.Model.SegReview.segGood_removeNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGood_removeNode
 
 end AbsSat.GraphPath.Model.SegReview
