@@ -3898,6 +3898,412 @@ def reportEF (name : String) (a : EFAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primero: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`fullext`: «todo tramo se extiende a una cadena completa».** Para cada tramo (enlazado, poseído
+por pares) se busca, con retroceso y presupuesto, una extensión hasta el paso 0 y hasta la cima: en
+cada borde, candidatas = nodos vivos enlazados (padre del más bajo / hijo del más alto) que están en
+todas las tablas del tramo y lo tienen entero en la suya. Se cuentan tramos que se extienden, que
+NO (búsqueda exhaustiva) y los que agotan el presupuesto. -/
+
+def fitsAll (g : GPathM) (P : List PathNodeId) (r : PathNodeId) : Bool :=
+  match g.node? r with
+  | none => false
+  | some nr => P.all (fun y => nr.owners.contains y && (tableOfAO g y).contains r)
+
+/-- `some true` se extiende, `some false` no (exhaustivo), `none` presupuesto agotado. -/
+partial def extendFull (g : GPathM) (P : List PathNodeId) (budget : Nat) : Option Bool × Nat :=
+  if budget == 0 then (none, 0)
+  else
+    match P.head?, P.getLast? with
+    | some low, some high =>
+      if low.id.step > 0 then
+        let cands := match g.node? low with
+          | some n => n.parents.filter (fun r => fitsAll g P r)
+          | none => []
+        cands.foldl (fun (acc : Option Bool × Nat) r =>
+          match acc with
+          | (some true, b) => (some true, b)
+          | (res, b) =>
+            if b == 0 then (none, 0)
+            else
+              let (r', b') := extendFull g (r :: P) (b - 1)
+              match r', res with
+              | some true, _ => (some true, b')
+              | none, _ => (none, b')
+              | some false, none => (none, b')
+              | some false, _ => (some false, b'))
+          (some false, budget)
+      else if high.id.step < g.current_step - 1 then
+        let cands := match g.node? high with
+          | some n => n.sons.filter (fun r => fitsAll g P r &&
+              (match g.node? r with | some nr => nr.parents.contains high | none => false))
+          | none => []
+        cands.foldl (fun (acc : Option Bool × Nat) r =>
+          match acc with
+          | (some true, b) => (some true, b)
+          | (res, b) =>
+            if b == 0 then (none, 0)
+            else
+              let (r', b') := extendFull g (P ++ [r]) (b - 1)
+              match r', res with
+              | some true, _ => (some true, b')
+              | none, _ => (none, b')
+              | some false, none => (none, b')
+              | some false, _ => (some false, b'))
+          (some false, budget)
+      else (some true, budget)
+    | _, _ => (some true, budget)
+
+structure FXCell where
+  states : Nat := 0
+  segs   : Nat := 0
+  bad    : Nat := 0
+  cut    : Nat := 0
+  statesBad : Nat := 0
+  first  : String := ""
+  deriving Repr
+
+def measureFX (label : String) (g : GPathM) (cap budget : Nat) (c : FXCell) : FXCell := Id.run do
+  if !isValid g then return c
+  let mut c := { c with states := c.states + 1 }
+  let mut anyBad := false
+  for n in g.nodes.take cap do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      let (r, _) := extendFull g P budget
+      c := { c with segs := c.segs + 1 }
+      match r with
+      | some true => pure ()
+      | some false =>
+        anyBad := true
+        c := { c with bad := c.bad + 1
+                    , first := if c.first == "" then s!"{label} tramo {P.map (·.id.step)}" else c.first }
+      | none => c := { c with cut := c.cut + 1 }
+  return { c with statesBad := c.statesBad + (if anyBad then 1 else 0) }
+
+structure FXAcc where
+  formulas : Nat := 0
+  line   : FXCell := {}
+  base   : FXCell := {}
+  agg    : FXCell := {}
+  up     : FXCell := {}
+  reader : FXCell := {}
+  clean  : FXCell := {}
+  par    : FXCell := {}
+  sons   : FXCell := {}
+  pairs  : FXCell := {}
+  deriving Repr
+
+def instrStepsFX (lab : String) (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (cap budget : Nat) (c0 : FXCell) : GPathM × FXCell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      g := reviewNode g nb id
+      c := measureFX s!"{lab} nodo@{id.id.step}" g cap budget c
+  return (g, c)
+
+def sweepFX (lab : String) (g0 : GPathM) (cap budget : Nat) (a : FXAcc) : GPathM × FXAcc := Id.run do
+  let mut g := g0
+  let mut a := a
+  for k in (intRange 0 (g0.current_step - 1)).reverse do
+    for x in (g.line k).map (·.id) do
+      match g.node? x with
+      | none => pure ()
+      | some nx =>
+        if isValidNode g nx then
+          for kw in (intRange 0 (g.current_step - 1)).reverse do
+            for w in AggressiveReview.ownersAtNow g x kw do
+              let g' := AggressiveReview.aggPair g x w
+              if GPathM.measure g' < GPathM.measure g then
+                a := { a with pairs := measureFX s!"{lab} par {x.id.step}/{w.id.step}" g' cap budget a.pairs }
+              g := g'
+        match g.node? x with
+        | none => pure ()
+        | some n1 => if !isValidNode g n1 then g := removeNode g x
+  return (g, a)
+
+def reviewAggFX (lab : String) (F : GPathM) (cap budget : Nat) (a : FXAcc) : GPathM × FXAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        let mut h := g
+        for id in g.nodes.map (·.id) do
+          h := cleanInvalidGo h [id]
+        a := { a with clean := measureFX s!"{lab} cleanInvalid" h cap budget a.clean }
+        let (h2, cp) := instrStepsFX s!"{lab} padres" h (·.parents) (intRange 1 (h.current_step - 1)) cap budget a.par
+        a := { a with par := cp }
+        let (h3, cs) := instrStepsFX s!"{lab} hijos" h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse cap budget a.sons
+        a := { a with sons := cs }
+        g := h3
+        if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      a := { a with base := measureFX s!"{lab} review" g cap budget a.base }
+      let (g2, a') := sweepFX lab g cap budget a
+      a := a'
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  return (g, a)
+
+partial def walkFX (lab : String) (g : GPathM) (fuel cap budget : Nat) (a : FXAcc) : FXAcc :=
+  if fuel == 0 then a
+  else
+    let a := { a with reader := measureFX s!"{lab} lector" g cap budget a.reader }
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        let (_, a') := reviewAggFX s!"{lab} pin" ([q.id].foldl filterRequire g) cap budget a
+        a := a'
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkFX lab (filterAllAgg g [q.id]) (fuel - 1) cap budget a
+
+def runFormulaFX (label : String) (φ : Cnf) (cap budget : Nat) (a : FXAcc) : FXAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := { a with line := measureFX s!"{label} paso {step} linea" kv.2 cap budget a.line }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        let lab := s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩"
+        let (R, a') := reviewAggFX lab F cap budget a
+        a := a'
+        if isValid R then
+          a := { a with agg := measureFX s!"{lab} agg" R cap budget a.agg
+                      , up := measureFX s!"{lab} up" (addNode R d "") cap budget a.up }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkFX s!"{label} lector" g (stepCount φ).toNat cap budget a
+  return a
+
+def reportFX (name : String) (a : FXAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  let row (lbl : String) (c : FXCell) : IO Unit := do
+    IO.println s!"   {lbl}: estados {c.states} (con fallo {c.statesBad}), tramos {c.segs}, NO se extienden {c.bad}, presupuesto agotado {c.cut}"
+    if c.first != "" then IO.println s!"      primero: {c.first}"
+  row "linea (tras doJoin)      " a.line
+  row "tras cleanInvalid (pasada)" a.clean
+  row "pasada padres, por nodo  " a.par
+  row "pasada hijos, por nodo   " a.sons
+  row "revision base (review)   " a.base
+  row "barrido, por par         " a.pairs
+  row "review agresivo  [REV]   " a.agg
+  row "up                       " a.up
+  row "lector           [REV]   " a.reader
+  IO.println s!"   ({ms} ms)"
+
+/-! **`cleanobl`: la obligación de `cleanInvalid`.** En cada `cleanInvalid` real (construcción y pines
+del lector): para cada tramo del estado DE DESPUÉS, ¿se extiende en el estado DE ANTES a una cadena
+completa cuyos miembros están todos en la tabla global FINAL? Y, por comparar, sin esa restricción. -/
+
+partial def extendFullIn (g : GPathM) (ok : PathNodeId → Bool) (P : List PathNodeId) (budget : Nat) :
+    Option Bool × Nat :=
+  if budget == 0 then (none, 0)
+  else
+    match P.head?, P.getLast? with
+    | some low, some high =>
+      let step (cands : List PathNodeId) (mk : PathNodeId → List PathNodeId) : Option Bool × Nat :=
+        cands.foldl (fun (acc : Option Bool × Nat) r =>
+          match acc with
+          | (some true, b) => (some true, b)
+          | (res, b) =>
+            if b == 0 then (none, 0)
+            else
+              let (r', b') := extendFullIn g ok (mk r) (b - 1)
+              match r', res with
+              | some true, _ => (some true, b')
+              | none, _ => (none, b')
+              | some false, none => (none, b')
+              | some false, _ => (some false, b'))
+          (some false, budget)
+      if low.id.step > 0 then
+        let cands := match g.node? low with
+          | some n => n.parents.filter (fun r => ok r && fitsAll g P r)
+          | none => []
+        step cands (fun r => r :: P)
+      else if high.id.step < g.current_step - 1 then
+        let cands := match g.node? high with
+          | some n => n.sons.filter (fun r => ok r && fitsAll g P r &&
+              (match g.node? r with | some nr => nr.parents.contains high | none => false))
+          | none => []
+        step cands (fun r => P ++ [r])
+      else (some true, budget)
+    | _, _ => (some true, budget)
+
+structure COAcc where
+  formulas : Nat := 0
+  passes : Nat := 0
+  segs : Nat := 0
+  inGow : Nat := 0       -- se extiende en el de antes dentro de la global final
+  anyExt : Nat := 0      -- se extiende en el de antes (sin restricción)
+  none_ : Nat := 0       -- no se extiende dentro de la global final (exhaustivo)
+  cut : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkClean (lab : String) (G : GPathM) (cap budget : Nat) (a : COAcc) : COAcc := Id.run do
+  let G' := cleanInvalid G
+  if !isValid G' then return a
+  let mut a := { a with passes := a.passes + 1 }
+  let gow := G'.gowners
+  for n in G'.nodes.take cap do
+    let (segs, _) := collectDown G' [n.id] ([], 60)
+    for P in segs do
+      if P.all (fun x => (G.node? x).isSome) then
+        a := { a with segs := a.segs + 1 }
+        let (r1, _) := extendFullIn G (fun r => gow.contains r) P budget
+        let (r2, _) := extendFull G P budget
+        match r1 with
+        | some true => a := { a with inGow := a.inGow + 1 }
+        | some false => a := { a with none_ := a.none_ + 1
+                                    , first := if a.first == "" then s!"{lab} tramo {P.map (·.id.step)}" else a.first }
+        | none => a := { a with cut := a.cut + 1 }
+        if r2 == some true then a := { a with anyExt := a.anyExt + 1 }
+  return a
+
+def reviewCO (lab : String) (F : GPathM) (cap budget : Nat) (a : COAcc) : COAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        a := checkClean lab g cap budget a
+        let g3 := reviewSons (reviewParents (cleanInvalid g))
+        g := g3
+        if !(GPathM.measure g3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g2 := AggressiveReview.aggSweep g
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  return a
+
+partial def walkCO (lab : String) (g : GPathM) (fuel cap budget : Nat) (a : COAcc) : COAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewCO s!"{lab} pin" ([q.id].foldl filterRequire g) cap budget a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkCO lab (filterAllAgg g [q.id]) (fuel - 1) cap budget a
+
+def runFormulaCO (label : String) (φ : Cnf) (cap budget : Nat) (a : COAcc) : COAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewCO s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkCO s!"{label} lector" g (stepCount φ).toNat cap budget a
+  return a
+
+def reportCO (name : String) (a : COAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   pasadas de cleanInvalid validas {a.passes}, tramos del estado de despues {a.segs}"
+  IO.println s!"     se extienden en el de ANTES dentro de la global FINAL: {a.inGow}"
+  IO.println s!"     NO (busqueda exhaustiva)                          : {a.none_}"
+  IO.println s!"     presupuesto agotado                               : {a.cut}"
+  IO.println s!"     (sin la restriccion de la global: {a.anyExt})"
+  if a.first != "" then IO.println s!"   primero que no: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`filterkill`: ¿el review mata exactamente los tramos que el filtro deja sin extensión?** Justo tras
+el filtro (antes del review), para cada tramo con todos sus miembros en la tabla global: ¿se extiende
+dentro de ella? Y, tras `reviewAgg`, ¿sigue siendo tramo? -/
+
+structure FKAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  segs : Nat := 0
+  ext : Nat := 0
+  extSurv : Nat := 0
+  noext : Nat := 0
+  noextSurv : Nat := 0
+  cut : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkFK (lab : String) (F : GPathM) (cap budget : Nat) (a : FKAcc) : FKAcc := Id.run do
+  let R := AggressiveReview.reviewAgg F
+  let mut a := { a with states := a.states + 1 }
+  let gow := F.gowners
+  for n in F.nodes.take cap do
+    if gow.contains n.id then
+      let (segs, _) := collectDown F [n.id] ([], 60)
+      for P in segs do
+        if P.all (fun x => gow.contains x) then
+          a := { a with segs := a.segs + 1 }
+          let surv := isValid R && isSegment R P
+          match (extendFullIn F (fun r => gow.contains r) P budget).1 with
+          | some true => a := { a with ext := a.ext + 1, extSurv := a.extSurv + (if surv then 1 else 0) }
+          | some false =>
+            a := { a with noext := a.noext + 1, noextSurv := a.noextSurv + (if surv then 1 else 0)
+                        , first := if a.first == "" && surv then s!"{lab} tramo {P.map (·.id.step)}" else a.first }
+          | none => a := { a with cut := a.cut + 1 }
+  return a
+
+partial def walkFK (lab : String) (g : GPathM) (fuel cap budget : Nat) (a : FKAcc) : FKAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := checkFK s!"{lab} pin" ([q.id].foldl filterRequire g) cap budget a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkFK lab (filterAllAgg g [q.id]) (fuel - 1) cap budget a
+
+def runFormulaFK (label : String) (φ : Cnf) (cap budget : Nat) (a : FKAcc) : FKAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := checkFK s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkFK s!"{label} lector" g (stepCount φ).toNat cap budget a
+  return a
+
+def reportFK (name : String) (a : FKAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.states} estados filtrados)"
+  IO.println s!"   tramos dentro de la global tras el filtro: {a.segs}"
+  IO.println s!"     se extienden dentro de la global     : {a.ext}  (sobreviven al review: {a.extSurv})"
+  IO.println s!"     NO se extienden (exhaustivo)         : {a.noext}  (sobreviven al review: {a.noextSurv})"
+  IO.println s!"     presupuesto agotado                  : {a.cut}"
+  if a.first != "" then IO.println s!"   primero que NO se extiende y SOBREVIVE: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -4074,6 +4480,63 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "filterkill" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaFK path φ 20 2000 {})
+        let t1 ← IO.monoMsNow
+        reportFK path a (t1 - t0)
+  | "filterkill" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : FKAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaFK s!"seed {seed} #{idx}" φ 20 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportFK s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "cleanobl" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaCO path φ 20 2000 {})
+        let t1 ← IO.monoMsNow
+        reportCO path a (t1 - t0)
+  | "cleanobl" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : COAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCO s!"seed {seed} #{idx}" φ 20 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportCO s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "fullext" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaFX path φ 20 2000 {})
+        let t1 ← IO.monoMsNow
+        reportFX path a (t1 - t0)
+  | "fullext" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : FXAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaFX s!"seed {seed} #{idx}" φ 20 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportFX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "extfire" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
