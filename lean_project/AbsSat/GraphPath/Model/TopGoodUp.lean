@@ -745,4 +745,199 @@ theorem segGood_doJoin (A B : GPathM) (tA : SegGood A) (tB : SegGood B)
 #guard_msgs in
 #print axioms segGood_doJoin
 
+-- ============================================================
+-- El descenso DESDE `a`: bajando y subiendo
+-- ============================================================
+
+open AbsSat.GraphPath.Model.Extendable (upd upd_self upd_other isChain_of_partial)
+
+/-- **Un tramo**: enlazado por padres de `lo` a `hi` y poseído por pares. -/
+def Seg (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) : Prop :=
+  Extendable.PartialChain g sel lo hi ∧
+    ∀ i j, lo ≤ i → lo ≤ j → i ≤ hi → j ≤ hi → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners
+
+/-- **Bajar un paso.** La entrada común que `SegGood` da en `lo - 1` está en la tabla de `sel lo`,
+así que es su padre; y la simetría mete al tramo en su tabla. -/
+theorem seg_down (g : GPathM) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
+    (hnode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < g.current_step → (g.node? q).isSome)
+    (hseg : SegGood g) (sel : Int → PathNodeId) (lo hi : Int) (hpos : 0 < lo) (hlohi : lo ≤ hi)
+    (hhi : hi ≤ g.current_step - 1) (hs : Seg g sel lo hi) :
+    ∃ r, Seg g (upd sel (lo - 1) r) (lo - 1) hi := by
+  obtain ⟨hch, hpw⟩ := hs
+  obtain ⟨r, hrs, hrall⟩ := hseg sel lo hi (by omega) hlohi hhi hch hpw (lo - 1) (by omega)
+    (by omega) (Or.inl (by omega))
+  obtain ⟨hlsome, hls⟩ := hch.1 lo (Int.le_refl _) hlohi
+  obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hlsome
+  have hrl := hrall lo (Int.le_refl _) hlohi nl hnl
+  obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp (hnode _ nl hnl r hrl (by omega) (by omega))
+  refine ⟨r, ⟨fun i hi1 hi2 => ?_, fun i hi1 hi2 => ?_⟩, fun i j hi1 hj1 hi2 hj2 hij nj hnj => ?_⟩
+  · rcases int_eq_or_ne i (lo - 1) with he | he
+    · subst he; rw [upd_self]; exact ⟨by rw [hnr]; rfl, hrs⟩
+    · rw [upd_other sel (lo - 1) r he]; exact hch.1 i (by omega) hi2
+  · rcases int_eq_or_ne i (lo - 1) with he | he
+    · subst he
+      rw [upd_self, upd_other sel (lo - 1) r (by omega), show lo - 1 + 1 = lo from by omega, hnl]
+      simp only [Option.map_some, Option.getD_some]
+      exact (AdjacentOwners.owners_below_iff_parents g adj (sel lo) nl hnl (by omega) r
+        (by rw [hrs, hls])).mp hrl
+    · rw [upd_other sel (lo - 1) r he, upd_other sel (lo - 1) r (by omega)]
+      exact hch.2 i (by omega) hi2
+  · rcases int_eq_or_ne i (lo - 1) with hei | hei
+    · subst hei
+      rw [upd_self]
+      rw [upd_other sel (lo - 1) r (fun h => hij h.symm)] at hnj
+      exact hrall j (by omega) hj2 nj hnj
+    · rw [upd_other sel (lo - 1) r hei]
+      rcases int_eq_or_ne j (lo - 1) with hej | hej
+      · subst hej
+        rw [upd_self] at hnj
+        obtain ⟨hsi, _⟩ := hch.1 i (by omega) hi2
+        obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp hsi
+        exact hsym _ ni r nj hni hnj (hrall i (by omega) hi2 ni hni)
+      · rw [upd_other sel (lo - 1) r hej] at hnj
+        exact hpw i j (by omega) (by omega) hi2 hj2 hij nj hnj
+
+/-- **Subir un paso.** La entrada común de `hi + 1` tiene, por simetría, a `sel hi` en su tabla, y
+en el paso de justo abajo eso es ser su padre. -/
+theorem seg_up (g : GPathM) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
+    (hnode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < g.current_step → (g.node? q).isSome)
+    (hseg : SegGood g) (sel : Int → PathNodeId) (lo hi : Int) (hlo : 0 ≤ lo) (hlohi : lo ≤ hi)
+    (hhi : hi < g.current_step - 1) (hs : Seg g sel lo hi) :
+    ∃ r, Seg g (upd sel (hi + 1) r) lo (hi + 1) := by
+  obtain ⟨hch, hpw⟩ := hs
+  obtain ⟨r, hrs, hrall⟩ := hseg sel lo hi hlo hlohi (by omega) hch hpw (hi + 1) (by omega)
+    (by omega) (Or.inr (by omega))
+  obtain ⟨hhsome, hhs⟩ := hch.1 hi hlohi (Int.le_refl _)
+  obtain ⟨nh, hnh⟩ := Option.isSome_iff_exists.mp hhsome
+  have hrh := hrall hi hlohi (Int.le_refl _) nh hnh
+  obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp (hnode _ nh hnh r hrh (by omega) (by omega))
+  refine ⟨r, ⟨fun i hi1 hi2 => ?_, fun i hi1 hi2 => ?_⟩, fun i j hi1 hj1 hi2 hj2 hij nj hnj => ?_⟩
+  · rcases int_eq_or_ne i (hi + 1) with he | he
+    · subst he; rw [upd_self]; exact ⟨by rw [hnr]; rfl, hrs⟩
+    · rw [upd_other sel (hi + 1) r he]; exact hch.1 i hi1 (by omega)
+  · rcases int_eq_or_ne i hi with he | he
+    · subst he
+      rw [upd_self, upd_other sel (i + 1) r (by omega), hnr]
+      simp only [Option.map_some, Option.getD_some]
+      exact (AdjacentOwners.owners_below_iff_parents g adj r nr hnr (by omega) (sel i)
+        (by rw [hrs, hhs]; omega)).mp (hsym _ nh r nr hnh hnr hrh)
+    · rw [upd_other sel (hi + 1) r (by omega), upd_other sel (hi + 1) r (by omega)]
+      exact hch.2 i hi1 (by omega)
+  · rcases int_eq_or_ne i (hi + 1) with hei | hei
+    · subst hei
+      rw [upd_self]
+      rw [upd_other sel (hi + 1) r (fun h => hij h.symm)] at hnj
+      exact hrall j hj1 (by omega) nj hnj
+    · rw [upd_other sel (hi + 1) r hei]
+      rcases int_eq_or_ne j (hi + 1) with hej | hej
+      · subst hej
+        rw [upd_self] at hnj
+        obtain ⟨hsi, _⟩ := hch.1 i hi1 (by omega)
+        obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp hsi
+        exact hsym _ ni r nj hni hnj (hrall i hi1 (by omega) ni hni)
+      · rw [upd_other sel (hi + 1) r hej] at hnj
+        exact hpw i j hi1 hj1 (by omega) (by omega) hij nj hnj
+
+/-- **Bajar hasta el paso 0**, conservando lo que ya se había elegido en el paso `s`. -/
+theorem seg_down_all (g : GPathM) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
+    (hnode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < g.current_step → (g.node? q).isSome)
+    (hseg : SegGood g) (s : Int) (x : PathNodeId) :
+    ∀ (fuel : Nat) (sel : Int → PathNodeId) (lo hi : Int), lo.toNat ≤ fuel → 0 ≤ lo →
+      lo ≤ s → s ≤ hi → hi ≤ g.current_step - 1 → Seg g sel lo hi → sel s = x →
+      ∃ sel', Seg g sel' 0 hi ∧ sel' s = x := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro sel lo hi hm hlo hls hsh hhi hs hx
+    have : lo = 0 := by omega
+    subst this; exact ⟨sel, hs, hx⟩
+  | succ fuel ih =>
+    intro sel lo hi hm hlo hls hsh hhi hs hx
+    if hpos : 0 < lo then
+      obtain ⟨r, hs'⟩ := seg_down g adj hsym hnode hseg sel lo hi hpos (by omega) hhi hs
+      exact ih _ (lo - 1) hi (by omega) (by omega) (by omega) hsh hhi hs'
+        (by rw [upd_other sel (lo - 1) r (by omega)]; exact hx)
+    else
+      have : lo = 0 := by omega
+      subst this; exact ⟨sel, hs, hx⟩
+
+/-- **Subir hasta la cima**, conservando lo elegido en el paso `s`. -/
+theorem seg_up_all (g : GPathM) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
+    (hnode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < g.current_step → (g.node? q).isSome)
+    (hseg : SegGood g) (s : Int) (x : PathNodeId) :
+    ∀ (fuel : Nat) (sel : Int → PathNodeId) (hi : Int),
+      (g.current_step - 1 - hi).toNat ≤ fuel → 0 ≤ s → s ≤ hi → hi ≤ g.current_step - 1 →
+      Seg g sel 0 hi → sel s = x →
+      ∃ sel', Seg g sel' 0 (g.current_step - 1) ∧ sel' s = x := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro sel hi hm hs0 hsh hhi hs hx
+    have : hi = g.current_step - 1 := by omega
+    subst this; exact ⟨sel, hs, hx⟩
+  | succ fuel ih =>
+    intro sel hi hm hs0 hsh hhi hs hx
+    if hlt : hi < g.current_step - 1 then
+      obtain ⟨r, hs'⟩ := seg_up g adj hsym hnode hseg sel 0 hi (Int.le_refl _) (by omega) hlt hs
+      exact ih _ (hi + 1) (by omega) hs0 (by omega) (by omega) hs'
+        (by rw [upd_other sel (hi + 1) r (by omega)]; exact hx)
+    else
+      have : hi = g.current_step - 1 := by omega
+      subst this; exact ⟨sel, hs, hx⟩
+
+/-- **Por todo nodo pasa una cadena completa poseída por pares.** Se parte del tramo `[a]`, se baja
+hasta el paso 0 y se sube hasta la cima: en cada paso, cualquier entrada común sirve. -/
+theorem chain_through_of_segGood (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (hsym : Threaded.OwnSymmetric g)
+    (hnode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < g.current_step → (g.node? q).isSome)
+    (hseg : SegGood g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step) :
+    ∃ sel, IsChain g sel ∧ PairwiseOwned g sel ∧ sel a.id.step = a := by
+  have hseed : Seg g (fun _ => a) a.id.step a.id.step :=
+    ⟨⟨fun i hi1 hi2 => by
+        have : i = a.id.step := by omega
+        subst this; exact ⟨by rw [hna]; rfl, rfl⟩,
+      fun i hi1 hi2 => by omega⟩,
+     fun i j hi1 hj1 hi2 hj2 hij => absurd (by omega) hij⟩
+  obtain ⟨s1, hs1, hx1⟩ := seg_down_all g adj hsym hnode hseg a.id.step a a.id.step.toNat
+    (fun _ => a) a.id.step a.id.step (Nat.le_refl _) ha0 (Int.le_refl _) (Int.le_refl _)
+    (by omega) hseed rfl
+  obtain ⟨s2, hs2, hx2⟩ := seg_up_all g adj hsym hnode hseg a.id.step a
+    (g.current_step - 1 - a.id.step).toNat s1 a.id.step (Nat.le_refl _) ha0 (Int.le_refl _)
+    (by omega) hs1 hx1
+  refine ⟨s2, isChain_of_partial g s2 hs2.1, fun i j hi0 hj0 hi1 hj1 hij => ?_, hx2⟩
+  obtain ⟨hsj, _⟩ := hs2.1.1 j hj0 (by omega)
+  obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp hsj
+  obtain ⟨_, hstep⟩ := hs2.1.1 i hi0 (by omega)
+  refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstep⟩
+  simp only [ownersOf, hnj]
+  exact hs2.2 i j hi0 hj0 (by omega) (by omega) hij nj hnj
+
+/-- **Y la escalera, desde `SegGood`.**
+
+    SegGood  →  por todo nodo pasa una cadena  →  OwnerChained  →  PinAlive  →  el veredicto -/
+theorem ownerChained_of_segGood (g : GPathM) (adj : AdjacentOwners.Adj g) (hsmp : Sons.SMP g)
+    (hpos : 0 < g.current_step) (hgn : GownersNodes.GN g) (hsym : Threaded.OwnSymmetric g)
+    (hnode : ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < g.current_step → (g.node? q).isSome)
+    (hseg : SegGood g) : ReaderChain.OwnerChained g := by
+  intro q hq h0 h1
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g q).mp (hgn q hq))
+  obtain ⟨sel, hchain, howned, hsq⟩ := chain_through_of_segGood g adj hsym hnode hseg q n hn h0 h1
+  exact ⟨sel, SupportedRun.chainSound_of_chain g adj hsmp hpos sel hchain howned, by rw [hsq]⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.chain_through_of_segGood' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_through_of_segGood
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.ownerChained_of_segGood' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_segGood
+
 end AbsSat.GraphPath.Model.TopGoodUp
