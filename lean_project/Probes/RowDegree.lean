@@ -2470,6 +2470,87 @@ def reportCS (name : String) (a : CSAcc) (ms : Nat) : IO Unit := do
   if a.firstBad != "" then IO.println s!"   primero: {a.firstBad}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`chainshare`: el candidato de cadenas.** Para un nodo `a` y una cadena parcial `sel lo … hi`
+enlazada por padres, poseída por pares y poseída mutuamente con `a`: en cada paso `i < lo` hay una
+entrada común a la tabla de `a` y a las de toda la cadena. Se recorren por DFS, con presupuesto, todas
+las cadenas que bajan desde cada entrada de la tabla de `a`; `hi` es cualquiera, y se separa `hi` en la
+cima (lo que usa el descenso). -/
+
+structure CHAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  chains   : Nat := 0
+  bad      : Nat := 0
+  topCh    : Nat := 0
+  topBad   : Nat := 0
+  cut      : Nat := 0
+  firstBad : String := ""
+  deriving Repr
+
+/-- La tabla colectiva de `a` y la cadena tiene entrada en todos los pasos `< lo`. -/
+def chainCommonBelow (g : GPathM) (a : PathNodeId) (P : List PathNodeId) (lo : Int) : Bool :=
+  (List.range lo.toNat).all (fun i =>
+    (ownersAt (tableOfAO g a) (i : Int)).any (fun r => P.all (fun y => (tableOfAO g y).contains r)))
+
+partial def dfsChains (g : GPathM) (label : String) (a : PathNodeId) (P : List PathNodeId)
+    (isTop : Bool) (acc : CHAcc × Nat) : CHAcc × Nat :=
+  let (c, budget) := acc
+  if budget == 0 then ({ c with cut := c.cut + 1 }, 0)
+  else
+    match P with
+    | [] => (c, budget)
+    | low :: _ =>
+      let lo := low.id.step
+      let ok := chainCommonBelow g a P lo
+      let c := { c with chains := c.chains + 1, bad := c.bad + (if ok then 0 else 1)
+                      , topCh := c.topCh + (if isTop then 1 else 0)
+                      , topBad := c.topBad + (if isTop && !ok then 1 else 0)
+                      , firstBad := if c.firstBad == "" && !ok then
+                          s!"{label} a@{a.id.step} cadena {P.map (·.id.step)}" else c.firstBad }
+      let ps := match g.node? low with
+        | some n => n.parents.filter (fun p => mutuallyOwn g p a && P.all (fun y => mutuallyOwn g p y))
+        | none => []
+      ps.foldl (fun acc p => dfsChains g label a (p :: P) isTop acc) (c, budget - 1)
+
+def scanCH (label : String) (g : GPathM) (cap budget : Nat) (c : CHAcc) : CHAcc := Id.run do
+  let mut c := { c with states := c.states + 1 }
+  for na in g.nodes.take cap do
+    let a := na.id
+    for x in na.owners do
+      if x.id.step ≥ 0 && x.id.step < g.current_step && mutuallyOwn g x a then
+        let (c', _) := dfsChains g label a [x] (x.id.step == g.current_step - 1) (c, budget)
+        c := c'
+  return c
+
+partial def walkCH (label : String) (g : GPathM) (fuel cap budget : Nat) (c : CHAcc) : CHAcc :=
+  if fuel == 0 then c
+  else
+    let c := scanCH label g cap budget c
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => c
+      | some q => walkCH label (filterAllAgg g [q.id]) (fuel - 1) cap budget c
+
+def runFormulaCH (lineToo : Bool) (label : String) (φ : Cnf) (cap budget : Nat) (c : CHAcc) :
+    CHAcc := Id.run do
+  let mut c := { c with formulas := c.formulas + 1 }
+  for kv in pureRunW φ do
+    if lineToo && isValid kv.2 then c := scanCH s!"{label} linea" kv.2 cap budget c
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      c := walkCH label g (stepCount φ).toNat cap budget c
+  return c
+
+def reportCH (name : String) (c : CHAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {c.formulas}, estados {c.states}, cadenas {c.chains} (recortes de presupuesto {c.cut})"
+  IO.println s!"   sin entrada comun por debajo: {c.bad}"
+  IO.println s!"   desde la cima: {c.topCh}, sin entrada comun: {c.topBad}"
+  if c.firstBad != "" then IO.println s!"   primero: {c.firstBad}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2646,6 +2727,28 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "chainshare" :: "file" :: paths | "chainline" :: "file" :: paths =>
+    let lineToo := args.head! == "chainline"
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaCH lineToo path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportCH path a (t1 - t0)
+  | "chainshare" :: "random" :: cases :: nvMin :: seeds
+  | "chainline" :: "random" :: cases :: nvMin :: seeds =>
+    let lineToo := args.head! == "chainline"
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : CHAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCH lineToo s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportCH s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "cliqueshare" :: "file" :: paths | "cliqueline" :: "file" :: paths =>
     let lineToo := args.head! == "cliqueline"
     for path in paths do
