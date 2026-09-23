@@ -871,4 +871,78 @@ theorem path_eq_of_mapSingle (g : GPathM) (ctx : Pinned.Ctx g) (links : Bridge.L
 #guard_msgs in
 #print axioms path_eq_of_mapSingle
 
+-- ============================================================
+-- El residuo vive en la zona SIN PINCHAR
+-- ============================================================
+
+/-- **Si la tabla global no elige en un paso, ninguna tabla de nodo elige ahí.**
+
+Las tablas de los nodos están dentro de la tabla global (`Pinned.Ctx.ownGow`), así que la elección
+que un nodo pueda tener en un paso es un subconjunto de la que tiene el estado. Un paso ya pinchado
+no ofrece elección a nadie.
+
+Es la observación que sitúa el residuo: **el 4,7 % / 11,9 % que queda vive enteramente en los pasos
+que el lector todavía no ha fijado**, y esa zona encoge en cada pin. -/
+theorem hostSingle_of_globalSingle (g : GPathM) (ctx : Pinned.Ctx g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < g.current_step)
+    (hglob : ∀ p ∈ g.gowners, ∀ q ∈ g.gowners, p.id.step = i → q.id.step = i → p = q) :
+    ∀ u ∈ na.owners, u.id.step = i → ∀ v ∈ na.owners, v.id.step = i → v = u := by
+  intro u hu hus v hv hvs
+  exact hglob v (ctx.ownGow a na hna v hv (by rw [hvs]; exact hi0) (by rw [hvs]; exact hi1))
+    u (ctx.ownGow a na hna u hu (by rw [hus]; exact hi0) (by rw [hus]; exact hi1)) hvs hus
+
+/-- **Y entonces, donde el estado ya no elige ids de mapa, `TableChainOwned` sale entero.**
+
+Las tres piezas encadenadas:
+
+1. unicidad de id de mapa en la tabla global ⟹ unicidad de `PathNodeId` (`path_eq_of_mapSingle`);
+2. unicidad en la tabla global ⟹ unicidad en la tabla de cada nodo (`hostSingle_of_globalSingle`);
+3. y ahí `AggOk` lo paga (`tableChainOwned_of_singleSteps`).
+
+Éste es el **caso base** de la inducción que cerraría el resto: el lector pincha de abajo arriba y
+cada pin quita un paso de la zona con elección, así que el residuo se consume. -/
+theorem tableChainOwned_of_globalMapSingle (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (ctx : Pinned.Ctx g) (links : Bridge.LinksInOwners g)
+    (hrange : ∀ p n, g.node? p = some n → 0 ≤ p.id.step ∧ p.id.step < g.current_step)
+    (hmap : ∀ k, 0 ≤ k → k < g.current_step → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
+      p.id.step = k → q.id.step = k → p.id = q.id) :
+    TableChainOwned g := by
+  -- de ids de mapa a `PathNodeId`, paso a paso
+  have hpath : ∀ k, 0 ≤ k → k < g.current_step → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
+      p.id.step = k → q.id.step = k → p = q := by
+    intro k hk0 hk1 p hp q hq hps hqs
+    have hcast : ((k.toNat : Nat) : Int) = k := by omega
+    exact path_eq_of_mapSingle g ctx links hmap k.toNat p q hp hq
+      (by rw [hcast]; exact hps) (by rw [hcast]; exact hqs) (by rw [hcast]; exact hk1)
+  refine tableChainOwned_of_singleSteps g hok ctx hrange (fun a na hna i hi0 hi1 => ?_)
+  intro u hu hus v hv hvs
+  exact hostSingle_of_globalSingle g ctx a na hna i hi0 hi1
+    (fun p hp q hq hps hqs => hpath i hi0 hi1 p hp q hq hps hqs) u hu hus v hv hvs
+
+/-! ## Lo que queda de la ruta 1
+
+El caso base está cerrado. El paso de la inducción es:
+
+> si el paso más bajo con elección es `k`, pinchar un id de mapa de `k` deja un estado con **una
+> zona con elección estrictamente menor**, y las tablas de ese estado están dentro de las de éste,
+> así que la posesión que allí se demuestre vale aquí.
+
+Las dos mitades de ese paso son:
+
+* **que el estado pinchado siga teniendo el nodo anfitrión y los dos nodos del par** — que es lo que
+  `PinExact.PinExact` da, y que `ReaderChain.partner_survives_pin` ya usa;
+* **que la medida decrezca** — que es `ReaderAgg.measure_lt_of_choiceAt`, ya demostrado y ya usado en
+  `PinAliveChain.chained_of_pinAlive`.
+
+O sea: la misma inducción que cerró `PinAlive`, ahora dentro de una tabla. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.hostSingle_of_globalSingle' does not depend on any axioms -/
+#guard_msgs in
+#print axioms hostSingle_of_globalSingle
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableChainOwned_of_globalMapSingle' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableChainOwned_of_globalMapSingle
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
