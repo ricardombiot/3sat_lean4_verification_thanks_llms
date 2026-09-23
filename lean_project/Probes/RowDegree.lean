@@ -4947,6 +4947,189 @@ def reportTK (name : String) (a : TKAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primera que sobrevive: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`toptrace`: cómo mata el review base la cadena sin entrada común admitida.** Para cada cadena de
+`topkill` que se queda sin entrada común admitida en el paso filtrado `k`: ¿algún miembro se quedó
+solo, ya sin ninguna entrada admitida en `k` en su propia tabla (muerte individual)? ¿O cada miembro
+tiene alguna, pero no común (caso Helly)? Y se sigue el review base vuelta a vuelta y pasada a pasada
+(`cleanInvalid`, padres, hijos) hasta la primera en que la cadena deja de serlo. -/
+
+structure TTAcc where
+  formulas : Nat := 0
+  chains : Nat := 0
+  indiv : Nat := 0
+  helly : Nat := 0
+  hellyLen : Nat := 0
+  byStage : Array Nat := #[0, 0, 0, 0]
+  hellyStage : Array Nat := #[0, 0, 0, 0]
+  hellyRound1 : Nat := 0
+  examples : List String := []
+  deriving Repr
+
+def stageOfDeath (X : GPathM) (P : List PathNodeId) (fuel : Nat) : Nat × Nat := Id.run do
+  let mut g := X
+  for r in [0:fuel] do
+    if !isValid g then return (0, r)
+    let g1 := cleanInvalid g
+    if !(isValid g1 && isSegment g1 P) then return (1, r)
+    let g2 := reviewParents g1
+    if !(isValid g2 && isSegment g2 P) then return (2, r)
+    let g3 := reviewSons g2
+    if !(isValid g3 && isSegment g3 P) then return (3, r)
+    if GPathM.measure g3 == GPathM.measure g then return (4, r)
+    g := g3
+  return (4, fuel)
+
+def checkTT (lab : String) (T : GPathM) (e : Int × List NodeId) (a : TTAcc) : TTAcc := Id.run do
+  let k := e.1
+  let X := filterWeak T e
+  let mut a := a
+  for n in T.line (T.current_step - 1) do
+    let (segs, _) := collectDown T [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        if low.id.step > k then
+          let tabs := P.filterMap (fun y => (T.node? y).map (·.owners))
+          let common := match tabs.head? with
+            | none => []
+            | some t0 => (ownersAt t0 k).filter (fun r => tabs.all (fun t => t.contains r))
+          if !common.any (fun r => e.2.contains r.id) then
+            a := { a with chains := a.chains + 1 }
+            -- en X las tablas son las de T; la global de X ya está filtrada
+            let indiv := tabs.any (fun t => !(ownersAt t k).any (fun r => e.2.contains r.id))
+            let (st, rd) := stageOfDeath X P 40
+            let st' := if st ≥ 4 then 0 else st
+            if indiv then
+              a := { a with indiv := a.indiv + 1, byStage := a.byStage.modify st' (· + 1) }
+            else
+              a := { a with helly := a.helly + 1, hellyLen := a.hellyLen + P.length
+                          , hellyStage := a.hellyStage.modify st' (· + 1)
+                          , hellyRound1 := a.hellyRound1 + (if rd == 0 then 1 else 0)
+                          , examples := if a.examples.length < 3 then
+                              a.examples ++ [s!"{lab} k={k} cadena {P.map (·.id.step)} etapa {st} vuelta {rd}"]
+                            else a.examples }
+  return a
+
+partial def walkTT (lab : String) (g : GPathM) (fuel : Nat) (a : TTAcc) : TTAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := checkTT s!"{lab} pin" g (k, [q.id]) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkTT lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaTT (label : String) (φ : Cnf) (a : TTAcc) : TTAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        for e in es do
+          if isValid T then
+            a := checkTT s!"{label} envio paso {step}" T e a
+            T := AggressiveReview.reviewAgg (filterWeak T e)
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkTT s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportTT (name : String) (a : TTAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   cadenas sin entrada comun admitida: {a.chains}"
+  IO.println s!"   muerte individual (un miembro sin ninguna admitida): {a.indiv}  etapas [estado,clean,padres,hijos] {a.byStage}"
+  IO.println s!"   caso Helly (cada uno tiene, ninguna comun): {a.helly}  (long. media {if a.helly == 0 then 0 else a.hellyLen / a.helly})"
+  IO.println s!"     etapas [estado,clean,padres,hijos] {a.hellyStage}, en la primera vuelta {a.hellyRound1}"
+  for ex in a.examples do IO.println s!"     ej: {ex}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`topmin`: ¿hay un miembro mínimo?** En estados revisados (estado de partida de cada filtro de un
+paso del envío, y estados del lector), para cada cadena desde la cima `P` y cada paso `i` por debajo
+de ella: (a) ¿algún miembro tiene su tabla en `i` dentro de la de todos? (b) ¿lo es el más bajo?
+(c) lo mismo mirando solo ids de mapa. (h) ¿para todo id `x` presente en `i` en todas las tablas hay
+una entrada común con ese id? -/
+
+structure TMAcc where
+  formulas : Nat := 0
+  cases : Nat := 0
+  anyMin : Nat := 0
+  lowMin : Nat := 0
+  anyMinId : Nat := 0
+  idHelly : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkTM (lab : String) (g : GPathM) (a : TMAcc) : TMAcc := Id.run do
+  if !isValid g then return a
+  let mut a := a
+  for n in g.line (g.current_step - 1) do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        let tabs := P.filterMap (fun y => (g.node? y).map (·.owners))
+        for i in (intRange 0 (low.id.step - 1)) do
+          let ats := tabs.map (fun t => ownersAt t i)
+          let sub := fun (x y : List PathNodeId) => x.all (fun r => y.contains r)
+          let subId := fun (x y : List PathNodeId) =>
+            x.all (fun r : PathNodeId => y.any (fun r' : PathNodeId => r'.id == r.id))
+          let am : Bool := ats.any (fun t => ats.all (fun t' => sub t t'))
+          let lm : Bool := match ats.head? with | some t0 => ats.all (fun t' => sub t0 t') | none => true
+          let ami : Bool := ats.any (fun t => ats.all (fun t' => subId t t'))
+          let ids : List NodeId := match ats.head? with
+            | some t0 => (t0.map (fun r : PathNodeId => r.id)).filter
+                (fun x => ats.all (fun t : List PathNodeId => t.any (fun r => r.id == x)))
+            | none => []
+          let ih : Bool := ids.all (fun x => match ats.head? with
+            | some t0 => (t0.filter (fun r : PathNodeId => r.id == x)).any
+                (fun r => ats.all (fun t : List PathNodeId => t.contains r))
+            | none => true)
+          a := { a with cases := a.cases + 1, anyMin := a.anyMin + (if am then 1 else 0)
+                      , lowMin := a.lowMin + (if lm then 1 else 0), anyMinId := a.anyMinId + (if ami then 1 else 0)
+                      , idHelly := a.idHelly + (if ih then 1 else 0)
+                      , first := if a.first == "" && !ih then s!"{lab} i={i} cadena {P.map (·.id.step)}" else a.first }
+  return a
+
+partial def walkTM (lab : String) (g : GPathM) (fuel : Nat) (a : TMAcc) : TMAcc :=
+  let a := checkTM lab g a
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkTM lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaTM (label : String) (φ : Cnf) (a : TMAcc) : TMAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := checkTM s!"{label} linea+review paso {step}" (AggressiveReview.reviewAgg kv.2) a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkTM s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportTM (name : String) (a : TMAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   (cadena desde la cima, paso por debajo): {a.cases}"
+  IO.println s!"     (a) hay miembro minimo: {a.anyMin}   (b) el mas bajo es minimo: {a.lowMin}"
+  IO.println s!"     (c) minimo por ids: {a.anyMinId}   (h) Helly por id: {a.idHelly}"
+  if a.first != "" then IO.println s!"   primer fallo de (h): {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5438,6 +5621,44 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportTK s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "toptrace" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTT path φ {})
+        let t1 ← IO.monoMsNow
+        reportTT path a (t1 - t0)
+  | "toptrace" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TTAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTT s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportTT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "topmin" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTM path φ {})
+        let t1 ← IO.monoMsNow
+        reportTM path a (t1 - t0)
+  | "topmin" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TMAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTM s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportTM s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
