@@ -259,7 +259,7 @@ theorem tablesExact_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step 
 -- ============================================================
 
 /-- **Los owners de un nodo están en la tabla global.** -/
-def OwnIn (g : GPathM) : Prop := ∀ pid n, g.node? pid = some n → ∀ q ∈ n.owners, q ∈ g.gowners
+def OwnIn (g : GPathM) : Prop := ∀ n ∈ g.nodes, ∀ q ∈ n.owners, q ∈ g.gowners
 
 /-- **La unión conserva la verdad de las tablas**: una entrada de la tabla unida de `r` viene de la
 tabla de `r` en un lado, y la cadena de ese lado es cadena de la unión. -/
@@ -279,7 +279,8 @@ theorem tablesExact_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
       ∃ s, FullChainG (join g₁ g₂) s ∧ s r.id.step = r ∧ s q'.id.step = q' := by
     intro g G hnd hs hi hE r q' n hn hnid hq hne h0 h1
     have hng : g.node? r = some n := by rw [← hnid]; exact node?_of_mem hnd n hn
-    obtain ⟨s, hsc, hsr, hsq⟩ := hE r (hi r n hng r (hs r n hng)) q' (hi r n hng q' hq) hne h0
+    obtain ⟨s, hsc, hsr, hsq⟩ := hE r (by rw [← hnid]; exact hi n hn _ (hnid ▸ hs r n hng)) q'
+      (hi n hn q' hq) hne h0
       (by rw [← G.step_eq]; exact h1) ⟨n, hng, hq⟩
     exact ⟨s, fullChain_of_grown G s hsc, hsr, hsq⟩
   rintro r _ q' _ hne h0 h1 ⟨nr, hnr, hown⟩

@@ -226,6 +226,7 @@ import AbsSat.GraphPath.Model.PinPairs
 import AbsSat.GraphPath.Model.StepFilter
 import AbsSat.GraphPath.Model.SendSeq
 import AbsSat.GraphPath.Model.TablesExact
+import AbsSat.GraphPath.Model.ExactSeq
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid
