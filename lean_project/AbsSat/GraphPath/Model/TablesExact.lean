@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/TablesExact.lean
 import AbsSat.GraphPath.Model.SendSeq
+import AbsSat.GraphPath.Model.AggFixpoint
 
 /-!
 # Las tablas dicen la verdad
@@ -20,6 +21,9 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview
 open AbsSat.GraphPath.Model.FullExt (FullChainG chainSound_of_fullChain fullChain_of_chainSound)
 open AbsSat.GraphPath.Model.PinPairs (FrontierPairs)
+open AbsSat.GraphPath.Model.ReaderAgg
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak)
+open AbsSat.GraphPath.Model.StepFilter (SCtx mem_filterWeak fullChain_stepFilter)
 
 /-- **Las tablas dicen la verdad**: cada pareja de la tabla de un nodo está en una cadena completa
 dentro de la global. -/
@@ -58,5 +62,92 @@ theorem tablesExact_reviewAgg (g : GPathM) (hnd : NodupIds g)
 /-- info: 'AbsSat.GraphPath.Model.TablesExact.tablesExact_reviewAgg' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tablesExact_reviewAgg
+
+-- ============================================================
+-- Un filtro de un paso
+-- ============================================================
+
+/-- **Las ternas del paso filtrado**: `r` y `q'` en la tabla una de otra y `c` del paso `k` en las
+dos tablas tienen una cadena completa común dentro de la global. -/
+def StepTriples (T : GPathM) (k : Int) : Prop :=
+  ∀ r ∈ T.gowners, ∀ q' ∈ T.gowners, ∀ c ∈ T.gowners, r.id.step ≠ k → q'.id.step ≠ k →
+    q'.id.step ≠ r.id.step → c.id.step = k →
+    (∃ nr, T.node? r = some nr ∧ q' ∈ nr.owners ∧ c ∈ nr.owners) →
+    (∃ nq, T.node? q' = some nq ∧ c ∈ nq.owners) →
+    ∃ s, FullChainG T s ∧ s r.id.step = r ∧ s q'.id.step = q' ∧ s k = c
+
+/-- En el revisado, una tabla de un nodo del revisado viene de la del mismo nodo antes. -/
+theorem node_before {T R : GPathM} (hpr : Pruned T R) (hnd : NodupIds T) (x : PathNodeId)
+    (nx : PNodeM) (hnx : R.node? x = some nx) :
+    ∃ n0, T.node? x = some n0 ∧ ∀ y ∈ nx.owners, y ∈ n0.owners := by
+  obtain ⟨n0, hn0, hid, ho, _⟩ := hpr.nodes_derived nx (List.mem_of_find?_eq_some hnx)
+  have := node?_of_mem hnd n0 hn0
+  rw [← hid, node?_id_eq _ x nx hnx] at this
+  exact ⟨n0, this, ho⟩
+
+/-- **Un filtro de un paso y su review conservan la verdad de las tablas**, desde las parejas y las
+ternas de ese paso. El review agresivo da la entrada común `c` del paso filtrado
+(`AggFixpoint.aggOk_reviewAgg`); la cadena por `r`, `q'` y `c` pasa el filtro y sobrevive. -/
+theorem tablesExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
+    (hE : TablesExact T) (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
+    (hTri : StepTriples T e.1) (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
+    TablesExact (reviewAgg (filterWeak T e)) := by
+  let R := reviewAgg (filterWeak T e)
+  have hprX : Pruned (filterWeak T e) R := pruned_reviewAgg _
+  have hprR : Pruned T R := Pruned.trans (ConservationCore.pruned_filterWeak T e) hprX
+  have rcX : Reader.RCtx (filterWeak T e) :=
+    RCtx_of_keeps (ReaderAggRun.keeps_filterWeak T e) c0.rc
+  have hRd : ReadableAgg R := ⟨filterWeak T e, [], rcX, rfl⟩
+  have cR := Reader.Ctx_of_readable R (readable_of_readableAgg R hRd) hv'
+  have hcsR : R.current_step = T.current_step := hprR.step_eq
+  have keep := fullChain_stepFilter T e c0.self c0.smp c0.rc.rootz c0.rc.shape.notroot c0.pos
+  have clean : ∀ y ∈ R.gowners, y.id.step = e.1 → y.id ∈ e.2 :=
+    fun y hy hys => ((mem_filterWeak T e y).mp (hprX.gowners_sub y hy)).2 hys
+  have hnd := c0.rc.nodup
+  rintro r hr q' hq' hne h0 h1 ⟨nr, hnrR, hown⟩
+  rw [hcsR] at h1
+  have hrT := hprR.gowners_sub r hr
+  have hqT := hprR.gowners_sub q' hq'
+  obtain ⟨n0, hn0, ho0⟩ := node_before hprR hnd r nr hnrR
+  have rcR := RCtx_of_readableAgg R hRd
+  have stepOf : ∀ y ∈ R.gowners, 0 ≤ y.id.step ∧ y.id.step < T.current_step := by
+    intro y hy
+    obtain ⟨m, hm, hmid⟩ := rcR.gn y hy
+    rw [← hmid, ← hcsR]
+    exact ⟨rcR.snn m hm, rcR.below m hm⟩
+  obtain ⟨hq0, hq1⟩ := stepOf q' hq'
+  -- uno de los dos está en el paso filtrado: basta su pareja
+  rcases int_eq_or_ne q'.id.step e.1 with hqk | hqk
+  · obtain ⟨s, hs, hsr, hsq⟩ := hE r hrT q' hqT hne h0 h1 ⟨n0, hn0, ho0 q' hown⟩
+    exact ⟨s, keep s hs (by rw [← hqk, hsq]; exact clean q' hq' hqk), hsr, hsq⟩
+  rcases int_eq_or_ne r.id.step e.1 with hrk | hrk
+  · obtain ⟨s, hs, hsr, hsq⟩ := hE r hrT q' hqT hne h0 h1 ⟨n0, hn0, ho0 q' hown⟩
+    exact ⟨s, keep s hs (by rw [← hrk, hsr]; exact clean r hr hrk), hsr, hsq⟩
+  -- el caso general: la entrada común del paso filtrado, que da el review agresivo
+  obtain ⟨nq, hnqR⟩ := Option.isSome_iff_exists.mp
+    ((GownersNodes.hasNode_iff R q').mp (cR.gn q' hq'))
+  have hagg := AggFixpoint.aggOk_reviewAgg (filterWeak T e) hv' r nr q' nq hnrR hnqR h0
+    (by rw [hcsR]; exact h1) hq0 (by rw [hcsR]; exact hq1) hown (cR.nodeval r nr hnrR)
+    (cR.nodeval q' nq hnqR)
+  have hsh := List.all_eq_true.mp hagg.2 e.1 (mem_intRange he0 (by rw [hcsR]; omega))
+  have hqent : hasStepEntry nq.owners e.1 = true :=
+    List.all_eq_true.mp (owners_ok_of_isValidNode R nq (cR.nodeval q' nq hnqR)) e.1
+      (mem_intRange he0 (by rw [hcsR]; omega))
+  rw [hqent] at hsh
+  simp only [Bool.not_true, Bool.false_or] at hsh
+  obtain ⟨c, hc, hcq⟩ := List.any_eq_true.mp hsh
+  have hcr : c ∈ nr.owners := (List.mem_filter.mp hc).1
+  have hcs : c.id.step = e.1 := eq_of_beq (List.mem_filter.mp hc).2
+  have hcq' : c ∈ nq.owners := List.elem_iff.mp hcq
+  have hcR : c ∈ R.gowners :=
+    cR.ownGow r nr hnrR c hcr (by rw [hcs]; exact he0) (by rw [hcs, hcsR]; exact he1)
+  obtain ⟨m0, hm0, hmo⟩ := node_before hprR hnd q' nq hnqR
+  obtain ⟨s, hs, hsr, hsq, hsc⟩ := hTri r hrT q' hqT c (hprR.gowners_sub c hcR) hrk hqk hne hcs
+    ⟨n0, hn0, ho0 q' hown, ho0 c hcr⟩ ⟨m0, hm0, hmo c hcq'⟩
+  exact ⟨s, keep s hs (by rw [hsc]; exact clean c hcR hcs), hsr, hsq⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TablesExact.tablesExact_stepFilter' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesExact_stepFilter
 
 end AbsSat.GraphPath.Model.TablesExact
