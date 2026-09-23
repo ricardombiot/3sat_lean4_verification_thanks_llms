@@ -4689,6 +4689,104 @@ def runFormulaPA (label : String) (φ : Cnf) (budget : Nat) (c : PXCell) : PXCel
     if isValid g then c := walkPA s!"{label} lector" g (stepCount φ).toNat budget c
   return c
 
+/-! **`pairline`: las tablas dicen la verdad en la línea y en los envíos paso a paso.** `checkPA` en cada
+estado de la línea (tras cada avance) y en cada estado intermedio del envío uno a uno (`seqsend`). -/
+
+structure PLAcc where
+  formulas : Nat := 0
+  line : PXCell := {}
+  inter : PXCell := {}
+  deriving Repr
+
+def runFormulaPL (label : String) (φ : Cnf) (budget : Nat) (a : PLAcc) : PLAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := { a with line := checkPA s!"{label} linea paso {step}" kv.2 budget a.line }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        a := { a with inter := checkPA s!"{label} envio paso {step} T0" T budget a.inter }
+        for e in es do
+          if isValid T then
+            T := AggressiveReview.reviewAgg (filterWeak T e)
+            a := { a with inter := checkPA s!"{label} envio paso {step} tras ({e.1})" T budget a.inter }
+    line := pureAdvanceW φ line
+  for kv in line do
+    a := { a with line := checkPA s!"{label} linea final" kv.2 budget a.line }
+  return a
+
+def reportPL (name : String) (a : PLAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   linea: estados {a.line.states}, parejas {a.line.pairs}, sin cadena comun {a.line.bad}, presupuesto {a.line.cut}"
+  if a.line.first != "" then IO.println s!"      primera: {a.line.first}"
+  IO.println s!"   envio paso a paso: estados {a.inter.states}, parejas {a.inter.pairs}, sin cadena comun {a.inter.bad}, presupuesto {a.inter.cut}"
+  if a.inter.first != "" then IO.println s!"      primera: {a.inter.first}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`triplestep`: las ternas que la prueba del filtro necesita.** En el envío paso a paso, para cada
+filtro de un paso `e` (paso `k`) sobre `T`, con `R` = su review: para cada pareja `r`, `q'` de `R`
+(`q'` en la tabla de `r`, pasos distintos de `k`) y cada `c` del paso `k` en las dos tablas de `R`,
+¿hay en `T` una cadena completa dentro de su global por `r`, `q'` y `c`? -/
+
+structure T3Acc where
+  formulas : Nat := 0
+  filters : Nat := 0
+  triples : Nat := 0
+  bad : Nat := 0
+  cut : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkT3 (lab : String) (T R : GPathM) (k : Int) (budget : Nat) (a : T3Acc) : T3Acc := Id.run do
+  let gow := T.gowners
+  let mut a := { a with filters := a.filters + 1 }
+  for r in R.gowners do
+    if r.id.step != k then
+      match R.node? r with
+      | none => pure ()
+      | some nr =>
+        for q' in nr.owners do
+          if q'.id.step != k && q'.id.step != r.id.step && R.gowners.contains q' then
+            match R.node? q' with
+            | none => pure ()
+            | some nq =>
+              for c in ownersAt nr.owners k do
+                if nq.owners.contains c then
+                  a := { a with triples := a.triples + 1 }
+                  let ok := fun x => gow.contains x && (x.id.step != q'.id.step || x == q') &&
+                    (x.id.step != k || x == c)
+                  match (extendFullIn T ok [r] budget).1 with
+                  | some true => pure ()
+                  | some false =>
+                    let msg := s!"{lab} k={k} r@{r.id.step} q'@{q'.id.step}"
+                    a := { a with bad := a.bad + 1, first := if a.first == "" then msg else a.first }
+                  | none => a := { a with cut := a.cut + 1 }
+  return a
+
+def runFormulaT3 (label : String) (φ : Cnf) (budget : Nat) (a : T3Acc) : T3Acc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        for e in es do
+          if isValid T then
+            let R := AggressiveReview.reviewAgg (filterWeak T e)
+            if isValid R then a := checkT3 s!"{label} paso {step}" T R e.1 budget a
+            T := R
+    line := pureAdvanceW φ line
+  return a
+
+def reportT3 (name : String) (a : T3Acc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.filters} filtros de un paso)"
+  IO.println s!"   ternas (r, q', c del paso filtrado): {a.triples}, sin cadena en T: {a.bad}, presupuesto {a.cut}"
+  if a.first != "" then IO.println s!"   primera: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5104,6 +5202,44 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportPX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" c (t1 - t0)
+  | "pairline" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaPL path φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportPL path a (t1 - t0)
+  | "pairline" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : PLAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaPL s!"seed {seed} #{idx}" φ 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportPL s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "triplestep" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaT3 path φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportT3 path a (t1 - t0)
+  | "triplestep" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : T3Acc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaT3 s!"seed {seed} #{idx}" φ 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportT3 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
