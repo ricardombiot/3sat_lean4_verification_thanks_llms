@@ -4643,6 +4643,52 @@ def reportSQ (name : String) (a : SQAcc) (ms : Nat) : IO Unit := do
   if a.firstPair != "" then IO.println s!"   primera pareja mala: {a.firstPair}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`pairall`: la tabla de owners dice la verdad, en todos los pasos.** En cada estado del lector
+(inicio y pines, válidos): para toda entrada global `r` y toda `q'` global en la tabla de `r`, de
+cualquier paso distinto, ¿hay una cadena completa dentro de la global por las dos? -/
+
+def checkPA (lab : String) (g : GPathM) (budget : Nat) (c : PXCell) : PXCell := Id.run do
+  if !isValid g then return c
+  let gow := g.gowners
+  let mut c := { c with states := c.states + 1 }
+  for r in gow do
+    match g.node? r with
+    | none => pure ()
+    | some nr =>
+      for q' in nr.owners do
+        if q'.id.step != r.id.step && gow.contains q' then
+          c := { c with pairs := c.pairs + 1 }
+          let k := q'.id.step
+          let ok := fun x => gow.contains x && (x.id.step != k || x == q')
+          match (extendFullIn g ok [r] budget).1 with
+          | some true => pure ()
+          | some false =>
+            let msg := s!"{lab} r@{r.id.step} q'@{k}"
+            c := { c with bad := c.bad + 1, first := if c.first == "" then msg else c.first }
+          | none => c := { c with cut := c.cut + 1 }
+  return c
+
+partial def walkPA (lab : String) (g : GPathM) (fuel budget : Nat) (c : PXCell) : PXCell :=
+  let c := checkPA lab g budget c
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := checkPA s!"{lab} pin" (filterAllAgg g [q.id]) budget c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkPA lab (filterAllAgg g [q.id]) (fuel - 1) budget c
+
+def runFormulaPA (label : String) (φ : Cnf) (budget : Nat) (c : PXCell) : PXCell := Id.run do
+  let mut c := c
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then c := walkPA s!"{label} lector" g (stepCount φ).toNat budget c
+  return c
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5039,6 +5085,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportSQ s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "pairall" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let c ← IO.lazyPure (fun _ => runFormulaPA path φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportPX path c (t1 - t0)
+  | "pairall" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut c : PXCell := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        c := runFormulaPA s!"seed {seed} #{idx}" φ 2000 c
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportPX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" c (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
