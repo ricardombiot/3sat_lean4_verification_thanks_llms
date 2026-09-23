@@ -55,6 +55,7 @@ end
 
     include("./graph_path/test_graph_path.jl")
     include("./graph_path/test_graph_path_join.jl")
+    include("./graph_path/test_clean_invalid_two_phase.jl")
 end
 =#
 

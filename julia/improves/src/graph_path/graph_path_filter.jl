@@ -30,9 +30,11 @@ function make_review_owners!(gpath :: GPath)
 end
 
 # Interruptor de clean_invalid_nodes! (informe v181, §6):
-#   :sequential — el de siempre: nodo a nodo, cada tabla cortada con la global de ese momento.
-#   :two_phase  — primero eliminar hasta que la global se estabilice, después un solo corte.
-const CLEAN_MODE = Ref(:sequential)
+#   :two_phase  — (por defecto) primero eliminar hasta que la global se estabilice, después un
+#                 solo corte. Mismos veredictos, vueltas y estados finales que la secuencial en
+#                 test_window y test_3sat, con un +1,3 % de tiempo en test_window.
+#   :sequential — la de antes: nodo a nodo, cada tabla cortada con la global de ese momento.
+const CLEAN_MODE = Ref(:two_phase)
 
 function clean_invalid_nodes!(gpath :: GPath)
     if CLEAN_MODE[] == :two_phase

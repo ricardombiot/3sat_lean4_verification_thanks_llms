@@ -29,9 +29,13 @@ function truth(path)
     if isfile(ex)
         return strip(first(readlines(ex))) == "SAT"
     end
-    solver = ExhaustiveSolver.new(path)
-    ExhaustiveSolver.run!(solver)
-    return !isempty(solver.list_solutions)
+    try
+        solver = ExhaustiveSolver.new(path)
+        ExhaustiveSolver.run!(solver)
+        return !isempty(solver.list_solutions)
+    catch
+        return nothing   # el exhaustivo solo acepta 3-SAT estricto
+    end
 end
 
 owner_entries(owners) = [id for (step, set) in owners.table for id in set]
@@ -66,24 +70,35 @@ end
 
 function main()
     files = corpus()
-    n = 0; same_verdict = 0; right = 0; same_states = 0; sols_bad = 0
+    n = 0; same_verdict = 0; right = 0; same_states = 0; sols_bad = 0; skipped = 0; notruth = 0
     t_seq = 0.0; t_two = 0.0; r_seq = 0; r_two = 0
     for path in files
-        n += 1
         tr = truth(path)
-        a = run_mode(path, :sequential)
-        b = run_mode(path, :two_phase)
+        local a, b
+        try
+            a = run_mode(path, :sequential)
+            b = run_mode(path, :two_phase)
+        catch e
+            skipped += 1
+            println("$(basename(path)): SALTADA ($(typeof(e)))")
+            continue
+        end
+        n += 1
         same_verdict += (a.sat == b.sat)
-        right += (a.sat == tr && b.sat == tr)
+        if tr === nothing
+            notruth += 1
+        else
+            right += (a.sat == tr && b.sat == tr)
+        end
         st = a.sigs == b.sigs
         same_states += st
         sols_bad += (!a.sols_ok || !b.sols_ok)
         t_seq += a.t; t_two += b.t; r_seq += a.rounds; r_two += b.rounds
-        println("$(basename(path)): verdad=$(tr ? "SAT" : "UNSAT") seq=$(a.sat) dos=$(b.sat) " *
+        println("$(basename(path)): verdad=$(tr === nothing ? "?" : (tr ? "SAT" : "UNSAT")) seq=$(a.sat) dos=$(b.sat) " *
                 "estados=$(st ? "iguales" : "DISTINTOS") soluciones=$(a.sols_ok && b.sols_ok ? "ok" : "MAL") " *
                 "vueltas $(a.rounds)/$(b.rounds) tiempo $(round(a.t, digits=2))/$(round(b.t, digits=2))s")
     end
-    println("── $n instancias")
+    println("── $n instancias ($skipped saltadas, $notruth sin verdad del exhaustivo)")
     println("   mismo veredicto: $same_verdict   ambos aciertan la verdad: $right   estados finales iguales: $same_states")
     println("   soluciones leidas que fallan el checker (algun modo): $sols_bad")
     println("   vueltas del review secuencial/dos fases: $r_seq / $r_two   tiempo: $(round(t_seq, digits=1)) / $(round(t_two, digits=1)) s")
