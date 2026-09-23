@@ -4304,6 +4304,191 @@ def reportFK (name : String) (a : FKAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primero que NO se extiende y SOBREVIVE: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`joinext`: ¿la unión conserva `FullExtG`?** En cada unión real de la línea, `J = join A B` (con
+`okJoin`): para cada tramo de `J` con todos sus miembros en la tabla global de `J`, ¿se extiende a una
+cadena completa dentro de ella? Se cuenta también si el tramo es tramo de `A` o de `B` (o de
+ninguno: **mezclado**), y si los lados cumplían `FullExtG` (la hipótesis de `JoinFullExt`). -/
+
+structure JXAcc where
+  formulas : Nat := 0
+  joins : Nat := 0
+  segs : Nat := 0
+  inA : Nat := 0
+  inB : Nat := 0
+  mixed : Nat := 0
+  ext : Nat := 0
+  noext : Nat := 0
+  noextMixed : Nat := 0
+  cut : Nat := 0
+  sideSegs : Nat := 0
+  sideBad : Nat := 0
+  cleanJoins : Nat := 0
+  cleanNoext : Nat := 0
+  cleanBadJoins : Nat := 0
+  revSurv : Nat := 0
+  first : String := ""
+  deriving Repr
+
+/-- Tramos dentro de la global de `g` que no se extienden dentro de ella (exhaustivo), y cuántos. -/
+def sideFX (g : GPathM) (cap budget : Nat) : Nat × Nat := Id.run do
+  let gow := g.gowners
+  let mut n := 0
+  let mut bad := 0
+  for x in g.nodes.take cap do
+    if gow.contains x.id then
+      let (segs, _) := collectDown g [x.id] ([], 60)
+      for P in segs do
+        if P.all (fun y => gow.contains y) then
+          n := n + 1
+          if (extendFullIn g (fun r => gow.contains r) P budget).1 == some false then bad := bad + 1
+  return (n, bad)
+
+def checkJX (lab : String) (A B : GPathM) (cap budget : Nat) (a : JXAcc) : JXAcc := Id.run do
+  if !(okJoin A B) then return a
+  let J := join A B
+  let mut a := { a with joins := a.joins + 1 }
+  let (na, ba) := sideFX A cap budget
+  let (nb, bb) := sideFX B cap budget
+  a := { a with sideSegs := a.sideSegs + na + nb, sideBad := a.sideBad + ba + bb }
+  let clean := ba + bb == 0
+  let before := a.noext
+  let R := AggressiveReview.reviewAgg J
+  let gow := J.gowners
+  for n in J.nodes.take cap do
+    if gow.contains n.id then
+      let (segs, _) := collectDown J [n.id] ([], 60)
+      for P in segs do
+        if P.all (fun x => gow.contains x) then
+          let ia := isSegment A P && P.all (fun x => A.gowners.contains x)
+          let ib := isSegment B P && P.all (fun x => B.gowners.contains x)
+          let mix := !ia && !ib
+          a := { a with segs := a.segs + 1, inA := a.inA + (if ia then 1 else 0)
+                      , inB := a.inB + (if ib then 1 else 0), mixed := a.mixed + (if mix then 1 else 0) }
+          match (extendFullIn J (fun r => gow.contains r) P budget).1 with
+          | some true => a := { a with ext := a.ext + 1 }
+          | some false =>
+            a := { a with noext := a.noext + 1, noextMixed := a.noextMixed + (if mix then 1 else 0)
+                        , revSurv := a.revSurv + (if isValid R && isSegment R P then 1 else 0)
+                        , first := if a.first == "" && clean then
+                            s!"{lab} tramo {P.map (·.id.step)} mezclado={mix}" else a.first }
+          | none => a := { a with cut := a.cut + 1 }
+  if clean then
+    a := { a with cleanJoins := a.cleanJoins + 1, cleanNoext := a.cleanNoext + (a.noext - before)
+                , cleanBadJoins := a.cleanBadJoins + (if a.noext > before then 1 else 0) }
+  return a
+
+def runFormulaJX (label : String) (φ : Cnf) (cap budget : Nat) (a : JXAcc) : JXAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let h := upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+        if isValid h then
+          match next.find? (fun e => e.1 == d) with
+          | some (_, existing) =>
+            a := checkJX s!"{label} paso {step} →⟨{d.step},{d.index}⟩" existing h cap budget a
+            next := next.map (fun e => if e.1 == d then (d, doJoin existing h) else e)
+          | none => next := next ++ [(d, h)]
+    line := next
+  return a
+
+def reportJX (name : String) (a : JXAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.joins} uniones)"
+  IO.println s!"   lados: {a.sideSegs} tramos, sin extension {a.sideBad}"
+  IO.println s!"   tramos de la union dentro de su global: {a.segs}"
+  IO.println s!"     de A: {a.inA}   de B: {a.inB}   MEZCLADOS: {a.mixed}"
+  IO.println s!"     se extienden: {a.ext}   NO se extienden: {a.noext} (mezclados: {a.noextMixed})   presupuesto: {a.cut}"
+  IO.println s!"     de ellos sobreviven al review agresivo de la union: {a.revSurv}"
+  IO.println s!"   uniones con los dos lados limpios: {a.cleanJoins}, con tramo sin extension: {a.cleanBadJoins} ({a.cleanNoext} tramos)"
+  if a.first != "" then IO.println s!"   primero sin extension (lados limpios): {a.first}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`ext1`: `FullExtG` solo para tramos de UN nodo.** Cada entrada de la tabla global, ¿se extiende a
+una cadena completa dentro de ella? En la línea (tras cada avance, con uniones), tras su review
+agresivo, en los estados del lector (inicio y pines) y justo tras cada unión. -/
+
+structure E1Cell where
+  states : Nat := 0
+  entries : Nat := 0
+  bad : Nat := 0
+  cut : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkE1 (lab : String) (g : GPathM) (budget : Nat) (c : E1Cell) : E1Cell := Id.run do
+  if !isValid g then return c
+  let gow := g.gowners
+  let mut c := { c with states := c.states + 1 }
+  for q in gow do
+    c := { c with entries := c.entries + 1 }
+    match (extendFullIn g (fun r => gow.contains r) [q] budget).1 with
+    | some true => pure ()
+    | some false => c := { c with bad := c.bad + 1
+                                , first := if c.first == "" then s!"{lab} entrada @{q.id.step}" else c.first }
+    | none => c := { c with cut := c.cut + 1 }
+  return c
+
+structure E1Acc where
+  formulas : Nat := 0
+  join : E1Cell := {}
+  line : E1Cell := {}
+  rev : E1Cell := {}
+  reader : E1Cell := {}
+  deriving Repr
+
+partial def walkE1 (lab : String) (g : GPathM) (fuel budget : Nat) (c : E1Cell) : E1Cell :=
+  let c := checkE1 lab g budget c
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := checkE1 s!"{lab} pin" (filterAllAgg g [q.id]) budget c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkE1 lab (filterAllAgg g [q.id]) (fuel - 1) budget c
+
+def runFormulaE1 (label : String) (φ : Cnf) (budget : Nat) (a : E1Acc) : E1Acc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let h := upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+        if isValid h then
+          match next.find? (fun e => e.1 == d) with
+          | some (_, existing) =>
+            if okJoin existing h then
+              a := { a with join := checkE1 s!"{label} union paso {step}" (join existing h) budget a.join }
+            next := next.map (fun e => if e.1 == d then (d, doJoin existing h) else e)
+          | none => next := next ++ [(d, h)]
+    line := next
+    for kv in line do
+      a := { a with line := checkE1 s!"{label} linea paso {step}" kv.2 budget a.line
+                  , rev := checkE1 s!"{label} review paso {step}" (filterAllAgg kv.2 []) budget a.rev }
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with reader := walkE1 s!"{label} lector" g (stepCount φ).toNat budget a.reader }
+  return a
+
+def reportE1Cell (name : String) (c : E1Cell) : IO Unit := do
+  IO.println s!"   {name}: estados {c.states}, entradas {c.entries}, NO se extienden {c.bad}, presupuesto {c.cut}"
+  if c.first != "" then IO.println s!"      primera: {c.first}"
+
+def reportE1 (name : String) (a : E1Acc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportE1Cell "tras cada union      " a.join
+  reportE1Cell "linea                " a.line
+  reportE1Cell "linea + review       " a.rev
+  reportE1Cell "lector (inicio, pines)" a.reader
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -4624,6 +4809,44 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportFKC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "joinext" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaJX path φ 20 2000 {})
+        let t1 ← IO.monoMsNow
+        reportJX path a (t1 - t0)
+  | "joinext" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : JXAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaJX s!"seed {seed} #{idx}" φ 20 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportJX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "ext1" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaE1 path φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportE1 path a (t1 - t0)
+  | "ext1" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : E1Acc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaE1 s!"seed {seed} #{idx}" φ 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportE1 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
