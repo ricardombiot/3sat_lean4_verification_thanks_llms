@@ -44,7 +44,7 @@ variable (φ : Cnf)
 cumplía y el envío sale válido. Es lo que `row-degree ext1` mide. -/
 def SendExt1 : Prop :=
   ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 →
-    ∀ d ∈ mapSons φ kv.1.step kv.1.index,
+    Ownership.SelfOwned kv.2 → ∀ d ∈ mapSons φ kv.1.step kv.1.index,
       isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true →
       FullExt1 (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))
 
@@ -78,8 +78,8 @@ theorem fullExt1_initSeed (d : NodeId) : FullExt1 (GPathM.initSeed d "") :=
   fullExt1_of_fullExtG _ (GownersNodes.GN_initSeed d "") (LineExt.fullExtG_initSeed d)
 
 theorem fullExt1_sent (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k) (kv : NodeId × GPathM)
-    (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (hF : FullExt1 kv.2) (d : NodeId)
-    (hd : d ∈ mapSons φ kv.1.step kv.1.index)
+    (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (hF : FullExt1 kv.2)
+    (hso : Ownership.SelfOwned kv.2) (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index)
     (hval : isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true) :
     FullExt1 (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") := by
   have hsok := StateOkF_sent φ (Fsac φ 0) reviewAgg (prunes_Fsac φ 0) k kv hkv d hd hval
@@ -104,17 +104,18 @@ theorem fullExt1_sent (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k) (kv : NodeId 
     simp only [upFilteringWeak, GPathM.up, F, W] at hvF ⊢
     rw [if_pos hvF]
   rw [heq]
-  have hFF : FullExt1 F := hS k kv hkv hm hF d hd hval
+  have hFF : FullExt1 F := hS k kv hkv hm hF hso d hd hval
   have ctxF := Reader.Ctx_of_readable F (readable_of_readableAgg F hRF) hvF
   have hstepF : F.current_step = k + 1 := by rw [hk.1.step_eq, hkv.step]
   exact fullExt1_addNode F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega) rcF.below rcF.gn
     ctxF.ownGow ctxF.self hFF
 
 def LineInv1 (k : Int) (line : PureLine) : Prop :=
-  LineInv φ k line ∧ ∀ kv ∈ line, FullExt1 kv.2
+  LineInv φ k line ∧ ∀ kv ∈ line, FullExt1 kv.2 ∧ LineSelf.SelfMem kv.2
 
 theorem lineInv1_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPathM)
-    (hl : LineInv1 φ k line) (hg : StateOkF φ k (key, g)) (hm : MInv φ g) (hgF : FullExt1 g) :
+    (hl : LineInv1 φ k line) (hg : StateOkF φ k (key, g)) (hm : MInv φ g) (hgF : FullExt1 g)
+    (hgS : LineSelf.SelfMem g) :
     LineInv1 φ k (insertPure line key g) := by
   refine ⟨LineInv_insertPure φ k line key g hl.1 hg hm, ?_⟩
   intro kv hkv
@@ -124,7 +125,7 @@ theorem lineInv1_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPat
     simp only [hf] at hkv
     rcases List.mem_append.mp hkv with h | h
     · exact hl.2 kv h
-    · rw [List.mem_singleton.mp h]; exact hgF
+    · rw [List.mem_singleton.mp h]; exact ⟨hgF, hgS⟩
   | some e =>
     simp only [hf] at hkv
     obtain ⟨x, hx, hEq⟩ := List.mem_map.mp hkv
@@ -139,9 +140,10 @@ theorem lineInv1_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPat
         have h := hl.1.1.2 e hemem
         rwa [← hekey]
       have hok := okJoin_of_stateOkF φ k key e.2 g hesok hg
-      show FullExt1 (doJoin e.2 g)
+      show FullExt1 (doJoin e.2 g) ∧ LineSelf.SelfMem (doJoin e.2 g)
       simp only [doJoin, hok, if_pos]
-      exact fullExt1_join e.2 g hok (hl.2 e hemem) hgF
+      exact ⟨fullExt1_join e.2 g hok (hl.2 e hemem).1 hgF,
+        LineSelf.selfMem_join e.2 g (hl.2 e hemem).2 hgS⟩
     | false =>
       have hx2 : kv = x := by rw [← hEq]; simp only [hb]; rfl
       rw [hx2]
@@ -149,6 +151,7 @@ theorem lineInv1_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPat
 
 theorem lineInv1_sendToW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k)
     (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (hF : FullExt1 kv.2)
+    (hsm : LineSelf.SelfMem kv.2)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (next : PureLine)
     (hn : LineInv1 φ (k + 1) next) : LineInv1 φ (k + 1) (sendToW φ kv.2 next d) := by
   simp only [sendToW]
@@ -156,15 +159,16 @@ theorem lineInv1_sendToW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤
   · next hval =>
     exact lineInv1_insertPure φ (k + 1) next d _ hn
       (StateOkF_sent φ (Fsac φ 0) reviewAgg (prunes_Fsac φ 0) k kv hkv d hd hval)
-      (MInv_sent φ hwf k kv hkv hm d hd hval) (fullExt1_sent φ hS k hk0 kv hkv hm hF d hd hval)
+      (MInv_sent φ hwf k kv hkv hm d hd hval) (fullExt1_sent φ hS k hk0 kv hkv hm hF (LineSelf.selfOwned_of_selfMem _ hsm) d hd hval)
+      (LineSelf.selfMem_sent φ kv hm d hval)
   · exact hn
 
 theorem lineInv1_pureAdvanceW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k)
     (line : PureLine) (hl : LineInv1 φ k line) : LineInv1 φ (k + 1) (pureAdvanceW φ line) := by
   simp only [pureAdvanceW]
-  have hsend : ∀ kv, StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 → ∀ acc,
-      LineInv1 φ (k + 1) acc → LineInv1 φ (k + 1) (sendAllW φ kv acc) := by
-    intro kv hkv hm hF acc hacc
+  have hsend : ∀ kv, StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 → LineSelf.SelfMem kv.2 →
+      ∀ acc, LineInv1 φ (k + 1) acc → LineInv1 φ (k + 1) (sendAllW φ kv acc) := by
+    intro kv hkv hm hF hsm acc hacc
     simp only [sendAllW]
     have main : ∀ (l : List NodeId), (∀ d ∈ l, d ∈ mapSons φ kv.1.step kv.1.index) →
         ∀ acc, LineInv1 φ (k + 1) acc → LineInv1 φ (k + 1) (l.foldl (sendToW φ kv.2) acc) := by
@@ -175,9 +179,10 @@ theorem lineInv1_pureAdvanceW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 
         intro hx acc h
         simp only [List.foldl_cons]
         exact ih (fun d hd => hx d (List.mem_cons_of_mem _ hd)) _
-          (lineInv1_sendToW φ hwf hS k hk0 kv hkv hm hF x (hx x List.mem_cons_self) acc h)
+          (lineInv1_sendToW φ hwf hS k hk0 kv hkv hm hF hsm x (hx x List.mem_cons_self) acc h)
     exact main _ (fun _ hd => hd) acc hacc
-  have main : ∀ (l : PureLine), (∀ kv ∈ l, StateOkF φ k kv ∧ MInv φ kv.2 ∧ FullExt1 kv.2) →
+  have main : ∀ (l : PureLine),
+      (∀ kv ∈ l, StateOkF φ k kv ∧ MInv φ kv.2 ∧ FullExt1 kv.2 ∧ LineSelf.SelfMem kv.2) →
       ∀ acc, LineInv1 φ (k + 1) acc →
         LineInv1 φ (k + 1) (l.foldl (fun next kv => sendAllW φ kv next) acc) := by
     intro l
@@ -188,8 +193,8 @@ theorem lineInv1_pureAdvanceW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 
       simp only [List.foldl_cons]
       have hx0 := hx x List.mem_cons_self
       exact ih (fun kv hkv => hx kv (List.mem_cons_of_mem _ hkv)) _
-        (hsend x hx0.1 hx0.2.1 hx0.2.2 acc h)
-  exact main line (fun kv hkv => ⟨hl.1.1.2 kv hkv, hl.1.2 kv hkv, hl.2 kv hkv⟩) []
+        (hsend x hx0.1 hx0.2.1 hx0.2.2.1 hx0.2.2.2 acc h)
+  exact main line (fun kv hkv => ⟨hl.1.1.2 kv hkv, hl.1.2 kv hkv, (hl.2 kv hkv).1, (hl.2 kv hkv).2⟩) []
     ⟨⟨⟨by simp, by intro kv hkv; exact absurd hkv List.not_mem_nil⟩,
       by intro kv hkv; exact absurd hkv List.not_mem_nil⟩,
       by intro kv hkv; exact absurd hkv List.not_mem_nil⟩
@@ -208,7 +213,7 @@ theorem lineInv1_init (hwf : WF φ) : LineInv1 φ 0 (pureInit φ) := by
       have hx0 := hx x List.mem_cons_self
       exact ih (fun d hdm => hx d (List.mem_cons_of_mem _ hdm)) _
         (lineInv1_insertPure φ 0 acc x _ h (stateOkF_initSeed φ x hx0)
-          (MInv_initSeed φ hwf x hx0) (fullExt1_initSeed x))
+          (MInv_initSeed φ hwf x hx0) (fullExt1_initSeed x) (LineSelf.selfMem_initSeed x))
   exact main _ (fun _ hdm => hdm) []
     ⟨⟨⟨by simp, by intro kv hkv; exact absurd hkv List.not_mem_nil⟩,
       by intro kv hkv; exact absurd hkv List.not_mem_nil⟩,
@@ -219,7 +224,7 @@ theorem lineInv1_steps (hwf : WF φ) (hS : SendExt1 φ) :
       ∀ kv ∈ pureStepsW φ n line, FullExt1 kv.2 := by
   intro n
   induction n with
-  | zero => intro _ _ _ hl; exact hl.2
+  | zero => intro _ _ _ hl kv hkv; exact (hl.2 kv hkv).1
   | succ m ih =>
     intro k line hk0 hl
     exact ih (k + 1) _ (by omega) (lineInv1_pureAdvanceW φ hwf hS k hk0 line hl)
