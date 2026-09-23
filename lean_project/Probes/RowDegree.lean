@@ -3408,6 +3408,108 @@ def reportCD (name : String) (a : CDAcc) (ms : Nat) : IO Unit := do
   if a.firstSurv != "" then IO.println s!"   primero que sobrevive: {a.firstSurv}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`midinv`: las propiedades de forma en los estados intermedios del review.** (I1) en el paso de
+justo abajo, owner es padre; (I2) simetría de tablas; (I3) toda entrada de una tabla, en rango, es
+nodo. Se cuentan los estados que violan cada una, tras cada operación de nodo de cada pasada. -/
+
+structure MICell where
+  states : Nat := 0
+  i1 : Nat := 0
+  i2 : Nat := 0
+  i3 : Nat := 0
+  deriving Repr
+
+def checkMI (g : GPathM) (c : MICell) : MICell := Id.run do
+  if !isValid g then return c
+  let mut b1 := false
+  let mut b2 := false
+  let mut b3 := false
+  for n in g.nodes do
+    for w in n.owners do
+      if w.id.step ≥ 0 && w.id.step < g.current_step then
+        match g.node? w with
+        | none => b3 := true
+        | some m =>
+          if !m.owners.contains n.id then b2 := true
+          if w.id.step + 1 == n.id.id.step && !n.parents.contains w then b1 := true
+  return { states := c.states + 1, i1 := c.i1 + (if b1 then 1 else 0)
+         , i2 := c.i2 + (if b2 then 1 else 0), i3 := c.i3 + (if b3 then 1 else 0) }
+
+structure MIAcc where
+  formulas : Nat := 0
+  filt  : MICell := {}
+  clean : MICell := {}
+  par   : MICell := {}
+  sons  : MICell := {}
+  agg   : MICell := {}
+  deriving Repr
+
+def instrStepsMI (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int) (c0 : MICell) :
+    GPathM × MICell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      g := reviewNode g nb id
+      c := checkMI g c
+  return (g, c)
+
+def reviewMI (F : GPathM) (a : MIAcc) : MIAcc := Id.run do
+  let mut a := { a with filt := checkMI F a.filt }
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        let mut h := g
+        for id in g.nodes.map (·.id) do
+          h := cleanInvalidGo h [id]
+          a := { a with clean := checkMI h a.clean }
+        let (h2, cp) := instrStepsMI h (·.parents) (intRange 1 (h.current_step - 1)) a.par
+        a := { a with par := cp }
+        let (h3, cs) := instrStepsMI h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse a.sons
+        a := { a with sons := cs }
+        g := h3
+        if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g0 := g
+      let mut h := g
+      for k in (intRange 0 (g.current_step - 1)).reverse do
+        for id in (h.line k).map (·.id) do
+          h := AggressiveReview.aggNode h id
+          a := { a with agg := checkMI h a.agg }
+      if GPathM.measure h < GPathM.measure g0 then g := h else outer := 0
+  return a
+
+def runFormulaMI (φ : Cnf) (a : MIAcc) : MIAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewMI F a
+    line := pureAdvanceW φ line
+  return a
+
+def reportMI (name : String) (a : MIAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  let row (lbl : String) (c : MICell) : IO Unit :=
+    IO.println s!"   {lbl}: estados {c.states}; violan (I1) owner-debajo=padre {c.i1}, (I2) simetria {c.i2}, (I3) owner es nodo {c.i3}"
+  row "filtrado (entrada)     " a.filt
+  row "cleanInvalid, por nodo " a.clean
+  row "pasada padres, por nodo" a.par
+  row "pasada hijos, por nodo " a.sons
+  row "barrido, por nodo      " a.agg
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3584,6 +3686,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "midinv" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaMI φ {})
+        let t1 ← IO.monoMsNow
+        reportMI path a (t1 - t0)
+  | "midinv" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : MIAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaMI φ a
+      let t1 ← IO.monoMsNow
+      reportMI s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "cleandiag" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
