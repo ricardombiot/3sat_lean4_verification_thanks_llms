@@ -506,4 +506,76 @@ autor aplica a cada par de owners. -/
 #guard_msgs in
 #print axioms ownSymmetric_of_reviewed
 
+-- ============================================================
+-- Dentro de `TableChainOwned`: los pares CONTIGUOS son gratis
+-- ============================================================
+
+/-- **Los pares distantes de una cadena, lo único que no sale de los enlaces.** -/
+def DistantOwned (g : GPathM) (sel : Int → PathNodeId) : Prop :=
+  ∀ i j, 0 ≤ i → 0 ≤ j → i < g.current_step → j < g.current_step →
+    j ≠ i + 1 → i ≠ j + 1 → i ≠ j → ∀ m, g.node? (sel j) = some m → sel i ∈ m.owners
+
+/-- **Y entonces la posesión por pares se reduce a los pares distantes.**
+
+Los contiguos salen de lo que ya hay, en las dos direcciones:
+
+* **hacia arriba**: `IsChain` dice que `sel i` es **padre** de `sel (i+1)`, y `Bridge.LinksInOwners`
+  dice que los padres están en la tabla. Un paso.
+* **hacia abajo**: la simetría de tablas lo devuelve — y la simetría la paga `AggOk`
+  (`ownSymmetric_of_reviewed`).
+
+Así que de la posesión por pares no queda nada que probar salvo los pares a distancia ≥ 2. Y ésa es
+la forma más nítida que ha tomado la frontera de esta línea de trabajo: **los nodos consecutivos de
+la cadena se poseen entre sí, demostrado; la pregunta es si eso se propaga a distancia.** -/
+theorem pairwiseOwned_of_distant (g : GPathM) (links : Bridge.LinksInOwners g)
+    (hsym : Threaded.OwnSymmetric g) (sel : Int → PathNodeId) (hchain : IsChain g sel)
+    (hdist : DistantOwned g sel) : PairwiseOwned g sel := by
+  intro i j hi0 hj0 hi1 hj1 hij
+  obtain ⟨hsi, hstepi⟩ := hchain.1 i hi0 hi1
+  obtain ⟨mj, hmj⟩ := Option.isSome_iff_exists.mp (hchain.1 j hj0 hj1).1
+  refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstepi⟩
+  simp only [ownersOf, hmj]
+  by_cases h1 : j = i + 1
+  · subst h1
+    have hlink := hchain.2 i hi0 (by omega)
+    rw [hmj] at hlink
+    simp only [Option.map_some, Option.getD_some] at hlink
+    exact (links _ mj hmj).1 _ hlink
+  · by_cases h2 : i = j + 1
+    · obtain ⟨mi, hmi⟩ := Option.isSome_iff_exists.mp hsi
+      have hlink := hchain.2 j hj0 (by omega)
+      rw [show j + 1 = i from h2.symm, hmi] at hlink
+      simp only [Option.map_some, Option.getD_some] at hlink
+      exact hsym (sel i) mi (sel j) mj hmi hmj ((links _ mi hmi).1 _ hlink)
+    · exact hdist i j hi0 hj0 hi1 hj1 h1 h2 hij mj hmj
+
+/-- **Y `TableChainOwned` con ello.** -/
+theorem tableChainOwned_of_distant (g : GPathM) (links : Bridge.LinksInOwners g)
+    (hsym : Threaded.OwnSymmetric g)
+    (hdist : ∀ sel, IsChain g sel → DistantOwned g sel) : TableChainOwned g :=
+  fun _ _ _ sel hchain _ => pairwiseOwned_of_distant g links hsym sel hchain (hdist sel hchain)
+
+/-! ## El hueco, en su forma más pequeña hasta ahora
+
+    readerVerdictW  ⟸  PinAlive  ≡  OwnerChained  ⟸  TableChainOwned  ⟸  DistantOwned
+
+y `DistantOwned` dice solo esto:
+
+> en la cadena que vive dentro de la tabla de un nodo, dos nodos **a distancia ≥ 2** se poseen.
+
+Los contiguos están demostrados —el enlace de padre más `LinksInOwners` en un sentido, la simetría
+de `AggOk` en el otro—, y todo lo demás de la escalera también. Lo que queda es exactamente la
+propagación de la posesión **a distancia**: la transitividad que v40 midió que no vale en general,
+aquí restringida a una cadena cuyos nodos están todos en la tabla de un mismo nodo.
+
+Ésa es la frontera, y ya no hay nada más entre ella y el teorema. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.pairwiseOwned_of_distant' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairwiseOwned_of_distant
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableChainOwned_of_distant' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableChainOwned_of_distant
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
