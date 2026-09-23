@@ -2731,6 +2731,91 @@ def reportTG (name : String) (a : TGAcc) (ms : Nat) : IO Unit := do
   row "lector           [REV]  " a.reader
   IO.println s!"   ({ms} ms)"
 
+/-! **`joinmix`: ¿hay cadenas del `doJoin` que no son de ningún lado?** En cada unión real de la
+línea, `J = doJoin A B`: para cada cadena desde la cima de `J` (anfitrión, enlazada, poseída por
+pares) se mira si lo es también en `A` o en `B` con sus propias tablas y padres. Las que no, son
+**mezcladas**; se cuentan, y cuántas de ellas son malas. -/
+
+structure JMAcc where
+  formulas : Nat := 0
+  joins    : Nat := 0
+  chains   : Nat := 0
+  inA      : Nat := 0
+  inB      : Nat := 0
+  mixed    : Nat := 0
+  mixedBad : Nat := 0
+  bad      : Nat := 0
+  first    : String := ""
+  deriving Repr
+
+/-- `P` (de abajo a la cima) es cadena con anfitrión `a` en `g`, con las tablas y padres de `g`. -/
+def chainIn (g : GPathM) (a : PathNodeId) (P : List PathNodeId) : Bool :=
+  (g.node? a).isSome && P.all (fun x => (g.node? x).isSome && mutuallyOwn g x a) &&
+  P.all (fun x => P.all (fun y => x == y || mutuallyOwn g x y)) &&
+  (List.range (P.length - 1)).all (fun k =>
+    match g.node? (P.getD (k + 1) a) with
+    | some n => n.parents.contains (P.getD k a)
+    | none => false)
+
+partial def dfsJM (J A B : GPathM) (label : String) (a : PathNodeId) (P : List PathNodeId)
+    (acc : JMAcc × Nat) : JMAcc × Nat :=
+  let (c, budget) := acc
+  if budget == 0 then (c, 0)
+  else
+    match P with
+    | [] => acc
+    | low :: _ =>
+      let ok := chainCommonBelow J a P low.id.step
+      let ia := chainIn A a P
+      let ib := chainIn B a P
+      let mix := !ia && !ib
+      let c := { c with chains := c.chains + 1, inA := c.inA + (if ia then 1 else 0)
+                      , inB := c.inB + (if ib then 1 else 0), mixed := c.mixed + (if mix then 1 else 0)
+                      , mixedBad := c.mixedBad + (if mix && !ok then 1 else 0)
+                      , bad := c.bad + (if ok then 0 else 1)
+                      , first := if c.first == "" && mix then
+                          s!"{label} a@{a.id.step} cadena {P.map (·.id.step)} buena={ok}" else c.first }
+      let ps := match J.node? low with
+        | some n => n.parents.filter (fun p => mutuallyOwn J p a && P.all (fun y => mutuallyOwn J p y))
+        | none => []
+      ps.foldl (fun acc p => dfsJM J A B label a (p :: P) acc) (c, budget - 1)
+
+def measureJM (label : String) (A B : GPathM) (cap budget : Nat) (c : JMAcc) : JMAcc := Id.run do
+  let J := doJoin A B
+  if !(okJoin A B) || !isValid J then return c
+  let mut c := { c with joins := c.joins + 1 }
+  for na in J.nodes.take cap do
+    for t in ownersAt na.owners (J.current_step - 1) do
+      if mutuallyOwn J t na.id then
+        let (c', _) := dfsJM J A B label na.id [t] (c, budget)
+        c := c'
+  return c
+
+def runFormulaJM (label : String) (φ : Cnf) (cap budget : Nat) (c : JMAcc) : JMAcc := Id.run do
+  let mut c := { c with formulas := c.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let h := upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+        if isValid h then
+          match next.find? (fun e => e.1 == d) with
+          | some (_, existing) =>
+            c := measureJM s!"{label} paso {step} →⟨{d.step},{d.index}⟩" existing h cap budget c
+            next := next.map (fun e => if e.1 == d then (d, doJoin existing h) else e)
+          | none => next := next ++ [(d, h)]
+    line := next
+  return c
+
+def reportJM (name : String) (c : JMAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({c.formulas} formulas)"
+  IO.println s!"   uniones {c.joins}, cadenas desde la cima {c.chains}, malas {c.bad}"
+  IO.println s!"     cadena de A: {c.inA}   cadena de B: {c.inB}"
+  IO.println s!"     MEZCLADAS (de ningun lado): {c.mixed}, malas entre ellas: {c.mixedBad}"
+  if c.first != "" then IO.println s!"   primera mezclada: {c.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2907,6 +2992,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "joinmix" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaJM path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportJM path a (t1 - t0)
+  | "joinmix" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : JMAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaJM s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportJM s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "topgoodops" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
