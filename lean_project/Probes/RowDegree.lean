@@ -4787,6 +4787,81 @@ def reportT3 (name : String) (a : T3Acc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primera: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`nest`: ¿las tablas se anidan a lo largo de una cadena de padres?** En los estados del lector
+(inicio y pines, válidos): para cada tramo enlazado por padres y poseído por pares `c_lo … c_hi`
+(`collectDown`), y cada miembro `y` por encima de `c_lo`: ¿la tabla de `c_lo`, por debajo de `lo`,
+está en la tabla de `y`? Si sí, la tabla colectiva del descenso es la del último elegido. -/
+
+structure NSAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  segs : Nat := 0
+  checks : Nat := 0
+  bad : Nat := 0
+  badTop : Nat := 0
+  rev : Nat := 0
+  revBad : Nat := 0
+  revFirst : String := ""
+  first : String := ""
+  deriving Repr
+
+def checkNS (lab : String) (g : GPathM) (a : NSAcc) : NSAcc := Id.run do
+  if !isValid g then return a
+  let mut a := { a with states := a.states + 1 }
+  for n in g.nodes do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        a := { a with segs := a.segs + 1 }
+        let top := (P.getLast?.map (fun x => x.id.step == g.current_step - 1)).getD false
+        match g.node? low with
+        | none => pure ()
+        | some nl =>
+          let below := nl.owners.filter (fun r => r.id.step < low.id.step)
+          for y in P.drop 1 do
+            match g.node? y with
+            | none => pure ()
+            | some ny =>
+              a := { a with checks := a.checks + 1 }
+              let ybelow := ny.owners.filter (fun r => r.id.step < low.id.step)
+              a := { a with rev := a.rev + 1 }
+              if !ybelow.all (fun r => nl.owners.contains r) then
+                let msg := s!"{lab} low@{low.id.step} y@{y.id.step} tramo {P.map (·.id.step)}"
+                a := { a with revBad := a.revBad + 1, revFirst := if a.revFirst == "" then msg else a.revFirst }
+              if !below.all (fun r => ny.owners.contains r) then
+                let msg := s!"{lab} low@{low.id.step} y@{y.id.step} tramo {P.map (·.id.step)}"
+                a := { a with bad := a.bad + 1, badTop := a.badTop + (if top then 1 else 0)
+                            , first := if a.first == "" then msg else a.first }
+  return a
+
+partial def walkNS (lab : String) (g : GPathM) (fuel : Nat) (a : NSAcc) : NSAcc :=
+  let a := checkNS lab g a
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkNS lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaNS (label : String) (φ : Cnf) (a : NSAcc) : NSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkNS s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportNS (name : String) (a : NSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.states} estados del lector)"
+  IO.println s!"   tramos {a.segs}, comprobaciones {a.checks}, NO anidadas {a.bad} (tramos hasta la cima: {a.badTop})"
+  if a.first != "" then IO.println s!"   primera: {a.first}"
+  IO.println s!"   al reves (tabla de y por debajo de lo, dentro de la de c_lo): {a.rev}, NO {a.revBad}"
+  if a.revFirst != "" then IO.println s!"   primera al reves: {a.revFirst}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5240,6 +5315,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportT3 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "nest" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaNS path φ {})
+        let t1 ← IO.monoMsNow
+        reportNS path a (t1 - t0)
+  | "nest" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NSAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaNS s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportNS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
