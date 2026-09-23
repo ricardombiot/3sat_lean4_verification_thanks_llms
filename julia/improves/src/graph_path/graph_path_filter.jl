@@ -7,9 +7,13 @@ function filter!(gpath :: GPath, requires :: SetNodesId)
     make_review_owners!(gpath)
 end
 
+# Contador de vueltas del review (solo para medir; no cambia nada).
+const REVIEW_ROUNDS = Ref(0)
+
 function make_review_owners!(gpath :: GPath)
     #! [recursive-if] $ O(S*7*7) $
     if gpath.is_valid && gpath.review_owners
+        REVIEW_ROUNDS[] += 1
         #println("make Review_owners")
         gpath.review_owners = false
         clean_invalid_nodes!(gpath)
