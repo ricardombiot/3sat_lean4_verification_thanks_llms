@@ -5488,6 +5488,153 @@ def reportAD (name : String) (a : ADAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   sin ancla sola, mejor pareja por distancia maxima: {a.pairOnly}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`passhyp`: las hipótesis de `segGood_reviewNode_parents/sons` tal como están enunciadas**, en el
+estado de antes de cada `reviewNode` de las pasadas de padres y de hijos: (I1) toda entrada de la
+tabla un paso por debajo es padre —también ids muertos—; lo mismo solo para vivos; (I1-hijos) por
+encima; padres vivos; hijos vivos; cada nodo vivo se posee. Se cuentan estados que violan. -/
+
+structure PHCell where
+  states : Nat := 0
+  i1all : Nat := 0
+  i1live : Nat := 0
+  i1sall : Nat := 0
+  i1slive : Nat := 0
+  plive : Nat := 0
+  slive : Nat := 0
+  self : Nat := 0
+  segs : Nat := 0
+  segDead : Nat := 0
+  segNone : Nat := 0
+  removed : Nat := 0
+  removedSole : Nat := 0
+  deriving Repr
+
+/-- ¿Es `x` la única entrada común viva, en su paso, de algún tramo que no lo contiene? -/
+def soleLiveCommon (g : GPathM) (x : PathNodeId) : Bool := Id.run do
+  for y in g.nodes.take 20 do
+    let (segs, _) := collectDown g [y.id] ([], 30)
+    for P in segs do
+      match P.head?, P.getLast? with
+      | some lo, some hi =>
+        let i := x.id.step
+        if i < lo.id.step || hi.id.step < i then
+          let tabs := P.filterMap (fun z => (g.node? z).map (·.owners))
+          let common := (ownersAt (tabs.headD []) i).filter (fun r => tabs.all (fun t => t.contains r))
+          let live := common.filter (fun r => (g.node? r).isSome)
+          if live == [x] then return true
+      | _, _ => pure ()
+  return false
+
+/-- `SegGood` en versión viva: para cada tramo y cada paso fuera, ¿hay entrada común? ¿viva? -/
+def segLiveCheck (g : GPathM) : Nat × Nat × Nat := Id.run do
+  let mut n := 0
+  let mut dead := 0
+  let mut none := 0
+  for x in g.nodes.take 20 do
+    let (segs, _) := collectDown g [x.id] ([], 30)
+    for P in segs do
+      match P.head?, P.getLast? with
+      | some lo, some hi =>
+        let tabs := P.filterMap (fun y => (g.node? y).map (·.owners))
+        for i in intRange 0 (g.current_step - 1) do
+          if i < lo.id.step || hi.id.step < i then
+            n := n + 1
+            let common := (ownersAt (tabs.headD []) i).filter (fun r => tabs.all (fun t => t.contains r))
+            if common.isEmpty then none := none + 1
+            else if !common.any (fun r => (g.node? r).isSome) then dead := dead + 1
+      | _, _ => pure ()
+  return (n, dead, none)
+
+def checkPH (g : GPathM) (c : PHCell) : PHCell := Id.run do
+  if !isValid g then return c
+  let mut a1 := false
+  let mut a1l := false
+  let mut a2 := false
+  let mut a2l := false
+  let mut pl := false
+  let mut sl := false
+  let mut sf := false
+  for n in g.nodes do
+    if !n.owners.contains n.id then sf := true
+    for p in n.parents do
+      if (g.node? p).isNone then pl := true
+    for q in n.sons do
+      if (g.node? q).isNone then sl := true
+    for w in n.owners do
+      let live := (g.node? w).isSome
+      if w.id.step + 1 == n.id.id.step && !n.parents.contains w then
+        a1 := true
+        if live then a1l := true
+      if w.id.step == n.id.id.step + 1 && !n.sons.contains w then
+        a2 := true
+        if live then a2l := true
+  let (ns, nd, nn) := segLiveCheck g
+  return { states := c.states + 1, segs := c.segs + ns, segDead := c.segDead + nd, segNone := c.segNone + nn
+         , i1all := c.i1all + (if a1 then 1 else 0), i1live := c.i1live + (if a1l then 1 else 0)
+         , i1sall := c.i1sall + (if a2 then 1 else 0), i1slive := c.i1slive + (if a2l then 1 else 0)
+         , plive := c.plive + (if pl then 1 else 0), slive := c.slive + (if sl then 1 else 0)
+         , self := c.self + (if sf then 1 else 0) }
+
+structure PHAcc where
+  formulas : Nat := 0
+  par : PHCell := {}
+  sons : PHCell := {}
+  deriving Repr
+
+def instrStepsPH (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int) (c0 : PHCell) :
+    GPathM × PHCell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      c := checkPH g c
+      let g' := reviewNode g nb id
+      if (g'.node? id).isNone && (g.node? id).isSome then
+        c := { c with removed := c.removed + 1, removedSole := c.removedSole + (if soleLiveCommon g id then 1 else 0) }
+      g := g'
+  return (g, c)
+
+def reviewPH (F : GPathM) (a : PHAcc) : PHAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut fuel := GPathM.measure g + 1
+  while fuel > 0 do
+    fuel := fuel - 1
+    if !isValid g then fuel := 0
+    else
+      let g0 := g
+      let h := cleanInvalid g
+      let (h2, cp) := instrStepsPH h (·.parents) (intRange 1 (h.current_step - 1)) a.par
+      a := { a with par := cp }
+      let (h3, cs) := instrStepsPH h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse a.sons
+      a := { a with sons := cs }
+      g := h3
+      if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+  return a
+
+def runFormulaPH (φ : Cnf) (a : PHAcc) : PHAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewPH F a
+    line := pureAdvanceW φ line
+  return a
+
+def reportPHCell (lbl : String) (c : PHCell) : IO Unit := do
+  IO.println s!"   {lbl}: estados {c.states}; violan I1 {c.i1all} (vivos {c.i1live}), I1-hijos {c.i1sall} (vivos {c.i1slive}), padres vivos {c.plive}, hijos vivos {c.slive}, self {c.self}"
+  IO.println s!"      SegGood: casos {c.segs}, sin entrada comun {c.segNone}, solo entradas muertas {c.segDead}"
+  IO.println s!"      nodos eliminados {c.removed}, de ellos unica entrada comun viva de algun tramo {c.removedSole}"
+
+def reportPH (name : String) (a : PHAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportPHCell "pasada de padres" a.par
+  reportPHCell "pasada de hijos " a.sons
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -6087,6 +6234,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaAD φ a
       let t1 ← IO.monoMsNow
       reportAD s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "passhyp" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaPH φ {})
+        let t1 ← IO.monoMsNow
+        reportPH path a (t1 - t0)
+  | "passhyp" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : PHAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaPH φ a
+      let t1 ← IO.monoMsNow
+      reportPH s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
