@@ -121,11 +121,13 @@ file|random`).
 
 ## 7. Lo que falta
 
-1. **Confirmar la forma exacta de la hipótesis.** `filterkill` buscó extensiones enlazadas, poseídas
+1. ~~**Confirmar la forma exacta de la hipótesis.**~~ `filterkill` buscó extensiones enlazadas, poseídas
    por pares y dentro de la global; `ChainSound` pide además que cada miembro se posea, que el
-   enlace se vea desde los dos lados y que la raíz esté solo en el paso 0. `filterkillcs` lo mide:
-   en `dos_de_tres.cnf` es idéntico (1.904 / 1.904, 0 tramos que sobrevivan sin extensión
-   `ChainSound`); la semilla 1 está corriendo al escribir esto.
+   enlace se vea desde los dos lados y que la raíz esté solo en el paso 0. `filterkillcs` lo mide, y
+   es **idéntico** a la forma simple: `dos_de_tres.cnf` 1.904 / 1.904 y semilla 1 200.133 / 200.133
+   se extienden en forma `ChainSound` y sobreviven; **0** tramos sobreviven sin extensión
+   `ChainSound`, y 0 se extienden en forma simple pero no en forma `ChainSound`. La hipótesis está
+   medida exactamente como está escrita en Lean. **Hecho.**
 2. **Demostrar `FilterReviewComplete`.** Es la única pieza abierta. Es una frase de *completitud*
    del review —el review solo quita, así que lo que sobrevive tiene que haber sobrevivido *por*
    algo—, no de conservación. Lo que sabemos de ella:
