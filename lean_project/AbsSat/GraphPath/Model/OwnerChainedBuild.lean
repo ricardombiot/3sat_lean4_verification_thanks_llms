@@ -1090,4 +1090,96 @@ restringido a la cadena, no una propiedad gratuita de las tablas. -/
 #guard_msgs in
 #print axioms ownerChained_of_ownedFromAbove
 
+-- ============================================================
+-- Y la forma correcta del enunciado: EXISTENCIAL
+-- ============================================================
+
+/-! **Corrección del autor (y tenía razón): el review garantiza que dos tablas comparten *algún*
+camino, no uno concreto.** `sharesEveryStep` es existencial.
+
+Eso cambia el enunciado que hay que perseguir, y lo **debilita**. `TableChainOwned` pedía que
+**toda** cadena de la tabla estuviera poseída por pares — demasiado, y además no es lo que hace
+falta: `OwnerChained` solo necesita **una** cadena por el nodo. Así que el enunciado correcto es
+existencial de los dos lados. -/
+
+/-- **Existe una cadena poseída por pares dentro de la tabla de cada nodo, y pasa por él.**
+
+Ni «toda cadena», ni «la que construye `Threaded`»: **alguna**. Es la forma que encaja con lo que el
+barrido garantiza, y es estrictamente más débil que `TableChainOwned`. -/
+def TableHasOwnedChain (g : GPathM) : Prop :=
+  ∀ a na, g.node? a = some na → 0 ≤ a.id.step → a.id.step < g.current_step →
+    ∃ sel, IsChain g sel ∧ PairwiseOwned g sel ∧ sel a.id.step = a ∧
+      ∀ k, 0 ≤ k → k < g.current_step → sel k ∈ na.owners
+
+/-- **Y basta, con muchas menos hipótesis que la versión universal.**
+
+No hace hace falta `Threaded`, ni `OwnSymmetric`, ni `OOS`: la cadena viene dada, y
+`SupportedRun.chainSound_of_chain` la eleva. Compárese con
+`ownerChained_of_tableChainOwned`, que necesitaba las tres para **construirla**. -/
+theorem ownerChained_of_tableHasOwnedChain (g : GPathM)
+    (adj : AdjacentOwners.Adj g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (hgn : GownersNodes.GN g) (h : TableHasOwnedChain g) : ReaderChain.OwnerChained g := by
+  intro q hq h0 h1
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g q).mp (hgn q hq))
+  obtain ⟨sel, hchain, howned, hsq, _⟩ := h q n hn h0 h1
+  exact ⟨sel, SupportedRun.chainSound_of_chain g adj hsmp hpos sel hchain howned, by rw [hsq]⟩
+
+/-- **Y la versión universal la implica**, vía `Threaded`: la cadena existe y `TableChainOwned` la
+hace poseída por pares. Se deja para dejar constancia de que el enunciado nuevo es **más débil**. -/
+theorem tableHasOwnedChain_of_tableChainOwned (g : GPathM) (ctx : Threaded.TCtx g)
+    (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g) (h : TableChainOwned g) :
+    TableHasOwnedChain g := by
+  intro a na hna ha0 ha1
+  have hself := FabricAdd.self_mem_owners g hoos a na hna (ctx.nodeval a na hna) ha0 ha1
+  obtain ⟨sel, hchain, hsa, hin⟩ :=
+    Threaded.chain_through_of_symmetric g ctx hsym hoos a na hna hself ha0 ha1
+  exact ⟨sel, hchain, h a na hna sel hchain hin, hsa, hin⟩
+
+/-! ## Y entonces lo que falta es una CONSTRUCCIÓN, no una propiedad
+
+Con el enunciado existencial, el trabajo cambia de naturaleza: no hay que demostrar que una cadena
+dada cumple algo, hay que **elegirla**. Y el material para elegirla es justo lo que el barrido da:
+
+* `AggOk` asegura que la tabla de `a` y la de cualquier `w ∈ na.owners` **comparten una entrada en
+  cada paso**;
+* así que se puede descender manteniendo el invariante «lo construido está poseído por pares»,
+  eligiendo en cada paso una entrada compartida por todos los ya elegidos.
+
+La obligación de ese descenso es una sola, y está abajo. Y es exactamente lo que la sonda
+`row-degree pairdesc`, columna «como lo hace el lector» —pinchar y **revisar** en cada paso— mide al
+**100 %**: 1.016/1.016 en `dos_de_tres.cnf` y 12.602/12.602 en el corpus aleatorio, sin un solo
+retroceso.
+
+Y también corrige lo que yo había dicho de la sonda `tablechain`: mide **una** cadena, la del
+descenso ávido por padres, y sale poseída por pares en 194.850/194.850 pares. Eso es evidencia del
+enunciado **existencial**, no del universal. -/
+
+/-- **La única obligación del descenso, en su forma existencial.**
+
+Dado lo ya elegido por encima del paso `k` —una cadena parcial dentro de la tabla de `a`, poseída por
+pares—, hay una entrada de la tabla de `a` en el paso `k` que es **padre** de la de `k+1` y está
+**poseída por todas** las de arriba.
+
+Un solo paso. El resto es la recursión, y `AggOk` da el material en cada paso. -/
+def DescentStepOwned (g : GPathM) : Prop :=
+  ∀ a na, g.node? a = some na → ∀ (k : Int) (sel : Int → PathNodeId), 0 ≤ k →
+    k + 1 < g.current_step →
+    (∀ j, k < j → j < g.current_step → sel j ∈ na.owners) →
+    (∀ i j, k < i → k < j → i < g.current_step → j < g.current_step → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) →
+    ∃ u ∈ na.owners, u.id.step = k ∧
+      (∀ nk1, g.node? (sel (k + 1)) = some nk1 → u ∈ nk1.parents) ∧
+      (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners)
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_of_tableHasOwnedChain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_tableHasOwnedChain
+
+/--
+info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableHasOwnedChain_of_tableChainOwned' depends on axioms: [propext,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms tableHasOwnedChain_of_tableChainOwned
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild

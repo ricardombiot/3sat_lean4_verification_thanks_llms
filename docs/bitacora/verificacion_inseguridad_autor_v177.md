@@ -234,6 +234,19 @@ tabla de `a`— y comprueba todos sus pares.
 **194.850 pares y ni una excepción**, y el descenso no se atasca nunca — la construcción de
 `Threaded` funciona en el 100 % de las tablas.
 
+**Y una precisión que me hiciste y que cambia el enunciado**: el review garantiza que dos tablas
+comparten **algún** camino, no uno concreto — `sharesEveryStep` es existencial. Así que el enunciado
+a perseguir no es «toda cadena de la tabla está poseída por pares» (`TableChainOwned`) sino
+**«existe una»** (`TableHasOwnedChain`), que es estrictamente más débil y es lo único que
+`OwnerChained` necesita. La sonda `tablechain` mide **una** cadena —la del descenso ávido por
+padres—, así que su resultado es evidencia del enunciado **existencial**.
+
+Y con el enunciado existencial el trabajo cambia de naturaleza: no hay que demostrar que una cadena
+dada cumple algo, hay que **elegirla**, y el material para elegirla es justamente el cruce
+existencial que el barrido da. La obligación queda en un solo paso de descenso
+(`DescentStepOwned`) — que es lo que `row-degree pairdesc`, columna «como lo hace el lector», mide al
+100 %: 1.016/1.016 y 12.602/12.602, sin un solo retroceso.
+
 Y no es trivial, porque la versión fácil **es falsa**: la tabla de un nodo **no** es una clique
 (sonda `row-degree clique`: 1.236 de 15.496 pares no se poseen, 7,9 %, y 216 de los fallos entre
 pasos contiguos). El enunciado depende de que la cadena esté **enlazada por padres**, que es
