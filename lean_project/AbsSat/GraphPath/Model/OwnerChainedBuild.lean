@@ -1822,4 +1822,60 @@ theorem ownerChained_of_anyOption (g : GPathM) (hok : AggFixpoint.AggOk g)
 #guard_msgs in
 #print axioms ownerChained_of_anyOption
 
+-- ============================================================
+-- `AnyOptionStep` donde la tabla de `sel lo` no elige
+-- ============================================================
+
+/-- **Cualquier opción sirve en el paso `i` si la tabla de `sel lo` tiene ahí una sola entrada.**
+
+La tabla colectiva tiene alguna entrada `r` en `i`, y está en la tabla de `sel lo`. La opción `u`
+también está en la tabla de `sel lo`, así que el cruce de `AggOk` (`shared_at`) le da alguna entrada
+de esa tabla en el paso `i` — y como allí solo hay una, es `r`. -/
+theorem anyOption_of_singleAt (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (a : PathNodeId) (na : PNodeM) (_hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : CPart g na sel lo) (u : PathNodeId) (hus : u.id.step = lo - 1) (_hun : u ∈ na.owners)
+    (huown : ∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+      u ∈ nj.owners)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < lo - 1)
+    (hsingle : ∀ nl, g.node? (sel lo) = some nl →
+      ∀ p ∈ nl.owners, p.id.step = i → ∀ q ∈ nl.owners, q.id.step = i → p = q) :
+    ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+      (∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) ∧
+      (∀ nu, g.node? u = some nu → r ∈ nu.owners) := by
+  obtain ⟨r, hrs, hrn, hrall⟩ := hp.common i hi0 (by omega)
+  refine ⟨r, hrs, hrn, hrall, fun nu hnu => ?_⟩
+  obtain ⟨hlsome, hls⟩ := hp.op.chain.1 lo (Int.le_refl _) hhi
+  obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hlsome
+  obtain ⟨r', hr'l, hr's, hr'u⟩ := shared_at g hok ctx (sel lo) nl hnl (by omega) (by omega)
+    u nu hnu (by omega) (by omega) (huown lo (Int.le_refl _) (by omega) nl hnl) i hi0 (by omega)
+  rw [hsingle nl hnl r (hrall lo (Int.le_refl _) (by omega) nl hnl) hrs r' hr'l hr's]
+  exact hr'u
+
+/-- **Y en particular en todo paso donde la tabla global ya no elige** (`hostSingle_of_globalSingle`):
+en la zona que el lector ya pinchó, cualquier opción sirve. -/
+theorem anyOption_of_globalSingle (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : CPart g na sel lo) (u : PathNodeId) (hus : u.id.step = lo - 1) (hun : u ∈ na.owners)
+    (huown : ∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+      u ∈ nj.owners)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < lo - 1)
+    (hglob : ∀ p ∈ g.gowners, ∀ q ∈ g.gowners, p.id.step = i → q.id.step = i → p = q) :
+    ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+      (∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) ∧
+      (∀ nu, g.node? u = some nu → r ∈ nu.owners) :=
+  anyOption_of_singleAt g hok ctx a na hna sel lo hpos hhi hp u hus hun huown i hi0 hi1
+    (fun nl hnl p hp' hps q hq hqs =>
+      (hostSingle_of_globalSingle g ctx (sel lo) nl hnl i hi0 (by omega) hglob
+        p hp' hps q hq hqs).symm)
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.anyOption_of_singleAt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anyOption_of_singleAt
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.anyOption_of_globalSingle' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anyOption_of_globalSingle
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
