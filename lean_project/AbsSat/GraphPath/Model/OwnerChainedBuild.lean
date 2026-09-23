@@ -1156,25 +1156,29 @@ enunciado **existencial**, no del universal. -/
 
 /-- **La única obligación del descenso, en su forma existencial.**
 
-Dado lo ya elegido por encima del paso `k` —una cadena parcial dentro de la tabla de `a`, poseída por
-pares—, hay una entrada de la tabla de `a` en el paso `k` que es **padre** de la de `k+1` y está
-**poseída por todas** las de arriba.
+Dado lo ya elegido por encima del paso `k` —un nodo por paso, dentro de la tabla de `a`, poseídos
+por pares—, hay una entrada de la tabla de `a` en el paso `k` que está en la tabla de **todos** los de
+arriba.
+
+**Solo tablas, como el lector.** No se menciona ningún enlace de padre: el lector no los mira. Donde
+la recursión necesita el enlace para cerrar la cadena (`step_down_O`), lo pone
+`AdjacentOwners.owners_below_iff_parents` —en el paso de justo abajo, estar en la tabla de un nodo
+**es** ser su padre—, y la condición «padre de `sel (k+1)`» queda dentro de «en la tabla de todos los
+de arriba».
 
 Un solo paso. El resto es la recursión, y `AggOk` da el material en cada paso.
 
-**Corrección (v179): lo de arriba es una CADENA.** La primera redacción —`DescentStepAny`, abajo—
-no pedía que `sel` fuera cadena por encima de `k`, y así es **falsa** en cuanto hay un nodo en el
-paso 2 (`not_descentStepAny`). La recursión (`step_down_O`) siempre la tiene, así que añadirla no
-cuesta nada. -/
+**Corrección (v179): cada elegido está en su paso.** La primera redacción —`DescentStepAny`, abajo—
+no lo pedía, y así es **falsa** en cuanto hay un nodo en el paso 2 (`not_descentStepAny`). La
+recursión siempre lo tiene. -/
 def DescentStepOwned (g : GPathM) : Prop :=
   ∀ a na, g.node? a = some na → ∀ (k : Int) (sel : Int → PathNodeId), 0 ≤ k →
     k + 1 < g.current_step →
-    Extendable.PartialChain g sel (k + 1) (g.current_step - 1) →
+    (∀ j, k < j → j < g.current_step → (g.node? (sel j)).isSome ∧ (sel j).id.step = j) →
     (∀ j, k < j → j < g.current_step → sel j ∈ na.owners) →
     (∀ i j, k < i → k < j → i < g.current_step → j < g.current_step → i ≠ j →
       ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) →
     ∃ u ∈ na.owners, u.id.step = k ∧
-      (∀ nk1, g.node? (sel (k + 1)) = some nk1 → u ∈ nk1.parents) ∧
       (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners)
 
 /-- **La primera redacción, sin la cadena. MEDIDO — DEMOSTRADO — FALSO.** -/
@@ -1234,12 +1238,12 @@ structure OPart (g : GPathM) (na : PNodeM) (sel : Int → PathNodeId) (lo : Int)
   owned : PartialOwned g sel lo (g.current_step - 1)
 
 /-- **Un paso del descenso**, con la obligación del autor como única entrada. -/
-theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g)
-    (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g)
+    (hsym : Threaded.OwnSymmetric g) (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
     (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
     (hp : OPart g na sel lo) : ∃ c, OPart g na (upd sel (lo - 1) c) (lo - 1) := by
-  obtain ⟨u, hun, hus, hupar, huown⟩ := hds a na hna (lo - 1) sel (by omega) (by omega)
-    (by rw [show lo - 1 + 1 = lo from by omega]; exact hp.chain)
+  obtain ⟨u, hun, hus, huown⟩ := hds a na hna (lo - 1) sel (by omega) (by omega)
+    (fun j hj1 hj2 => hp.chain.1 j (by omega) (by omega))
     (fun j hj1 hj2 => hp.inTable j (by omega) (by omega))
     (fun i j hi1 hj1 hi2 hj2 hij nj hnj => by
       have := hp.owned i j (by omega) (by omega) (by omega) (by omega) hij
@@ -1262,7 +1266,10 @@ theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSym
         obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hsome
         rw [hnl]
         simp only [Option.map_some, Option.getD_some]
-        exact hupar nl (by rw [show lo - 1 + 1 = lo from by omega]; exact hnl)
+        -- el enlace de padre lo pone la tabla: en el paso de abajo, owner es padre
+        have hls := (hp.chain.1 lo (Int.le_refl _) hhi).2
+        exact (AdjacentOwners.owners_below_iff_parents g adj (sel lo) nl hnl (by omega) u
+          (by rw [hus, hls])).mp (huown lo (by omega) (by omega) nl hnl)
       · rw [upd_other sel (lo - 1) u he,
           upd_other sel (lo - 1) u (by omega)]
         exact hp.chain.2 i (by omega) hi2
@@ -1291,7 +1298,7 @@ theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSym
         exact hp.owned i j (by omega) (by omega) hi2 hj2 hij
 
 /-- **Y el descenso entero**, por recursión sobre el paso. -/
-theorem descend_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g)
+theorem descend_O (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
     (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na) :
     ∀ (fuel : Nat) (sel : Int → PathNodeId) (lo : Int), lo.toNat ≤ fuel → 0 ≤ lo →
       lo ≤ g.current_step - 1 → OPart g na sel lo → ∃ sel', OPart g na sel' 0 := by
@@ -1304,7 +1311,7 @@ theorem descend_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymme
   | succ fuel ih =>
     intro sel lo hm hlo hhi hp
     if hpos : 0 < lo then
-      obtain ⟨c, hp'⟩ := step_down_O g ctx hsym hds a na hna sel lo hpos hhi hp
+      obtain ⟨c, hp'⟩ := step_down_O g ctx adj hsym hds a na hna sel lo hpos hhi hp
       exact ih _ (lo - 1) (by omega) (by omega) (by omega) hp'
     else
       have : lo = 0 := by omega
@@ -1329,6 +1336,7 @@ Así que la escalera entera queda:
 
     DescentStepOwned  →  TableHasOwnedChain  →  OwnerChained  →  PinAlive  →  el veredicto -/
 theorem tableHasOwnedChain_of_descentStep (g : GPathM) (ctx : Threaded.TCtx g)
+    (adj : AdjacentOwners.Adj g)
     (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g) (hpos : 0 < g.current_step)
     (hds : DescentStepOwned g) : TableHasOwnedChain g := by
   intro a na hna ha0 ha1
@@ -1348,7 +1356,7 @@ theorem tableHasOwnedChain_of_descentStep (g : GPathM) (ctx : Threaded.TCtx g)
     · intro i hi1 hi2; exfalso; omega
     · intro i _ _; exact ht
     · intro i j hi1 hj1 hi2 hj2 hij; exfalso; omega
-  obtain ⟨sel, hp⟩ := descend_O g ctx hsym hds a na hna (g.current_step - 1).toNat
+  obtain ⟨sel, hp⟩ := descend_O g ctx adj hsym hds a na hna (g.current_step - 1).toNat
     (fun _ => t) (g.current_step - 1) (Nat.le_refl _) (by omega) (by omega) hseed
   refine ⟨sel, isChain_of_partial g sel hp.chain, pairwiseOwned_of_partial g sel hp.owned, ?_,
     fun k hk0 hk1 => hp.inTable k hk0 (by omega)⟩
@@ -1365,7 +1373,7 @@ theorem ownerChained_of_descentStep (g : GPathM)
     (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g)
     (hgn : GownersNodes.GN g) (hds : DescentStepOwned g) : ReaderChain.OwnerChained g :=
   ownerChained_of_tableHasOwnedChain g adj hsmp hpos hgn
-    (tableHasOwnedChain_of_descentStep g ctx hsym hoos hpos hds)
+    (tableHasOwnedChain_of_descentStep g ctx adj hsym hoos hpos hds)
 
 /-! ## El hueco, en un paso de descenso
 
@@ -1393,102 +1401,93 @@ un solo retroceso**. Y `row-degree tablechain`, que construye ese descenso hasta
 #print axioms ownerChained_of_descentStep
 
 -- ============================================================
--- El paso `k` no elige id de mapa: lo fija el hijo
+-- El paso `k`, leído solo en las tablas
 -- ============================================================
 
-/-- **Toda tabla que posee a `b` le comparte un PADRE en el paso de abajo.**
-
-`AggOk` da el cruce `sharesEveryStep` entre la tabla de `x` y la de `b`; la tabla de `b` tiene
-entrada en el paso de abajo (es válido), así que alguna entrada de `x` en ese paso está en la de
-`b`, y en el paso de abajo **los owners de `b` son sus padres** (`owners_below_iff_parents`). -/
-theorem shared_parent (g : GPathM) (hok : AggFixpoint.AggOk g) (adj : AdjacentOwners.Adj g)
+/-- **Dos tablas que se poseen comparten una entrada en cada paso.** Es el cruce de `AggOk`
+(`sharesEveryStep`), con la validez de `b` poniendo la entrada en su lado. -/
+theorem shared_at (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
     (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
     (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < g.current_step)
     (b : PathNodeId) (nb : PNodeM) (hb : g.node? b = some nb)
-    (hb1 : 1 ≤ b.id.step) (hbc : b.id.step < g.current_step) (hbx : b ∈ nx.owners) :
-    ∃ r ∈ nx.owners, r.id.step = b.id.step - 1 ∧ r ∈ nb.parents := by
-  obtain ⟨_, hshare⟩ := hok x nx b nb hx hb hx0 hx1 (by omega) hbc hbx
-    (adj.ctx.nodeval x nx hx) (adj.ctx.nodeval b nb hb)
+    (hb0 : 0 ≤ b.id.step) (hbc : b.id.step < g.current_step) (hbx : b ∈ nx.owners)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < g.current_step) :
+    ∃ r ∈ nx.owners, r.id.step = i ∧ r ∈ nb.owners := by
+  obtain ⟨_, hshare⟩ := hok x nx b nb hx hb hx0 hx1 hb0 hbc hbx
+    (ctx.nodeval x nx hx) (ctx.nodeval b nb hb)
   simp only [sharesEveryStep, List.all_eq_true] at hshare
-  have hk := hshare (b.id.step - 1) (mem_intRange (by omega) (by omega))
-  have hbe : hasStepEntry nb.owners (b.id.step - 1) = true := by
-    have hok' := owners_ok_of_isValidNode g nb (adj.ctx.nodeval b nb hb)
+  have hk := hshare i (mem_intRange hi0 (by omega))
+  have hbe : hasStepEntry nb.owners i = true := by
+    have hok' := owners_ok_of_isValidNode g nb (ctx.nodeval b nb hb)
     simp only [List.all_eq_true] at hok'
-    exact hok' _ (mem_intRange (by omega) (by omega))
+    exact hok' i (mem_intRange hi0 (by omega))
   rw [hbe] at hk
   simp only [Bool.not_true, Bool.false_or, List.any_eq_true] at hk
   obtain ⟨r, hr, hrc⟩ := hk
   obtain ⟨hrn, hrs⟩ := List.mem_filter.mp hr
-  have hrs' : r.id.step = b.id.step - 1 := eq_of_beq hrs
-  exact ⟨r, hrn, hrs',
-    (AdjacentOwners.owners_below_iff_parents g adj b nb hb hb1 r hrs').mp
-      (List.mem_of_elem_eq_true hrc)⟩
+  exact ⟨r, hrn, eq_of_beq hrs, List.mem_of_elem_eq_true hrc⟩
 
-/-- **Los padres de un nodo llevan todos el mismo id de mapa y el mismo `parent_id`.**
+/-- **Las entradas de la tabla de `b` en el paso de abajo llevan todas el mismo id de mapa y el mismo
+`parent_id`.**
 
-`PMP`: el id del padre es el `parent_id` del hijo; `GPMP`: el `parent_id` del padre es el
-`gparent_id` del hijo. Así que dos padres solo pueden diferir en `gparent_id` — el id de mapa del
-paso `k - 2`. -/
-theorem parents_same_window (g : GPathM) (ctx : Pinned.Ctx g)
-    (b : PathNodeId) (nb : PNodeM) (hb : g.node? b = some nb)
-    (p q : PathNodeId) (hp : p ∈ nb.parents) (hq : q ∈ nb.parents) :
+En ese paso, estar en la tabla de `b` es ser su padre (`owners_below_iff_parents`); `PMP` fija el id
+del padre y `GPMP` su `parent_id`. Así que dos entradas solo pueden diferir en `gparent_id` — el id
+de mapa del paso `k - 2`. -/
+theorem below_same_window (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (b : PathNodeId) (nb : PNodeM) (hb : g.node? b = some nb) (hb1 : 1 ≤ b.id.step)
+    (p q : PathNodeId) (hp : p ∈ nb.owners) (hps : p.id.step = b.id.step - 1)
+    (hq : q ∈ nb.owners) (hqs : q.id.step = b.id.step - 1) :
     p.id = q.id ∧ p.parent_id = q.parent_id := by
   have hm := List.mem_of_find?_eq_some hb
-  have h1 := ctx.pmp nb hm p hp
-  have h2 := ctx.pmp nb hm q hq
-  have h3 := ctx.gpmp.1 nb hm p hp
-  have h4 := ctx.gpmp.1 nb hm q hq
-  exact ⟨Option.some.inj (h1.trans h2.symm), h3.symm.trans h4⟩
+  have hpp := (AdjacentOwners.owners_below_iff_parents g adj b nb hb hb1 p hps).mp hp
+  have hqp := (AdjacentOwners.owners_below_iff_parents g adj b nb hb hb1 q hqs).mp hq
+  exact ⟨Option.some.inj ((adj.ctx.pmp nb hm p hpp).trans (adj.ctx.pmp nb hm q hqp).symm),
+    (adj.ctx.gpmp.1 nb hm p hpp).symm.trans (adj.ctx.gpmp.1 nb hm q hqp)⟩
 
-/-- **El paso del descenso, cuando el hijo tiene un solo padre.**
+/-- **El paso del descenso, cuando la tabla de `b = sel (k+1)` tiene una sola entrada en `k`.**
 
-No pide nada de la tabla de `a` en el paso `k`: **ni una sola entrada, ni un solo id de mapa**. El
-padre de `b = sel (k+1)` que comparte la tabla de `a` (`shared_parent`) sirve para todos los de
-arriba, porque cada uno de ellos comparte con `b` un padre (`shared_parent` otra vez) y `b` no tiene
-otro.
+Solo tablas, y solo `AggOk`: la entrada que la tabla de `a` comparte con la de `b` en el paso `k`
+(`shared_at`) sirve para todos los de arriba, porque cada uno comparte con `b` alguna entrada en ese
+paso (`shared_at` otra vez) y la tabla de `b` no tiene otra.
 
-Y por `parents_same_window` la hipótesis es solo sobre la **ventana**: los padres de `b` ya
-coinciden en id de mapa y en `parent_id`. El caso «la tabla de `a` ofrece dos ids de mapa en `k`» no
-es una elección del descenso — el hijo ya la hizo. -/
-theorem descentStep_of_parentSingle (g : GPathM) (hok : AggFixpoint.AggOk g)
-    (adj : AdjacentOwners.Adj g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+No pide nada de la tabla de `a` en el paso `k`: **ni una sola entrada, ni un solo id de mapa.** Y
+por `below_same_window` la hipótesis es solo sobre la **ventana**. -/
+theorem descentStep_of_singleBelow (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (ctx : Pinned.Ctx g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
     (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
     (k : Int) (sel : Int → PathNodeId) (hk0 : 0 ≤ k) (hk1 : k + 1 < g.current_step)
-    (hch : Extendable.PartialChain g sel (k + 1) (g.current_step - 1))
+    (hpl : ∀ j, k < j → j < g.current_step → (g.node? (sel j)).isSome ∧ (sel j).id.step = j)
     (hin : ∀ j, k < j → j < g.current_step → sel j ∈ na.owners)
     (hown : ∀ i j, k < i → k < j → i < g.current_step → j < g.current_step → i ≠ j →
       ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners)
     (hsingle : ∀ nb, g.node? (sel (k + 1)) = some nb →
-      ∀ p ∈ nb.parents, ∀ q ∈ nb.parents, p = q) :
+      ∀ p ∈ nb.owners, p.id.step = k → ∀ q ∈ nb.owners, q.id.step = k → p = q) :
     ∃ u ∈ na.owners, u.id.step = k ∧
-      (∀ nk1, g.node? (sel (k + 1)) = some nk1 → u ∈ nk1.parents) ∧
       (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners) := by
-  obtain ⟨hbsome, hbs⟩ := hch.1 (k + 1) (Int.le_refl _) (by omega)
+  obtain ⟨hbsome, hbs⟩ := hpl (k + 1) (by omega) (by omega)
   obtain ⟨nb, hnb⟩ := Option.isSome_iff_exists.mp hbsome
-  obtain ⟨u, hun, hus, hup⟩ := shared_parent g hok adj a na hna ha0 ha1 (sel (k + 1)) nb hnb
-    (by omega) (by omega) (hin (k + 1) (by omega) (by omega))
-  refine ⟨u, hun, by rw [hus, hbs]; omega, fun nk1 hk => ?_, fun j hj1 hj2 nj hnj => ?_⟩
-  · rw [← Option.some.inj (hnb.symm.trans hk)]; exact hup
-  · rcases int_eq_or_ne j (k + 1) with he | he
-    · subst he
-      rw [← Option.some.inj (hnb.symm.trans hnj)]
-      exact (adj.links _ nb hnb).1 u hup
-    · obtain ⟨_, hjs⟩ := hch.1 j (by omega) (by omega)
-      obtain ⟨r, hrn, _, hrp⟩ := shared_parent g hok adj (sel j) nj hnj (by omega) (by omega)
-        (sel (k + 1)) nb hnb (by omega) (by omega)
-        (hown (k + 1) j (by omega) hj1 (by omega) hj2 (fun h => he h.symm) nj hnj)
-      rw [hsingle nb hnb u hup r hrp]; exact hrn
+  obtain ⟨u, hun, hus, hub⟩ := shared_at g hok ctx a na hna ha0 ha1 (sel (k + 1)) nb hnb
+    (by omega) (by omega) (hin (k + 1) (by omega) (by omega)) k hk0 (by omega)
+  refine ⟨u, hun, hus, fun j hj1 hj2 nj hnj => ?_⟩
+  rcases int_eq_or_ne j (k + 1) with he | he
+  · subst he
+    rw [← Option.some.inj (hnb.symm.trans hnj)]; exact hub
+  · obtain ⟨_, hjs⟩ := hpl j hj1 hj2
+    obtain ⟨r, hrn, hrs, hrb⟩ := shared_at g hok ctx (sel j) nj hnj (by omega) (by omega)
+      (sel (k + 1)) nb hnb (by omega) (by omega)
+      (hown (k + 1) j (by omega) hj1 (by omega) hj2 (fun h => he h.symm) nj hnj) k hk0 (by omega)
+    rw [hsingle nb hnb u hub hus r hrb hrs]; exact hrn
 
-/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.shared_parent' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.shared_at' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms shared_parent
+#print axioms shared_at
 
-/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.parents_same_window' depends on axioms: [propext] -/
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.below_same_window' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms parents_same_window
+#print axioms below_same_window
 
-/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descentStep_of_parentSingle' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descentStep_of_singleBelow' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms descentStep_of_parentSingle
+#print axioms descentStep_of_singleBelow
 
 end AbsSat.GraphPath.Model.OwnerChainedBuild
