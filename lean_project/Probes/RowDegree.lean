@@ -5219,6 +5219,182 @@ def reportSW (name : String) (a : SWAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer fallo de S1: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`fusion`: ¿el ancla de la tabla colectiva es un nodo fusión?** Mismos casos que `sandwich`. Nodo
+fusión = miembro con 2+ padres; bifurcación = 2+ hijos. Reglas: (F1) el fusión más bajo (si no hay,
+el más bajo); (F2) el fusión más alto; (B1) la bifurcación más baja. Para cada regla: ¿su tabla sola
+basta? ¿basta con el más bajo? Y: entre los miembros cuya tabla sola basta, ¿hay algún fusión? -/
+
+structure FUAcc where
+  formulas : Nat := 0
+  cases : Nat := 0
+  f1 : Nat := 0
+  f1lo : Nat := 0
+  f2 : Nat := 0
+  f2lo : Nat := 0
+  b1 : Nat := 0
+  b1lo : Nat := 0
+  anchorFusion : Nat := 0
+  anchorAny : Nat := 0
+  noFusion : Nat := 0
+  deriving Repr
+
+def checkFU (g : GPathM) (a : FUAcc) : FUAcc := Id.run do
+  if !isValid g then return a
+  let mut a := a
+  for n in g.line (g.current_step - 1) do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        if P.length ≥ 3 then
+          let nodes := P.filterMap (fun y => g.node? y)
+          let fus : List Bool := nodes.map (fun m => decide (m.parents.length ≥ 2))
+          let forks : List Bool := nodes.map (fun m => decide (m.sons.length ≥ 2))
+          let pick : List Bool → Bool → Nat := fun fl lowest =>
+            let idxs := (List.range fl.length).filter (fun j => fl.getD j false)
+            if lowest then idxs.headD 0 else idxs.getLastD 0
+          let jf1 := pick fus true
+          let jf2 := pick fus false
+          let jb1 := pick forks true
+          let hasF : Bool := fus.any id
+          for i in (intRange 0 (low.id.step - 1)) do
+            let ats : List (List PathNodeId) := nodes.map (fun m => ownersAt m.owners i)
+            let inAll : List PathNodeId → Bool := fun xs => xs.all (fun r => ats.all (fun t => t.contains r))
+            let inter : List PathNodeId → List PathNodeId → List PathNodeId :=
+              fun x y => x.filter (fun r => y.contains r)
+            let t0 := ats.headD []
+            let tj := fun (j : Nat) => ats.getD j []
+            let anchors := (List.range ats.length).filter (fun j => inAll (tj j))
+            a := { a with cases := a.cases + 1
+                        , f1 := a.f1 + (if inAll (tj jf1) then 1 else 0)
+                        , f1lo := a.f1lo + (if inAll (inter t0 (tj jf1)) then 1 else 0)
+                        , f2 := a.f2 + (if inAll (tj jf2) then 1 else 0)
+                        , f2lo := a.f2lo + (if inAll (inter t0 (tj jf2)) then 1 else 0)
+                        , b1 := a.b1 + (if inAll (tj jb1) then 1 else 0)
+                        , b1lo := a.b1lo + (if inAll (inter t0 (tj jb1)) then 1 else 0)
+                        , anchorAny := a.anchorAny + (if anchors.isEmpty then 0 else 1)
+                        , anchorFusion := a.anchorFusion + (if anchors.any (fun j => fus.getD j false) then 1 else 0)
+                        , noFusion := a.noFusion + (if hasF then 0 else 1) }
+  return a
+
+partial def walkFU (g : GPathM) (fuel : Nat) (a : FUAcc) : FUAcc :=
+  let a := checkFU g a
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkFU (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaFU (φ : Cnf) (a : FUAcc) : FUAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := checkFU (AggressiveReview.reviewAgg kv.2) a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkFU g (stepCount φ).toNat a
+  return a
+
+def reportFU (name : String) (a : FUAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   casos {a.cases} (cadenas sin ningun fusion: {a.noFusion})"
+  IO.println s!"   (F1) fusion mas bajo solo: {a.f1}   con el mas bajo: {a.f1lo}"
+  IO.println s!"   (F2) fusion mas alto solo: {a.f2}   con el mas bajo: {a.f2lo}"
+  IO.println s!"   (B1) bifurcacion mas baja sola: {a.b1}   con el mas bajo: {a.b1lo}"
+  IO.println s!"   hay ancla sola: {a.anchorAny}   y es un fusion: {a.anchorFusion}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`fusrow`: ¿el ancla es el miembro del paso de fusión?** Mismos casos que `sandwich`, con
+`F = litBlock φ` (el `FusionNode` que separa literales de cláusulas). Para cadenas que pasan por `F`
+(`lo ≤ F`): ¿la tabla del miembro en `F` basta sola? ¿con el más bajo? Separado por `i < F` / `i > F`.
+Y para cadenas por encima de `F`: ¿basta la tabla del más bajo? -/
+
+structure FRAcc where
+  formulas : Nat := 0
+  thruBelow : Nat := 0
+  thruBelowOk : Nat := 0
+  thruBelowLo : Nat := 0
+  thruAbove : Nat := 0
+  thruAboveOk : Nat := 0
+  thruAboveLo : Nat := 0
+  over : Nat := 0
+  overLow : Nat := 0
+  overAny : Nat := 0
+  deriving Repr
+
+def checkFR (F : Int) (g : GPathM) (a : FRAcc) : FRAcc := Id.run do
+  if !isValid g then return a
+  let mut a := a
+  for n in g.line (g.current_step - 1) do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        if P.length ≥ 3 then
+          let nodes := P.filterMap (fun y => g.node? y)
+          let jF := (List.range P.length).find? (fun j => ((P.getD j low).id.step == F))
+          for i in (intRange 0 (low.id.step - 1)) do
+            let ats : List (List PathNodeId) := nodes.map (fun m => ownersAt m.owners i)
+            let inAll : List PathNodeId → Bool := fun xs => xs.all (fun r => ats.all (fun t => t.contains r))
+            let inter : List PathNodeId → List PathNodeId → List PathNodeId :=
+              fun x y => x.filter (fun r => y.contains r)
+            let t0 := ats.headD []
+            match jF with
+            | some j =>
+              let tF := ats.getD j []
+              let ok : Bool := inAll tF
+              let okLo : Bool := inAll (inter t0 tF)
+              if i < F then
+                a := { a with thruBelow := a.thruBelow + 1, thruBelowOk := a.thruBelowOk + (if ok then 1 else 0)
+                            , thruBelowLo := a.thruBelowLo + (if okLo then 1 else 0) }
+              else
+                a := { a with thruAbove := a.thruAbove + 1, thruAboveOk := a.thruAboveOk + (if ok then 1 else 0)
+                            , thruAboveLo := a.thruAboveLo + (if okLo then 1 else 0) }
+            | none =>
+              if low.id.step > F then
+                let anyA : Bool := ats.any (fun t => inAll t)
+                a := { a with over := a.over + 1, overLow := a.overLow + (if inAll t0 then 1 else 0)
+                            , overAny := a.overAny + (if anyA then 1 else 0) }
+  return a
+
+partial def walkFR (F : Int) (g : GPathM) (fuel : Nat) (a : FRAcc) : FRAcc :=
+  let a := checkFR F g a
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkFR F (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaFR (φ : Cnf) (a : FRAcc) : FRAcc := Id.run do
+  let F := litBlock φ
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := checkFR F (AggressiveReview.reviewAgg kv.2) a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkFR F g (stepCount φ).toNat a
+  return a
+
+def reportFR (name : String) (a : FRAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   cadenas por F, paso i < F: {a.thruBelow}   tabla de F sola: {a.thruBelowOk}   F con el mas bajo: {a.thruBelowLo}"
+  IO.println s!"   cadenas por F, paso i > F: {a.thruAbove}   tabla de F sola: {a.thruAboveOk}   F con el mas bajo: {a.thruAboveLo}"
+  IO.println s!"   cadenas por encima de F: {a.over}   el mas bajo solo: {a.overLow}   algun ancla: {a.overAny}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5767,6 +5943,40 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportSW s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "fusion" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaFU φ {})
+        let t1 ← IO.monoMsNow
+        reportFU path a (t1 - t0)
+  | "fusion" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : FUAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaFU φ a
+      let t1 ← IO.monoMsNow
+      reportFU s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "fusrow" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaFR φ {})
+        let t1 ← IO.monoMsNow
+        reportFR path a (t1 - t0)
+  | "fusrow" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : FRAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaFR φ a
+      let t1 ← IO.monoMsNow
+      reportFR s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
