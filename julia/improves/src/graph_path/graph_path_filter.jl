@@ -25,12 +25,58 @@ function make_review_owners!(gpath :: GPath)
     end
 end
 
+# Interruptor de clean_invalid_nodes! (informe v181, §6):
+#   :sequential — el de siempre: nodo a nodo, cada tabla cortada con la global de ese momento.
+#   :two_phase  — primero eliminar hasta que la global se estabilice, después un solo corte.
+const CLEAN_MODE = Ref(:sequential)
+
 function clean_invalid_nodes!(gpath :: GPath)
+    if CLEAN_MODE[] == :two_phase
+        clean_invalid_nodes_two_phase!(gpath)
+    else
+        clean_invalid_nodes_sequential!(gpath)
+    end
+end
+
+function clean_invalid_nodes_sequential!(gpath :: GPath)
     # For every step  O(S) we have at worst O(7*7) nodes, then:
     #! [fn-iter] $ O(S*7*7) $
     PathCollectionLines.filter!(gpath.table_lines, function (map_node)
         PathDocumentOwners.intersect!(map_node.owners, gpath.owners)
         return remove_if_invalid_node!(gpath, map_node)
+    end)
+end
+
+# cleanInvalid en dos fases (v181, §6), 24-sept-2026.
+# Fase 1: se eliminan los nodos cuya tabla, cortada con la global ACTUAL, no es válida, sin tocar
+#         todavía ninguna tabla; se repite hasta que no se elimina nada (eliminar un nodo puede dejar
+#         a un vecino sin padres o sin hijos, o encoger la global).
+# Fase 2: un solo corte de todas las tablas con la global FINAL. Así ninguna tabla guarda ids de
+#         nodos eliminados y el resultado no depende del orden en que se recorren los nodos.
+function clean_invalid_nodes_two_phase!(gpath :: GPath)
+    #! [while] $ O(N) $ vueltas como mucho: cada vuelta que sigue ha eliminado al menos un nodo
+    changed = true
+    while changed && gpath.is_valid && gpath.table_lines.is_valid
+        changed = false
+        #! [fn-iter] $ O(S*7*7) $
+        PathCollectionLines.filter!(gpath.table_lines, function (path_node)
+            owners_now = deepcopy(path_node.owners)
+            PathDocumentOwners.intersect!(owners_now, gpath.owners)
+            if is_valid_node_with_owners(gpath, path_node, owners_now)
+                return false
+            else
+                remove_node_owner!(gpath, path_node.id)
+                clean_links!(gpath, path_node)
+                gpath.review_owners = true
+                changed = true
+                return true
+            end
+        end)
+    end
+
+    #! [fn-iter] $ O(S*7*7) $
+    PathCollectionLines.for_each(gpath.table_lines, function (path_node)
+        PathDocumentOwners.intersect!(path_node.owners, gpath.owners)
     end)
 end
 #! [fixed] $ O(S*7*7*S*7*7) $
@@ -196,7 +242,13 @@ end
 
 
 function is_valid_node(gpath :: GPath, path_node :: PathDocNode) :: Bool
-    is_owners_valid = PathDocumentNode.is_valid(path_node)
+    return is_valid_node_with_owners(gpath, path_node, path_node.owners)
+end
+
+# La validez de un nodo evaluada con una tabla de owners dada (la suya u otra), sin modificarlo.
+function is_valid_node_with_owners(gpath :: GPath, path_node :: PathDocNode,
+                                   owners :: PathDocOwners) :: Bool
+    is_owners_valid = PathDocumentOwners.is_valid(owners)
     is_root_node = PathDocumentNode.is_root(path_node)
     is_in_last_step = PathDocumentNode.get_step(path_node) == gpath.current_step-1
     have_parents = !isempty(path_node.parents)
