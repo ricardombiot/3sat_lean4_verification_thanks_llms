@@ -578,4 +578,88 @@ aquí restringida a una cadena cuyos nodos están todos en la tabla de un mismo 
 #guard_msgs in
 #print axioms tableChainOwned_of_distant
 
+-- ============================================================
+-- De la distancia a UN SALTO
+-- ============================================================
+
+/-- **Un salto: lo que un nodo de la cadena posee por debajo, lo posee el siguiente.**
+
+Es la versión local de la posesión a distancia, y basta un salto: el resto lo hace la inducción. -/
+def HopDown (g : GPathM) (sel : Int → PathNodeId) : Prop :=
+  ∀ k, 0 ≤ k → k + 1 < g.current_step → ∀ mk mk1, g.node? (sel k) = some mk →
+    g.node? (sel (k + 1)) = some mk1 → ∀ w ∈ mk.owners, w.id.step < k → w ∈ mk1.owners
+
+/-- **Y de un salto sale cualquier distancia, subiendo.** Inducción sobre la separación. -/
+theorem mem_owners_up (g : GPathM) (links : Bridge.LinksInOwners g) (sel : Int → PathNodeId)
+    (hchain : IsChain g sel) (hhop : HopDown g sel) :
+    ∀ (d : Nat) (i : Int), 0 ≤ i → i + (d : Int) + 1 < g.current_step →
+      ∀ m, g.node? (sel (i + (d : Int) + 1)) = some m → sel i ∈ m.owners := by
+  intro d
+  induction d with
+  | zero =>
+    intro i hi0 hi1 m hm
+    have harith : i + ((0 : Nat) : Int) + 1 = i + 1 := by push_cast; omega
+    rw [harith] at hi1 hm
+    have hlink := hchain.2 i hi0 hi1
+    rw [hm] at hlink
+    simp only [Option.map_some, Option.getD_some] at hlink
+    exact (links _ m hm).1 _ hlink
+  | succ n ih =>
+    intro i hi0 hi1 m hm
+    have harith : i + ((n + 1 : Nat) : Int) + 1 = (i + (n : Int) + 1) + 1 := by push_cast; omega
+    rw [harith] at hi1 hm
+    have hj1 : i + (n : Int) + 1 < g.current_step := by omega
+    obtain ⟨mj, hmj⟩ := Option.isSome_iff_exists.mp (hchain.1 (i + (n : Int) + 1) (by omega) hj1).1
+    have hprev := ih i hi0 hj1 mj hmj
+    have hstepi := (hchain.1 i hi0 (by omega)).2
+    exact hhop (i + (n : Int) + 1) (by omega) (by omega) mj m hmj hm (sel i) hprev
+      (by rw [hstepi]; omega)
+
+/-- **Y entonces la posesión a distancia sale de un solo salto.**
+
+Hacia arriba por la inducción; hacia abajo por la simetría de tablas, que `AggOk` paga. -/
+theorem distantOwned_of_hopDown (g : GPathM) (links : Bridge.LinksInOwners g)
+    (hsym : Threaded.OwnSymmetric g) (sel : Int → PathNodeId) (hchain : IsChain g sel)
+    (hhop : HopDown g sel) : DistantOwned g sel := by
+  intro i j hi0 hj0 hi1 hj1 _ _ hij m hm
+  by_cases h : i < j
+  · obtain ⟨d, hd⟩ : ∃ d : Nat, j = i + (d : Int) + 1 := ⟨(j - i - 1).toNat, by omega⟩
+    exact mem_owners_up g links sel hchain hhop d i hi0 (by rw [← hd]; exact hj1) m
+      (by rw [← hd]; exact hm)
+  · have hji : j < i := by omega
+    obtain ⟨mi, hmi⟩ := Option.isSome_iff_exists.mp (hchain.1 i hi0 hi1).1
+    obtain ⟨d, hd⟩ : ∃ d : Nat, i = j + (d : Int) + 1 := ⟨(i - j - 1).toNat, by omega⟩
+    exact hsym (sel i) mi (sel j) m hmi hm
+      (mem_owners_up g links sel hchain hhop d j hj0 (by rw [← hd]; exact hi1) mi
+        (by rw [← hd]; exact hmi))
+
+/-! ## El hueco, en un salto
+
+    readerVerdictW ⟸ PinAlive ≡ OwnerChained ⟸ TableChainOwned ⟸ DistantOwned ⟸ HopDown
+
+Y `HopDown` es una frase local, sobre **dos nodos contiguos de una cadena**:
+
+> lo que `sel k` posee por debajo de `k`, lo posee también `sel (k+1)`.
+
+Que es, dicho en el lenguaje del algoritmo, la regla del `up`: **los owners de un nodo nuevo son la
+unión de los de sus padres** (intersecada con la tabla global). Un owner de un padre que siga vivo
+está en la tabla del hijo por construcción.
+
+**Y aquí hay que ser cuidadoso, porque es el mismo terreno donde `AncOwned` se rompió.** Aquel
+enunciado pedía lo mismo para **todos los ancestros** y la medida lo negó en el 22,8 % de las
+fusiones: tras un `doJoin` la relación *padre* sobreaproxima. Pero la medida también dijo dónde:
+**los fallos nunca eran padres directos.** `HopDown` habla solo de padres directos y solo a lo largo
+de una cadena, que es estrictamente menos que `AncOwned`.
+
+Antes de apostar por ella conviene medirla —es una medida nueva, no la de `anc`— y eso lo pregunto
+antes de lanzarlo. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.mem_owners_up' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_owners_up
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.distantOwned_of_hopDown' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms distantOwned_of_hopDown
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
