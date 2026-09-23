@@ -2274,6 +2274,121 @@ def reportPC (name : String) (a : PCAcc) (ms : Nat) : IO Unit := do
   IO.println s!"     con los dos valores -> el residuo                    : {a.choice}  ({pct a.choice a.nodes})"
   IO.println s!"   ({ms} ms)"
 
+/-! **`anyoption`: la frase del lector, `OwnerChainedBuild.AnyOptionStep`, medida.**
+
+Descenso colectivo dentro de la tabla de cada nodo `a`: se parte de una entrada `t` de la tabla de
+`a` en la cima, y la tabla colectiva es `C = tabla(a) ∩ tabla(t) ∩ …`. En cada paso `lo` se mira
+**cada** opción `u` de `C` en el paso `lo - 1` y se comprueba si `C ∩ tabla(u)` sigue con entrada en
+todos los pasos de abajo. Se cuenta si valen todas (la versión «para toda u»), solo alguna («existe
+una u») o ninguna; y el descenso sigue por la primera que vale. Se separa el caso de dos padres de
+`sel lo` y el de ventana libre (`lo - 3` por encima de la frontera del lector). -/
+
+structure AOAcc where
+  formulas  : Nat := 0
+  states    : Nat := 0
+  descents  : Nat := 0
+  seedBad   : Nat := 0
+  reached0  : Nat := 0
+  steps     : Nat := 0
+  allOk     : Nat := 0
+  someOnly  : Nat := 0
+  noneOk    : Nat := 0
+  options   : Nat := 0
+  optOk     : Nat := 0
+  twoPar    : Nat := 0
+  twoParAll : Nat := 0
+  freeWin   : Nat := 0
+  freeWinAll : Nat := 0
+  firstSome : String := ""
+  firstNone : String := ""
+  deriving Repr
+
+def tableOfAO (g : GPathM) (x : PathNodeId) : List PathNodeId :=
+  match g.node? x with
+  | some n => n.owners
+  | none => []
+
+def collectiveOk (C : List PathNodeId) (lo : Int) : Bool :=
+  (List.range lo.toNat).all (fun i => C.any (fun r => r.id.step == (i : Int)))
+
+partial def descendAO (g : GPathM) (label : String) (aStep : Int) (m : Int)
+    (C : List PathNodeId) (selLo : PathNodeId) (lo : Int) (a : AOAcc) : AOAcc :=
+  if lo ≤ 0 then { a with reached0 := a.reached0 + 1 }
+  else
+    let opts := C.filter (fun u => u.id.step == lo - 1)
+    let res := opts.map (fun u =>
+      let Cu := C.filter (fun r => (tableOfAO g u).contains r)
+      (u, Cu, collectiveOk Cu (lo - 1)))
+    let nOk := (res.filter (fun x => x.2.2)).length
+    let twoP := match g.node? selLo with
+      | some n => distinctBy (fun (p : PathNodeId) => p) n.parents ≥ 2
+      | none => false
+    let free := lo - 3 ≥ m
+    let allV := nOk == res.length && res.length > 0
+    let where_ := s!"{label} a@{aStep} lo={lo} frontera={m} opciones={res.length} validas={nOk} dosPadres={twoP}"
+    let a := { a with steps := a.steps + 1, options := a.options + res.length, optOk := a.optOk + nOk
+                    , allOk := a.allOk + (if allV then 1 else 0)
+                    , someOnly := a.someOnly + (if !allV && nOk > 0 then 1 else 0)
+                    , noneOk := a.noneOk + (if nOk == 0 then 1 else 0)
+                    , twoPar := a.twoPar + (if twoP then 1 else 0)
+                    , twoParAll := a.twoParAll + (if twoP && allV then 1 else 0)
+                    , freeWin := a.freeWin + (if free then 1 else 0)
+                    , freeWinAll := a.freeWinAll + (if free && allV then 1 else 0)
+                    , firstSome := if a.firstSome == "" && !allV && nOk > 0 then where_ else a.firstSome
+                    , firstNone := if a.firstNone == "" && nOk == 0 then where_ else a.firstNone }
+    match res.find? (fun x => x.2.2) with
+    | none => a
+    | some (u, Cu, _) => descendAO g label aStep m Cu u (lo - 1) a
+
+def scanAO (label : String) (g : GPathM) (cap : Nat) (a : AOAcc) : AOAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  let m : Int := match ReaderExec.firstChoice g with
+    | some k => k
+    | none => g.current_step
+  for na in g.nodes.take cap do
+    for t in (ownersAt na.owners (g.current_step - 1)).take 3 do
+      let C := na.owners.filter (fun r => (tableOfAO g t).contains r)
+      a := { a with descents := a.descents + 1 }
+      if collectiveOk C (g.current_step - 1) then
+        a := descendAO g label na.id.id.step m C t (g.current_step - 1) a
+      else
+        a := { a with seedBad := a.seedBad + 1 }
+  return a
+
+partial def walkAO (label : String) (g : GPathM) (fuel cap : Nat) (a : AOAcc) : AOAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanAO label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkAO label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaAO (label : String) (φ : Cnf) (cap : Nat) (a : AOAcc) : AOAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkAO label g (stepCount φ).toNat cap a
+  return a
+
+def reportAO (name : String) (a : AOAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, descensos {a.descents} (semilla mala {a.seedBad}), llegan al 0: {a.reached0}"
+  IO.println s!"   pasos del descenso: {a.steps}   opciones {a.options}, validas {a.optOk} ({pct a.optOk a.options})"
+  IO.println s!"     para toda u  : {a.allOk}  ({pct a.allOk a.steps})"
+  IO.println s!"     solo alguna  : {a.someOnly}  ({pct a.someOnly a.steps})"
+  IO.println s!"     ninguna      : {a.noneOk}  ({pct a.noneOk a.steps})"
+  IO.println s!"   sel lo con dos padres : {a.twoPar}, de ellos para toda u: {a.twoParAll}"
+  IO.println s!"   ventana libre (lo-3 ≥ frontera): {a.freeWin}, de ellos para toda u: {a.freeWinAll}"
+  if a.firstSome != "" then IO.println s!"   primer 'solo alguna': {a.firstSome}"
+  if a.firstNone != "" then IO.println s!"   primer 'ninguna'    : {a.firstNone}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2450,6 +2565,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "anyoption" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaAO path φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportAO path a (t1 - t0)
+  | "anyoption" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : AOAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaAO s!"seed {seed} #{idx}" φ 40 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportAO s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "tcsingle" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
