@@ -6300,6 +6300,165 @@ def reportMR (name : String) (a : MRAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer fallo: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`roundseg`: `SegGood` vuelta a vuelta.** En cada vuelta (`reviewPass`, ya con `cleanInvalid₂`) de
+la review agresiva de cada envío y de cada pin del lector: con `g` la entrada y `g'` la salida, para
+cada tramo `P` de `g'` y cada paso `i` fuera de él, `C(g)` y `C(g')` las entradas comunes a las tablas
+de `P`. Como las tablas solo encogen, `C(g') ⊆ C(g)`.
+
+* **S1**: una entrada común de antes que sigue viva en `g'` sigue siendo común;
+* **S2**: alguna entrada común de antes sigue viva en `g'`;
+* y si `SegGood` vale en `g` y en `g'`. -/
+
+structure RSAcc where
+  formulas : Nat := 0
+  rounds : Nat := 0
+  inputBad : Nat := 0
+  cases : Nat := 0
+  notSegBefore : Nat := 0
+  oldEmpty : Nat := 0
+  newEmpty : Nat := 0
+  s1Fail : Nat := 0
+  s1Clean : Nat := 0
+  s2Fail : Nat := 0
+  s1m : Nat := 0
+  s2m : Nat := 0
+  downCases : Nat := 0
+  s1c : Nat := 0
+  s2c : Nat := 0
+  first1 : String := ""
+  first2 : String := ""
+  deriving Repr
+
+def commonAtRS (g : GPathM) (P : List PathNodeId) (i : Int) : List PathNodeId :=
+  let tabs := P.map (fun y => (g.node? y).map (·.owners) |>.getD [])
+  ((tabs.headD []).filter (fun r => r.id.step == i && tabs.all (fun t => t.contains r))).eraseDups
+
+def segsOf (g : GPathM) : List (List PathNodeId) := Id.run do
+  let mut out : List (List PathNodeId) := []
+  for x in g.nodes.take 20 do
+    let (segs, _) := collectDown g [x.id] ([], 30)
+    out := segs ++ out
+  return out
+
+def inputSegGood (g : GPathM) : Bool :=
+  (segsOf g).all (fun P =>
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      (intRange 0 (g.current_step - 1)).all (fun i =>
+        !(i < lo.id.step || hi.id.step < i) || !(commonAtRS g P i).isEmpty)
+    | _, _ => true)
+
+def roundRS (lab : String) (g : GPathM) (a : RSAcc) : RSAcc := Id.run do
+  let g' := reviewPass g
+  if !isValid g' then return a
+  let mut a := { a with rounds := a.rounds + 1 }
+  if !inputSegGood g then
+    a := { a with inputBad := a.inputBad + 1 }
+    return a
+  let gc := cleanInvalid₂ g
+  for P in segsOf g' do
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      for i in intRange 0 (g.current_step - 1) do
+        if i < lo.id.step || hi.id.step < i then
+          a := { a with cases := a.cases + 1 }
+          if !isSegment g P then a := { a with notSegBefore := a.notSegBefore + 1 }
+          let cOld := commonAtRS g P i
+          let cNew := commonAtRS g' P i
+          if cOld.isEmpty then a := { a with oldEmpty := a.oldEmpty + 1 }
+          if cNew.isEmpty then a := { a with newEmpty := a.newEmpty + 1 }
+          let aliveOld := cOld.filter (fun r => (g'.node? r).isSome)
+          if aliveOld.isEmpty then
+            a := { a with s2Fail := a.s2Fail + 1 }
+            if a.first2 == "" then
+              a := { a with first2 := s!"{lab}: tramo {lo.id.step}..{hi.id.step}, paso {i}, comunes antes {cOld.length}, vivas 0" }
+          -- (A) symmetric entries: r owns every node of P
+          let symm := aliveOld.filter (fun r =>
+            P.all (fun y => ((g.node? r).map (·.owners) |>.getD []).contains y))
+          if symm.any (fun r => !cNew.contains r) then a := { a with s1m := a.s1m + 1 }
+          if !symm.any (fun r => cNew.contains r) then a := { a with s2m := a.s2m + 1 }
+          -- (B) chained entries below: r is the low end of a descending segment of g through P
+          if i < lo.id.step then
+            a := { a with downCases := a.downCases + 1 }
+            let (ext, _) := collectDown g P ([], 200)
+            let chained := aliveOld.filter (fun r => ext.any (fun Q => Q.head? == some r))
+            if chained.any (fun r => !cNew.contains r) then a := { a with s1c := a.s1c + 1 }
+            if !chained.any (fun r => cNew.contains r) then a := { a with s2c := a.s2c + 1 }
+          if aliveOld.any (fun r => !cNew.contains r) then
+            a := { a with s1Fail := a.s1Fail + 1 }
+            -- did the clean already drop it from some table of P?
+            if aliveOld.any (fun r => !(commonAtRS gc P i).contains r) then
+              a := { a with s1Clean := a.s1Clean + 1 }
+            if a.first1 == "" then
+              a := { a with first1 := s!"{lab}: tramo {lo.id.step}..{hi.id.step}, paso {i}, comunes vivas {aliveOld.length}, siguen comunes {cNew.length}" }
+    | _, _ => pure ()
+  return a
+
+/-- The aggressive review, instrumented at every base round. -/
+def reviewAggRS (lab : String) (F : GPathM) (a : RSAcc) : RSAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure g + 1
+  while outer > 0 do
+    outer := outer - 1
+    -- base review: rounds until the measure stops
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        a := roundRS lab g a
+        let g' := reviewPass g
+        if GPathM.measure g' < GPathM.measure g then g := g' else
+          g := g'
+          fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g₂ := AggressiveReview.aggSweep g
+      if GPathM.measure g₂ < GPathM.measure g then g := g₂ else outer := 0
+  return a
+
+partial def walkRS (lab : String) (g : GPathM) (fuel : Nat) (a : RSAcc) : RSAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewAggRS lab ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkRS lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaRS (lab : String) (φ : Cnf) (sends : Bool) (a : RSAcc) : RSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    if sends then
+      for kv in line do
+        for d in mapSons φ kv.1.step kv.1.index do
+          let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+          a := reviewAggRS lab F a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkRS lab g (stepCount φ).toNat a
+  return a
+
+def reportRS (name : String) (a : RSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   vueltas: {a.rounds}; con SegGood roto a la entrada: {a.inputBad}"
+  IO.println s!"   casos (tramo de g', paso fuera): {a.cases}; no era tramo en g: {a.notSegBefore}"
+  IO.println s!"   SegGood: sin comun en g {a.oldEmpty}, sin comun en g' {a.newEmpty}"
+  IO.println s!"   S1 falla (comun viva que deja de ser comun): {a.s1Fail} (ya en cleanInvalid₂: {a.s1Clean})"
+  IO.println s!"   S2 falla (ninguna comun de antes sigue viva): {a.s2Fail}"
+  IO.println s!"   (A) simetricas: S1 falla {a.s1m}; ninguna simetrica sigue comun {a.s2m}"
+  IO.println s!"   (B) encadenadas por debajo ({a.downCases} casos): S1 falla {a.s1c}; ninguna encadenada sigue comun {a.s2c}"
+  if a.first1 != "" then IO.println s!"   primer S1: {a.first1}"
+  if a.first2 != "" then IO.println s!"   primer S2: {a.first2}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -6808,6 +6967,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "roundseg" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaRS path φ true {})
+        let t1 ← IO.monoMsNow
+        reportRS path a (t1 - t0)
+  | "roundseg" :: mode :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : RSAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaRS s!"seed {seed} #{idx}" φ (mode == "all") a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportRS s!"seed {seed} ({cases} formulas, {nvMin}+ vars, {mode})" a (t1 - t0)
   | "minreader" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
