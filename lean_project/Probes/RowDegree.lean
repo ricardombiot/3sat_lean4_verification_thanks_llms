@@ -4433,6 +4433,7 @@ def checkE1 (lab : String) (g : GPathM) (budget : Nat) (c : E1Cell) : E1Cell := 
 structure E1Acc where
   formulas : Nat := 0
   join : E1Cell := {}
+  send : E1Cell := {}
   line : E1Cell := {}
   rev : E1Cell := {}
   reader : E1Cell := {}
@@ -4461,6 +4462,8 @@ def runFormulaE1 (label : String) (φ : Cnf) (budget : Nat) (a : E1Acc) : E1Acc 
       for d in mapSons φ kv.1.step kv.1.index do
         let h := upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
         if isValid h then
+          let F := filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)
+          a := { a with send := checkE1 s!"{label} envio paso {step}" F budget a.send }
           match next.find? (fun e => e.1 == d) with
           | some (_, existing) =>
             if okJoin existing h then
@@ -4483,6 +4486,7 @@ def reportE1Cell (name : String) (c : E1Cell) : IO Unit := do
 
 def reportE1 (name : String) (a : E1Acc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportE1Cell "envio revisado (antes del up)" a.send
   reportE1Cell "tras cada union      " a.join
   reportE1Cell "linea                " a.line
   reportE1Cell "linea + review       " a.rev

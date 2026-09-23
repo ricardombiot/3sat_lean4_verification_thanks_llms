@@ -7,11 +7,12 @@ import AbsSat.GraphPath.Model.FullExt1
 
 La misma escalera restringida a la máquina (`ReaderLadder.readerVerdictW_iff_of_machine`,
 `LineExt.readerVerdictW_iff_of_ops`), pero con el invariante de un solo nodo. La unión deja de ser
-hipótesis (`FullExt1.fullExt1_join`), y quedan dos, de la misma forma —**tras un filtro, lo que el
-review deja en la tabla global ya estaba en una cadena que sobrevive**—:
+hipótesis (`FullExt1.fullExt1_join`), y quedan dos, de la misma forma —**tras un filtro, el estado
+revisado cumple `FullExt1`**, que es la completitud del review entrada a entrada
+(`reviewComplete1_of_revised`)—:
 
-* `SendComplete1`: tras el filtro débil y los requisitos duros de un envío;
-* `PinComplete1`: tras un pin del lector.
+* `SendExt1`: tras el filtro débil y los requisitos duros de un envío;
+* `PinExt1`: tras un pin del lector (medido: `row-degree ext1`, 0 fallos).
 -/
 
 namespace AbsSat.GraphPath.Model.Ladder1
@@ -39,20 +40,34 @@ variable (φ : Cnf)
 -- Las dos hipótesis
 -- ============================================================
 
-/-- **Tras los filtros de un envío, el review es completo entrada a entrada**, si el estado que envía
-cumple `FullExt1`. -/
-def SendComplete1 : Prop :=
+/-- **Tras los filtros de un envío, el estado revisado cumple `FullExt1`**, si el que envía lo
+cumplía y el envío sale válido. Es lo que `row-degree ext1` mide. -/
+def SendExt1 : Prop :=
   ∀ (k : Int) (kv : NodeId × GPathM), StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 →
     ∀ d ∈ mapSons φ kv.1.step kv.1.index,
       isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true →
-      ReviewComplete1 ((reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d)))
+      FullExt1 (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))
 
-/-- **Tras un pin del lector, el review es completo entrada a entrada**, si el estado pinchado cumple
-`FullExt1`. -/
-def PinComplete1 : Prop :=
+/-- **Tras un pin del lector, el estado revisado cumple `FullExt1`**, si el pinchado lo cumplía y el
+pin lo deja válido. -/
+def PinExt1 : Prop :=
   ∀ g : GPathM, PinAliveChain.DCtx g → isValid g = true → FullExt1 g →
     ∀ q ∈ g.gowners, 0 ≤ q.id.step → q.id.step < g.current_step →
-      ReviewComplete1 (filterRequire g q.id)
+      isValid (filterAllAgg g [q.id]) = true → FullExt1 (filterAllAgg g [q.id])
+
+/-- **Son la completitud del review, entrada a entrada**: `FullExt1` del revisado da
+`ReviewComplete1` del filtrado —la cadena del revisado es `ChainSound` y el review solo quita
+(`SubsetSemantics.ChainSound_of_pruned`)—, y al revés es `fullExt1_reviewAgg`. -/
+theorem reviewComplete1_of_revised (X : GPathM) (hnd : NodupIds X) (hsmp : Sons.SMP X)
+    (hself : ∀ pid n, (reviewAgg X).node? pid = some n → pid ∈ n.owners)
+    (hsmp' : Sons.SMP (reviewAgg X)) (hroot : Sons.RootAtZero (reviewAgg X))
+    (hnr : Parents.NotRoot (reviewAgg X)) (hpos : 0 < (reviewAgg X).current_step)
+    (h : FullExt1 (reviewAgg X)) : ReviewComplete1 X := by
+  have hpr := pruned_reviewAgg X
+  intro q hq h0 h1
+  obtain ⟨s, hs, hsq⟩ := h q hq h0 (by rw [hpr.step_eq]; exact h1)
+  exact ⟨s, SubsetSemantics.ChainSound_of_pruned hpr hnd hsmp s
+    (chainSound_of_fullChain _ hself hsmp' hroot hnr hpos s hs), hsq⟩
 
 -- ============================================================
 -- La línea
@@ -61,7 +76,7 @@ def PinComplete1 : Prop :=
 theorem fullExt1_initSeed (d : NodeId) : FullExt1 (GPathM.initSeed d "") :=
   fullExt1_of_fullExtG _ (GownersNodes.GN_initSeed d "") (LineExt.fullExtG_initSeed d)
 
-theorem fullExt1_sent (hS : SendComplete1 φ) (k : Int) (hk0 : 0 ≤ k) (kv : NodeId × GPathM)
+theorem fullExt1_sent (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k) (kv : NodeId × GPathM)
     (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (hF : FullExt1 kv.2) (d : NodeId)
     (hd : d ∈ mapSons φ kv.1.step kv.1.index)
     (hval : isValid (upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d "") = true) :
@@ -88,7 +103,7 @@ theorem fullExt1_sent (hS : SendComplete1 φ) (k : Int) (hk0 : 0 ≤ k) (kv : No
     simp only [upFilteringWeak, GPathM.up, F, W] at hvF ⊢
     rw [if_pos hvF]
   rw [heq]
-  have hFF : FullExt1 F := fullExt1_reviewAgg _ (hS k kv hkv hm hF d hd hval)
+  have hFF : FullExt1 F := hS k kv hkv hm hF d hd hval
   have ctxF := Reader.Ctx_of_readable F (readable_of_readableAgg F hRF) hvF
   have hstepF : F.current_step = k + 1 := by rw [hk.1.step_eq, hkv.step]
   exact fullExt1_addNode F d "" (by rw [hstepF, hdstep]) (by rw [hstepF]; omega) rcF.below rcF.gn
@@ -131,7 +146,7 @@ theorem lineInv1_insertPure (k : Int) (line : PureLine) (key : NodeId) (g : GPat
       rw [hx2]
       exact hl.2 x hx
 
-theorem lineInv1_sendToW (hwf : WF φ) (hS : SendComplete1 φ) (k : Int) (hk0 : 0 ≤ k)
+theorem lineInv1_sendToW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k)
     (kv : NodeId × GPathM) (hkv : StateOkF φ k kv) (hm : MInv φ kv.2) (hF : FullExt1 kv.2)
     (d : NodeId) (hd : d ∈ mapSons φ kv.1.step kv.1.index) (next : PureLine)
     (hn : LineInv1 φ (k + 1) next) : LineInv1 φ (k + 1) (sendToW φ kv.2 next d) := by
@@ -143,7 +158,7 @@ theorem lineInv1_sendToW (hwf : WF φ) (hS : SendComplete1 φ) (k : Int) (hk0 : 
       (MInv_sent φ hwf k kv hkv hm d hd hval) (fullExt1_sent φ hS k hk0 kv hkv hm hF d hd hval)
   · exact hn
 
-theorem lineInv1_pureAdvanceW (hwf : WF φ) (hS : SendComplete1 φ) (k : Int) (hk0 : 0 ≤ k)
+theorem lineInv1_pureAdvanceW (hwf : WF φ) (hS : SendExt1 φ) (k : Int) (hk0 : 0 ≤ k)
     (line : PureLine) (hl : LineInv1 φ k line) : LineInv1 φ (k + 1) (pureAdvanceW φ line) := by
   simp only [pureAdvanceW]
   have hsend : ∀ kv, StateOkF φ k kv → MInv φ kv.2 → FullExt1 kv.2 → ∀ acc,
@@ -198,7 +213,7 @@ theorem lineInv1_init (hwf : WF φ) : LineInv1 φ 0 (pureInit φ) := by
       by intro kv hkv; exact absurd hkv List.not_mem_nil⟩,
       by intro kv hkv; exact absurd hkv List.not_mem_nil⟩
 
-theorem lineInv1_steps (hwf : WF φ) (hS : SendComplete1 φ) :
+theorem lineInv1_steps (hwf : WF φ) (hS : SendExt1 φ) :
     ∀ (n : Nat) (k : Int) (line : PureLine), 0 ≤ k → LineInv1 φ k line →
       ∀ kv ∈ pureStepsW φ n line, FullExt1 kv.2 := by
   intro n
@@ -208,8 +223,8 @@ theorem lineInv1_steps (hwf : WF φ) (hS : SendComplete1 φ) :
     intro k line hk0 hl
     exact ih (k + 1) _ (by omega) (lineInv1_pureAdvanceW φ hwf hS k hk0 line hl)
 
-/-- **La línea final cumple `FullExt1`**, con `SendComplete1` como única hipótesis. -/
-theorem pureRunW_fullExt1 (hwf : WF φ) (hS : SendComplete1 φ) (kv : NodeId × GPathM)
+/-- **La línea final cumple `FullExt1`**, con `SendExt1` como única hipótesis. -/
+theorem pureRunW_fullExt1 (hwf : WF φ) (hS : SendExt1 φ) (kv : NodeId × GPathM)
     (hkv : kv ∈ pureRunW φ) : FullExt1 kv.2 :=
   lineInv1_steps φ hwf hS _ 0 (pureInit φ) (Int.le_refl 0) (lineInv1_init φ hwf) kv hkv
 
@@ -226,12 +241,12 @@ theorem reviewComplete1_of_fullExt1 (g : GPathM)
   obtain ⟨s, hs, hsq⟩ := h q ((pruned_reviewAgg g).gowners_sub q hq) h0 h1
   exact ⟨s, chainSound_of_fullChain g hself hsmp hroot hnr hpos s hs, hsq⟩
 
-theorem fullExt1_of_readFromR (hP : PinComplete1) (g₀ : GPathM) (ctx₀ : PinAliveChain.DCtx g₀)
+theorem fullExt1_of_readFromR (hP : PinExt1) (g₀ : GPathM) (ctx₀ : PinAliveChain.DCtx g₀)
     (hF₀ : FullExt1 g₀) :
-    ∀ g, PinAliveChain.ReadFromR g₀ g → PinAliveChain.DCtx g ∧ FullExt1 g := by
+    ∀ g, PinAliveChain.ReadFromR g₀ g → PinAliveChain.DCtx g ∧ (isValid g = true → FullExt1 g) := by
   intro g hR
   induction hR with
-  | start => exact ⟨ctx₀, hF₀⟩
+  | start => exact ⟨ctx₀, fun _ => hF₀⟩
   | pin g k q _ hv hk hq ih =>
     obtain ⟨ctx, hF⟩ := ih
     have hqg : q ∈ g.gowners := (List.mem_filter.mp hq).1
@@ -240,7 +255,7 @@ theorem fullExt1_of_readFromR (hP : PinComplete1) (g₀ : GPathM) (ctx₀ : PinA
     have h0 : 0 ≤ k := mem_intRange_lower hmem
     have h1 : k < g.current_step := by have := mem_intRange_upper hmem; omega
     exact ⟨PinAliveChain.DCtx_filterAllAgg g ctx _,
-      fullExt1_reviewAgg _ (hP g ctx hv hF q hqg (by rw [hqs]; exact h0) (by rw [hqs]; exact h1))⟩
+      hP g ctx hv (hF hv) q hqg (by rw [hqs]; exact h0) (by rw [hqs]; exact h1)⟩
 
 theorem chain_of_fullExt1 (g : GPathM) (ctx : PinAliveChain.DCtx g) (hv : isValid g = true)
     (hF : FullExt1 g) : ∃ sel, ChainSound g sel := by
@@ -253,11 +268,11 @@ theorem chain_of_fullExt1 (g : GPathM) (ctx : PinAliveChain.DCtx g) (hv : isVali
   obtain ⟨sel, hsc, _⟩ := hoc q hq (by rw [hqs']; exact Int.le_refl 0) (by rw [hqs']; exact ctx.pos)
   exact ⟨sel, hsc⟩
 
-/-- **El lector sin retroceso decide 3-SAT**, con dos hipótesis de la misma forma: el review es
-completo entrada a entrada tras los filtros de un envío (`SendComplete1`) y tras un pin del lector
-(`PinComplete1`). La unión, el `up`, la semilla y el inicio del lector están demostrados. -/
-theorem readerVerdictW_iff_of_complete1 (hS : ∀ ψ : Cnf, WF ψ → SendComplete1 ψ)
-    (hP : PinComplete1) (hwf : WF φ) :
+/-- **El lector sin retroceso decide 3-SAT**, con dos hipótesis de la misma forma: el estado
+revisado cumple `FullExt1` tras los filtros de un envío (`SendExt1`) y tras un pin del lector
+(`PinExt1`). La unión, el `up`, la semilla y el inicio del lector están demostrados. -/
+theorem readerVerdictW_iff_of_ext1 (hS : ∀ ψ : Cnf, WF ψ → SendExt1 ψ)
+    (hP : PinExt1) (hwf : WF φ) :
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine ⟨fun h => ReaderExec.readerVerdictW_sound φ hwf h, fun hsat => ?_⟩
   obtain ⟨a, hsa⟩ := hsat
@@ -279,10 +294,10 @@ theorem readerVerdictW_iff_of_complete1 (hS : ∀ ψ : Cnf, WF ψ → SendComple
     (PickInduction.isValid_of_ChainG _ sel hsel0.chain)
     (fun g' hR hv' =>
       have hc := fullExt1_of_readFromR hP _ ctx₀ hF₀ g' hR
-      chain_of_fullExt1 g' hc.1 hv' hc.2)
+      chain_of_fullExt1 g' hc.1 hv' (hc.2 hv'))
 
-/-- info: 'AbsSat.GraphPath.Model.Ladder1.readerVerdictW_iff_of_complete1' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSat.GraphPath.Model.Ladder1.readerVerdictW_iff_of_ext1' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms readerVerdictW_iff_of_complete1
+#print axioms readerVerdictW_iff_of_ext1
 
 end AbsSat.GraphPath.Model.Ladder1
