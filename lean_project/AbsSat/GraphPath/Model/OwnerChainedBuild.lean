@@ -1878,4 +1878,138 @@ theorem anyOption_of_globalSingle (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx 
 #guard_msgs in
 #print axioms anyOption_of_globalSingle
 
+-- ============================================================
+-- La coherencia del review, leída como recubrimiento
+-- ============================================================
+
+/-- **`cohS`: toda entrada de la tabla de un nodo está en la tabla de alguno de sus hijos.**
+
+El review interseca la tabla con la **unión** de las de los hijos; esa unión tiene entrada en cada
+paso (los hijos son válidos), así que nada de la tabla queda fuera de ella. -/
+theorem mem_son_table (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (hxl : x.id.step ≤ g.current_step - 2)
+    (w : PathNodeId) (hw : w ∈ nx.owners) (hw0 : 0 ≤ w.id.step) (hwc : w.id.step < g.current_step) :
+    ∃ s ∈ nx.sons, ∃ ms, g.node? s = some ms ∧ w ∈ ms.owners := by
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid := node?_id_eq g x nx hx
+  have hsnn := adj.rc.snn nx hmem
+  rw [hid] at hsnn
+  have hnl : (nx.id.id.step == g.current_step - 1) = false := by
+    rw [hid]; exact beq_false_of_ne (by omega)
+  obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_sons_of_isValidNode g nx (adj.ctx.nodeval x nx hx) hnl)
+  obtain ⟨mc0, hmc0, hmc0id⟩ := adj.sn nx hmem c0 hc0
+  have hc0node : g.node? c0 = some mc0 := by rw [← hmc0id]; exact node?_of_mem adj.rc.nodup mc0 hmc0
+  have hok := owners_ok_of_isValidNode g mc0 (adj.ctx.nodeval c0 mc0 hc0node)
+  simp only [List.all_eq_true] at hok
+  obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (hok w.id.step (mem_intRange hw0 (by omega)))
+  have hent : hasStepEntry (unionOwnersOf g nx.sons) w.id.step = true :=
+    List.any_eq_true.mpr ⟨q, mem_unionOwnersOf g nx.sons c0 mc0 q hc0 hc0node hq, hqs⟩
+  have hcoh := adj.cohS x.id.step (mem_intRange hsnn hxl) x (mem_line_of_node? g x nx hx _ rfl) nx hx
+  exact AdjacentOwners.mem_union_of_coherent g nx.sons nx.owners w hcoh hw hent
+
+/-- **`cohP`: toda entrada de la tabla de un nodo está en la tabla de alguno de sus padres.** -/
+theorem mem_parent_table (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (hx1 : 1 ≤ x.id.step) (hxc : x.id.step < g.current_step)
+    (w : PathNodeId) (hw : w ∈ nx.owners) (hw0 : 0 ≤ w.id.step) (hwc : w.id.step < g.current_step) :
+    ∃ p ∈ nx.parents, ∃ mp, g.node? p = some mp ∧ w ∈ mp.owners := by
+  have hmem := List.mem_of_find?_eq_some hx
+  have hid := node?_id_eq g x nx hx
+  have hroot : nx.id.parent_id.isNone = false := by
+    cases hp : nx.id.parent_id with
+    | none => exact absurd hp (adj.ctx.shape.notroot nx hmem (by rw [hid]; omega))
+    | some _ => rfl
+  obtain ⟨c0, hc0⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode g nx (adj.ctx.nodeval x nx hx) hroot)
+  obtain ⟨mc0, hmc0, hmc0id⟩ := adj.ctx.shape.pn nx hmem c0 hc0
+  have hc0node : g.node? c0 = some mc0 := by rw [← hmc0id]; exact node?_of_mem adj.rc.nodup mc0 hmc0
+  have hok := owners_ok_of_isValidNode g mc0 (adj.ctx.nodeval c0 mc0 hc0node)
+  simp only [List.all_eq_true] at hok
+  obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (hok w.id.step (mem_intRange hw0 (by omega)))
+  have hent : hasStepEntry (unionOwnersOf g nx.parents) w.id.step = true :=
+    List.any_eq_true.mpr ⟨q, mem_unionOwnersOf g nx.parents c0 mc0 q hc0 hc0node hq, hqs⟩
+  have hcoh := adj.cohP x.id.step (mem_intRange hx1 (by omega)) x
+    (mem_line_of_node? g x nx hx _ rfl) nx hx
+  exact AdjacentOwners.mem_union_of_coherent g nx.parents nx.owners w hcoh hw hent
+
+/-- **Cualquier opción sirve, en todos los pasos de abajo, si `sel lo` tiene un solo padre.**
+
+Por `cohP`, cada entrada `r` de la tabla colectiva —que está en la de `sel lo`— está en la tabla de
+**algún** padre de `sel lo` (`mem_parent_table`); la opción `u` es un padre de `sel lo`
+(`owners_below_iff_parents`), y si solo hay uno, es ése. -/
+theorem anyOption_of_singleParent (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (a : PathNodeId) (na : PNodeM) (_hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : CPart g na sel lo) (u : PathNodeId) (hus : u.id.step = lo - 1) (_hun : u ∈ na.owners)
+    (huown : ∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+      u ∈ nj.owners)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < lo - 1)
+    (hsingle : ∀ nl, g.node? (sel lo) = some nl → ∀ p ∈ nl.parents, ∀ q ∈ nl.parents, p = q) :
+    ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+      (∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) ∧
+      (∀ nu, g.node? u = some nu → r ∈ nu.owners) := by
+  obtain ⟨r, hrs, hrn, hrall⟩ := hp.common i hi0 (by omega)
+  refine ⟨r, hrs, hrn, hrall, fun nu hnu => ?_⟩
+  obtain ⟨hlsome, hls⟩ := hp.op.chain.1 lo (Int.le_refl _) hhi
+  obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hlsome
+  obtain ⟨p, hpp, mp, hmp, hrp⟩ := mem_parent_table g adj (sel lo) nl hnl (by omega) (by omega)
+    r (hrall lo (Int.le_refl _) (by omega) nl hnl) (by omega) (by omega)
+  have hup := (AdjacentOwners.owners_below_iff_parents g adj (sel lo) nl hnl (by omega) u
+    (by rw [hus, hls])).mp (huown lo (Int.le_refl _) (by omega) nl hnl)
+  rw [hsingle nl hnl p hpp u hup] at hmp
+  rw [← Option.some.inj (hmp.symm.trans hnu)]; exact hrp
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.mem_son_table' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_son_table
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.mem_parent_table' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_parent_table
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.anyOption_of_singleParent' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anyOption_of_singleParent
+
+/-- **Y el padre es único donde la ventana no varía**: en `lo ≤ 2` (`singleBelow_of_low`) o cuando
+el lector ya fijó el paso `lo - 3` (`singleBelow_of_pinned`). Ahí cualquier opción sirve en **todos**
+los pasos de abajo a la vez. -/
+theorem anyOption_of_fixedWindow (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : CPart g na sel lo) (u : PathNodeId) (hus : u.id.step = lo - 1) (hun : u ∈ na.owners)
+    (huown : ∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+      u ∈ nj.owners)
+    (hwin : lo ≤ 2 ∨ ∀ d ∈ g.gowners, ∀ e ∈ g.gowners, d.id.step = lo - 3 →
+      e.id.step = lo - 3 → d.id = e.id)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < lo - 1) :
+    ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+      (∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) ∧
+      (∀ nu, g.node? u = some nu → r ∈ nu.owners) := by
+  have hls := (hp.op.chain.1 lo (Int.le_refl _) hhi).2
+  refine anyOption_of_singleParent g adj a na hna sel lo hpos hhi hp u hus hun huown i hi0 hi1
+    (fun nl hnl p hpp q hqp => ?_)
+  have hmem := List.mem_of_find?_eq_some hnl
+  have hid := node?_id_eq g (sel lo) nl hnl
+  have hps : p.id.step = (sel lo).id.step - 1 := by
+    have := adj.ctx.shape.pbelow nl hmem p hpp; rw [hid] at this; exact this
+  have hqs : q.id.step = (sel lo).id.step - 1 := by
+    have := adj.ctx.shape.pbelow nl hmem q hqp; rw [hid] at this; exact this
+  have hpo := (adj.links _ nl hnl).1 p hpp
+  have hqo := (adj.links _ nl hnl).1 q hqp
+  if hlow : lo ≤ 2 then
+    exact singleBelow_of_low g adj (sel lo) nl hnl (by omega) (by omega) (by omega)
+      p hpo hps q hqo hqs
+  else
+    have hmap := hwin.resolve_left hlow
+    exact singleBelow_of_pinned g adj (sel lo) nl hnl (by omega) (by omega)
+      (fun d hd e he hds hes => hmap d hd e he (by rw [hds, hls]) (by rw [hes, hls]))
+      p hpo hps q hqo hqs
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.anyOption_of_fixedWindow' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anyOption_of_fixedWindow
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
