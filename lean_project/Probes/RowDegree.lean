@@ -6479,6 +6479,134 @@ def reportRS (name : String) (a : RSAcc) (ms : Nat) : IO Unit := do
   if a.first2 != "" then IO.println s!"   primer S2: {a.first2}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`midsym`: la simetría de la posesión a mitad de pasada.** En cada vuelta de la review agresiva
+de cada envío y pin del lector, antes de cada `reviewNode` de las dos pasadas:
+
+* estados con algún par vivo asimétrico (`r` tiene a `q`, `q` no tiene a `r`);
+* **eventos de corte**: `x` sobrevive y pierde una entrada viva `r`. En cada uno, ¿queda en la nueva
+  tabla de `x`, en el paso de los vecinos (x−1 en padres, x+1 en hijos), un nodo `q` que `r` tenga en
+  su tabla? Si no, `lost_parents`/`lost_sons` valen ahí (separación en ese paso). Si sí, la simetría
+  estaba rota en `(r, q)`: se mira si `x` y `r` siguen sin compartir nada en **algún** otro paso. -/
+
+structure MSAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  asymStates : Nat := 0
+  asymPairs : Nat := 0
+  drops : Nat := 0
+  sepAtNeighbour : Nat := 0
+  asymEvents : Nat := 0
+  asymSepElsewhere : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def ownersOfMS (g : GPathM) (p : PathNodeId) : List PathNodeId :=
+  (g.node? p).map (·.owners) |>.getD []
+
+def asymCount (g : GPathM) : Nat :=
+  (g.nodes.map (fun nr => (nr.owners.filter (fun q =>
+    (g.node? q).isSome && !(ownersOfMS g q).contains nr.id)).length)).sum
+
+def nodeStepMS (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (parents : Bool)
+    (x : PathNodeId) (a : MSAcc) : MSAcc × GPathM := Id.run do
+  let g' := reviewNode g nb x
+  let mut a := { a with states := a.states + 1 }
+  let ac := asymCount g
+  if ac > 0 then a := { a with asymStates := a.asymStates + 1, asymPairs := a.asymPairs + ac }
+  match g.node? x, g'.node? x with
+  | some d, some d' =>
+    let k := if parents then x.id.step - 1 else x.id.step + 1
+    for r in d.owners do
+      if (g'.node? r).isSome && !d'.owners.contains r then
+        a := { a with drops := a.drops + 1 }
+        let tr := ownersOfMS g r
+        let bad := d'.owners.filter (fun q => q.id.step == k && tr.contains q)
+        if bad.isEmpty then a := { a with sepAtNeighbour := a.sepAtNeighbour + 1 }
+        else
+          a := { a with asymEvents := a.asymEvents + 1 }
+          let tr' := ownersOfMS g' r
+          let sepSomewhere := (intRange 0 (g.current_step - 1)).any (fun j =>
+            j != r.id.step && j != x.id.step &&
+            !(d'.owners.any (fun q => q.id.step == j && tr'.contains q)))
+          if sepSomewhere then a := { a with asymSepElsewhere := a.asymSepElsewhere + 1 }
+          if a.first == "" then
+            a := { a with first := s!"{lab}: x paso {x.id.step}, r paso {r.id.step}, {if parents then "padres" else "hijos"}, q con r: {bad.length}, separados en otro paso: {sepSomewhere}" }
+  | _, _ => pure ()
+  return (a, g')
+
+def passMS (lab : String) (g : GPathM) (parents : Bool) (a : MSAcc) : MSAcc × GPathM := Id.run do
+  let nb : PNodeM → List PathNodeId := if parents then (·.parents) else (·.sons)
+  let ks := if parents then intRange 1 (g.current_step - 1) else (intRange 0 (g.current_step - 2)).reverse
+  let mut a := a
+  let mut g := g
+  for k in ks do
+    if !isValid g then break
+    for x in (g.line k).map (·.id) do
+      let (a', g') := nodeStepMS lab g nb parents x a
+      a := a'
+      g := g'
+  return (a, g)
+
+def reviewAggMS (lab : String) (F : GPathM) (a : MSAcc) : MSAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure g + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        let c := cleanInvalid₂ g
+        let (a1, h1) := passMS lab c true a
+        let (a2, h2) := passMS lab h1 false a1
+        a := a2
+        g := h2
+        if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g₂ := AggressiveReview.aggSweep g
+      if GPathM.measure g₂ < GPathM.measure g then g := g₂ else outer := 0
+  return a
+
+partial def walkMS (lab : String) (g : GPathM) (fuel : Nat) (a : MSAcc) : MSAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewAggMS lab ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkMS lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaMS (lab : String) (φ : Cnf) (a : MSAcc) : MSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewAggMS lab F a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkMS lab g (stepCount φ).toNat a
+  return a
+
+def reportMS (name : String) (a : MSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   estados antes de reviewNode: {a.states}; con algun par vivo asimetrico: {a.asymStates} (pares {a.asymPairs})"
+  IO.println s!"   eventos de corte (x pierde una r viva): {a.drops}"
+  IO.println s!"     separacion en el paso de los vecinos (vale lost_parents/sons): {a.sepAtNeighbour}"
+  IO.println s!"     con asimetria (algun q vecino que conserva x lo tiene r): {a.asymEvents}; de ellos separados en otro paso: {a.asymSepElsewhere}"
+  if a.first != "" then IO.println s!"   primer evento asimetrico: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -6987,6 +7115,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "midsym" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaMS path φ {})
+        let t1 ← IO.monoMsNow
+        reportMS path a (t1 - t0)
+  | "midsym" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : MSAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaMS s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportMS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "roundseg" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with

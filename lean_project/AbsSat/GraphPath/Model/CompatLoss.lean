@@ -169,6 +169,45 @@ theorem sep_of_drop_sons (g : GPathM) (hnd : NodupIds g) (hsym : Threaded.OwnSym
   exact lost_sons g hsym hI1s hol x d hd hx0 hxl r nr hnr hr hdrop q hq hqk
     (owners_after_sub g hnd _ x r nr hnr nr' hr' q hqr)
 
+-- ============================================================
+-- `reviewNode x` solo toca la tabla de `x`
+-- ============================================================
+
+/-- **Solo cambia la tabla del nodo que se procesa**: tras `reviewNode x`, cualquier otro nodo que
+siga vivo tiene la misma tabla (el desenlace solo toca padres e hijos). Así, dentro de una pasada, una
+tabla solo pierde entradas en el `reviewNode` de su propio nodo, que es donde valen
+`lost_parents_nosym` y `lost_sons_nosym`. -/
+theorem owners_other_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (x y : PathNodeId)
+    (hne : y ≠ x) (ny : PNodeM) (hny : g.node? y = some ny) (ny' : PNodeM)
+    (hny' : (reviewNode g nb x).node? y = some ny') : ny'.owners = ny.owners := by
+  have hid : ny.id = y := node?_id_eq g y ny hny
+  have hbeq : (ny.id == x) = false := PassCtx.beq_false_of_ne' ny.id x (by rw [hid]; exact hne)
+  unfold reviewNode at hny'
+  cases hd : g.node? x with
+  | none => rw [hd] at hny'; rw [hny] at hny'; cases hny'; rfl
+  | some d =>
+    rw [hd] at hny'
+    have hdid : d.id = x := node?_id_eq g x d hd
+    let f := fun n : PNodeM => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }
+    have h1y : (updateAt g x f).node? y = some ny := by
+      rw [updateAt_node? g x f (fun _ => rfl) y ny hny, hbeq]
+    have h1x : (updateAt g x f).node? x = some (f d) := by
+      rw [updateAt_node? g x f (fun _ => rfl) x d hd, show (d.id == x) = true from beq_iff_eq.mpr hdid]
+    have h2y : (unlinkIncompatible (updateAt g x f) x).node? y = some (unlinkMap (f d) x ny) :=
+      unlinkIncompatible_node? _ x (f d) h1x y ny h1y
+    dsimp only at hny'
+    split at hny'
+    · split at hny'
+      · rw [h2y] at hny'; cases hny'; exact unlinkMap_owners _ _ _
+      · rw [removeNode_node? _ x y _ h2y hne] at hny'; cases hny'
+        exact unlinkMap_owners _ _ _
+    · rw [removeNode_node? g x y ny hny hne] at hny'; cases hny'; rfl
+
+/-- info: 'AbsSat.GraphPath.Model.CompatLoss.owners_other_reviewNode' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms owners_other_reviewNode
+
 /-- info: 'AbsSat.GraphPath.Model.CompatLoss.sep_of_drop_parents' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in
