@@ -2389,6 +2389,87 @@ def reportAO (name : String) (a : AOAcc) (ms : Nat) : IO Unit := do
   if a.firstNone != "" then IO.println s!"   primer 'ninguna'    : {a.firstNone}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`cliqueshare`: el invariante no local candidato.** Toda familia de nodos que se poseen dos a
+dos tiene, en cada paso, una entrada común a todas sus tablas. Para dos nodos es `AggOk`
+(`sharesEveryStep`); para `{a, sel lo, …, cima, u}` es `AnyOptionStep`. Se mide sobre ternas y sobre
+cliques ávidas, en los estados del lector y en los de la línea de la máquina. -/
+
+instance : Inhabited PathNodeId := ⟨{ id := ⟨0, 0⟩, parent_id := none }⟩
+
+structure CSAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  triples  : Nat := 0
+  tripBad  : Nat := 0
+  cliques  : Nat := 0
+  cliqBad  : Nat := 0
+  maxSize  : Nat := 0
+  firstBad : String := ""
+  deriving Repr
+
+def commonAll (g : GPathM) (S : List PathNodeId) : Bool :=
+  (List.range g.current_step.toNat).all (fun i =>
+    match S with
+    | [] => true
+    | x :: rest => (ownersAt (tableOfAO g x) (i : Int)).any (fun r =>
+        rest.all (fun y => (tableOfAO g y).contains r)))
+
+def scanCS (label : String) (g : GPathM) (cap : Nat) (a : CSAcc) : CSAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  let ns := (g.nodes.take cap).map (·.id)
+  let arr := ns.toArray
+  for i in [0:arr.size] do
+    for j in [i+1:arr.size] do
+      if mutuallyOwn g arr[i]! arr[j]! then
+        for k in [j+1:arr.size] do
+          if mutuallyOwn g arr[i]! arr[k]! && mutuallyOwn g arr[j]! arr[k]! then
+            a := { a with triples := a.triples + 1 }
+            if !commonAll g [arr[i]!, arr[j]!, arr[k]!] then
+              a := { a with tripBad := a.tripBad + 1
+                          , firstBad := if a.firstBad == "" then
+                              s!"{label} terna {arr[i]!.id.step}/{arr[j]!.id.step}/{arr[k]!.id.step}"
+                            else a.firstBad }
+  for x in ns do
+    let mut S : List PathNodeId := [x]
+    for y in ns do
+      if y != x && S.all (fun z => mutuallyOwn g y z) then
+        S := S ++ [y]
+        a := { a with cliques := a.cliques + 1, maxSize := max a.maxSize S.length }
+        if !commonAll g S then
+          a := { a with cliqBad := a.cliqBad + 1
+                      , firstBad := if a.firstBad == "" then
+                          s!"{label} clique de {S.length} desde {x.id.step}" else a.firstBad }
+  return a
+
+partial def walkCS (label : String) (g : GPathM) (fuel cap : Nat) (a : CSAcc) : CSAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanCS label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkCS label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaCS (lineToo : Bool) (label : String) (φ : Cnf) (cap : Nat) (a : CSAcc) : CSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    -- el estado que la máquina aparca en la línea, tal cual, y la trayectoria del lector
+    if lineToo && isValid kv.2 then a := scanCS s!"{label} linea" kv.2 cap a
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkCS label g (stepCount φ).toNat cap a
+  return a
+
+def reportCS (name : String) (a : CSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}"
+  IO.println s!"   ternas que se poseen dos a dos : {a.triples}, sin entrada comun en algun paso: {a.tripBad}"
+  IO.println s!"   cliques avidas (cada prefijo)  : {a.cliques}, sin entrada comun: {a.cliqBad}  (tamaño max {a.maxSize})"
+  if a.firstBad != "" then IO.println s!"   primero: {a.firstBad}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2565,6 +2646,28 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "cliqueshare" :: "file" :: paths | "cliqueline" :: "file" :: paths =>
+    let lineToo := args.head! == "cliqueline"
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaCS lineToo path φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportCS path a (t1 - t0)
+  | "cliqueshare" :: "random" :: cases :: nvMin :: seeds
+  | "cliqueline" :: "random" :: cases :: nvMin :: seeds =>
+    let lineToo := args.head! == "cliqueline"
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : CSAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCS lineToo s!"seed {seed} #{idx}" φ 40 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportCS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "anyoption" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
