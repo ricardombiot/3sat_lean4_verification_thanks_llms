@@ -3268,6 +3268,146 @@ def runFormulaSGn (label : String) (φ : Cnf) (cap budget : Nat) (a : RNAcc) : R
     line := pureAdvanceW φ line
   return a
 
+/-! **`cleandiag`: qué pasa con los tramos que `cleanInvalid` rompe a medias.** Dentro de cada pasada
+de `cleanInvalid` (nodo a nodo), se recogen los tramos (sin anfitrión, bajando y subiendo) que
+quedan sin entrada común en algún estado intermedio, y al acabar la pasada se mira si siguen siendo
+tramo —nodos vivos, enlazados, poseídos por pares— y, si siguen, si ya tienen entrada común. -/
+
+partial def dfsNHc (g : GPathM) (P : List PathNodeId) (acc : List (List PathNodeId) × Nat) :
+    List (List PathNodeId) × Nat :=
+  let (bad, budget) := acc
+  if budget == 0 then acc
+  else
+    match P with
+    | [] => acc
+    | low :: _ =>
+      let bad := if commonBelowNH g P low.id.step then bad else P :: bad
+      let ps := match g.node? low with
+        | some n => n.parents.filter (fun p => P.all (fun y => mutuallyOwn g p y))
+        | none => []
+      ps.foldl (fun acc p => dfsNHc g (p :: P) acc) (bad, budget - 1)
+
+partial def dfsUpNHc (g : GPathM) (P : List PathNodeId) (acc : List (List PathNodeId) × Nat) :
+    List (List PathNodeId) × Nat :=
+  let (bad, budget) := acc
+  if budget == 0 then acc
+  else
+    match P with
+    | [] => acc
+    | high :: _ =>
+      let bad := if commonAboveNH g P high.id.step then bad else P.reverse :: bad
+      let ss := match g.node? high with
+        | some n => n.sons.filter (fun q => P.all (fun y => mutuallyOwn g q y))
+        | none => []
+      ss.foldl (fun acc q => dfsUpNHc g (q :: P) acc) (bad, budget - 1)
+
+/-- Tramo de abajo arriba: nodos vivos, enlazados por padres, poseídos por pares. -/
+def isSegment (g : GPathM) (P : List PathNodeId) : Bool :=
+  P.all (fun x => (g.node? x).isSome) &&
+  P.all (fun x => P.all (fun y => x == y || mutuallyOwn g x y)) &&
+  (List.range (P.length - 1)).all (fun k =>
+    match P[k + 1]?, P[k]? with
+    | some hi, some lo =>
+      match g.node? hi with
+      | some n => n.parents.contains lo
+      | none => false
+    | _, _ => false)
+
+def segGoodOf (g : GPathM) (P : List PathNodeId) : Bool :=
+  match P.head?, P.getLast? with
+  | some lo, some hi => commonBelowNH g P lo.id.step && commonAboveNH g P.reverse hi.id.step
+  | _, _ => true
+
+structure CDAcc where
+  formulas : Nat := 0
+  passes   : Nat := 0
+  passesBad : Nat := 0
+  broken   : Nat := 0      -- tramos rotos a medias (distintos, por pasada)
+  survive  : Nat := 0      -- siguen siendo tramo al final
+  survGood : Nat := 0      -- ... y tienen entrada común al final
+  die      : Nat := 0
+  dieNode  : Nat := 0      -- ... porque muere algún nodo
+  dieLink  : Nat := 0      -- ... nodos vivos pero se pierde un enlace o una posesión
+  finalBad : Nat := 0      -- estados finales de la pasada con algún tramo malo
+  firstSurv : String := ""
+  deriving Repr
+
+def diagClean (lab : String) (g : GPathM) (cap budget : Nat) (a : CDAcc) : CDAcc := Id.run do
+  let mut a := { a with passes := a.passes + 1 }
+  let mut h := g
+  let mut broken : List (List PathNodeId) := []
+  for id in g.nodes.map (·.id) do
+    h := cleanInvalidGo h [id]
+    if isValid h then
+      for n in h.nodes.take cap do
+        let (b1, _) := dfsNHc h [n.id] ([], budget)
+        let (b2, _) := dfsUpNHc h [n.id] ([], budget)
+        for P in b1 ++ b2 do
+          if !broken.contains P then broken := P :: broken
+  if !broken.isEmpty then a := { a with passesBad := a.passesBad + 1 }
+  -- el final de la pasada
+  if isValid h then
+    let mut fb := false
+    for n in h.nodes.take cap do
+      let (b1, _) := dfsNHc h [n.id] ([], budget)
+      let (b2, _) := dfsUpNHc h [n.id] ([], budget)
+      if !(b1 ++ b2).isEmpty then fb := true
+    if fb then a := { a with finalBad := a.finalBad + 1 }
+  for P in broken do
+    a := { a with broken := a.broken + 1 }
+    if isValid h && isSegment h P then
+      a := { a with survive := a.survive + 1
+                  , survGood := a.survGood + (if segGoodOf h P then 1 else 0)
+                  , firstSurv := if a.firstSurv == "" then s!"{lab} tramo {P.map (·.id.step)}" else a.firstSurv }
+    else
+      let allAlive := P.all (fun x => (h.node? x).isSome)
+      a := { a with die := a.die + 1, dieNode := a.dieNode + (if allAlive then 0 else 1)
+                  , dieLink := a.dieLink + (if allAlive then 1 else 0) }
+  return a
+
+def reviewDiag (lab : String) (F : GPathM) (cap budget : Nat) (a : CDAcc) : CDAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        a := diagClean lab g cap budget a
+        let g3 := reviewSons (reviewParents (cleanInvalid g))
+        g := g3
+        if !(GPathM.measure g3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g2 := AggressiveReview.aggSweep g
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  return a
+
+def runFormulaCD (label : String) (φ : Cnf) (cap budget : Nat) (a : CDAcc) : CDAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewDiag s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
+def reportCD (name : String) (a : CDAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   pasadas de cleanInvalid {a.passes}, con algun tramo roto a medias {a.passesBad}"
+  IO.println s!"   estados FINALES de pasada con algun tramo malo: {a.finalBad}"
+  IO.println s!"   tramos rotos a medias: {a.broken}"
+  IO.println s!"     siguen siendo tramo al final: {a.survive}  (con entrada comun al final: {a.survGood})"
+  IO.println s!"     dejan de serlo             : {a.die}  (muere un nodo: {a.dieNode}; nodos vivos, cae enlace/posesion: {a.dieLink})"
+  if a.firstSurv != "" then IO.println s!"   primero que sobrevive: {a.firstSurv}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3444,6 +3584,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "cleandiag" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaCD path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportCD path a (t1 - t0)
+  | "cleandiag" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : CDAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCD s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportCD s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "segops" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with

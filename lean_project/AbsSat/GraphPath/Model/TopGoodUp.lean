@@ -527,4 +527,222 @@ theorem topGoodNH_doJoin (A B : GPathM) (tA : TopGoodNH A) (tB : TopGoodNH B)
 #guard_msgs in
 #print axioms topGoodNH_doJoin
 
+-- ============================================================
+-- `SegGood`: tramos cualesquiera, en los dos sentidos
+-- ============================================================
+
+/-! Para que la cadena pase por un nodo dado `a` hay que construirla **desde `a`**: bajando hasta el
+paso 0 y subiendo hasta la cima. Eso pide que los tramos que no arrancan en la cima también sean
+buenos, por debajo y por encima. Medido sin anfitrión (`row-degree segments`, `segops`): 0 fallos en
+todas las clases de estado de la máquina y del lector. Como las otras dos versiones, solo falla en
+estados intermedios de `cleanInvalid` (nodo a nodo), y ahí los tramos rotos mueren antes de acabar
+la pasada (`row-degree cleandiag`). -/
+
+/-- **Todo tramo es bueno**: un tramo enlazado por padres y poseído por pares tiene, en cada paso
+fuera de él —por debajo y por encima—, una entrada común a las tablas de todos sus miembros. -/
+def SegGood (g : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi ≤ g.current_step - 1 →
+    Extendable.PartialChain g sel lo hi →
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ hi → j ≤ hi → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) →
+    ∀ i, 0 ≤ i → i ≤ g.current_step - 1 → (i < lo ∨ hi < i) → ∃ r, r.id.step = i ∧
+      ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners
+
+/-- Un nodo antiguo gana como owner al hijo de fila de un nodo del último paso cuya tabla lo
+contiene. -/
+theorem gained_of_parent (P : GPathM) (d : NodeId) (hpos : 0 < P.current_step)
+    (p : PathNodeId) (np : PNodeM) (hnp : P.node? p = some np)
+    (hps : p.id.step = P.current_step - 1)
+    (x : PathNodeId) (nx : PNodeM) (hxp : x ∈ np.owners) (hxg : x ∈ P.gowners)
+    (hnx : nx.id = x) :
+    shiftPid p d ∈ (upMap P d nx).owners := by
+  have hpn : p ∈ newParents P := by
+    unfold newParents; rw [if_pos hpos]
+    exact mem_line_of_node? P p np hnp _ hps
+  have hv := mem_newRowIds_of_mem_newParents P d p hpos hpn
+  have hrow : x ∈ rowOwners P d (shiftPid p d) :=
+    row_of_parent P d _ p (mem_rowParents_of_mem_newParents P d p hpn) np hnp x hxp hxg
+  rw [upMap_owners]
+  refine List.mem_append_right _ (List.mem_filter.mpr ⟨hv, ?_⟩)
+  rw [hnx]; exact List.elem_iff.mpr hrow
+
+/-- **El `up` conserva `SegGood`.**
+
+* Un tramo que termina en la fila nueva es como en `topGoodNH_addNode`: por debajo es un tramo de
+  antes, y la cima hereda su entrada común por su padre.
+* Un tramo antiguo es tramo de antes, con las mismas tablas por debajo de la fila; lo único nuevo es
+  el paso de la fila, y ahí sirve el hijo de fila de un nodo `p` del último paso cuya tabla contiene
+  al tramo: el propio extremo alto si el tramo llega a la cima antigua, o, si no, la entrada común
+  que `SegGood` da por encima, vuelta del revés por la simetría. -/
+theorem segGood_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step = P.current_step)
+    (hpos : 0 < P.current_step)
+    (hbelow : ∀ n ∈ P.nodes, n.id.id.step < P.current_step)
+    (hgow : ∀ pid n, P.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < P.current_step → q ∈ P.gowners)
+    (hself : ∀ pid n, P.node? pid = some n → pid ∈ n.owners)
+    (hnode : ∀ pid n, P.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < P.current_step → (P.node? q).isSome)
+    (hsym : Threaded.OwnSymmetric P) (hg : SegGood P) :
+    SegGood (addNode P d t) := by
+  intro sel lo hi hlo0 hlohi hhi hch hpw i hi0 hic hout
+  have hcsU : (addNode P d t).current_step - 1 = P.current_step := by rw [addNode_current]; omega
+  rw [hcsU] at hhi hic
+  -- los nodos antiguos del tramo
+  have oldAt : ∀ j, lo ≤ j → j ≤ hi → j ≤ P.current_step - 1 →
+      ∃ nj, P.node? (sel j) = some nj ∧ (addNode P d t).node? (sel j) = some (upMap P d nj) := by
+    intro j hj1 hj2 hj3
+    obtain ⟨hs, hjs⟩ := hch.1 j hj1 hj2
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+    rcases lookup P d t hd hbelow _ m hm with ⟨_, n, hn, rfl⟩ | ⟨hst, _⟩
+    · exact ⟨n, hn, hm⟩
+    · omega
+  -- el tramo antiguo, restringido hasta `top'`
+  have restrict : ∀ top', lo ≤ top' → top' ≤ hi → top' ≤ P.current_step - 1 →
+      Extendable.PartialChain P sel lo top' ∧
+      ∀ i j, lo ≤ i → lo ≤ j → i ≤ top' → j ≤ top' → i ≠ j →
+        ∀ nj, P.node? (sel j) = some nj → sel i ∈ nj.owners := by
+    intro top' h1 h2 h3
+    refine ⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun i' j hi1 hj1 hi2 hj2 hij nj hnj => ?_⟩
+    · obtain ⟨nj, hnj, _⟩ := oldAt j hj1 (by omega) (by omega)
+      exact ⟨by rw [hnj]; rfl, (hch.1 j hj1 (by omega)).2⟩
+    · obtain ⟨nj, hnj, hnjU⟩ := oldAt (j + 1) (by omega) (by omega) (by omega)
+      have hl := hch.2 j hj1 (by omega)
+      rw [hnjU] at hl
+      rw [hnj]
+      simpa [upMap_parents] using hl
+    · have h := hpw i' j hi1 hj1 (by omega) (by omega) hij (upMap P d nj)
+        (by rw [addNode_node?_old P d t _ nj hnj])
+      exact (old_mem P d hd nj _ (by rw [(hch.1 i' hi1 (by omega)).2]; omega)).mp h
+  rcases (show hi < P.current_step ∨ hi = P.current_step by omega) with hhl | hhe
+  · ---------------------------------------------------------------- tramo antiguo
+    obtain ⟨hchP, hpwP⟩ := restrict hi (by omega) (Int.le_refl _) (by omega)
+    rcases (show i < P.current_step ∨ i = P.current_step by omega) with hil | hie
+    · obtain ⟨r, hrs, hrall⟩ := hg sel lo hi hlo0 hlohi (by omega) hchP hpwP i hi0 (by omega) hout
+      refine ⟨r, hrs, fun j hj1 hj2 nj hnj => ?_⟩
+      obtain ⟨nj0, hnj0, hnjU⟩ := oldAt j hj1 hj2 (by omega)
+      rw [hnjU] at hnj; cases hnj
+      exact (old_mem P d hd nj0 r (by omega)).mpr (hrall j hj1 hj2 nj0 hnj0)
+    · -- el paso de la fila: un `p` del último paso cuya tabla contiene al tramo
+      obtain ⟨p, np, hnp, hps, hin⟩ : ∃ p np, P.node? p = some np ∧
+          p.id.step = P.current_step - 1 ∧
+          ∀ j, lo ≤ j → j ≤ hi → sel j ∈ np.owners := by
+        rcases (show hi = P.current_step - 1 ∨ hi < P.current_step - 1 by omega) with he | hlt
+        · obtain ⟨np, hnp, _⟩ := oldAt hi (by omega) (Int.le_refl _) (by omega)
+          refine ⟨sel hi, np, hnp, by rw [(hch.1 hi (by omega) (Int.le_refl _)).2, he], ?_⟩
+          intro j hj1 hj2
+          rcases int_eq_or_ne j hi with hje | hjne
+          · rw [hje]; exact hself _ np hnp
+          · exact hpwP j hi hj1 (by omega) hj2 (Int.le_refl _) hjne np hnp
+        · obtain ⟨r, hrs, hrall⟩ := hg sel lo hi hlo0 hlohi (by omega) hchP hpwP
+            (P.current_step - 1) (by omega) (Int.le_refl _) (Or.inr hlt)
+          obtain ⟨nl, hnl, _⟩ := oldAt lo (Int.le_refl _) hlohi (by omega)
+          obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp
+            (hnode _ nl hnl r (hrall lo (Int.le_refl _) hlohi nl hnl) (by omega) (by omega))
+          refine ⟨r, nr, hnr, hrs, fun j hj1 hj2 => ?_⟩
+          obtain ⟨nj, hnj, _⟩ := oldAt j hj1 hj2 (by omega)
+          exact hsym _ nj r nr hnj hnr (hrall j hj1 hj2 nj hnj)
+      refine ⟨shiftPid p d, by rw [hie]; show d.step = _; exact hd, fun j hj1 hj2 nj hnj => ?_⟩
+      obtain ⟨nj0, hnj0, hnjU⟩ := oldAt j hj1 hj2 (by omega)
+      rw [hnjU] at hnj; cases hnj
+      have hjs := (hch.1 j hj1 hj2).2
+      exact gained_of_parent P d hpos p np hnp hps _ nj0 (hin j hj1 hj2)
+        (hgow p np hnp _ (hin j hj1 hj2) (by omega) (by omega)) (node?_id_eq P _ nj0 hnj0)
+  · ---------------------------------------------------------------- tramo que acaba en la fila
+    subst hhe
+    have hil : i < lo := by omega
+    obtain ⟨hvsome, _⟩ := hch.1 P.current_step hlohi (Int.le_refl _)
+    obtain ⟨mv, hmv⟩ := Option.isSome_iff_exists.mp hvsome
+    obtain ⟨hvrow, hmveq⟩ : sel P.current_step ∈ newRowIds P d ∧
+        mv = rowNode P d t (sel P.current_step) := by
+      rcases lookup P d t hd hbelow _ mv hmv with ⟨hlt, _⟩ | ⟨_, hr, he⟩
+      · have := (hch.1 P.current_step hlohi (Int.le_refl _)).2; omega
+      · exact ⟨hr, he⟩
+    subst hmveq
+    have toTop : ∀ p ∈ rowParents P d (sel P.current_step), ∀ np, P.node? p = some np →
+        ∀ r ∈ np.owners, 0 ≤ r.id.step → r.id.step < P.current_step →
+        r ∈ (rowNode P d t (sel P.current_step)).owners := fun p hp np hnp r hr h0 h1 =>
+      row_of_parent P d _ p hp np hnp r hr (hgow p np hnp r hr h0 h1)
+    rcases (show lo < P.current_step ∨ lo = P.current_step by omega) with hlt | heq
+    · obtain ⟨np, hnp, _⟩ := oldAt (P.current_step - 1) (by omega) (by omega) (Int.le_refl _)
+      have hpv : sel (P.current_step - 1) ∈ rowParents P d (sel P.current_step) := by
+        have hl := hch.2 (P.current_step - 1) (by omega) (by omega)
+        rw [show P.current_step - 1 + 1 = P.current_step by omega, hmv] at hl
+        simpa [rowNode_parents] using hl
+      obtain ⟨hchP, hpwP⟩ := restrict (P.current_step - 1) (by omega) (by omega) (Int.le_refl _)
+      obtain ⟨r, hrs, hrall⟩ := hg sel lo (P.current_step - 1) hlo0 (by omega) (Int.le_refl _)
+        hchP hpwP i hi0 (by omega) (Or.inl hil)
+      refine ⟨r, hrs, fun j hj1 hj2 nj hnj => ?_⟩
+      rcases (show j ≤ P.current_step - 1 ∨ j = P.current_step by omega) with hjl | hje
+      · obtain ⟨nj0, hnj0, hnjU⟩ := oldAt j hj1 hj2 hjl
+        rw [hnjU] at hnj; cases hnj
+        exact (old_mem P d hd nj0 r (by omega)).mpr (hrall j hj1 hjl nj0 hnj0)
+      · subst hje
+        rw [hmv] at hnj; cases hnj
+        exact toTop _ hpv np hnp r (hrall _ (by omega) (Int.le_refl _) np hnp) (by omega)
+          (by omega)
+    · subst heq
+      obtain ⟨p, hp⟩ := row_has_parent P hpos d _ hvrow
+      obtain ⟨⟨np, hnp⟩, hps⟩ := rowParent_node P hpos d _ p hp
+      have hconc : ∀ r, r ∈ (rowNode P d t (sel P.current_step)).owners →
+          ∀ j, P.current_step ≤ j → j ≤ P.current_step → ∀ nj,
+            (addNode P d t).node? (sel j) = some nj → r ∈ nj.owners := by
+        intro r hr j hj1 hj2 nj hnj
+        have : j = P.current_step := by omega
+        rw [this, hmv] at hnj; cases hnj; exact hr
+      rcases (show i = P.current_step - 1 ∨ i < P.current_step - 1 by omega) with hie | hil'
+      · exact ⟨p, by omega, hconc p (toTop p hp np hnp p (hself p np hnp) (by omega) (by omega))⟩
+      · have hchp : Extendable.PartialChain P (fun _ => p) (P.current_step - 1)
+            (P.current_step - 1) :=
+          ⟨fun j hj1 hj2 => ⟨by rw [hnp]; rfl, by rw [hps]; omega⟩, fun j hj1 hj2 => by omega⟩
+        obtain ⟨r, hrs, hrall⟩ := hg (fun _ => p) (P.current_step - 1) (P.current_step - 1)
+          (by omega) (Int.le_refl _) (Int.le_refl _) hchp
+          (fun _ _ h1 h2 h3 h4 hne => absurd (by omega) hne) i hi0 (by omega) (Or.inl hil')
+        exact ⟨r, hrs, hconc r (toTop p hp np hnp r
+          (hrall _ (Int.le_refl _) (Int.le_refl _) np hnp) (by omega) (by omega))⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.segGood_addNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGood_addNode
+
+/-- Un tramo, empaquetado. -/
+def SegFrom (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) : Prop :=
+  0 ≤ lo ∧ lo ≤ hi ∧ hi ≤ g.current_step - 1 ∧ Extendable.PartialChain g sel lo hi ∧
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ hi → j ≤ hi → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners)
+
+/-- **La unión no mezcla tramos**: todo tramo del estado unido es tramo de uno de los lados. -/
+def NoMixSeg (J A B : GPathM) : Prop :=
+  ∀ sel lo hi, SegFrom J sel lo hi → SegFrom A sel lo hi ∨ SegFrom B sel lo hi
+
+theorem segCommon_of_grown {g J : GPathM} (hgr : Grown g J) (hg : SegGood g)
+    (sel : Int → PathNodeId) (lo hi : Int) (hc : SegFrom g sel lo hi) (i : Int) (hi0 : 0 ≤ i)
+    (hic : i ≤ J.current_step - 1) (hout : i < lo ∨ hi < i) :
+    ∃ r, r.id.step = i ∧
+      ∀ j, lo ≤ j → j ≤ hi → ∀ nj, J.node? (sel j) = some nj → r ∈ nj.owners := by
+  obtain ⟨hlo0, hlohi, hhi, hch, hpw⟩ := hc
+  rw [hgr.step_eq] at hic
+  obtain ⟨r, hrs, hrall⟩ := hg sel lo hi hlo0 hlohi hhi hch hpw i hi0 hic hout
+  refine ⟨r, hrs, fun j hj1 hj2 nj hnj => ?_⟩
+  obtain ⟨hs, _⟩ := hch.1 j hj1 hj2
+  obtain ⟨gj, hgj⟩ := Option.isSome_iff_exists.mp hs
+  obtain ⟨nj', hnj', hownj, _, _⟩ := hgr.node?_grown _ gj hgj
+  rw [hnj] at hnj'; cases hnj'
+  exact hownj r (hrall j hj1 hj2 gj hgj)
+
+/-- **El `doJoin` conserva `SegGood`** si la unión no mezcla tramos. -/
+theorem segGood_doJoin (A B : GPathM) (tA : SegGood A) (tB : SegGood B)
+    (hmix : okJoin A B = true → NoMixSeg (join A B) A B) : SegGood (doJoin A B) := by
+  unfold doJoin
+  split
+  · next hok =>
+    intro sel lo hi hlo0 hlohi hhi hch hpw i hi0 hic hout
+    rcases hmix hok sel lo hi ⟨hlo0, hlohi, hhi, hch, hpw⟩ with hc | hc
+    · exact segCommon_of_grown (grown_join_left A B) tA sel lo hi hc i hi0 hic hout
+    · exact segCommon_of_grown (grown_join_right A B hok) tB sel lo hi hc i hi0 hic hout
+  · exact tA
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.segGood_doJoin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGood_doJoin
+
 end AbsSat.GraphPath.Model.TopGoodUp
