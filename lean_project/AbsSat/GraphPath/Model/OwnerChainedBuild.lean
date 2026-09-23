@@ -1490,4 +1490,81 @@ theorem descentStep_of_singleBelow (g : GPathM) (hok : AggFixpoint.AggOk g)
 #guard_msgs in
 #print axioms descentStep_of_singleBelow
 
+-- ============================================================
+-- Los pasos 0 y 1: la ventana no puede variar
+-- ============================================================
+
+/-- **Un nodo del paso 0 o del paso 1 no tiene `gparent_id`.**
+
+En el paso 0 el nodo es raíz (`RootAtZero`) y `GPMP` le quita el abuelo. En el paso 1 su
+`gparent_id` es el `parent_id` de un padre (`GPMP`), y ese padre vive en el paso 0: es raíz. -/
+theorem gparent_none_of_low (g : GPathM) (ctx : Pinned.Ctx g)
+    (p : PathNodeId) (np : PNodeM) (hp : g.node? p = some np)
+    (h0 : 0 ≤ p.id.step) (h1 : p.id.step ≤ 1) : p.gparent_id = none := by
+  have hm := List.mem_of_find?_eq_some hp
+  have hid := node?_id_eq g p np hp
+  rcases int_eq_or_ne p.id.step 0 with hz | hz
+  · have hpn : np.id.parent_id = none := ctx.rootz np hm (by rw [hid]; exact hz)
+    rw [← hid]; exact ctx.gpmp.2 np hm hpn
+  · have hroot : np.id.parent_id.isNone = false := by
+      cases hpp : np.id.parent_id with
+      | none => exact absurd hpp (ctx.shape.notroot np hm (by rw [hid]; omega))
+      | some _ => rfl
+    obtain ⟨c, hc⟩ := List.exists_mem_of_ne_nil _
+      (SelfOwn.have_parents_of_isValidNode g np (ctx.nodeval p np hp) hroot)
+    obtain ⟨mc, hmc, hmcid⟩ := ctx.shape.pn np hm c hc
+    have hcs : c.id.step = 0 := by
+      have := ctx.shape.pbelow np hm c hc
+      rw [hid] at this; omega
+    have hcp : c.parent_id = none := by
+      rw [← hmcid]; exact ctx.rootz mc hmc (by rw [hmcid]; exact hcs)
+    rw [← hid, ctx.gpmp.1 np hm c hc]; exact hcp
+
+/-- **Por debajo de un nodo de los pasos 1 y 2, su tabla tiene una sola entrada.**
+
+Las entradas del paso de abajo coinciden en id de mapa y en `parent_id` (`below_same_window`), y
+viven en el paso 0 o 1, donde `gparent_id` es siempre `none`. -/
+theorem singleBelow_of_low (g : GPathM) (adj : AdjacentOwners.Adj g)
+    (b : PathNodeId) (nb : PNodeM) (hb : g.node? b = some nb)
+    (hb1 : 1 ≤ b.id.step) (hb2 : b.id.step ≤ 2) (hbc : b.id.step < g.current_step)
+    (p : PathNodeId) (hp : p ∈ nb.owners) (hps : p.id.step = b.id.step - 1)
+    (q : PathNodeId) (hq : q ∈ nb.owners) (hqs : q.id.step = b.id.step - 1) : p = q := by
+  obtain ⟨hid, hpar⟩ := below_same_window g adj b nb hb hb1 p q hp hps hq hqs
+  have hnode : ∀ r ∈ nb.owners, r.id.step = b.id.step - 1 → ∃ nr, g.node? r = some nr :=
+    fun r hr hrs => Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g r).mp
+      (adj.ctx.gn r (adj.ctx.ownGow b nb hb r hr (by omega) (by omega))))
+  obtain ⟨np, hnp⟩ := hnode p hp hps
+  obtain ⟨nq, hnq⟩ := hnode q hq hqs
+  have hgp := gparent_none_of_low g adj.ctx p np hnp (by omega) (by omega)
+  have hgq := gparent_none_of_low g adj.ctx q nq hnq (by omega) (by omega)
+  cases p; cases q; simp_all
+
+/-- **El paso del descenso en `k ≤ 1`, sin hipótesis.** -/
+theorem descentStep_of_low (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (adj : AdjacentOwners.Adj g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
+    (k : Int) (sel : Int → PathNodeId) (hk0 : 0 ≤ k) (hkl : k ≤ 1) (hk1 : k + 1 < g.current_step)
+    (hpl : ∀ j, k < j → j < g.current_step → (g.node? (sel j)).isSome ∧ (sel j).id.step = j)
+    (hin : ∀ j, k < j → j < g.current_step → sel j ∈ na.owners)
+    (hown : ∀ i j, k < i → k < j → i < g.current_step → j < g.current_step → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) :
+    ∃ u ∈ na.owners, u.id.step = k ∧
+      (∀ j, k < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners) := by
+  have hbs := (hpl (k + 1) (by omega) (by omega)).2
+  exact descentStep_of_singleBelow g hok adj.ctx a na hna ha0 ha1 k sel hk0 hk1 hpl hin hown
+    (fun nb hnb p hp hps q hq hqs => singleBelow_of_low g adj (sel (k + 1)) nb hnb
+      (by omega) (by omega) (by omega) p hp (by rw [hps, hbs]; omega) q hq (by rw [hqs, hbs]; omega))
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.gparent_none_of_low' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gparent_none_of_low
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.singleBelow_of_low' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms singleBelow_of_low
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descentStep_of_low' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms descentStep_of_low
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
