@@ -135,4 +135,69 @@ theorem topGood_foldl_filterRequire (reqs : List NodeId) :
 #guard_msgs in
 #print axioms topGood_foldl_filterRequire
 
+-- ============================================================
+-- La misma escalera sin anfitrión: `SegGood`
+-- ============================================================
+
+/-! `SegGood` es `TopGood` sin anfitrión y para tramos con cualquier extremo: todo tramo enlazado y
+poseído por pares tiene, en cada paso fuera de él, una entrada común a todos sus nodos. Da la
+cadena por cada entrada bajando y subiendo desde ella (`TopGoodUp.ownerChained_of_segGood`), y las
+pasadas de padres y de hijos lo conservan nodo a nodo (`SegReview.segGood_reviewNode_parents`,
+`segGood_reviewNode_sons`, v179). -/
+
+theorem ownerChained_of_segGood_reader (g : GPathM) (ctx : PinAliveChain.DCtx g)
+    (hv : isValid g = true) (hS : TopGoodUp.SegGood g) : ReaderChain.OwnerChained g := by
+  have adj := AdjacentOwners.adj_of_readable g ctx.rd hv ctx.pms ctx.sn
+  have rc := RCtx_of_readableAgg g ctx.rd
+  have tctx := tctx_of_reader g ctx hv
+  have hok : AggFixpoint.AggOk g := by
+    obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+    rw [hg] at hv ⊢
+    exact AggFixpoint.aggOk_reviewAgg _ hv
+  have hsym := PinExactBoundary.ownSymmetric_of_aggOk g hok rc.snn rc.below adj.ctx.nodeval
+  exact TopGoodUp.ownerChained_of_segGood g adj ctx.smp ctx.pos rc.gn hsym tctx.ownerNode hS
+
+/-- **La hipótesis sin anfitrión**: en todo estado válido que el lector visita vale `SegGood`. -/
+def ReaderSegGood : Prop :=
+  ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g,
+    PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true → TopGoodUp.SegGood g
+
+/-- **El lector sin retroceso decide 3-SAT, con `SegGood` en sus estados como única hipótesis.** -/
+theorem readerVerdictW_iff_of_readerSegGood (h : ReaderSegGood) (φ : Cnf) (hwf : WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine ⟨fun h' => ReaderExec.readerVerdictW_sound φ hwf h', fun hsat => ?_⟩
+  obtain ⟨a, hsa⟩ := hsat
+  obtain ⟨g, hmem, hcs, _, sel, hsel⟩ := ConservationImproves.pureRunW_full_chain φ a hwf hsa
+  have hm := (ReaderAggRun.pureRunW_state φ hwf _ hmem).1
+  have hsel0 : ChainSound (filterAllAgg g []) sel :=
+    ChainSound_filterAllAgg g [] sel hsel (fun _ hreq => absurd hreq List.not_mem_nil)
+  have hpos : 0 < g.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg g []) :=
+    { rd := ⟨g, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg g [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg g [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg g hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg g []).step_eq]; exact hpos }
+  refine PinAliveChain.readerVerdictW_of_chainsR φ _ hmem
+    (PickInduction.isValid_of_ChainG _ sel hsel0.chain) (fun g' hR hv' => ?_)
+  have ctx := dctx_of_readFromR _ ctx₀ g' hR
+  have hoc := ownerChained_of_segGood_reader g' ctx hv' (h φ hwf _ hmem g' hR hv')
+  have hent := hasStepEntry_of_isValid g' hv' 0 (Int.le_refl 0) ctx.pos
+  simp only [hasStepEntry, List.any_eq_true] at hent
+  obtain ⟨q, hq, hqs⟩ := hent
+  have hqs' : q.id.step = 0 := eq_of_beq hqs
+  obtain ⟨s, hsc, _⟩ := hoc q hq (by rw [hqs']; exact Int.le_refl 0) (by rw [hqs']; exact ctx.pos)
+  exact ⟨s, hsc⟩
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodLadder.readerVerdictW_iff_of_readerSegGood' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_readerSegGood
+
+/-- **Los filtros conservan `SegGood`**: no tocan las tablas. -/
+theorem segGood_filterRequire (g : GPathM) (req : NodeId) (h : TopGoodUp.SegGood g) :
+    TopGoodUp.SegGood (filterRequire g req) := h
+
+theorem segGood_filterWeak (g : GPathM) (e : Int × List NodeId) (h : TopGoodUp.SegGood g) :
+    TopGoodUp.SegGood (PureDriverImproves.filterWeak g e) := h
+
 end AbsSat.GraphPath.Model.TopGoodLadder
