@@ -373,4 +373,61 @@ info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_filterAllAgg_of_req
 #guard_msgs in
 #print axioms ownerChained_filterAllAgg_of_reqSatisfying
 
+-- ============================================================
+-- El pin del LECTOR: reducido a la exactitud de las tablas
+-- ============================================================
+
+/-- **El pin del lector sale de `TablesSound` del estado que se pincha.**
+
+Y la clave es no pedirle a la cadena que pase por el pin, sino **elegir el testigo del pin dentro de
+la tabla del superviviente**:
+
+1. si `q` sobrevive al pin, su tabla **lleva el requisito**: tiene una entrada en ese paso —lo exige
+   `isValidNode`— y esa entrada es el requisito, porque el filtro no deja otra cosa allí
+   (`reqs_in_owners`, que no necesita nada del punto fijo);
+2. esa entrada `w` estaba ya en la tabla de `q` antes del pin, porque las tablas solo encogen;
+3. y `TablesSound` convierte el par `(q, w)` en una cadena que pasa por los dos — que es
+   exactamente lo que el pin pide, porque `w.id` **es** el requisito.
+
+Nótese lo que esto evita: no hay que dirigir ninguna cadena ni juntar tres cosas. El testigo del pin
+lo pone la propia supervivencia, y la cadena que hace falta es la de un **par**. -/
+theorem pinPairChained_of_tablesSound (g : GPathM) (hR : ReadableAgg g)
+    (ht : TablesSound g) : ReaderChain.PinPairChained g := by
+  intro req hv hr0 hr1 q hq h0 h1 _
+  have hRr := ReadableAgg_filterAllAgg g hR [req]
+  have ctxR := Reader.Ctx_of_readable _ (readable_of_readableAgg _ hRr) hv
+  have rcR := RCtx_of_readableAgg _ hRr
+  have rcg := RCtx_of_readableAgg g hR
+  have hpr := pruned_filterAllAgg g [req]
+  obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff _ q).mp (rcR.gn q hq))
+  obtain ⟨w, hwm, hwid⟩ := reqs_in_owners g [req] ctxR q nq hnq req List.mem_cons_self hr0
+    (by rw [hpr.step_eq]; exact hr1)
+  obtain ⟨n₀, hn₀, hid, hown, _⟩ := hpr.nodes_derived nq (List.mem_of_find?_eq_some hnq)
+  have hqid := node?_id_eq _ q nq hnq
+  have hq₀ : g.node? q = some n₀ := by rw [← hqid, hid]; exact node?_of_mem rcg.nodup n₀ hn₀
+  have hws : w.id.step = req.step := by rw [hwid]
+  obtain ⟨sel, hsc, hsq, hsw⟩ := ht q n₀ hq₀ h0 h1 w (by rw [hws]; exact hr0)
+    (by rw [hws]; exact hr1) (hown w hwm)
+  exact ⟨sel, hsc, by rw [hsq], by rw [← hws, hsw, hwid]⟩
+
+/-! ## Lo que queda, tras esto
+
+El pin del lector ya no es un enunciado suelto: es `TablesSound` del estado que se pincha.
+
+    ReaderChain.PinPairChained g   ⟸   Exactness.TablesSound g
+
+Y `TablesSound` es el invariante más antiguo del repositorio, con toda la maquinaria de
+construcción detrás: `up`, `doJoin` y la revisión lo conservan, y desde
+`ownerChained_filterAllAgg_of_reqSatisfying` el argumento de la cima cubre también los filtros de
+envío. Es además el que la sonda `tsread` mide sobre las trayectorias reales del lector:
+**150.124 entradas, cero fantasmas.**
+
+Lo que falta, por tanto, es propagarlo por **el pin del lector** —`RunSteps.PinPairSoundAt` /
+`ReaderChain.PinPairSound`—, que es donde estaba el muro desde el principio. Pero el hueco ya no se
+multiplica: **una sola frase, sobre un solo invariante.** -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.pinPairChained_of_tablesSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pinPairChained_of_tablesSound
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
