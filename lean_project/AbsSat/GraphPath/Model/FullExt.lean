@@ -255,4 +255,167 @@ theorem fullExtG_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step = P
 #guard_msgs in
 #print axioms fullExtG_addNode
 
+-- ============================================================
+-- «Si se extiende, sobrevive»
+-- ============================================================
+
+/-- **Una cadena completa dentro de la tabla global.** -/
+def FullChainG (g : GPathM) (s : Int → PathNodeId) : Prop :=
+  Seg g s 0 (g.current_step - 1) ∧ ∀ j, 0 ≤ j → j ≤ g.current_step - 1 → s j ∈ g.gowners
+
+/-- **Una cadena completa dentro de la global es `ChainSound`**, con la forma del estado: cada nodo se
+posee, un padre tiene al hijo entre sus hijos (`SMP`), la raíz está en el paso 0 y solo ella. -/
+theorem chainSound_of_fullChain (g : GPathM)
+    (hself : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP g) (hroot : Sons.RootAtZero g) (hnr : Parents.NotRoot g)
+    (hpos : 0 < g.current_step) (s : Int → PathNodeId) (h : FullChainG g s) : ChainSound g s := by
+  obtain ⟨hs, hg⟩ := h
+  have nodeAt : ∀ k, 0 ≤ k → k < g.current_step → ∃ nk, g.node? (s k) = some nk :=
+    fun k h0 h1 => Option.isSome_iff_exists.mp (hs.1.1 k h0 (by omega)).1
+  refine ⟨⟨isChain_of_partial g s hs.1, fun i j hi0 hj0 hi1 hj1 hij => ?_,
+    fun k h0 h1 => hg k h0 (by omega)⟩, fun k h0 h1 => ?_, fun k h0 h1 => ?_, ⟨?_, ?_⟩⟩
+  · obtain ⟨nj, hnj⟩ := nodeAt j hj0 hj1
+    obtain ⟨_, hstep⟩ := hs.1.1 i hi0 (by omega)
+    refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstep⟩
+    simp only [ownersOf, hnj]
+    exact hs.2 i j hi0 hj0 (by omega) (by omega) hij nj hnj
+  · obtain ⟨nk, hnk⟩ := nodeAt k h0 h1
+    simp only [ownersOf, hnk]
+    exact hself _ nk hnk
+  · obtain ⟨nk, hnk⟩ := nodeAt k h0 (by omega)
+    obtain ⟨nk1, hnk1⟩ := nodeAt (k + 1) (by omega) h1
+    have hl := hs.1.2 k h0 (by omega)
+    rw [hnk1] at hl
+    simp only [Option.map_some, Option.getD_some] at hl
+    have := hsmp nk1 (List.mem_of_find?_eq_some hnk1) (s k) hl nk (List.mem_of_find?_eq_some hnk)
+      (node?_id_eq g _ nk hnk)
+    simp only [sonsOf, hnk]
+    rw [node?_id_eq g _ nk1 hnk1] at this
+    exact this
+  · obtain ⟨n0, hn0⟩ := nodeAt 0 (Int.le_refl _) hpos
+    have hid := node?_id_eq g _ n0 hn0
+    rw [← hid]
+    exact hroot n0 (List.mem_of_find?_eq_some hn0) (by rw [hid, (hs.1.1 0 (Int.le_refl _) (by omega)).2])
+  · intro k hk0 hk1
+    obtain ⟨nk, hnk⟩ := nodeAt k (by omega) hk1
+    have hid := node?_id_eq g _ nk hnk
+    rw [← hid]
+    exact hnr nk (List.mem_of_find?_eq_some hnk) (by rw [hid, (hs.1.1 k (by omega) (by omega)).2]; exact hk0)
+
+/-- **Y la vuelta: una cadena `ChainSound` es completa y está dentro de la global.** -/
+theorem fullChain_of_chainSound (g : GPathM) (s : Int → PathNodeId) (h : ChainSound g s) :
+    FullChainG g s := by
+  obtain ⟨⟨hchain, hpw, hgow⟩, _, _, _⟩ := h
+  refine ⟨⟨⟨fun i hi0 hi1 => hchain.1 i hi0 (by omega), fun i hi0 hi1 => hchain.2 i hi0 (by omega)⟩,
+    fun i j hi0 hj0 hi1 hj1 hij nj hnj => ?_⟩, fun j h0 h1 => hgow j h0 (by omega)⟩
+  have := hpw i j hi0 hj0 (by omega) (by omega) hij
+  simp only [ownersAt, List.mem_filter, ownersOf, hnj] at this
+  exact this.1
+
+/-- **Si se extiende, sobrevive.** Una cadena completa dentro de la global sobrevive entera al review
+agresivo (`ChainSound_reviewAgg`), y sigue siendo completa y dentro de la global. -/
+theorem fullChain_reviewAgg (g : GPathM)
+    (hself : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP g) (hroot : Sons.RootAtZero g) (hnr : Parents.NotRoot g)
+    (hpos : 0 < g.current_step) (s : Int → PathNodeId) (h : FullChainG g s) :
+    FullChainG (AggressiveReview.reviewAgg g) s :=
+  fullChain_of_chainSound _ s
+    (AggressiveReview.ChainSound_reviewAgg g s
+      (chainSound_of_fullChain g hself hsmp hroot hnr hpos s h))
+
+/-- **Un tramo que se extiende dentro de la global sobrevive al review agresivo**: sigue siendo tramo,
+y sigue extendiéndose dentro de la global. -/
+theorem seg_survives_of_extends (g : GPathM)
+    (hself : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP g) (hroot : Sons.RootAtZero g) (hnr : Parents.NotRoot g)
+    (hpos : 0 < g.current_step) (sel s : Int → PathNodeId) (lo hi : Int) (hlo : 0 ≤ lo)
+    (hhi : hi ≤ g.current_step - 1) (h : FullChainG g s) (hag : ∀ j, lo ≤ j → j ≤ hi → s j = sel j) :
+    Seg (AggressiveReview.reviewAgg g) sel lo hi ∧
+      FullChainG (AggressiveReview.reviewAgg g) s := by
+  have hR := fullChain_reviewAgg g hself hsmp hroot hnr hpos s h
+  have hcs := (AggressiveReview.pruned_reviewAgg g).step_eq
+  have hsR := hR.1
+  refine ⟨⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun i j hi1 hj1 hi2 hj2 hij nj hnj => ?_⟩, hR⟩
+  · rw [← hag j hj1 hj2]; exact hsR.1.1 j (by omega) (by rw [hcs]; omega)
+  · rw [← hag j hj1 (by omega), ← hag (j + 1) (by omega) hj2]
+    exact hsR.1.2 j (by omega) (by rw [hcs]; omega)
+  · rw [← hag i hi1 hi2]
+    rw [← hag j hj1 hj2] at hnj
+    exact hsR.2 i j (by omega) (by omega) (by rw [hcs]; omega) (by rw [hcs]; omega) hij nj hnj
+
+/-- info: 'AbsSat.GraphPath.Model.FullExt.chainSound_of_fullChain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chainSound_of_fullChain
+
+/-- info: 'AbsSat.GraphPath.Model.FullExt.seg_survives_of_extends' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms seg_survives_of_extends
+
+-- ============================================================
+-- La otra dirección, y lo que basta con ella
+-- ============================================================
+
+/-- Un tramo de un estado podado es tramo del de antes. -/
+theorem seg_of_pruned {g g' : GPathM} (hpr : Pruned g g') (hnd : NodupIds g)
+    (sel : Int → PathNodeId) (lo hi : Int) (h : Seg g' sel lo hi) : Seg g sel lo hi := by
+  have back : ∀ y n', g'.node? y = some n' → ∃ n, g.node? y = some n ∧
+      (∀ q ∈ n'.owners, q ∈ n.owners) ∧ (∀ p ∈ n'.parents, p ∈ n.parents) := by
+    intro y n' hy
+    obtain ⟨n, hn, hid, hown, hpar⟩ := hpr.nodes_derived n' (List.mem_of_find?_eq_some hy)
+    have hy' : n'.id = y := node?_id_eq _ y n' hy
+    exact ⟨n, by rw [← hy', hid]; exact node?_of_mem hnd n hn, hown, hpar⟩
+  refine ⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun i j hi1 hj1 hi2 hj2 hij nj hnj => ?_⟩
+  · obtain ⟨hsm, hjs⟩ := h.1.1 j hj1 hj2
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsm
+    obtain ⟨n, hn, _⟩ := back _ m hm
+    exact ⟨by rw [hn]; rfl, hjs⟩
+  · obtain ⟨hsm, _⟩ := h.1.1 (j + 1) (by omega) hj2
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsm
+    obtain ⟨n, hn, _, hpar⟩ := back _ m hm
+    have hl := h.1.2 j hj1 hj2
+    rw [hm] at hl
+    rw [hn]
+    simp only [Option.map_some, Option.getD_some] at hl ⊢
+    exact hpar _ hl
+  · obtain ⟨hsm, _⟩ := h.1.1 j hj1 hj2
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsm
+    obtain ⟨n, hn, hown, _⟩ := back _ m hm
+    rw [← Option.some.inj (hn.symm.trans hnj)]
+    exact hown _ (h.2 i j hi1 hj1 hi2 hj2 hij m hm)
+
+/-- **La dirección abierta: la completitud del review.** Un tramo del estado de entrada, dentro de
+su tabla global, que sobrevive al review agresivo, se extiende ya en el estado de entrada a una cadena
+completa dentro de la tabla global.
+
+Medido (`row-degree filterkill`), tras cada filtro de la construcción y de los pines del lector:
+**ningún** tramo que no se extiende sobrevive —0 de 1.896 en `dos_de_tres.cnf`, 0 de 223.027 en las
+aleatorias (semilla 1)—, y todos los que se extienden sobreviven. -/
+def ReviewComplete (g : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi ≤ g.current_step - 1 →
+    Seg g sel lo hi → (∀ j, lo ≤ j → j ≤ hi → sel j ∈ g.gowners) →
+    Seg (AggressiveReview.reviewAgg g) sel lo hi →
+    (∀ j, lo ≤ j → j ≤ hi → sel j ∈ (AggressiveReview.reviewAgg g).gowners) →
+    ∃ s, FullChainG g s ∧ ∀ j, lo ≤ j → j ≤ hi → s j = sel j
+
+/-- **Con la completitud, el estado revisado cumple `FullExtG`**, sin pedir nada del de entrada: un
+tramo del revisado era tramo antes; la completitud le da una extensión dentro de la global, y esa
+extensión sobrevive entera (`fullChain_reviewAgg`). -/
+theorem fullExtG_reviewAgg (g : GPathM) (hnd : NodupIds g)
+    (hself : ∀ pid n, g.node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP g) (hroot : Sons.RootAtZero g) (hnr : Parents.NotRoot g)
+    (hpos : 0 < g.current_step) (hc : ReviewComplete g) :
+    FullExtG (AggressiveReview.reviewAgg g) := by
+  have hpr := AggressiveReview.pruned_reviewAgg g
+  intro sel lo hi hlo0 hlohi hhi hs hsg
+  have hhi' : hi ≤ g.current_step - 1 := by rw [← hpr.step_eq]; exact hhi
+  have hsF := seg_of_pruned hpr hnd sel lo hi hs
+  obtain ⟨s, hfull, hag⟩ := hc sel lo hi hlo0 hlohi hhi' hsF
+    (fun j hj1 hj2 => hpr.gowners_sub _ (hsg j hj1 hj2)) hs hsg
+  have hR := fullChain_reviewAgg g hself hsmp hroot hnr hpos s hfull
+  exact ⟨s, hR.1, hR.2, hag⟩
+
+/-- info: 'AbsSat.GraphPath.Model.FullExt.fullExtG_reviewAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms fullExtG_reviewAgg
+
 end AbsSat.GraphPath.Model.FullExt
