@@ -700,4 +700,80 @@ la tabla de un nodo—, y lo que esta medida descarta es alcanzarla empujando de
 #guard_msgs in
 #print axioms distantOwned_of_hopDown
 
+-- ============================================================
+-- `TableChainOwned` donde la tabla anfitriona no ofrece elección
+-- ============================================================
+
+/-- **Y ahí `AggOk` lo paga entero.**
+
+Si la tabla del anfitrión `a` tiene **una sola** entrada en el paso `i`, entonces cualquier nodo de
+esa tabla posee a la entrada de `i` — sin pedir nada más:
+
+1. `sel j` está en la tabla de `a`, así que `AggOk` da `sharesEveryStep` entre las dos tablas;
+2. `sel j` es válido, luego su tabla **tiene** una entrada en el paso `i`, y por tanto el cruce
+   obliga a que **algún** owner de `a` en el paso `i` esté también en la de `sel j`;
+3. y si en `i` solo hay uno, ese alguno **es** `sel i`.
+
+Es el mismo mecanismo que `TablesSoundBuild.realizes_pin_of_singleId`, pero una planta más arriba:
+allí la unicidad estaba en el paso del pin, aquí en el paso del par. Y cierra `TableChainOwned` en
+todos los pasos donde la tabla anfitriona ya no elige. -/
+theorem mem_owners_of_singleAt (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
+    (i : Int) (hi0 : 0 ≤ i) (hi1 : i < g.current_step)
+    (u : PathNodeId) (_hu : u ∈ na.owners) (hus : u.id.step = i)
+    (hsingle : ∀ v ∈ na.owners, v.id.step = i → v = u)
+    (y : PathNodeId) (ny : PNodeM) (hny : g.node? y = some ny)
+    (hy0 : 0 ≤ y.id.step) (hy1 : y.id.step < g.current_step)
+    (hyn : y ∈ na.owners) : u ∈ ny.owners := by
+  obtain ⟨_, hshare⟩ := hok a na y ny hna hny ha0 ha1 hy0 hy1 hyn
+    (ctx.nodeval a na hna) (ctx.nodeval y ny hny)
+  simp only [sharesEveryStep, List.all_eq_true] at hshare
+  have hk := hshare i (mem_intRange hi0 (by omega))
+  have hye : hasStepEntry ny.owners i = true := by
+    have hok' := owners_ok_of_isValidNode g ny (ctx.nodeval y ny hny)
+    simp only [List.all_eq_true] at hok'
+    exact hok' i (mem_intRange hi0 (by omega))
+  rw [hye] at hk
+  simp only [Bool.not_true, Bool.false_or, List.any_eq_true] at hk
+  obtain ⟨z, hz, hzc⟩ := hk
+  obtain ⟨hzn, hzs⟩ := List.mem_filter.mp hz
+  rw [hsingle z hzn (eq_of_beq hzs)] at hzc
+  exact List.mem_of_elem_eq_true hzc
+
+/-- **Y la forma en que `TableChainOwned` lo consume.** -/
+theorem tableChainOwned_of_singleSteps (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (ctx : Pinned.Ctx g) (hrange : ∀ p n, g.node? p = some n → 0 ≤ p.id.step ∧
+      p.id.step < g.current_step)
+    (hsingle : ∀ a na, g.node? a = some na → ∀ i, 0 ≤ i → i < g.current_step →
+      ∀ u ∈ na.owners, u.id.step = i → ∀ v ∈ na.owners, v.id.step = i → v = u) :
+    TableChainOwned g := by
+  intro a na hna sel hchain hin i j hi0 hj0 hi1 hj1 _
+  obtain ⟨hsi, hstepi⟩ := hchain.1 i hi0 hi1
+  obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (hchain.1 j hj0 hj1).1
+  refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstepi⟩
+  simp only [ownersOf, hnj]
+  exact mem_owners_of_singleAt g hok ctx a na hna (hrange a na hna).1 (hrange a na hna).2
+    i hi0 hi1 (sel i) (hin i hi0 hi1) hstepi
+    (fun v hv hvs => hsingle a na hna i hi0 hi1 (sel i) (hin i hi0 hi1) hstepi v hv hvs)
+    (sel j) nj hnj (hrange _ nj hnj).1 (hrange _ nj hnj).2 (hin j hj0 hj1)
+
+/-! ## Qué queda de `TableChainOwned`
+
+Los pasos en los que la tabla del anfitrión **todavía ofrece dos valores**. En los demás
+—`mem_owners_of_singleAt`— `AggOk` lo paga entero, y el mecanismo es el mismo que cerró el 90,4 % de
+los pines en `realizes_pin_of_singleId`, una planta más arriba.
+
+Y nótese lo que esto **no** pide: ni empujar owners desde los padres (medido falso), ni que la tabla
+sea clique (medido falso), ni ternas. Pide que el cruce `sharesEveryStep` —el segundo test del
+barrido del autor— tenga un único destino posible. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.mem_owners_of_singleAt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_owners_of_singleAt
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableChainOwned_of_singleSteps' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableChainOwned_of_singleSteps
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
