@@ -233,6 +233,7 @@ import AbsSat.GraphPath.Model.PassCtx
 import AbsSat.GraphPath.Model.PassSons
 import AbsSat.GraphPath.Model.CleanTwoPhase
 import AbsSat.GraphPath.Model.PassPlain
+import AbsSat.GraphPath.Model.CompatLoss
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid

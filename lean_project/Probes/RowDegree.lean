@@ -6391,7 +6391,12 @@ def roundRS (lab : String) (g : GPathM) (a : RSAcc) : RSAcc := Id.run do
           -- every node of P in g' (a common node at every step with each table)?
           let tabNew := fun (y : PathNodeId) => ((g'.node? y).map (·.owners)).getD []
           for r in aliveOld.filter (fun r => !cNew.contains r) do
-            let compatAll := P.all (fun x => AggressiveReview.sharesEveryStep g'.current_step (tabNew x) (tabNew r))
+            -- compatible = a common node at every step other than r's and x's own
+            let compat := fun (x : PathNodeId) =>
+              (intRange 0 (g'.current_step - 1)).all (fun k =>
+                k == r.id.step || k == x.id.step ||
+                (tabNew x).any (fun q => q.id.step == k && (tabNew r).contains q))
+            let compatAll := P.all compat
             if compatAll then
               a := { a with s1flex := a.s1flex + 1 }
               if a.firstF == "" then
