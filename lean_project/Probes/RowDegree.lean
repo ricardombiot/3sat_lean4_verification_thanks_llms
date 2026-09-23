@@ -2151,8 +2151,10 @@ structure TCSAcc where
   states   : Nat := 0
   tables   : Nat := 0
   pairs    : Nat := 0
-  single   : Nat := 0          -- cubierto por el teorema
-  choice   : Nat := 0          -- residuo: la tabla anfitriona ofrece dos
+  single   : Nat := 0          -- un solo id de MAPA en ese paso
+  choice   : Nat := 0          -- dos o mas ids de mapa
+  pathOne  : Nat := 0          -- un solo PathNodeId: lo que el teorema pide
+  pathMany : Nat := 0          -- mismo id de mapa pero ventanas distintas
   deriving Repr
 
 def scanTCS (g : GPathM) (cap : Nat) (a : TCSAcc) : TCSAcc := Id.run do
@@ -2165,11 +2167,14 @@ def scanTCS (g : GPathM) (cap : Nat) (a : TCSAcc) : TCSAcc := Id.run do
       for u in ch do
         let here := ownersAt na.owners u.id.step
         let isSingle := here.all (fun w => w.id == u.id)
+        let isPathOne := here.all (fun w => w == u)
         for v in ch do
           if u.id.step != v.id.step then
             a := { a with pairs := a.pairs + 1 }
             if isSingle then a := { a with single := a.single + 1 }
             else a := { a with choice := a.choice + 1 }
+            if isPathOne then a := { a with pathOne := a.pathOne + 1 }
+            else if isSingle then a := { a with pathMany := a.pathMany + 1 }
   return a
 
 partial def walkTCS (g : GPathM) (fuel cap : Nat) (a : TCSAcc) : TCSAcc :=
@@ -2197,8 +2202,11 @@ def reportTCS (name : String) (a : TCSAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}"
   IO.println s!"   formulas {a.formulas}, estados {a.states}, tablas {a.tables}"
   IO.println s!"   pares de la cadena de la tabla: {a.pairs}"
-  IO.println s!"     sin eleccion (CERRADO por mem_owners_of_singleAt): {a.single}  ({pct a.single a.pairs})"
-  IO.println s!"     con eleccion (residuo)                          : {a.choice}  ({pct a.choice a.pairs})"
+  IO.println s!"     un solo id de MAPA en ese paso : {a.single}  ({pct a.single a.pairs})"
+  IO.println s!"     dos o mas ids de mapa           : {a.choice}  ({pct a.choice a.pairs})"
+  IO.println s!"   y lo que mem_owners_of_singleAt pide de verdad (un solo PathNodeId):"
+  IO.println s!"     CERRADO                         : {a.pathOne}  ({pct a.pathOne a.pairs})"
+  IO.println s!"     mismo id de mapa, otra ventana  : {a.pathMany}  ({pct a.pathMany a.pairs})"
   IO.println s!"   ({ms} ms)"
 
 /-! **¿Cuanto cubre `realizes_pin_of_singleId`?** Cierra el caso en que la tabla de `x` NO tiene

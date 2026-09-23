@@ -191,14 +191,32 @@ Es el mecanismo que cerró el 90,4 % de los pines en `realizes_pin_of_singleId`,
 arriba: allí la unicidad estaba en el paso del pin, aquí en el paso del par. Y usa el **segundo**
 test de tu barrido, `sharesEveryStep`, que llevaba toda la sesión sin pagar nada.
 
-### Cuánto cubre
+### Cuánto cubre, y una corrección
 
-Sonda `row-degree tcsingle`, sobre las mismas cadenas que mide `tablechain`:
+Sonda `row-degree tcsingle`, sobre las mismas cadenas que mide `tablechain`. Hay que distinguir dos
+cosas, porque la primera versión de esta medida no lo hacía y daba un número optimista: el lector
+fija **ids de mapa**, pero el teorema pide unicidad de **`PathNodeId`**.
 
-| corpus | pares | cerrados por teorema | residuo |
-|---|---|---|---|
-| `dos_de_tres.cnf` | 11.388 | **10.848 (95,2 %)** | 540 |
-| 3 aleatorias, 4+ vars | 183.462 | **161.582 (88,0 %)** | 21.880 |
+| corpus | pares | un solo id de mapa | **cerrado (un solo `PathNodeId`)** | mismo id, otra ventana | dos ids de mapa |
+|---|---|---|---|---|---|
+| `dos_de_tres.cnf` | 11.388 | 10.848 (95,2 %) | **10.716 (94,0 %)** | 132 (1,1 %) | 540 (4,7 %) |
+| 3 aleatorias, 4+ vars | 183.462 | 161.582 (88,0 %) | **151.535 (82,5 %)** | 10.047 (5,4 %) | 21.880 (11,9 %) |
+
+### Y la ventana está determinada
+
+El residuo «mismo id de mapa, otra ventana» **se cierra** (`path_eq_of_mapSingle`). Un `PathNodeId`
+es `(id, parent_id, gparent_id)` y las dos últimas coordenadas son ids de mapa de los dos pasos de
+abajo: `ParentId.PMP` dice que el `parent_id` declarado **es** el id de mapa de cada padre, y
+`ParentId.GPMP` que el `gparent_id` es el `parent_id` de cada padre.
+
+Así que **si en los pasos de abajo ya no hay elección de id de mapa, la ventana queda determinada por
+el id**. Y como tu lector pincha **de abajo arriba** (`firstChoice` toma el paso más bajo con
+elección), ésa es exactamente su situación. La inducción va sobre el paso: en el 0 los dos son raíces
+y las dos coordenadas de ventana son `none`; arriba, los padres son iguales por hipótesis de
+inducción, luego las ventanas coinciden.
+
+Con eso, la cobertura efectiva vuelve a ser la de ids de mapa —**95,2 % / 88,0 %**— y el residuo es
+solo el de la elección de verdad.
 
 ---
 
@@ -244,9 +262,10 @@ dónde no ir: no hay que empujar owners hacia abajo desde los padres, hay que co
 ## 8. Lo que falta, en una frase
 
 > En la cadena que vive dentro de la tabla de un nodo, dos nodos **a distancia ≥ 2** se poseen,
-> **cuando la tabla anfitriona ofrece dos valores en el paso de uno de ellos.**
+> **cuando la tabla anfitriona ofrece dos ids de mapa en el paso de uno de ellos.**
 
-Eso es el 4,8 % / 12,0 % de los pares. Todo lo demás de la escalera está cerrado, y el enunciado es
+Eso es el **4,7 % / 11,9 %** de los pares: solo los pasos con elección real, porque la ambigüedad de
+ventana ya está cerrada (§5). Todo lo demás de la escalera está cerrado, y el enunciado es
 geométrico, local, y medido sin una sola excepción en 194.850 casos.
 
 ---
@@ -259,4 +278,5 @@ Todas en `lean_project/Probes/RowDegree.lean`:
 * `clique` — ¿es la tabla de un nodo una clique bajo la posesión? **No** (7,9 %).
 * `tablechain` — `TableChainOwned` sobre la cadena enlazada por padres dentro de la tabla.
   **Se cumple**, 194.850 pares, 0 fallos.
-* `tcsingle` — cuánto de eso cubre `mem_owners_of_singleAt`. **88–95 %**.
+* `tcsingle` — cuánto de eso cubre `mem_owners_of_singleAt`, distinguiendo id de mapa de
+  `PathNodeId`. **95,2 % / 88,0 %** una vez cerrada la ambigüedad de ventana.

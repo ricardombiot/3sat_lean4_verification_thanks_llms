@@ -776,4 +776,99 @@ barrido del autor— tenga un único destino posible. -/
 #guard_msgs in
 #print axioms tableChainOwned_of_singleSteps
 
+-- ============================================================
+-- La ventana está determinada: de ids de mapa a `PathNodeId`
+-- ============================================================
+
+/-- **Si los ids de mapa están decididos hasta el paso `i`, los `PathNodeId` también.**
+
+`mem_owners_of_singleAt` pide unicidad de **`PathNodeId`**, y lo que el lector fija al pinchar es el
+**id de mapa**. La diferencia no es vacía: medido, el 1,1 % (`dos_de_tres`) y el 5,4 % (aleatorias)
+de los pares tienen el mismo id de mapa y **ventana distinta**.
+
+Pero la ventana no es libre. Un `PathNodeId` es `(id, parent_id, gparent_id)` y las dos últimas
+coordenadas son ids de mapa de los dos pasos de abajo:
+
+* `ParentId.PMP` — el `parent_id` que el identificador declara **es** el id de mapa de cada padre;
+* `ParentId.GPMP` — y el `gparent_id` es el `parent_id` de cada padre.
+
+Así que si en los pasos `i-1` e `i-2` ya no hay elección de id de mapa, la ventana de un nodo del
+paso `i` queda determinada por su id. Y como el lector pincha **de abajo arriba**
+(`ReaderExec.firstChoice` toma el paso más bajo con elección), eso es exactamente la situación en la
+que trabaja.
+
+La inducción va sobre el paso: en el 0 los dos son raíces y las dos coordenadas de ventana son
+`none`; y arriba, los padres son iguales por la hipótesis de inducción, luego las ventanas
+coinciden. -/
+theorem path_eq_of_mapSingle (g : GPathM) (ctx : Pinned.Ctx g) (links : Bridge.LinksInOwners g)
+    (hsingle : ∀ k, 0 ≤ k → k < g.current_step → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
+      p.id.step = k → q.id.step = k → p.id = q.id) :
+    ∀ (d : Nat) (u v : PathNodeId), u ∈ g.gowners → v ∈ g.gowners →
+      u.id.step = (d : Int) → v.id.step = (d : Int) → (d : Int) < g.current_step → u = v := by
+  intro d
+  induction d with
+  | zero =>
+    intro u v hu hv hus hvs hcs
+    have hmap := hsingle 0 (Int.le_refl 0) (by exact_mod_cast hcs) u hu v hv
+      (by exact_mod_cast hus) (by exact_mod_cast hvs)
+    obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g u).mp (ctx.gn u hu))
+    obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g v).mp (ctx.gn v hv))
+    have hiu := node?_id_eq g u nu hnu
+    have hiv := node?_id_eq g v nv hnv
+    have hpu : u.parent_id = none := by
+      rw [← hiu]; exact ctx.rootz nu (List.mem_of_find?_eq_some hnu) (by rw [hiu]; exact_mod_cast hus)
+    have hpv : v.parent_id = none := by
+      rw [← hiv]; exact ctx.rootz nv (List.mem_of_find?_eq_some hnv) (by rw [hiv]; exact_mod_cast hvs)
+    have hgu : u.gparent_id = none := by
+      rw [← hiu]; exact ctx.gpmp.2 nu (List.mem_of_find?_eq_some hnu) (by rw [hiu]; exact hpu)
+    have hgv : v.gparent_id = none := by
+      rw [← hiv]; exact ctx.gpmp.2 nv (List.mem_of_find?_eq_some hnv) (by rw [hiv]; exact hpv)
+    cases u; cases v; simp_all
+  | succ n ih =>
+    intro u v hu hv hus hvs hcs
+    have hcast : ((n + 1 : Nat) : Int) = (n : Int) + 1 := by push_cast; omega
+    rw [hcast] at hus hvs hcs
+    have hmap := hsingle ((n : Int) + 1) (by omega) hcs u hu v hv hus hvs
+    obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g u).mp (ctx.gn u hu))
+    obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g v).mp (ctx.gn v hv))
+    have hiu := node?_id_eq g u nu hnu
+    have hiv := node?_id_eq g v nv hnv
+    have hmu := List.mem_of_find?_eq_some hnu
+    have hmv := List.mem_of_find?_eq_some hnv
+    have hrootu : nu.id.parent_id.isNone = false := by
+      cases hp : nu.id.parent_id with
+      | none => exact absurd hp (ctx.shape.notroot nu hmu (by rw [hiu]; omega))
+      | some _ => rfl
+    have hrootv : nv.id.parent_id.isNone = false := by
+      cases hp : nv.id.parent_id with
+      | none => exact absurd hp (ctx.shape.notroot nv hmv (by rw [hiv]; omega))
+      | some _ => rfl
+    obtain ⟨p, hp⟩ := List.exists_mem_of_ne_nil _
+      (SelfOwn.have_parents_of_isValidNode g nu (ctx.nodeval u nu hnu) hrootu)
+    obtain ⟨q, hq⟩ := List.exists_mem_of_ne_nil _
+      (SelfOwn.have_parents_of_isValidNode g nv (ctx.nodeval v nv hnv) hrootv)
+    have hps : p.id.step = (n : Int) := by
+      have := ctx.shape.pbelow nu hmu p hp
+      rw [hiu, hus] at this; omega
+    have hqs : q.id.step = (n : Int) := by
+      have := ctx.shape.pbelow nv hmv q hq
+      rw [hiv, hvs] at this; omega
+    have hpg : p ∈ g.gowners :=
+      ctx.ownGow u nu hnu p ((links u nu hnu).1 p hp) (by rw [hps]; omega) (by rw [hps]; omega)
+    have hqg : q ∈ g.gowners :=
+      ctx.ownGow v nv hnv q ((links v nv hnv).1 q hq) (by rw [hqs]; omega) (by rw [hqs]; omega)
+    have hpq : p = q := ih p q hpg hqg hps hqs (by omega)
+    have hpu : u.parent_id = some p.id := by
+      rw [← hiu]; exact (ctx.pmp nu hmu p hp).symm
+    have hpv : v.parent_id = some q.id := by
+      rw [← hiv]; exact (ctx.pmp nv hmv q hq).symm
+    have hgu : u.gparent_id = p.parent_id := by rw [← hiu]; exact ctx.gpmp.1 nu hmu p hp
+    have hgv : v.gparent_id = q.parent_id := by rw [← hiv]; exact ctx.gpmp.1 nv hmv q hq
+    subst hpq
+    cases u; cases v; simp_all
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.path_eq_of_mapSingle' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms path_eq_of_mapSingle
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
