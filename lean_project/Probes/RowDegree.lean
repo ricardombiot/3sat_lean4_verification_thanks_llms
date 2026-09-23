@@ -3165,6 +3165,109 @@ def reportSG (name : String) (a : SGAcc) (ms : Nat) : IO Unit := do
   if a.firstUp != "" then IO.println s!"      primero: {a.firstUp}"
   IO.println s!"   ({ms} ms)"
 
+/-- `SegGood` en un estado: tramos desde cada nodo, bajando y subiendo, sin anfitrión. -/
+def measureSEG (label : String) (g : GPathM) (cap budget : Nat) (c : TGCell) : TGCell := Id.run do
+  if !isValid g then return c
+  let mut ch := 0
+  let mut bd := 0
+  for n in g.nodes.take cap do
+    let (c1, b1, _) := dfsNH g [n.id] (0, 0, budget)
+    let (c2, b2, _) := dfsUpNH g [n.id] (0, 0, budget)
+    ch := ch + c1 + c2
+    bd := bd + b1 + b2
+  return { states := c.states + 1, chains := c.chains + ch, bad := c.bad + bd
+         , statesBad := c.statesBad + (if bd > 0 then 1 else 0)
+         , first := if c.first == "" && bd > 0 then label else c.first }
+
+partial def walkSGo (label : String) (g : GPathM) (fuel cap budget : Nat) (c : TGCell) : TGCell :=
+  if fuel == 0 then c
+  else
+    let c := measureSEG label g cap budget c
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => c
+      | some q => walkSGo label (filterAllAgg g [q.id]) (fuel - 1) cap budget c
+
+def runFormulaSGo (label : String) (φ : Cnf) (cap budget : Nat) (a : TGAcc) : TGAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      let lab := s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩"
+      a := { a with line := measureSEG s!"{lab} linea" kv.2 cap budget a.line }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        let B := review F
+        a := { a with base := measureSEG s!"{lab}→⟨{d.step},{d.index}⟩ review" B cap budget a.base }
+        let R := AggressiveReview.reviewAgg F
+        if isValid R then
+          a := { a with agg := measureSEG s!"{lab}→⟨{d.step},{d.index}⟩ agg" R cap budget a.agg
+                      , up := measureSEG s!"{lab}→⟨{d.step},{d.index}⟩ up" (addNode R d "") cap budget a.up }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with reader := walkSGo s!"{label} lector" g (stepCount φ).toNat cap budget a.reader }
+  return a
+
+def instrStepsSG (lab : String) (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (cap budget : Nat) (c0 : TGCell) : GPathM × TGCell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      g := reviewNode g nb id
+      c := measureSEG s!"{lab} nodo@{id.id.step}" g cap budget c
+  return (g, c)
+
+def reviewNodesSG (lab : String) (F : GPathM) (cap budget : Nat) (a : RNAcc) : RNAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        -- cleanInvalid, nodo a nodo
+        let mut h := g
+        for id in g.nodes.map (·.id) do
+          h := cleanInvalidGo h [id]
+          a := { a with clean := measureSEG s!"{lab} clean@{id.id.step}" h cap budget a.clean }
+        let (h2, cp) := instrStepsSG lab h (·.parents) (intRange 1 (h.current_step - 1)) cap budget a.par
+        a := { a with par := cp }
+        let (h3, cs) := instrStepsSG lab h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse cap budget a.sons
+        a := { a with sons := cs }
+        g := h3
+        if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g0 := g
+      let mut h := g
+      for k in (intRange 0 (g.current_step - 1)).reverse do
+        for id in (h.line k).map (·.id) do
+          h := AggressiveReview.aggNode h id
+          a := { a with agg := measureSEG s!"{lab} agg@{id.id.step}" h cap budget a.agg }
+      if GPathM.measure h < GPathM.measure g0 then g := h else outer := 0
+  return a
+
+def runFormulaSGn (label : String) (φ : Cnf) (cap budget : Nat) (a : RNAcc) : RNAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewNodesSG s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3341,6 +3444,44 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "segops" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSGo path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportTG s!"{path} [SegGood]" a (t1 - t0)
+  | "segops" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TGAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSGo s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportTG s!"seed {seed} ({cases} formulas, {nvMin}+ vars) [SegGood]" a (t1 - t0)
+  | "segnodes" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSGn path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportRN s!"{path} [SegGood]" a (t1 - t0)
+  | "segnodes" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : RNAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSGn s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportRN s!"seed {seed} ({cases} formulas, {nvMin}+ vars) [SegGood]" a (t1 - t0)
   | "segments" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
