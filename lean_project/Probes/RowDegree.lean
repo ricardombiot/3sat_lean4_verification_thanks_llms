@@ -2816,6 +2816,74 @@ def reportJM (name : String) (c : JMAcc) (ms : Nat) : IO Unit := do
   if c.first != "" then IO.println s!"   primera mezclada: {c.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`reviewops`: `TopGood` tras cada sub-paso del review.** Para cada envío, desde el estado filtrado
+`F`, se rehace `reviewAgg` a mano: vueltas de `review` (cada una `cleanInvalid`, pasada de padres,
+pasada de hijos) hasta el punto fijo, y luego el barrido agresivo, mientras quite algo. Se mide
+`TopGood` tras cada sub-paso (solo estados válidos) y también en `F` mismo. -/
+
+structure ROAcc where
+  formulas : Nat := 0
+  filt   : TGCell := {}
+  clean  : TGCell := {}
+  par    : TGCell := {}
+  sons   : TGCell := {}
+  sweep  : TGCell := {}
+  final  : TGCell := {}
+  deriving Repr
+
+def reviewInstr (lab : String) (F : GPathM) (cap budget : Nat) (a : ROAcc) : ROAcc := Id.run do
+  let mut a := { a with filt := measureTG s!"{lab} filtrado" F cap budget a.filt }
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    -- review hasta el punto fijo
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g1 := cleanInvalid g
+        a := { a with clean := measureTG s!"{lab} cleanInvalid" g1 cap budget a.clean }
+        let g2 := reviewParents g1
+        a := { a with par := measureTG s!"{lab} padres" g2 cap budget a.par }
+        let g3 := reviewSons g2
+        a := { a with sons := measureTG s!"{lab} hijos" g3 cap budget a.sons }
+        if GPathM.measure g3 < GPathM.measure g then g := g3 else
+          g := g3
+          fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g2 := AggressiveReview.aggSweep g
+      a := { a with sweep := measureTG s!"{lab} barrido" g2 cap budget a.sweep }
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  a := { a with final := measureTG s!"{lab} final" g cap budget a.final }
+  return a
+
+def runFormulaRO (label : String) (φ : Cnf) (cap budget : Nat) (a : ROAcc) : ROAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewInstr s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
+def reportRO (name : String) (a : ROAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  let row (lbl : String) (c : TGCell) : IO Unit := do
+    IO.println s!"   {lbl}: estados {c.states} (con fallo {c.statesBad}), cadenas {c.chains}, sin entrada comun {c.bad}"
+    if c.first != "" then IO.println s!"      primero: {c.first}"
+  row "filtrado (entrada)  " a.filt
+  row "tras cleanInvalid   " a.clean
+  row "tras pasada padres  " a.par
+  row "tras pasada hijos   " a.sons
+  row "tras barrido agres. " a.sweep
+  row "final (reviewAgg)   " a.final
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2992,6 +3060,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "reviewops" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaRO path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportRO path a (t1 - t0)
+  | "reviewops" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : ROAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaRO s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportRO s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "joinmix" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
