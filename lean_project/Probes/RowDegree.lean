@@ -6322,6 +6322,9 @@ structure RSAcc where
   s2Fail : Nat := 0
   s1m : Nat := 0
   s2m : Nat := 0
+  s1lost : Nat := 0
+  s1flex : Nat := 0
+  firstF : String := ""
   downCases : Nat := 0
   s1c : Nat := 0
   s2c : Nat := 0
@@ -6384,6 +6387,16 @@ def roundRS (lab : String) (g : GPathM) (a : RSAcc) : RSAcc := Id.run do
             let chained := aliveOld.filter (fun r => ext.any (fun Q => Q.head? == some r))
             if chained.any (fun r => !cNew.contains r) then a := { a with s1c := a.s1c + 1 }
             if !chained.any (fun r => cNew.contains r) then a := { a with s2c := a.s2c + 1 }
+          -- S1': a live common entry that left some table of P — was it still compatible with
+          -- every node of P in g' (a common node at every step with each table)?
+          let tabNew := fun (y : PathNodeId) => ((g'.node? y).map (·.owners)).getD []
+          for r in aliveOld.filter (fun r => !cNew.contains r) do
+            let compatAll := P.all (fun x => AggressiveReview.sharesEveryStep g'.current_step (tabNew x) (tabNew r))
+            if compatAll then
+              a := { a with s1flex := a.s1flex + 1 }
+              if a.firstF == "" then
+                a := { a with firstF := s!"{lab}: tramo {lo.id.step}..{hi.id.step}, paso {i}, r={r.id.step}/{r.id.index}" }
+            else a := { a with s1lost := a.s1lost + 1 }
           if aliveOld.any (fun r => !cNew.contains r) then
             a := { a with s1Fail := a.s1Fail + 1 }
             -- did the clean already drop it from some table of P?
@@ -6453,6 +6466,8 @@ def reportRS (name : String) (a : RSAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   SegGood: sin comun en g {a.oldEmpty}, sin comun en g' {a.newEmpty}"
   IO.println s!"   S1 falla (comun viva que deja de ser comun): {a.s1Fail} (ya en cleanInvalid₂: {a.s1Clean})"
   IO.println s!"   S2 falla (ninguna comun de antes sigue viva): {a.s2Fail}"
+  IO.println s!"   S1' entradas vivas que salieron de alguna tabla del tramo: perdieron compatibilidad con algun nodo {a.s1lost}; seguian compatibles con todos {a.s1flex}"
+  if a.firstF != "" then IO.println s!"   primer caso compatible que salio: {a.firstF}"
   IO.println s!"   (A) simetricas: S1 falla {a.s1m}; ninguna simetrica sigue comun {a.s2m}"
   IO.println s!"   (B) encadenadas por debajo ({a.downCases} casos): S1 falla {a.s1c}; ninguna encadenada sigue comun {a.s2c}"
   if a.first1 != "" then IO.println s!"   primer S1: {a.first1}"
