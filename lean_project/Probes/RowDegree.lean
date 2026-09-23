@@ -3635,6 +3635,90 @@ def reportLS (name : String) (a : LSAcc) (ms : Nat) : IO Unit := do
   row "pasada hijos, por nodo " a.sons
   IO.println s!"   ({ms} ms)"
 
+/-! **`sweeppairs`: `SegGood` tras cada `aggPair` del barrido.** Se rehace `aggSweep` a mano, par a
+par, dentro de `reviewAgg` de cada envío, y se mide `SegGood` tras cada par que cambia algo y tras
+cada nodo borrado. -/
+
+structure SPAcc where
+  formulas : Nat := 0
+  sweeps : Nat := 0
+  fired : Nat := 0
+  removed : Nat := 0
+  pairs : TGCell := {}
+  removes : TGCell := {}
+  deriving Repr
+
+def aggNodeInstr (lab : String) (g0 : GPathM) (x : PathNodeId) (cap budget : Nat) (a : SPAcc) :
+    GPathM × SPAcc := Id.run do
+  let mut g := g0
+  let mut a := a
+  match g.node? x with
+  | none => return (g, a)
+  | some nx =>
+    if isValidNode g nx then
+      for kw in (intRange 0 (g.current_step - 1)).reverse do
+        for w in AggressiveReview.ownersAtNow g x kw do
+          let g' := AggressiveReview.aggPair g x w
+          if GPathM.measure g' < GPathM.measure g then
+            a := { a with fired := a.fired + 1 }
+            a := { a with pairs := measureSEG s!"{lab} par {x.id.step}/{w.id.step}" g' cap budget a.pairs }
+          g := g'
+    match g.node? x with
+    | none => return (g, a)
+    | some n1 =>
+      if isValidNode g n1 then return (g, a)
+      else
+        let g' := removeNode g x
+        a := { a with removed := a.removed + 1 }
+        a := { a with removes := measureSEG s!"{lab} borra {x.id.step}" g' cap budget a.removes }
+        return (g', a)
+
+def sweepInstr (lab : String) (g0 : GPathM) (cap budget : Nat) (a : SPAcc) : GPathM × SPAcc := Id.run do
+  if !isValid g0 then return (g0, a)
+  let mut g := g0
+  let mut a := a
+  for k in (intRange 0 (g0.current_step - 1)).reverse do
+    for id in (g.line k).map (·.id) do
+      let (g', a') := aggNodeInstr lab g id cap budget a
+      g := g'
+      a := a'
+  return (g, a)
+
+def reviewSP (lab : String) (F : GPathM) (cap budget : Nat) (a : SPAcc) : SPAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    g := review g
+    if !isValid g then outer := 0
+    else
+      let (g2, a') := sweepInstr lab g cap budget a
+      a := { a' with sweeps := a'.sweeps + 1 }
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  return a
+
+def runFormulaSP (label : String) (φ : Cnf) (cap budget : Nat) (a : SPAcc) : SPAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewSP s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
+def reportSP (name : String) (a : SPAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   barridos {a.sweeps}, pares que quitan algo {a.fired}, nodos borrados {a.removed}"
+  let row (lbl : String) (c : TGCell) : IO Unit := do
+    IO.println s!"   {lbl}: estados {c.states} (con fallo {c.statesBad}), tramos {c.chains}, sin entrada comun {c.bad}"
+    if c.first != "" then IO.println s!"      primero: {c.first}"
+  row "tras cada aggPair que quita algo" a.pairs
+  row "tras cada nodo borrado          " a.removes
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3811,6 +3895,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "sweeppairs" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSP path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportSP path a (t1 - t0)
+  | "sweeppairs" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SPAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSP s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "localsym" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
