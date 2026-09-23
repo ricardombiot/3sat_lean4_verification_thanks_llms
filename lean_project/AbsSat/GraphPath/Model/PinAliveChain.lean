@@ -2883,4 +2883,221 @@ theorem Prot_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainS
 #guard_msgs in
 #print axioms Nested_parents_of_chainSound
 
+-- ============================================================
+-- Los ids del barrido agresivo: `NodupIds` por los cuatro bucles
+-- ============================================================
+
+open AbsSat.GraphPath.Model.NodeIds (Ids)
+
+theorem ids_aggPair (g : GPathM) (x w : PathNodeId) : Ids (aggPair g x w) = Ids g := by
+  unfold aggPair
+  split
+  · split
+    · exact NodeIds.ids_updateAt _ _ _ (uniMap_id _)
+    · split
+      · unfold dropOwnerPair
+        rw [NodeIds.ids_updateAt _ _ _ (uniMap_id _), NodeIds.ids_updateAt _ _ _ (uniMap_id _)]
+      · rfl
+  · rfl
+
+theorem ids_foldl_aggPair (x : PathNodeId) : ∀ (ws : List PathNodeId) (g : GPathM),
+    Ids (ws.foldl (fun g w => aggPair g x w) g) = Ids g := by
+  intro ws
+  induction ws with
+  | nil => intro g; rfl
+  | cons w rest ih =>
+    intro g
+    simp only [List.foldl_cons]
+    rw [ih, ids_aggPair]
+
+theorem ids_foldl_aggSteps (x : PathNodeId) : ∀ (ks : List Int) (g : GPathM),
+    Ids (ks.foldl (fun g kw => (ownersAtNow g x kw).foldl (fun g w => aggPair g x w) g) g)
+      = Ids g := by
+  intro ks
+  induction ks with
+  | nil => intro g; rfl
+  | cons k rest ih =>
+    intro g
+    simp only [List.foldl_cons]
+    rw [ih, ids_foldl_aggPair]
+
+theorem ids_aggNode (g : GPathM) (x : PathNodeId) : (Ids (aggNode g x)).Sublist (Ids g) := by
+  have key : ∀ h : GPathM, Ids h = Ids g →
+      (Ids (match h.node? x with
+        | none => h
+        | some n₁ => if isValidNode h n₁ then h else removeNode h x)).Sublist (Ids g) := by
+    intro h hh
+    split
+    · rw [hh]; exact List.Sublist.refl _
+    · split
+      · rw [hh]; exact List.Sublist.refl _
+      · refine List.Sublist.trans (NodeIds.ids_removeNode h x) ?_
+        rw [hh]; exact List.Sublist.refl _
+  unfold aggNode
+  split
+  · exact List.Sublist.refl _
+  · next nx _ =>
+    simp only []
+    by_cases hv : isValidNode g nx = true
+    · rw [if_pos hv]
+      exact key _ (ids_foldl_aggSteps x ((intRange 0 (g.current_step - 1)).reverse) g)
+    · rw [if_neg hv]
+      exact key g rfl
+
+theorem ids_foldl_aggNode : ∀ (ids : List PathNodeId) (g : GPathM),
+    (Ids (ids.foldl aggNode g)).Sublist (Ids g) := by
+  intro ids
+  induction ids with
+  | nil => intro g; exact List.Sublist.refl _
+  | cons i rest ih =>
+    intro g
+    simp only [List.foldl_cons]
+    exact List.Sublist.trans (ih _) (ids_aggNode g i)
+
+theorem ids_foldl_aggLines : ∀ (ks : List Int) (g : GPathM),
+    (Ids (ks.foldl (fun g k => ((g.line k).map (·.id)).foldl aggNode g) g)).Sublist (Ids g) := by
+  intro ks
+  induction ks with
+  | nil => intro g; exact List.Sublist.refl _
+  | cons k rest ih =>
+    intro g
+    simp only [List.foldl_cons]
+    exact List.Sublist.trans (ih _) (ids_foldl_aggNode _ g)
+
+theorem ids_aggSweep (g : GPathM) : (Ids (aggSweep g)).Sublist (Ids g) := by
+  unfold aggSweep
+  split
+  · exact ids_foldl_aggLines _ g
+  · exact List.Sublist.refl _
+
+theorem ids_reviewAggFuel : ∀ (fuel : Nat) (g : GPathM),
+    (Ids (reviewAggFuel fuel g)).Sublist (Ids g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact NodeIds.ids_review g
+  | succ n ih =>
+    intro g
+    simp only [reviewAggFuel]
+    split
+    · split
+      · exact List.Sublist.trans (ih _)
+          (List.Sublist.trans (ids_aggSweep _) (NodeIds.ids_review g))
+      · exact NodeIds.ids_review g
+    · exact NodeIds.ids_review g
+
+/-- **Los ids no se duplican en ninguno de los cuatro bucles.** -/
+theorem NodupIds_reviewAgg (g : GPathM) (h : NodupIds g) : NodupIds (reviewAgg g) :=
+  List.Sublist.nodup (ids_reviewAggFuel _ g) h
+
+theorem NodupIds_review (g : GPathM) (h : NodupIds g) : NodupIds (review g) :=
+  List.Sublist.nodup (NodeIds.ids_review g) h
+
+theorem NodupIds_reviewPass (g : GPathM) (h : NodupIds g) : NodupIds (reviewPass g) :=
+  List.Sublist.nodup (NodeIds.ids_reviewPass g) h
+
+theorem NodupIds_aggSweep (g : GPathM) (h : NodupIds g) : NodupIds (aggSweep g) :=
+  List.Sublist.nodup (ids_aggSweep g) h
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.NodupIds_reviewAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms NodupIds_reviewAgg
+
+-- ============================================================
+-- Los cuatro bucles
+-- ============================================================
+
+/-- **Cualquier bucle que conserve cadenas, pode y no duplique ids conserva el invariante entero.**
+
+Escrito una vez y usado cuatro veces. Las tres hipótesis son propiedades del bucle, no del problema:
+que no pierda una cadena sana, que solo quite, y que no invente identificadores. -/
+theorem Prot_of_loop (L : GPathM → GPathM)
+    (hkeep : ∀ g sel, ChainSound g sel → ChainSound (L g) sel)
+    (hpr : ∀ g, Pruned g (L g))
+    (hnodup : ∀ g, NodupIds g → NodupIds (L g))
+    (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (hrz : Sons.RootAtZero g) (hn : NodupIds g) :
+    Prot (L g) (chainSet g.current_step sel) := by
+  have hcs : (L g).current_step = g.current_step := (hpr g).step_eq
+  rw [← hcs]
+  exact Prot_of_chainSound (L g) sel (hkeep g sel hsc)
+    (Sons.RootAtZero_of_pruned (hpr g) hrz) (hnodup g hn)
+
+/-- **1/4 — `reviewPass`.** Una ronda completa de la revisión. -/
+theorem Prot_reviewPass (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (hrz : Sons.RootAtZero g) (hn : NodupIds g) :
+    Prot (reviewPass g) (chainSet g.current_step sel) :=
+  Prot_of_loop reviewPass ChainSound_reviewPass pruned_reviewPass NodupIds_reviewPass g sel hsc hrz hn
+
+/-- **2/4 — `reviewFuel` / `review`.** La revisión hasta su punto fijo. -/
+theorem Prot_review (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (hrz : Sons.RootAtZero g) (hn : NodupIds g) :
+    Prot (review g) (chainSet g.current_step sel) :=
+  Prot_of_loop review ChainSound_review pruned_review NodupIds_review g sel hsc hrz hn
+
+/-- **3/4 — `aggSweep`.** El barrido agresivo, una pasada. -/
+theorem Prot_aggSweep (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (hrz : Sons.RootAtZero g) (hn : NodupIds g) :
+    Prot (aggSweep g) (chainSet g.current_step sel) :=
+  Prot_of_loop aggSweep ChainSound_aggSweep pruned_aggSweep NodupIds_aggSweep g sel hsc hrz hn
+
+/-- **4/4 — `reviewAggFuel` / `reviewAgg`.** El review agresivo entero: revisión a punto fijo,
+barrido, y otra vez mientras el barrido quite algo. -/
+theorem Prot_reviewAgg (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (hrz : Sons.RootAtZero g) (hn : NodupIds g) :
+    Prot (reviewAgg g) (chainSet g.current_step sel) :=
+  Prot_of_loop reviewAgg ChainSound_reviewAgg pruned_reviewAgg NodupIds_reviewAgg g sel hsc hrz hn
+
+/-- **Y el encaje de tablas también sobrevive los cuatro**, porque también sale de la cadena. -/
+theorem Nested_reviewAgg (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel) :
+    Nested (reviewAgg g) (chainSet g.current_step sel) (·.parents)
+      (fun k => 1 ≤ k) ∧
+    Nested (reviewAgg g) (chainSet g.current_step sel) (·.sons)
+      (fun k => k ≤ (reviewAgg g).current_step - 2) := by
+  have hcs : (reviewAgg g).current_step = g.current_step := (pruned_reviewAgg g).step_eq
+  have hsc' := ChainSound_reviewAgg g sel hsc
+  refine ⟨?_, ?_⟩
+  · rw [← hcs]; exact Nested_parents_of_chainSound (reviewAgg g) sel hsc'
+  · rw [← hcs]; exact Nested_sons_of_chainSound (reviewAgg g) sel hsc'
+
+/-! ## Los cinco bucles, cerrados
+
+| bucle | quién lo cierra |
+|---|---|
+| `cleanInvalid` | `Prot_cleanInvalid` — por el invariante, paso a paso |
+| `reviewPass` | `Prot_reviewPass` |
+| `reviewFuel` / `review` | `Prot_review` |
+| `aggSweep` | `Prot_aggSweep` |
+| `reviewAggFuel` / `reviewAgg` | `Prot_reviewAgg` |
+
+Y conviene ser preciso sobre **cómo** se cierran, porque los dos primeros no se cierran igual:
+
+* `cleanInvalid` se cierra **transportando el invariante**, operación por operación, con todo el
+  herramental de este módulo —`Anchored_cleanStep_all`, `Sym_cleanStep`,
+  `mem_gowners_cleanStep_ofP`— y sin suponer que el conjunto protegido sea una cadena. Eso es
+  información nueva: la parte del review que corta contra la tabla global y borra nodos conserva
+  algo estrictamente más débil que una cadena.
+* los cuatro bucles con pasos por vecinos se cierran **reconstruyendo el invariante desde la
+  cadena** en el estado de llegada (`Prot_of_loop`), porque `Nested` —el encaje de tablas que esos
+  pasos exigen— es lo que fuerza que el conjunto protegido sea una cadena. `ids_*` y
+  `NodupIds_reviewAgg` son las piezas que faltaban para poder hacerlo.
+
+Las tres hipótesis de `Prot_of_loop` son propiedades del bucle y no del problema: conservar cadenas
+sanas, solo quitar, y no inventar identificadores. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Prot_reviewAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Prot_reviewAgg
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Prot_reviewPass' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Prot_reviewPass
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Prot_aggSweep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Prot_aggSweep
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Nested_reviewAgg' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Nested_reviewAgg
+
 end AbsSat.GraphPath.Model.PinAliveChain
