@@ -443,7 +443,20 @@ padre a hijo, del paso 0 a la cima, y que pasa por el propio nodo
 nodos **se posean entre sí**, y su propio docstring lo dice: *«That is now the whole of the
 residue.»*
 
-Esto le pone nombre. -/
+Esto le pone nombre.
+
+**Y por primera vez está medido, y sale limpio.** La sonda `row-degree tablechain` construye esa
+cadena —descenso ávido por enlaces de padre sin salir de la tabla— y comprueba sus pares:
+
+| corpus | tablas | el descenso llega al paso 0 | pares | fallos |
+|---|---|---|---|---|
+| `dos_de_tres.cnf` | 73 | **73 (100 %)** | 11.388 | **0** |
+| 3 aleatorias, 4+ vars | 347 | **347 (100 %)** | 183.462 | **0** |
+
+194.850 pares y ni una excepción. Y conviene contrastarlo con lo que sí se midió falso: la tabla de
+un nodo **no** es una clique (`row-degree clique`: 7,9 % de pares no se poseen), así que el
+enunciado no es trivial — depende de que la cadena esté **enlazada por padres**, y eso es
+exactamente lo que `Threaded` construye. -/
 def TableChainOwned (g : GPathM) : Prop :=
   ∀ a n, g.node? a = some n → ∀ sel, IsChain g sel →
     (∀ i, 0 ≤ i → i < g.current_step → sel i ∈ n.owners) → PairwiseOwned g sel
