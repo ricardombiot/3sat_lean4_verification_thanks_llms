@@ -104,4 +104,57 @@ theorem fullExt1_stepFilter (T : GPathM) (e : Int × List NodeId) (rc : Reader.R
 #guard_msgs in
 #print axioms fullExt1_stepFilter
 
+-- ============================================================
+-- Una sucesión de filtros de un paso
+-- ============================================================
+
+/-- Un filtro de un paso y su review. -/
+def seqStep (T : GPathM) (e : Int × List NodeId) : GPathM := reviewAgg (filterWeak T e)
+
+/-- **El envío hecho paso a paso**: cada filtro de un paso seguido de su review. -/
+def seqSend (T : GPathM) (es : List (Int × List NodeId)) : GPathM := es.foldl seqStep T
+
+theorem pruned_seqStep (T : GPathM) (e : Int × List NodeId) : Pruned T (seqStep T e) :=
+  Pruned.trans (ConservationCore.pruned_filterWeak T e) (pruned_reviewAgg _)
+
+theorem pruned_seqSend : ∀ (es : List (Int × List NodeId)) (T : GPathM), Pruned T (seqSend T es)
+  | [], T => Pruned.refl T
+  | e :: es, T => Pruned.trans (pruned_seqStep T e) (pruned_seqSend es (seqStep T e))
+
+/-- Lo que el argumento necesita del estado de partida de cada filtro. -/
+structure SCtx (T : GPathM) : Prop where
+  rc : Reader.RCtx T
+  smp : Sons.SMP T
+  self : Ownership.SelfOwned T
+  pos : 0 < T.current_step
+
+theorem sctx_seqStep (T : GPathM) (e : Int × List NodeId) (c : SCtx T)
+    (hv : isValid (seqStep T e) = true) : SCtx (seqStep T e) := by
+  have rcX : Reader.RCtx (filterWeak T e) := RCtx_of_keeps (ReaderAggRun.keeps_filterWeak T e) c.rc
+  have hRd : ReadableAgg (seqStep T e) := ⟨filterWeak T e, [], rcX, rfl⟩
+  exact ⟨RCtx_of_readableAgg _ hRd,
+    AnchoredSurvive.SMP_filterAllAgg (filterWeak T e) c.smp c.rc.shape.notroot [],
+    ReaderLadder.selfOwned_of_readable _ hRd hv,
+    by rw [(pruned_seqStep T e).step_eq]; exact c.pos⟩
+
+/-- **Las parejas a lo largo de la sucesión**: en cada estado intermedio, las del paso que se va a
+filtrar. -/
+def StepsPairs : GPathM → List (Int × List NodeId) → Prop
+  | _, [] => True
+  | T, e :: es => 0 ≤ e.1 ∧ e.1 < T.current_step ∧ FrontierPairs T e.1 ∧ StepsPairs (seqStep T e) es
+
+/-- **La sucesión conserva `FullExt1`**, filtro a filtro, desde las parejas de cada paso. -/
+theorem fullExt1_seqSend : ∀ (es : List (Int × List NodeId)) (T : GPathM), SCtx T → FullExt1 T →
+    StepsPairs T es → isValid (seqSend T es) = true → FullExt1 (seqSend T es)
+  | [], _, _, hF, _, _ => hF
+  | e :: es, T, c, hF, ⟨he0, he1, hP, hrest⟩, hv => by
+    have hv1 : isValid (seqStep T e) = true :=
+      Certifies.isValid_of_pruned (pruned_seqSend es (seqStep T e)) hv
+    exact fullExt1_seqSend es (seqStep T e) (sctx_seqStep T e c hv1)
+      (fullExt1_stepFilter T e c.rc c.smp c.self c.pos hF he0 he1 hP hv1) hrest hv
+
+/-- info: 'AbsSat.GraphPath.Model.StepFilter.fullExt1_seqSend' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms fullExt1_seqSend
+
 end AbsSat.GraphPath.Model.StepFilter
