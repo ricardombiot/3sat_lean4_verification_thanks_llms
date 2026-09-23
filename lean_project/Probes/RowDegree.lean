@@ -2634,6 +2634,103 @@ def reportUE (name : String) (c : UEAcc) (ms : Nat) : IO Unit := do
   if c.firstBad != "" then IO.println s!"   primero con algun hijo que no: {c.firstBad}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`topgoodops`: `TopGood` estado a estado del envío.** Se cuentan las cadenas desde la cima (con
+anfitrión, enlazadas, poseídas por pares) y cuántas no tienen entrada común por debajo, en cada clase
+de estado: la línea (tras el `doJoin`), la revisión base (`review`), el review agresivo completo
+(`filterAllAgg`, lo que el `up` recibe), el `up`, y los estados del lector. Los filtros no tocan
+tablas, así que no cambian `TopGood`. Solo los estados REVISADOS cuentan como fallo de verdad. -/
+
+structure TGCell where
+  states : Nat := 0
+  chains : Nat := 0
+  bad    : Nat := 0
+  statesBad : Nat := 0
+  first  : String := ""
+  deriving Repr
+
+partial def dfsTop (g : GPathM) (a : PathNodeId) (P : List PathNodeId) (acc : Nat × Nat × Nat) :
+    Nat × Nat × Nat :=
+  let (chains, bad, budget) := acc
+  if budget == 0 then (chains, bad, 0)
+  else
+    match P with
+    | [] => acc
+    | low :: _ =>
+      let ok := chainCommonBelow g a P low.id.step
+      let ps := match g.node? low with
+        | some n => n.parents.filter (fun p => mutuallyOwn g p a && P.all (fun y => mutuallyOwn g p y))
+        | none => []
+      ps.foldl (fun acc p => dfsTop g a (p :: P) acc)
+        (chains + 1, bad + (if ok then 0 else 1), budget - 1)
+
+def measureTG (label : String) (g : GPathM) (cap budget : Nat) (c : TGCell) : TGCell := Id.run do
+  if !isValid g then return c
+  let mut ch := 0
+  let mut bd := 0
+  for na in g.nodes.take cap do
+    for t in ownersAt na.owners (g.current_step - 1) do
+      if mutuallyOwn g t na.id then
+        let (c1, b1, _) := dfsTop g na.id [t] (0, 0, budget)
+        ch := ch + c1
+        bd := bd + b1
+  return { states := c.states + 1, chains := c.chains + ch, bad := c.bad + bd
+         , statesBad := c.statesBad + (if bd > 0 then 1 else 0)
+         , first := if c.first == "" && bd > 0 then label else c.first }
+
+structure TGAcc where
+  formulas : Nat := 0
+  line     : TGCell := {}
+  base     : TGCell := {}
+  agg      : TGCell := {}
+  up       : TGCell := {}
+  reader   : TGCell := {}
+  deriving Repr
+
+partial def walkTG (label : String) (g : GPathM) (fuel cap budget : Nat) (c : TGCell) : TGCell :=
+  if fuel == 0 then c
+  else
+    let c := measureTG label g cap budget c
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => c
+      | some q => walkTG label (filterAllAgg g [q.id]) (fuel - 1) cap budget c
+
+def runFormulaTG (label : String) (φ : Cnf) (cap budget : Nat) (a : TGAcc) : TGAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      let lab := s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩"
+      a := { a with line := measureTG s!"{lab} linea" kv.2 cap budget a.line }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        let B := review F
+        a := { a with base := measureTG s!"{lab}→⟨{d.step},{d.index}⟩ review" B cap budget a.base }
+        let R := AggressiveReview.reviewAgg F
+        if isValid R then
+          a := { a with agg := measureTG s!"{lab}→⟨{d.step},{d.index}⟩ agg" R cap budget a.agg
+                      , up := measureTG s!"{lab}→⟨{d.step},{d.index}⟩ up" (addNode R d "") cap budget a.up }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with reader := walkTG s!"{label} lector" g (stepCount φ).toNat cap budget a.reader }
+  return a
+
+def reportTG (name : String) (a : TGAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  let row (lbl : String) (c : TGCell) : IO Unit := do
+    IO.println s!"   {lbl}: estados {c.states} (con fallo {c.statesBad}), cadenas {c.chains}, sin entrada comun {c.bad}"
+    if c.first != "" then IO.println s!"      primero: {c.first}"
+  row "linea (tras doJoin)     " a.line
+  row "revision base (review)  " a.base
+  row "review agresivo  [REV]  " a.agg
+  row "up                      " a.up
+  row "lector           [REV]  " a.reader
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -2810,6 +2907,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "topgoodops" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTG path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportTG path a (t1 - t0)
+  | "topgoodops" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TGAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTG s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportTG s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "upextend" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
