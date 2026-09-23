@@ -140,9 +140,16 @@ theorem PN_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (PN_reviewLine nb k g h)
     · exact h
 
+theorem PN_cleanInvalid₂ (g : GPathM) (h : PN g) : PN (cleanInvalid₂ g) := by
+  have hp := purgeFuel_inv PN (fun g id h => PN_removeNode g id h) (g.nodes.length + 1) g h
+  intro n' hn' p hpar
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact GownersNodes.hasNode_cutAll _ p (hp n hn p (List.mem_filter.mp hpar).1)
+
 theorem PN_reviewPass (g : GPathM) (h : PN g) : PN (reviewPass g) := by
   simp only [reviewPass]
-  exact PN_reviewSteps _ _ _ (PN_reviewSteps _ _ _ (PN_cleanInvalid g h))
+  exact PN_reviewSteps _ _ _ (PN_reviewSteps _ _ _ (PN_cleanInvalid₂ g h))
 
 theorem PN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), PN g → PN (reviewFuel fuel g) := by
   intro fuel

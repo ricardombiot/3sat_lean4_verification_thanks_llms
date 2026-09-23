@@ -190,9 +190,27 @@ theorem SMP_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (SMP_reviewLine nb k g h)
     · exact h
 
+/-- The cut keeps a link exactly when both ends admit each other, read through `node?` on both
+sides: the test is symmetric, so the mirror survives. -/
+theorem SMP_cutAll (g : GPathM) (h : SMP g) : SMP (cutAll g) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true] at hp
+  obtain ⟨hpn, h1, h2⟩ := hp
+  have hmid' : m.id = p := hmid
+  subst hmid'
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true]
+  exact ⟨h n hn m.id hpn m hm rfl, h2, h1⟩
+
+theorem SMP_cleanInvalid₂ (g : GPathM) (h : SMP g) : SMP (cleanInvalid₂ g) :=
+  SMP_cutAll _ (purgeFuel_inv SMP (fun g id h => SMP_removeNode g id h) _ g h)
+
 theorem SMP_reviewPass (g : GPathM) (h : SMP g) : SMP (reviewPass g) := by
   simp only [reviewPass]
-  exact SMP_reviewSteps _ _ _ (SMP_reviewSteps _ _ _ (SMP_cleanInvalid g h))
+  exact SMP_reviewSteps _ _ _ (SMP_reviewSteps _ _ _ (SMP_cleanInvalid₂ g h))
 
 theorem SMP_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SMP g → SMP (reviewFuel fuel g) := by
   intro fuel
@@ -379,9 +397,25 @@ theorem PMS_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (PMS_reviewLine nb k g h)
     · exact h
 
+theorem PMS_cutAll (g : GPathM) (h : PMS g) : PMS (cutAll g) := by
+  intro n' hn' s hs m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true] at hs
+  obtain ⟨hsn, h1, h2⟩ := hs
+  have hmid' : m.id = s := hmid
+  subst hmid'
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true]
+  exact ⟨h n hn m.id hsn m hm rfl, h2, h1⟩
+
+theorem PMS_cleanInvalid₂ (g : GPathM) (h : PMS g) : PMS (cleanInvalid₂ g) :=
+  PMS_cutAll _ (purgeFuel_inv PMS (fun g id h => PMS_removeNode g id h) _ g h)
+
 theorem PMS_reviewPass (g : GPathM) (h : PMS g) : PMS (reviewPass g) := by
   simp only [reviewPass]
-  exact PMS_reviewSteps _ _ _ (PMS_reviewSteps _ _ _ (PMS_cleanInvalid g h))
+  exact PMS_reviewSteps _ _ _ (PMS_reviewSteps _ _ _ (PMS_cleanInvalid₂ g h))
 
 theorem PMS_reviewFuel : ∀ (fuel : Nat) (g : GPathM), PMS g → PMS (reviewFuel fuel g) := by
   intro fuel
@@ -695,9 +729,19 @@ theorem SAbove_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (SAbove_reviewLine nb k g h)
     · exact h
 
+theorem SonsSub_cutAll (g : GPathM) : SonsSub g (cutAll g) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact ⟨n, hn, rfl, fun s hs => (List.mem_filter.mp hs).1⟩
+
+theorem SAbove_cleanInvalid₂ (g : GPathM) (h : SAbove g) : SAbove (cleanInvalid₂ g) :=
+  SAbove_of_SonsSub (SonsSub_cutAll _)
+    (purgeFuel_inv SAbove (fun g id h => SAbove_removeNode g id h) _ g h)
+
 theorem SAbove_reviewPass (g : GPathM) (h : SAbove g) : SAbove (reviewPass g) := by
   simp only [reviewPass]
-  exact SAbove_reviewSteps _ _ _ (SAbove_reviewSteps _ _ _ (SAbove_cleanInvalid g h))
+  exact SAbove_reviewSteps _ _ _ (SAbove_reviewSteps _ _ _ (SAbove_cleanInvalid₂ g h))
 
 theorem SAbove_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SAbove g → SAbove (reviewFuel fuel g) := by
   intro fuel
@@ -887,9 +931,16 @@ theorem SN_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (SN_reviewLine nb k g h)
     · exact h
 
+theorem SN_cleanInvalid₂ (g : GPathM) (h : SN g) : SN (cleanInvalid₂ g) := by
+  have hp := purgeFuel_inv SN (fun g id h => SN_removeNode g id h) (g.nodes.length + 1) g h
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact GownersNodes.hasNode_cutAll _ s (hp n hn s (List.mem_filter.mp hs).1)
+
 theorem SN_reviewPass (g : GPathM) (h : SN g) : SN (reviewPass g) := by
   simp only [reviewPass]
-  exact SN_reviewSteps _ _ _ (SN_reviewSteps _ _ _ (SN_cleanInvalid g h))
+  exact SN_reviewSteps _ _ _ (SN_reviewSteps _ _ _ (SN_cleanInvalid₂ g h))
 
 theorem SN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SN g → SN (reviewFuel fuel g) := by
   intro fuel

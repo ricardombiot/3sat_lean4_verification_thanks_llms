@@ -645,11 +645,113 @@ theorem FOk_reviewSteps_sons (S : PathNodeId → Prop) (T : PathNodeId → PathN
       exact ih (fun j hj => hk j (List.mem_cons_of_mem _ hj)) _ hc' hw'
     · exact ⟨h, hc⟩
 
+-- ============================================================
+-- The two-phase clean (report v181 §6)
+-- ============================================================
+
+private theorem cutAll_node?F (g : GPathM) (pid : PathNodeId) :
+    (cutAll g).node? pid = (g.node? pid).map (cutNode g.gowners g) := by
+  simp only [GPathM.node?, cutAll, List.find?_map]
+  rfl
+
+private theorem cutAll_node?F_inv (g : GPathM) (p : PathNodeId) (n' : PNodeM)
+    (h : (cutAll g).node? p = some n') : ∃ n, g.node? p = some n ∧ n' = cutNode g.gowners g n := by
+  rw [cutAll_node?F] at h
+  cases hn : g.node? p with
+  | none => rw [hn] at h; exact absurd h (by simp)
+  | some n => rw [hn] at h; exact ⟨n, rfl, (Option.some.inj h).symm⟩
+
+/-- Two members in each other's tables admit each other in the cut. -/
+private theorem admits_T (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : Fabric g S T) (p c : PathNodeId) (hp : S p) (hpc : T p c) :
+    admits g.gowners g p c = true ∧ admits g.gowners g c p = true := by
+  have hc : S c := h.inS p c hp hpc
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node c hc)
+  constructor
+  · unfold admits; rw [hn]
+    exact List.elem_eq_true_of_mem (mem_intersectOwners_of_mem _ _ c (h.sub p n hn hp c hpc) (h.gow c hc))
+  · unfold admits; rw [hm]
+    exact List.elem_eq_true_of_mem
+      (mem_intersectOwners_of_mem _ _ p (h.sub c m hm hc p (h.symm p c hp hpc)) (h.gow p hp))
+
+theorem Fabric_cutAll (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : Fabric g S T) : Fabric (cutAll g) S T := by
+  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_⟩
+  · intro p hp
+    rw [cutAll_node?F]
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [hn]; rfl
+  · intro p n' hn' hp v hv
+    obtain ⟨n, hn, rfl⟩ := cutAll_node?F_inv g p n' hn'
+    exact mem_intersectOwners_of_mem _ _ v (h.sub p n hn hp v hv) (h.gow v (h.inS p v hp hv))
+  · intro p n' hn' hp hroot v hv
+    obtain ⟨n, hn, rfl⟩ := cutAll_node?F_inv g p n' hn'
+    obtain ⟨c, hc, h1, h2⟩ := h.up p n hn hp hroot v hv
+    have hnid : n.id = p := node?_id_eq g p n hn
+    obtain ⟨a1, a2⟩ := admits_T g S T h p c hp h1
+    refine ⟨c, List.mem_filter.mpr ⟨hc, ?_⟩, h1, h2⟩
+    rw [hnid, a1, a2]; rfl
+  · intro p hp hlast v hv
+    obtain ⟨c, m, hm, hpm, h1, h2⟩ := h.down p hp hlast v hv
+    have hmid : m.id = c := node?_id_eq g c m hm
+    obtain ⟨a1, a2⟩ := admits_T g S T h p c hp h1
+    refine ⟨c, cutNode g.gowners g m, by rw [cutAll_node?F, hm]; rfl,
+      List.mem_filter.mpr ⟨hpm, ?_⟩, h1, h2⟩
+    rw [hmid, a1, a2]; rfl
+
+theorem FOk_cutAll (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : FOk g S T) : FOk (cutAll g) S T where
+  fab := Fabric_cutAll g S T h.fab
+  smp := Sons.SMP_cutAll g h.smp
+  nr := Parents.NotRoot_of_pruned (pruned_cutAll g) h.nr
+
+theorem FOk_purgeStep (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : FOk g S T) (id : PathNodeId) : FOk (purgeStep g id) S T := by
+  unfold purgeStep
+  split
+  · exact h
+  · next n hn =>
+    split
+    · exact h
+    · next hbad =>
+      refine FOk_removeNode g id S T h ?_
+      intro hS
+      apply hbad
+      have hc := FOk_cutAll g S T h
+      have hn' : (cutAll g).node? id = some (cutNode g.gowners g n) := by
+        rw [cutAll_node?F, hn]; rfl
+      exact isValidNode_of_Fabric_self (cutAll g) S T hc.fab hc.smp id _ hn' hS
+
+/-- **A fabric survives `cleanInvalid₂`.** -/
+theorem FOk_cleanInvalid₂ (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : FOk g S T) : FOk (cleanInvalid₂ g) S T := by
+  have hround : ∀ g, FOk g S T → FOk (purgeRound g) S T := by
+    intro g hg
+    show FOk ((g.nodes.map (·.id)).foldl purgeStep g) S T
+    generalize g.nodes.map (·.id) = ids
+    induction ids generalizing g with
+    | nil => exact hg
+    | cons id rest ih => exact ih _ (FOk_purgeStep g S T hg id)
+  have hfuel : ∀ (fuel : Nat) (g : GPathM), FOk g S T → FOk (purgeFuel fuel g) S T := by
+    intro fuel
+    induction fuel with
+    | zero => intro g hg; exact hg
+    | succ k ih =>
+      intro g hg
+      simp only [purgeFuel]
+      split
+      · split
+        · exact ih _ (hround g hg)
+        · exact hround g hg
+      · exact hg
+  exact FOk_cutAll _ S T (hfuel _ g h)
+
 theorem FOk_reviewPass (g : GPathM) (S : PathNodeId → Prop)
     (T : PathNodeId → PathNodeId → Prop) (h : FOk g S T) : FOk (reviewPass g) S T := by
   simp only [reviewPass]
-  have h1 : FOk (cleanInvalid g) S T := FOk_cleanInvalidGo S T _ g h
-  have h2 : FOk (reviewParents (cleanInvalid g)) S T :=
+  have h1 : FOk (cleanInvalid₂ g) S T := FOk_cleanInvalid₂ g S T h
+  have h2 : FOk (reviewParents (cleanInvalid₂ g)) S T :=
     FOk_reviewSteps_parents S T _ (fun _ hk => (PickInduction.intRange_bounds hk).1) _ h1
   exact (FOk_reviewSteps_sons S T _ _
     (fun k hk => by

@@ -150,9 +150,19 @@ theorem ids_reviewSteps (g : GPathM) (nb : PNodeM → List PathNodeId) :
     · exact List.Sublist.trans (ih _) (ids_reviewLine g nb k)
     · exact List.Sublist.refl _
 
+theorem ids_cleanInvalid₂ (g : GPathM) : (Ids (cleanInvalid₂ g)).Sublist (Ids g) := by
+  have hp : (Ids (purgeFuel (g.nodes.length + 1) g)).Sublist (Ids g) :=
+    purgeFuel_inv (fun g' => (Ids g').Sublist (Ids g))
+      (fun g' id h => List.Sublist.trans (ids_removeNode g' id) h) _ g (List.Sublist.refl _)
+  unfold cleanInvalid₂ cutAll
+  rw [ids_map (purgeFuel (g.nodes.length + 1) g)
+    (cutNode (purgeFuel (g.nodes.length + 1) g).gowners (purgeFuel (g.nodes.length + 1) g))
+    (fun _ => rfl)]
+  exact hp
+
 theorem ids_reviewPass (g : GPathM) : (Ids (reviewPass g)).Sublist (Ids g) :=
   List.Sublist.trans (ids_reviewSteps _ _ _)
-    (List.Sublist.trans (ids_reviewSteps _ _ _) (ids_cleanInvalid g))
+    (List.Sublist.trans (ids_reviewSteps _ _ _) (ids_cleanInvalid₂ g))
 
 theorem ids_reviewFuel : ∀ (fuel : Nat) (g : GPathM),
     (Ids (reviewFuel fuel g)).Sublist (Ids g) := by

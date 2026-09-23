@@ -473,8 +473,110 @@ theorem AOk_reviewSons (g : GPathM) (h : AOk g S R) : AOk (reviewSons g) S R :=
       omega)
     g rfl h).1
 
+-- ============================================================
+-- The two-phase clean (report v181 §6)
+-- ============================================================
+
+private theorem cutAll_node?' (g : GPathM) (pid : PathNodeId) :
+    (cutAll g).node? pid = (g.node? pid).map (cutNode g.gowners g) := by
+  simp only [GPathM.node?, cutAll, List.find?_map]
+  rfl
+
+private theorem admits_of_node'' (g : GPathM) (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n)
+    (x : PathNodeId) (hx : x ∈ n.owners) (hg : x ∈ g.gowners) : admits g.gowners g p x = true := by
+  unfold admits
+  rw [hn]
+  exact List.elem_eq_true_of_mem (mem_intersectOwners_of_mem _ _ x hx hg)
+
+/-- A link `c — x` between two members that own each other through `R` survives the cut of `x`. -/
+theorem mem_cut_link (g : GPathM) (h : Sup g S R) (x c : PathNodeId) (hxc : R x c) (hcx : R c x)
+    (d : PNodeM) (hd : g.node? x = some d) (l : List PathNodeId) (hl : c ∈ l) :
+    c ∈ l.filter (fun p => admits g.gowners g d.id p && admits g.gowners g p d.id) := by
+  have hdid : d.id = x := node?_id_eq g x d hd
+  obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node c (h.dom x c hxc).2)
+  refine List.mem_filter.mpr ⟨hl, (Bool.and_eq_true _ _).mpr ⟨?_, ?_⟩⟩
+  · rw [hdid]
+    exact admits_of_node'' g x d hd c (h.own x c d hxc hd) (h.gow c (h.dom x c hxc).2)
+  · rw [hdid]
+    exact admits_of_node'' g c m hm x (h.own c x m hcx hm) (h.gow x (h.dom x c hxc).1)
+
+theorem Sup_cutAll (g : GPathM) (h : Sup g S R) : Sup (cutAll g) S R := by
+  have hnode : ∀ p d', (cutAll g).node? p = some d' →
+      ∃ d, g.node? p = some d ∧ d' = cutNode g.gowners g d := by
+    intro p d' hd'
+    rw [cutAll_node?'] at hd'
+    cases hd : g.node? p with
+    | none => rw [hd] at hd'; exact absurd hd' (by simp)
+    | some d =>
+      rw [hd] at hd'
+      exact ⟨d, rfl, (Option.some.inj hd').symm⟩
+  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym, ?_⟩
+  · intro p hp
+    rw [cutAll_node?']
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [hd]; rfl
+  · intro x v n' hr hn'
+    obtain ⟨d, hd, rfl⟩ := hnode x n' hn'
+    exact mem_intersectOwners_of_mem _ _ v (h.own x v d hr hd) (h.gow v (h.dom x v hr).2)
+  · intro x d' hS hd' hroot v hr
+    obtain ⟨d, hd, rfl⟩ := hnode x d' hd'
+    obtain ⟨c, hc, h1, h2, h3⟩ := h.par x d hS hd hroot v hr
+    exact ⟨c, mem_cut_link g h x c h1 h2 d hd _ hc, h1, h2, h3⟩
+  · intro x hS hlast v hr
+    obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son x hS hlast v hr
+    refine ⟨c, cutNode g.gowners g m, by rw [cutAll_node?', hm]; rfl, ?_, h1, h2, h3⟩
+    exact mem_cut_link g h c x h2 h1 m hm _ hxm
+  · intro x c d' hxc hcx hstep hd'
+    obtain ⟨d, hd, rfl⟩ := hnode x d' hd'
+    exact mem_cut_link g h x c hxc hcx d hd _ (h.link x c d hxc hcx hstep hd)
+
+theorem AOk_cutAll (g : GPathM) (h : AOk g S R) : AOk (cutAll g) S R :=
+  ⟨Sup_cutAll g h.sup, Sons.SMP_cutAll g h.smp, Parents.NotRoot_of_pruned (pruned_cutAll g) h.nr⟩
+
+theorem AOk_purgeStep (g : GPathM) (h : AOk g S R) (id : PathNodeId) : AOk (purgeStep g id) S R := by
+  unfold purgeStep
+  split
+  · exact h
+  · next n hn =>
+    split
+    · exact h
+    · next hbad =>
+      have hns : ¬ S id := by
+        intro hS
+        apply hbad
+        have hc := AOk_cutAll g h
+        have hn' : (cutAll g).node? id = some (cutNode g.gowners g n) := by
+          rw [cutAll_node?', hn]; rfl
+        exact isValidNode_self (cutAll g) hc.sup hc.smp id _ hn' hS
+      exact ⟨Sup_removeNode g id h.sup hns, Sons.SMP_removeNode g id h.smp,
+        Parents.NotRoot_of_pruned (pruned_removeNode g id) h.nr⟩
+
+/-- **A supported set survives `cleanInvalid₂`**: a member's cut is valid (it is a node of the cut
+graph, which is `Sup` and `SMP`), so the purge never removes a member. -/
+theorem AOk_cleanInvalid₂ (g : GPathM) (h : AOk g S R) : AOk (cleanInvalid₂ g) S R := by
+  have hround : ∀ g, AOk g S R → AOk (purgeRound g) S R := by
+    intro g hg
+    show AOk ((g.nodes.map (·.id)).foldl purgeStep g) S R
+    generalize g.nodes.map (·.id) = ids
+    induction ids generalizing g with
+    | nil => exact hg
+    | cons id rest ih => exact ih _ (AOk_purgeStep g hg id)
+  have hfuel : ∀ (fuel : Nat) (g : GPathM), AOk g S R → AOk (purgeFuel fuel g) S R := by
+    intro fuel
+    induction fuel with
+    | zero => intro g hg; exact hg
+    | succ k ih =>
+      intro g hg
+      simp only [purgeFuel]
+      split
+      · split
+        · exact ih _ (hround g hg)
+        · exact hround g hg
+      · exact hg
+  exact AOk_cutAll _ (hfuel _ g h)
+
 theorem AOk_reviewPass (g : GPathM) (h : AOk g S R) : AOk (reviewPass g) S R :=
-  AOk_reviewSons _ (AOk_reviewParents _ (AOk_cleanInvalid g h))
+  AOk_reviewSons _ (AOk_reviewParents _ (AOk_cleanInvalid₂ g h))
 
 theorem AOk_reviewFuel : ∀ (fuel : Nat) (g : GPathM), AOk g S R → AOk (reviewFuel fuel g) S R := by
   intro fuel

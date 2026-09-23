@@ -323,7 +323,7 @@ theorem isValid_review_of_pass (Q : GPathM → Prop)
 
 /-- And a pass is three sweeps, each of which only ever drops nodes. -/
 theorem reviewPass_eq (g : GPathM) :
-    reviewPass g = reviewSons (reviewParents (cleanInvalid g)) := rfl
+    reviewPass g = reviewSons (reviewParents (cleanInvalid₂ g)) := rfl
 
 theorem removeNode_gowners (g : GPathM) (id : PathNodeId) :
     (removeNode g id).gowners = g.gowners.filter (fun q => q != id) := rfl

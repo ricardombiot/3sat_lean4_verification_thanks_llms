@@ -5,7 +5,6 @@ import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.ReaderDescent
 import AbsSat.GraphPath.Model.ReaderTop
 import AbsSat.GraphPath.Model.ReaderBT
-import AbsSat.GraphPath.Model.CleanTwoPhase
 
 /-! # The in-degree of the row
 
@@ -5922,6 +5921,31 @@ tablas, padres e hijos, como conjuntos)? Y tras cada `cleanInvalid₂` de cada v
 postcondiciones (tablas dentro de la global, global = nodos, nodos válidos, enlaces mutuos y dentro de
 las tablas) y las condiciones de `PState` con ids muertos incluidos (`checkPH`). -/
 
+/-- The sequential review, as it was before 2026-09-23 (`cleanInvalid` node by node), kept here only
+so that `clean2` can compare the machine against it. -/
+def reviewPassSeq (g : GPathM) : GPathM := reviewSons (reviewParents (cleanInvalid g))
+
+def reviewFuelSeq : Nat → GPathM → GPathM
+  | 0, g => g
+  | fuel + 1, g =>
+    if isValid g then
+      let g' := reviewPassSeq g
+      if GPathM.measure g' < GPathM.measure g then reviewFuelSeq fuel g' else g'
+    else g
+
+def reviewSeq (g : GPathM) : GPathM := reviewFuelSeq (GPathM.measure g + 1) g
+
+def reviewAggFuelSeq : Nat → GPathM → GPathM
+  | 0, g => reviewSeq g
+  | fuel + 1, g =>
+    let g₁ := reviewSeq g
+    if isValid g₁ then
+      let g₂ := AggressiveReview.aggSweep g₁
+      if GPathM.measure g₂ < GPathM.measure g₁ then reviewAggFuelSeq fuel g₂ else g₁
+    else g₁
+
+def reviewAggSeq (g : GPathM) : GPathM := reviewAggFuelSeq (GPathM.measure g + 1) g
+
 structure C2Acc where
   formulas : Nat := 0
   sends : Nat := 0
@@ -5978,15 +6002,15 @@ def review2Post (F : GPathM) (a : C2Acc) : C2Acc := Id.run do
     if !isValid g then fuel := 0
     else
       let g0 := g
-      let h := CleanTwoPhase.cleanInvalid₂ g
+      let h := cleanInvalid₂ g
       a := post2 h a
       g := reviewSons (reviewParents h)
       if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
   return a
 
 def compare2 (lab : String) (pin : Bool) (F : GPathM) (a : C2Acc) : C2Acc := Id.run do
-  let R := AggressiveReview.reviewAgg F
-  let R₂ := CleanTwoPhase.reviewAgg₂ F
+  let R := reviewAggSeq F
+  let R₂ := AggressiveReview.reviewAgg F
   let same := sameState2 R R₂
   let mut a := review2Post F a
   if pin then a := { a with pins := a.pins + 1, pinsDiff := a.pinsDiff + (if same then 0 else 1) }
@@ -6025,7 +6049,7 @@ def runFormulaC2 (lab : String) (φ : Cnf) (a : C2Acc) : C2Acc := Id.run do
 
 def reportC2 (name : String) (a : C2Acc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas)"
-  IO.println s!"   reviewAgg vs reviewAgg₂: envios {a.sends} (distintos {a.sendsDiff}), pines {a.pins} (distintos {a.pinsDiff}), validez distinta {a.validDiff}"
+  IO.println s!"   reviewAgg secuencial vs dos fases (la maquina): envios {a.sends} (distintos {a.sendsDiff}), pines {a.pins} (distintos {a.pinsDiff}), validez distinta {a.validDiff}"
   IO.println s!"   tras cleanInvalid₂ ({a.cleans} estados validos): tabla fuera de la global {a.tableOut}, global sin nodo {a.globalNotNode}, nodo invalido {a.invalidNode}, enlace no mutuo {a.linkBad}"
   reportPHCell "PState con ids muertos, tras cleanInvalid₂" a.ph
   if a.first != "" then IO.println s!"   primer distinto: {a.first}"

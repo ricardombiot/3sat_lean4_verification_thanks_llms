@@ -210,9 +210,60 @@ theorem pruned_reviewParents (g : GPathM) : Pruned g (reviewParents g) :=
 theorem pruned_reviewSons (g : GPathM) : Pruned g (reviewSons g) :=
   pruned_reviewSteps _ _ g
 
+theorem cutNode_id (gow : List PathNodeId) (g : GPathM) (n : PNodeM) :
+    (cutNode gow g n).id = n.id := rfl
+
+theorem cutNode_owners_sub (gow : List PathNodeId) (g : GPathM) (n : PNodeM) :
+    ∀ q ∈ (cutNode gow g n).owners, q ∈ n.owners :=
+  fun _ hq => (List.mem_filter.mp hq).1
+
+theorem cutNode_parents_sub (gow : List PathNodeId) (g : GPathM) (n : PNodeM) :
+    ∀ p ∈ (cutNode gow g n).parents, p ∈ n.parents :=
+  fun _ hp => (List.mem_filter.mp hp).1
+
+theorem cutNode_sons_sub (gow : List PathNodeId) (g : GPathM) (n : PNodeM) :
+    ∀ s ∈ (cutNode gow g n).sons, s ∈ n.sons :=
+  fun _ hs => (List.mem_filter.mp hs).1
+
+theorem pruned_purgeStep (g : GPathM) (id : PathNodeId) : Pruned g (purgeStep g id) := by
+  unfold purgeStep
+  split
+  · exact Pruned.refl g
+  · split
+    · exact Pruned.refl g
+    · exact pruned_removeNode g id
+
+theorem pruned_purgeRound (g : GPathM) : Pruned g (purgeRound g) := by
+  exact pruned_foldl purgeStep pruned_purgeStep _ g
+
+theorem pruned_purgeFuel : ∀ (fuel : Nat) (g : GPathM), Pruned g (purgeFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Pruned.refl g
+  | succ n ih =>
+    intro g
+    simp only [purgeFuel]
+    split
+    · split
+      · exact Pruned.trans (pruned_purgeRound g) (ih _)
+      · exact pruned_purgeRound g
+    · exact Pruned.refl g
+
+theorem pruned_cutAll (g : GPathM) : Pruned g (cutAll g) where
+  step_eq := rfl
+  map_parent_eq := rfl
+  gowners_sub _ hq := hq
+  nodes_derived n' hn' := by
+    obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+    subst hEq
+    exact ⟨n, hn, rfl, cutNode_owners_sub _ _ n, cutNode_parents_sub _ _ n⟩
+
+theorem pruned_cleanInvalid₂ (g : GPathM) : Pruned g (cleanInvalid₂ g) :=
+  Pruned.trans (pruned_purgeFuel _ g) (pruned_cutAll _)
+
 theorem pruned_reviewPass (g : GPathM) : Pruned g (reviewPass g) := by
   simp only [reviewPass]
-  exact Pruned.trans (pruned_cleanInvalid g)
+  exact Pruned.trans (pruned_cleanInvalid₂ g)
     (Pruned.trans (pruned_reviewParents _) (pruned_reviewSons _))
 
 theorem pruned_reviewFuel : ∀ (fuel : Nat) (g : GPathM), Pruned g (reviewFuel fuel g) := by

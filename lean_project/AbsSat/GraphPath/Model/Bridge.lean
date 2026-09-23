@@ -21,10 +21,9 @@ is where `filterAll` lands, and so where every obligation about the machine's
 states lives. What was refuted in v36 (`ParentId.ParentIsOwner`) is now a
 theorem about the fixed machine.
 
-The route is short because the migration did the work: at the fixpoint each
-`cleanStep` is the identity (`Fuel.review_cleanStep_fixed`), hence so is the
-unlink inside it (`Fuel.intersectOrDrop_valid_branch`), hence a node's links
-were already inside its owners (`Fuel.relinkSelf_eq_self_of_fixed`).
+The route is short because the migration did the work: at the fixpoint every
+node is its own cut (`Fuel.review_cut_fixed`), and the cut keeps a link only
+when the node's own cut table admits it.
 -/
 
 namespace AbsSat.GraphPath.Model.Bridge
@@ -56,24 +55,28 @@ theorem links_of_relinkSelf_eq (d : PNodeM) (h : relinkSelf d = d) :
     rw [← hs] at hsm
     exact List.elem_iff.mp (List.mem_filter.mp hsm).2
 
-/-- **The bridge holds of every valid `review` fixpoint.** At the fixpoint the
-clean step is the identity, so the unlink inside it found nothing to do — which
-means the links were already inside the owners. -/
+/-- **The bridge holds of every valid `review` fixpoint.** At the fixpoint every node is its own
+cut (`Fuel.review_cut_fixed`), and the cut keeps a link only when the node's own cut table admits
+it — so the links were already inside the owners. -/
 theorem linksInOwners_review (g : GPathM) (hv : isValid (review g) = true) :
     LinksInOwners (review g) := by
   intro pid d hd
-  refine links_of_relinkSelf_eq d (relinkSelf_eq_self_of_fixed (review g) pid d hd ?_)
-  have hstep := review_cleanStep_fixed g hv pid d hd
-  have hd_mem : d ∈ (review g).nodes := List.mem_of_find?_eq_some hd
+  have hcut := (review_cut_fixed g hv pid d hd).2
   have hd_id : d.id = pid := node?_id_eq _ pid d hd
-  have hstep' : measure (intersectOrDrop (review g) pid (review g).gowners d)
-      = measure (review g) := by
-    have hc : cleanStep (review g) pid
-        = intersectOrDrop (review g) pid (review g).gowners d := by
-      simp only [cleanStep, hd]
-    rw [← hc, hstep]
-  exact (intersectOrDrop_valid_branch (review g) pid (review g).gowners d
-    hd_mem hd_id hstep').2.1
+  have hself : ∀ x, admits (review g).gowners (review g) d.id x = true → x ∈ d.owners := by
+    intro x hx
+    unfold admits at hx
+    rw [hd_id, hd] at hx
+    exact (List.mem_filter.mp (List.mem_of_elem_eq_true hx)).1
+  constructor
+  · intro p hp
+    have hp' : p ∈ (cutNode (review g).gowners (review g) d).parents := by rw [hcut]; exact hp
+    simp only [cutNode, List.mem_filter, Bool.and_eq_true] at hp'
+    exact hself p hp'.2.1
+  · intro s hs
+    have hs' : s ∈ (cutNode (review g).gowners (review g) d).sons := by rw [hcut]; exact hs
+    simp only [cutNode, List.mem_filter, Bool.and_eq_true] at hs'
+    exact hself s hs'.2.1
 
 /-- And therefore of the graphs the obligation is about: `filterAll g reqs` is
 a `review` result by construction. -/

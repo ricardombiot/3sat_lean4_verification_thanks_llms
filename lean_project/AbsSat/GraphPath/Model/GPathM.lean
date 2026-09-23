@@ -273,6 +273,58 @@ def cleanInvalidGo (g : GPathM) : List PathNodeId → GPathM
 def cleanInvalid (g : GPathM) : GPathM :=
   cleanInvalidGo g (g.nodes.map (·.id))
 
+-- ============================================================
+-- cleanInvalid in two phases (report v181 §6; the review's clean since 2026-09-23)
+-- ============================================================
+
+/-- The owners of `n` cut against `gow`. -/
+def cutOwners (gow : List PathNodeId) (n : PNodeM) : List PathNodeId :=
+  intersectOwners n.owners gow
+
+/-- `m`, cut against `gow`, still owns `x`. A missing node admits nothing. -/
+def admits (gow : List PathNodeId) (g : GPathM) (m x : PathNodeId) : Bool :=
+  match g.node? m with
+  | some pm => (cutOwners gow pm).contains x
+  | none => false
+
+/-- A node cut against `gow`: owners intersected, and only the links both ends admit — what the
+sequential sweep (`relink` + `unlinkIncompatible` at every node) leaves once every node is cut.
+Both ends are read through `node?`, as the sequential sweep does: the test is then symmetric in
+the two ids, so the parent and son tables stay mirrors even if an id were repeated. -/
+def cutNode (gow : List PathNodeId) (g : GPathM) (n : PNodeM) : PNodeM :=
+  { n with owners := cutOwners gow n,
+           parents := n.parents.filter (fun p => admits gow g n.id p && admits gow g p n.id),
+           sons := n.sons.filter (fun s => admits gow g n.id s && admits gow g s n.id) }
+
+/-- One step of the purge: remove the node if its cut against the current global is invalid. -/
+def purgeStep (g : GPathM) (id : PathNodeId) : GPathM :=
+  match g.node? id with
+  | none => g
+  | some n => if isValidNode g (cutNode g.gowners g n) then g else removeNode g id
+
+/-- One purge round over a snapshot of the ids; removals are seen by the nodes that follow. -/
+def purgeRound (g : GPathM) : GPathM :=
+  (g.nodes.map (·.id)).foldl purgeStep g
+
+/-- Phase 1: purge rounds while the graph is valid and a round removes something. Every round
+that continues removes a node, so `g.nodes.length + 1` units of fuel suffice. -/
+def purgeFuel : Nat → GPathM → GPathM
+  | 0, g => g
+  | fuel + 1, g =>
+    if isValid g then
+      let g' := purgeRound g
+      if g'.nodes.length < g.nodes.length then purgeFuel fuel g' else g'
+    else g
+
+/-- Phase 2: every node cut against the final global owners, at once. -/
+def cutAll (g : GPathM) : GPathM :=
+  { g with nodes := g.nodes.map (cutNode g.gowners g) }
+
+/-- **`cleanInvalid` in two phases**: purge to the fixpoint, then one cut. Unlike the sequential
+`cleanInvalid`, it does not depend on the order of the nodes and leaves no removed id in a table. -/
+def cleanInvalid₂ (g : GPathM) : GPathM :=
+  cutAll (purgeFuel (g.nodes.length + 1) g)
+
 /-- Coherence review of one node against a neighbor selector (parents on the
 top-down pass, sons on the bottom-up pass): intersect its owners with the
 union of its neighbors' owners, dropping it if that leaves it invalid. -/
@@ -310,9 +362,10 @@ not transfer. See `verificacion_inseguridad_autor_v48.md`. -/
 def reviewSons (g : GPathM) : GPathM :=
   reviewSteps g (·.sons) (intRange 0 (g.current_step - 2)).reverse
 
-/-- One full round of `make_review_owners!`. -/
+/-- One full round of `make_review_owners!`, with the two-phase clean (report v181 §6; the
+sequential `cleanInvalid` above is kept for the record and for the probes). -/
 def reviewPass (g : GPathM) : GPathM :=
-  reviewSons (reviewParents (cleanInvalid g))
+  reviewSons (reviewParents (cleanInvalid₂ g))
 
 -- ============================================================
 -- Fuel-based review loop (termination lemmas live in Fuel.lean)
