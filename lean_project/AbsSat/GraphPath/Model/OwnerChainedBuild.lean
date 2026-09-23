@@ -584,12 +584,32 @@ aquí restringida a una cadena cuyos nodos están todos en la tabla de un mismo 
 
 /-- **Un salto: lo que un nodo de la cadena posee por debajo, lo posee el siguiente.**
 
-Es la versión local de la posesión a distancia, y basta un salto: el resto lo hace la inducción. -/
+Es la versión local de la posesión a distancia, y basta un salto: el resto lo hace la inducción.
+
+**MEDIDO FALSO. No construir sobre esto.** La sonda `row-degree hopdown` la niega en
+`dos_de_tres.cnf`: **16 de 484** celdas `(hijo, padre, owner del padre por debajo)` sobre 3 estados,
+y la versión restringida —los tres nodos en la tabla de un mismo `a`, que es como el teorema la
+usa— falla en los **mismos 16 casos** de 6.100 (`row-degree hopdown2`). El primero:
+`a@6, hijo@7, padre@6, owner@0`.
+
+Y el diagnóstico es instructivo, porque el fallo **no es un defecto**: la regla del `up` da al hijo
+la unión de los owners de sus padres, pero el **barrido agresivo** después le quita entradas que el
+padre conserva —`aggPair` borra lo que no comparte paso a paso—. Así que la tabla del hijo es
+**más pequeña, es decir más exacta**, que la unión de las de sus padres. La inclusión falla en la
+dirección buena.
+
+Lo que eso dice del camino: no hay que empujar owners **hacia abajo** desde los padres, porque el
+barrido los poda; hay que construir la cadena **dentro** de la tabla del hijo, que es precisamente
+lo que hace `Threaded`. -/
 def HopDown (g : GPathM) (sel : Int → PathNodeId) : Prop :=
   ∀ k, 0 ≤ k → k + 1 < g.current_step → ∀ mk mk1, g.node? (sel k) = some mk →
     g.node? (sel (k + 1)) = some mk1 → ∀ w ∈ mk.owners, w.id.step < k → w ∈ mk1.owners
 
-/-- **Y de un salto sale cualquier distancia, subiendo.** Inducción sobre la separación. -/
+/-- **Y de un salto sale cualquier distancia, subiendo.** Inducción sobre la separación.
+
+La implicación es cierta; su hipótesis **no** (véase `HopDown`). Se deja escrita porque delimita
+exactamente qué haría falta, y porque la inducción sobre la separación es reutilizable con cualquier
+regla local que sí valga. -/
 theorem mem_owners_up (g : GPathM) (links : Bridge.LinksInOwners g) (sel : Int → PathNodeId)
     (hchain : IsChain g sel) (hhop : HopDown g sel) :
     ∀ (d : Nat) (i : Int), 0 ≤ i → i + (d : Int) + 1 < g.current_step →
@@ -633,9 +653,9 @@ theorem distantOwned_of_hopDown (g : GPathM) (links : Bridge.LinksInOwners g)
       (mem_owners_up g links sel hchain hhop d j hj0 (by rw [← hd]; exact hi1) mi
         (by rw [← hd]; exact hmi))
 
-/-! ## El hueco, en un salto
+/-! ## El hueco: hasta `DistantOwned`, y el salto NO sirve
 
-    readerVerdictW ⟸ PinAlive ≡ OwnerChained ⟸ TableChainOwned ⟸ DistantOwned ⟸ HopDown
+    readerVerdictW ⟸ PinAlive ≡ OwnerChained ⟸ TableChainOwned ⟸ DistantOwned   ⟸̸  HopDown
 
 Y `HopDown` es una frase local, sobre **dos nodos contiguos de una cadena**:
 
@@ -651,8 +671,13 @@ fusiones: tras un `doJoin` la relación *padre* sobreaproxima. Pero la medida ta
 **los fallos nunca eran padres directos.** `HopDown` habla solo de padres directos y solo a lo largo
 de una cadena, que es estrictamente menos que `AncOwned`.
 
-Antes de apostar por ella conviene medirla —es una medida nueva, no la de `anc`— y eso lo pregunto
-antes de lanzarlo. -/
+Medida y **negada**: `row-degree hopdown` da 16 fallos de 484 celdas, y la versión restringida a los
+tres nodos en la tabla de un mismo `a` falla en los mismos 16 de 6.100. Así que esta vía queda
+cerrada, y la razón es la buena: **el barrido agresivo hace la tabla del hijo más exacta que la
+unión de las de sus padres.**
+
+La frontera sigue siendo `DistantOwned` —la posesión a distancia ≥ 2 dentro de la cadena que vive en
+la tabla de un nodo—, y lo que esta medida descarta es alcanzarla empujando desde los padres. -/
 
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.mem_owners_up' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

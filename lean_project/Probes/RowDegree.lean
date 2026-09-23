@@ -1841,6 +1841,147 @@ def reportOT (name : String) (a : OTAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   la tabla sobrevive a su propio pin: {if a.lost == 0 then "SI en lo medido" else "NO"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`HopDown`**: lo que un padre posee por debajo de su paso, ¿lo posee el hijo?
+
+Es la regla del `up` (`rowOwners` = union de los owners de los padres, intersecada con `gowners`)
+leida como invariante del estado. Es estrictamente mas debil que `AncOwned`, que pedia lo mismo para
+todos los ancestros y se midio falsa en el 22,8% de las fusiones: esta solo habla de **padres
+directos**. Se mide sobre los estados de la linea final y sobre la trayectoria real del lector. -/
+
+structure HDAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  pairs    : Nat := 0          -- (nodo, padre)
+  cells    : Nat := 0          -- (nodo, padre, owner del padre por debajo)
+  ok       : Nat := 0          -- ... que esta en la tabla del hijo
+  bad      : Nat := 0          -- ... que NO esta
+  nodesBad : Nat := 0
+  firstBad : String := "-"
+  deriving Repr
+
+def scanHopDown (label : String) (g : GPathM) (cap : Nat) (a : HDAcc) : HDAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for ny in g.nodes.take cap do
+    let mut nodeBad := 0
+    for p in ny.parents do
+      match g.node? p with
+      | none => pure ()
+      | some np =>
+        a := { a with pairs := a.pairs + 1 }
+        for w in np.owners do
+          if w.id.step < p.id.step then
+            a := { a with cells := a.cells + 1 }
+            if ny.owners.contains w then
+              a := { a with ok := a.ok + 1 }
+            else
+              let fb := if a.bad == 0 then
+                  s!"{label} hijo@{ny.id.id.step} padre@{p.id.step} owner@{w.id.step}"
+                else a.firstBad
+              nodeBad := nodeBad + 1
+              a := { a with bad := a.bad + 1, firstBad := fb }
+    if nodeBad > 0 then a := { a with nodesBad := a.nodesBad + 1 }
+  return a
+
+partial def walkHD (label : String) (g : GPathM) (fuel cap : Nat) (a : HDAcc) : HDAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanHopDown label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkHD label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaHD (φ : Cnf) (cap : Nat) (a : HDAcc) : HDAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkHD s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat cap a
+  return a
+
+def reportHD (name : String) (a : HDAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, pares (nodo,padre) {a.pairs}"
+  IO.println s!"   celdas (nodo, padre, owner del padre por debajo): {a.cells}"
+  IO.println s!"     el hijo lo posee    : {a.ok}  ({pct a.ok a.cells})"
+  IO.println s!"     NO lo posee         : {a.bad}  ({pct a.bad a.cells})"
+  IO.println s!"   nodos con algun fallo : {a.nodesBad}"
+  if a.bad > 0 then IO.println s!"     primero: {a.firstBad}"
+  IO.println s!"   HopDown: {if a.bad == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`HopDown` restringido**, que es el que el teorema usa de verdad: los tres nodos implicados
+—el hijo, el padre y el owner— estan todos en la tabla de un mismo nodo `a`, porque en
+`mem_owners_up` los tres son nodos de la cadena que vive dentro de la tabla de `a`. -/
+
+structure HD2Acc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  cells    : Nat := 0
+  ok       : Nat := 0
+  bad      : Nat := 0
+  firstBad : String := "-"
+  deriving Repr
+
+def scanHopDown2 (label : String) (g : GPathM) (cap : Nat) (a : HD2Acc) : HD2Acc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for na in g.nodes.take cap do
+    for y in na.owners do
+      match g.node? y with
+      | none => pure ()
+      | some ny =>
+        for p in ny.parents do
+          if na.owners.contains p then
+            match g.node? p with
+            | none => pure ()
+            | some np =>
+              for w in np.owners do
+                if w.id.step < p.id.step && na.owners.contains w then
+                  a := { a with cells := a.cells + 1 }
+                  if ny.owners.contains w then
+                    a := { a with ok := a.ok + 1 }
+                  else
+                    let fb := if a.bad == 0 then
+                        s!"{label} a@{na.id.id.step} hijo@{y.id.step} padre@{p.id.step} owner@{w.id.step}"
+                      else a.firstBad
+                    a := { a with bad := a.bad + 1, firstBad := fb }
+  return a
+
+partial def walkHD2 (label : String) (g : GPathM) (fuel cap : Nat) (a : HD2Acc) : HD2Acc :=
+  if fuel == 0 then a
+  else
+    let a := scanHopDown2 label g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkHD2 label (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaHD2 (φ : Cnf) (cap : Nat) (a : HD2Acc) : HD2Acc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkHD2 s!"⟨{kv.1.step},{kv.1.index}⟩" g (stepCount φ).toNat cap a
+  return a
+
+def reportHD2 (name : String) (a : HD2Acc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}"
+  IO.println s!"   celdas (a, hijo, padre, owner) todos en la tabla de a: {a.cells}"
+  IO.println s!"     el hijo lo posee : {a.ok}  ({pct a.ok a.cells})"
+  IO.println s!"     NO lo posee      : {a.bad}  ({pct a.bad a.cells})"
+  if a.bad > 0 then IO.println s!"     primero: {a.firstBad}"
+  IO.println s!"   HopDown restringido: {if a.bad == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **¿Cuanto cubre `realizes_pin_of_singleId`?** Cierra el caso en que la tabla de `x` NO tiene
 eleccion en el paso del pin: todos sus owners alli llevan ya el pin. Esta sonda lo cuenta sobre los
 pines que el lector se plantea de verdad. -/
@@ -2014,6 +2155,40 @@ def main (args : List String) : IO Unit := do
         a := runFormulaOT φ 40 a
       let t1 ← IO.monoMsNow
       reportOT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "hopdown" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaHD φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportHD path a (t1 - t0)
+  | "hopdown" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : HDAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaHD φ 40 a
+      let t1 ← IO.monoMsNow
+      reportHD s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "hopdown2" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaHD2 φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportHD2 path a (t1 - t0)
+  | "hopdown2" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : HD2Acc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaHD2 φ 40 a
+      let t1 ← IO.monoMsNow
+      reportHD2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pairdesc" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
