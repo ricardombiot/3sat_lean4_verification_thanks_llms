@@ -4554,6 +4554,95 @@ def reportPX (name : String) (c : PXCell) (ms : Nat) : IO Unit := do
   if c.first != "" then IO.println s!"   primera: {c.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`seqsend`: el envío como sucesión de filtros de un paso.** Para cada envío: `F` = todos los
+filtros (débil y duros) y un review; `S` = cada filtro de un paso (`filterWeak (k, A)`; un requisito
+duro es `(r.step, [r])`) seguido de su review. ¿Coinciden `F` y `S` (validez, tabla global, nodos y
+sus tablas)? Y en cada filtro de un paso sobre un estado revisado `T`: para `r` en la global y `q'`
+del paso filtrado en la tabla de `r`, ¿hay cadena completa común dentro de la global de `T`? -/
+
+structure SQAcc where
+  formulas : Nat := 0
+  sends : Nat := 0
+  same : Nat := 0
+  diffValid : Nat := 0
+  diffGow : Nat := 0
+  diffNodes : Nat := 0
+  stepFilters : Nat := 0
+  pairs : Nat := 0
+  pairsBad : Nat := 0
+  cut : Nat := 0
+  first : String := ""
+  firstPair : String := ""
+  deriving Repr
+
+def sameSet (a b : List PathNodeId) : Bool := a.all (b.contains ·) && b.all (a.contains ·)
+
+def sameState (F S : GPathM) : Bool × Bool :=
+  let gow := sameSet F.gowners S.gowners
+  let nodes := sameSet (F.nodes.map (·.id)) (S.nodes.map (·.id)) &&
+    F.nodes.all (fun n => match S.node? n.id with
+      | some m => sameSet n.owners m.owners && sameSet n.parents m.parents && sameSet n.sons m.sons
+      | none => false)
+  (gow, nodes)
+
+def pairsAt (T : GPathM) (k : Int) (budget : Nat) (a : SQAcc) (lab : String) : SQAcc := Id.run do
+  let gow := T.gowners
+  let mut a := a
+  for q' in ownersAt gow k do
+    for r in gow do
+      let owns := match T.node? r with | some nr => nr.owners.contains q' | none => false
+      if r.id.step != k && owns then
+        a := { a with pairs := a.pairs + 1 }
+        let ok := fun x => gow.contains x && (x.id.step != k || x == q')
+        match (extendFullIn T ok [r] budget).1 with
+        | some true => pure ()
+        | some false =>
+          let msg := s!"{lab} k={k} r@{r.id.step}"
+          a := { a with pairsBad := a.pairsBad + 1, firstPair := if a.firstPair == "" then msg else a.firstPair }
+        | none => a := { a with cut := a.cut + 1 }
+  return a
+
+def runFormulaSQ (label : String) (φ : Cnf) (budget : Nat) (a : SQAcc) : SQAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let lab := s!"{label} paso {step}"
+        let F := filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d)
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        let mut dead := false
+        a := { a with sends := a.sends + 1 }
+        for e in es do
+          if !dead then
+            if isValid T then
+              a := pairsAt T e.1 budget { a with stepFilters := a.stepFilters + 1 } lab
+            T := AggressiveReview.reviewAgg (filterWeak T e)
+            if !isValid T then dead := true
+        let vF := isValid F
+        let vS := isValid T
+        if vF != vS then
+          a := { a with diffValid := a.diffValid + 1
+                      , first := if a.first == "" then s!"{lab} validez F={vF} S={vS}" else a.first }
+        else if vF then
+          let (sg, sn) := sameState F T
+          if sg && sn then a := { a with same := a.same + 1 }
+          else
+            a := { a with diffGow := a.diffGow + (if sg then 0 else 1), diffNodes := a.diffNodes + (if sn then 0 else 1)
+                        , first := if a.first == "" then s!"{lab} global={sg} nodos={sn}" else a.first }
+        else a := { a with same := a.same + 1 }
+    line := pureAdvanceW φ line
+  return a
+
+def reportSQ (name : String) (a : SQAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.sends} envios)"
+  IO.println s!"   todo-de-una vs uno-a-uno: iguales {a.same}, distinta validez {a.diffValid}, distinta global {a.diffGow}, distintos nodos {a.diffNodes}"
+  if a.first != "" then IO.println s!"   primera diferencia: {a.first}"
+  IO.println s!"   filtros de un paso {a.stepFilters}: parejas {a.pairs}, sin cadena comun {a.pairsBad}, presupuesto {a.cut}"
+  if a.firstPair != "" then IO.println s!"   primera pareja mala: {a.firstPair}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -4931,6 +5020,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportPX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" c (t1 - t0)
+  | "seqsend" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSQ path φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportSQ path a (t1 - t0)
+  | "seqsend" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SQAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSQ s!"seed {seed} #{idx}" φ 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSQ s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
