@@ -49,10 +49,11 @@ def SendExt1 : Prop :=
       FullExt1 (filterAllAgg (filterWeakAll kv.2 (weakReqOfCnf φ d)) (reqOfCnf φ d))
 
 /-- **Tras un pin del lector, el estado revisado cumple `FullExt1`**, si el pinchado lo cumplía y el
-pin lo deja válido. -/
+pin —en el primer paso con elección, como hace el lector— lo deja válido. -/
 def PinExt1 : Prop :=
   ∀ g : GPathM, PinAliveChain.DCtx g → isValid g = true → FullExt1 g →
     ∀ q ∈ g.gowners, 0 ≤ q.id.step → q.id.step < g.current_step →
+      ReaderExec.firstChoice g = some q.id.step →
       isValid (filterAllAgg g [q.id]) = true → FullExt1 (filterAllAgg g [q.id])
 
 /-- **Son la completitud del review, entrada a entrada**: `FullExt1` del revisado da
@@ -255,7 +256,8 @@ theorem fullExt1_of_readFromR (hP : PinExt1) (g₀ : GPathM) (ctx₀ : PinAliveC
     have h0 : 0 ≤ k := mem_intRange_lower hmem
     have h1 : k < g.current_step := by have := mem_intRange_upper hmem; omega
     exact ⟨PinAliveChain.DCtx_filterAllAgg g ctx _,
-      hP g ctx hv (hF hv) q hqg (by rw [hqs]; exact h0) (by rw [hqs]; exact h1)⟩
+      hP g ctx hv (hF hv) q hqg (by rw [hqs]; exact h0) (by rw [hqs]; exact h1)
+        (by rw [hqs]; exact hk)⟩
 
 theorem chain_of_fullExt1 (g : GPathM) (ctx : PinAliveChain.DCtx g) (hv : isValid g = true)
     (hF : FullExt1 g) : ∃ sel, ChainSound g sel := by

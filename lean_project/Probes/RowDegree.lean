@@ -4493,6 +4493,67 @@ def reportE1 (name : String) (a : E1Acc) (ms : Nat) : IO Unit := do
   reportE1Cell "lector (inicio, pines)" a.reader
   IO.println s!"   ({ms} ms)"
 
+/-! **`pairext`: parejas con la frontera.** En cada estado del lector (inicio y pines, válidos), con
+`k = firstChoice`: para cada entrada global `r` y cada entrada global `q'` del paso `k` que se poseen
+(`q'` en la tabla de `r`, una sola dirección), ¿hay una cadena completa dentro de la global que pase por las dos? Si sí siempre, el pin
+en `k` conserva `FullExt1` (`PinExt1`). -/
+
+structure PXCell where
+  states : Nat := 0
+  pairs : Nat := 0
+  bad : Nat := 0
+  cut : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkPX (lab : String) (g : GPathM) (budget : Nat) (c : PXCell) : PXCell := Id.run do
+  if !isValid g then return c
+  match ReaderExec.firstChoice g with
+  | none => return c
+  | some k =>
+    let gow := g.gowners
+    let mut c := { c with states := c.states + 1 }
+    for q' in ownersAt gow k do
+      for r in gow do
+        let owns := match g.node? r with | some nr => nr.owners.contains q' | none => false
+        if r.id.step != k && owns then
+          c := { c with pairs := c.pairs + 1 }
+          let ok := fun x => gow.contains x && (x.id.step != k || x == q')
+          match (extendFullIn g ok [r] budget).1 with
+          | some true => pure ()
+          | some false =>
+            let msg := s!"{lab} k={k} r@{r.id.step}"
+            c := { c with bad := c.bad + 1, first := if c.first == "" then msg else c.first }
+          | none => c := { c with cut := c.cut + 1 }
+    return c
+
+partial def walkPX (lab : String) (g : GPathM) (fuel budget : Nat) (c : PXCell) : PXCell :=
+  let c := checkPX lab g budget c
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := checkPX s!"{lab} pin" (filterAllAgg g [q.id]) budget c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkPX lab (filterAllAgg g [q.id]) (fuel - 1) budget c
+
+def runFormulaPX (label : String) (φ : Cnf) (budget : Nat) (c : PXCell) : PXCell := Id.run do
+  let mut c := c
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then c := walkPX s!"{label} lector" g (stepCount φ).toNat budget c
+  return c
+
+def reportPX (name : String) (c : PXCell) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}"
+  IO.println s!"   estados del lector {c.states}, parejas (r, q' frontera) {c.pairs}, sin cadena comun {c.bad}, presupuesto {c.cut}"
+  if c.first != "" then IO.println s!"   primera: {c.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -4851,6 +4912,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportE1 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "pairext" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let c ← IO.lazyPure (fun _ => runFormulaPX path φ 2000 {})
+        let t1 ← IO.monoMsNow
+        reportPX path c (t1 - t0)
+  | "pairext" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut c : PXCell := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        c := runFormulaPX s!"seed {seed} #{idx}" φ 2000 c
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportPX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" c (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
