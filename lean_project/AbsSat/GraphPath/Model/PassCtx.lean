@@ -129,6 +129,94 @@ theorem pLive_reviewNode (g : GPathM) (hnd : NodupIds g) (hpl : PLive g)
 #print axioms pLive_reviewNode
 
 -- ============================================================
+-- Hijos vivos: el espejo
+-- ============================================================
+
+/-- **Hijos vivos**: los hijos de un nodo son nodos. -/
+def SLive (g : GPathM) : Prop :=
+  ∀ y ny, g.node? y = some ny → ∀ q ∈ ny.sons, (g.node? q).isSome
+
+theorem not_son_removeNode (g : GPathM) (x : PathNodeId) (n : PNodeM)
+    (hn : n ∈ (removeNode g x).nodes) : x ∉ n.sons := by
+  rw [removeNode_nodes] at hn
+  obtain ⟨n0, _, rfl⟩ := List.mem_map.mp hn
+  intro h
+  have := (List.mem_filter.mp h).2
+  simp at this
+
+theorem not_son_of_removed (g : GPathM) (hnd : NodupIds g) (hsl : SLive g)
+    (nb : PNodeM → List PathNodeId) (x : PathNodeId)
+    (hgone : ((reviewNode g nb x).node? x).isSome = false) :
+    ∀ n ∈ (reviewNode g nb x).nodes, x ∉ n.sons := by
+  cases hn : g.node? x with
+  | none =>
+    have hR : reviewNode g nb x = g := by unfold reviewNode; rw [hn]
+    rw [hR]
+    intro n hnm hx
+    have hnode : g.node? n.id = some n := node?_of_mem hnd n hnm
+    have := hsl n.id n hnode x hx
+    rw [hn] at this
+    exact Bool.false_ne_true this
+  | some d =>
+    have hxin : x ∈ Ids g := mem_ids_of_node g x (by rw [hn]; rfl)
+    unfold reviewNode at hgone ⊢
+    simp only [hn] at hgone ⊢
+    split
+    · split
+      · rename_i hv1 hv2
+        exfalso
+        rw [if_pos hv1, if_pos hv2] at hgone
+        have hup : Ids (updateAt g x
+            (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }))
+            = Ids g := ids_updateAt g x _ (fun _ => rfl)
+        have hunl := ids_unlinkIncompatible
+          (updateAt g x
+            (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) x
+        have := node_of_mem_ids _ x (by rw [hunl, hup]; exact hxin)
+        rw [this] at hgone
+        exact Bool.noConfusion hgone
+      · exact fun n hn' => not_son_removeNode _ x n hn'
+    · exact fun n hn' => not_son_removeNode g x n hn'
+
+/-- `reviewNode` solo quita hijos. -/
+theorem sonsSub_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) :
+    Sons.SonsSub g (reviewNode g nb id) := by
+  simp only [reviewNode]
+  split
+  · exact Sons.SonsSub_refl g
+  · next d _ =>
+    split
+    · have h₁ : Sons.SonsSub g (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
+        Sons.SonsSub_updateAt g id _ (fun _ => rfl) (fun _ _ hs => hs)
+      have h₂ := Sons.SonsSub_trans h₁ (Sons.SonsSub_unlinkIncompatible _ id)
+      split
+      · exact h₂
+      · exact Sons.SonsSub_trans h₂ (Sons.SonsSub_removeNode _ id)
+    · exact Sons.SonsSub_removeNode g id
+
+/-- **`reviewNode` conserva los hijos vivos.** -/
+theorem sLive_reviewNode (g : GPathM) (hnd : NodupIds g) (hsl : SLive g)
+    (nb : PNodeM → List PathNodeId) (x : PathNodeId) : SLive (reviewNode g nb x) := by
+  have hsub := NodeIds.ids_reviewNode g nb x
+  intro y ny hy q hq
+  -- el nodo de antes: sus hijos contienen a los de ahora
+  have hmem : ny ∈ (reviewNode g nb x).nodes := List.mem_of_find?_eq_some hy
+  have hsons : ∃ n0, g.node? y = some n0 ∧ q ∈ n0.sons := by
+    obtain ⟨n0, hn0, hid0, hs0⟩ := sonsSub_reviewNode g nb x ny hmem
+    have hyid : ny.id = y := node?_id_eq _ y ny hy
+    exact ⟨n0, by rw [← hyid, hid0]; exact node?_of_mem hnd n0 hn0, hs0 q hq⟩
+  obtain ⟨n0, hn0, hq0⟩ := hsons
+  have hqg := hsl y n0 hn0 q hq0
+  cases hx : ((reviewNode g nb x).node? x).isSome with
+  | true =>
+    if hqx : q = x then rw [hqx]; exact hx
+    else exact survives_reviewNode g nb x q hqg hqx
+  | false =>
+    have hnot := not_son_of_removed g hnd hsl nb x hx ny hmem
+    exact survives_reviewNode g nb x q hqg (fun h => hnot (h ▸ hq))
+
+-- ============================================================
 -- La autoposesión
 -- ============================================================
 
@@ -667,6 +755,7 @@ structure PState (g : GPathM) : Prop where
   i1 : I1L g
   i1s : I1sL g
   plive : PLive g
+  slive : SLive g
   self : SelfL g
   lsym : SegReview.LocSym g
   lsymU : SegReview.LocSymUp g
@@ -674,6 +763,7 @@ structure PState (g : GPathM) : Prop where
   below : ∀ n ∈ g.nodes, n.id.id.step < g.current_step
   oos : SelfOwn.OOS g
   snn : SelfOwn.SNN g
+  rootz : Sons.RootAtZero g
 
 /-- **La simetría local se conserva nodo a nodo en la pasada de padres.** La única hipótesis de la
 pasada; medida (`row-degree localsym`, semilla 1): 0 casos entre nodos vivos. -/
@@ -692,13 +782,15 @@ theorem pstate_reviewNode (hLS : LocSymStable) (g : GPathM) (h : PState g) (x : 
       i1 := i1L_reviewNode_parents g h.nd h.sgl h.i1 h.i1s h.self h.lsym h.nr h.below x hx1 hxc
       i1s := i1sL_reviewNode_parents g h.nd h.sgl h.i1 h.i1s h.self h.lsym h.lsymU h.nr x hx1 hxc
       plive := pLive_reviewNode g h.nd h.plive _ x
+      slive := sLive_reviewNode g h.nd h.slive _ x
       self := selfL_reviewNode g h.nd h.oos h.snn h.below h.self _ x
       lsym := hl
       lsymU := hlu
       nr := Parents.NotRoot_of_pruned hpr h.nr
       below := Certifies.nodes_below_of_pruned hpr h.below
       oos := SelfOwn.OOS_of_pruned hpr h.oos
-      snn := SelfOwn.SNN_of_pruned hpr h.snn }
+      snn := SelfOwn.SNN_of_pruned hpr h.snn
+      rootz := Sons.RootAtZero_of_pruned hpr h.rootz }
 
 theorem pstate_foldl (hLS : LocSymStable) (k : Int) (hk1 : 1 ≤ k) :
     ∀ (L : List PathNodeId) (g : GPathM), PState g → k ≤ g.current_step - 1 →
