@@ -342,4 +342,122 @@ theorem kept_reviewNode_parents (g : GPathM) (hsgl : SegGoodL g) (hI1 : I1L g) (
 
 
 
+/-- **Tras `reviewNode x` de la pasada de padres, lo vivo sigue vivo.** -/
+theorem live_reviewNode_parents (g : GPathM) (hsgl : SegGoodL g) (hI1 : I1L g) (hI1s : I1sL g)
+    (hself : SelfL g) (hlsym : SegReview.LocSym g) (hnr : Parents.NotRoot g)
+    (x : PathNodeId) (hx1 : 1 ≤ x.id.step) (hxc : x.id.step ≤ g.current_step - 1)
+    (r : PathNodeId) (hr : (g.node? r).isSome) :
+    ((reviewNode g (·.parents) x).node? r).isSome := by
+  if hrx : r = x then
+    subst hrx
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp hr
+    exact kept_reviewNode_parents g hsgl hI1 hI1s hself hlsym hnr r d hd hx1 hxc
+  else
+    exact survives_reviewNode g (·.parents) x r hr hrx
+
+/-- **`reviewNode x`, con los padres como vecinos, conserva `SegGoodL`.** La prueba del v179
+(`SegReview.segGood_reviewNode_parents`) con las hipótesis en su versión viva, que son las que la
+máquina cumple (`passhyp`): la entrada común que alarga el tramo es viva, así que es padre, y lo vivo
+sigue vivo porque `x` no se elimina. -/
+theorem segGoodL_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g) (hI1s : I1sL g)
+    (hplive : PLive g) (hself : SelfL g) (hlsym : SegReview.LocSym g) (hnr : Parents.NotRoot g)
+    (hseg : SegGoodL g) (x : PathNodeId) (hx1 : 1 ≤ x.id.step)
+    (hxc : x.id.step ≤ g.current_step - 1) :
+    SegGoodL (reviewNode g (·.parents) x) := by
+  have hpr := pruned_reviewNode (·.parents) x g
+  have live := live_reviewNode_parents g hseg hI1 hI1s hself hlsym hnr x hx1 hxc
+  have lift : ∀ y n', (reviewNode g (·.parents) x).node? y = some n' →
+      ∃ n, g.node? y = some n ∧ (∀ q ∈ n'.owners, q ∈ n.owners) ∧
+        (∀ p ∈ n'.parents, p ∈ n.parents) ∧ (y ≠ x → n'.owners = n.owners) ∧
+        (y = x → n'.owners = intersectOwners n.owners (unionOwnersOf g n.parents)) := by
+    intro y n' h
+    obtain ⟨n, hn, hne, heq⟩ := SegReview.reviewNode_owners g hnd (·.parents) x y n' h
+    obtain ⟨n0, hn0, hid0, hown0, hpar0⟩ := hpr.nodes_derived n' (List.mem_of_find?_eq_some h)
+    have hy : n'.id = y := node?_id_eq _ y n' h
+    have hn0' : g.node? y = some n0 := by rw [← hy, hid0]; exact node?_of_mem hnd n0 hn0
+    rw [hn] at hn0'; cases hn0'
+    exact ⟨n, hn, hown0, hpar0, hne, heq⟩
+  intro sel lo hi hlo0 hlohi hhi hch' hpw' i hi0 hic hout
+  rw [hpr.step_eq] at hhi hic
+  have hsG : TopGoodUp.Seg g sel lo hi := by
+    refine ⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun a b ha1 hb1 ha2 hb2 hab nb hnb => ?_⟩
+    · obtain ⟨hs, hjs⟩ := hch'.1 j hj1 hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _⟩ := lift _ m hm
+      exact ⟨by rw [hn]; rfl, hjs⟩
+    · obtain ⟨hs, _⟩ := hch'.1 (j + 1) (by omega) hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _, hpar, _⟩ := lift _ m hm
+      have hl := hch'.2 j hj1 hj2
+      rw [hm] at hl
+      rw [hn]
+      simp only [Option.map_some, Option.getD_some] at hl ⊢
+      exact hpar _ hl
+    · obtain ⟨hs, _⟩ := hch'.1 b hb1 hb2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, hown, _⟩ := lift _ m hm
+      rw [← Option.some.inj (hn.symm.trans hnb)]
+      exact hown _ (hpw' a b ha1 hb1 ha2 hb2 hab m hm)
+  have keep : ∀ r, (∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) →
+      (∀ j, lo ≤ j → j ≤ hi → sel j = x → ∀ nj, g.node? (sel j) = some nj →
+        ∃ p ∈ nj.parents, ∃ np, g.node? p = some np ∧ r ∈ np.owners) →
+      ∀ j, lo ≤ j → j ≤ hi → ∀ nj', (reviewNode g (·.parents) x).node? (sel j) = some nj' →
+        r ∈ nj'.owners := by
+    intro r hr hx j hj1 hj2 nj' hnj'
+    obtain ⟨n, hn, _, _, hne, heq⟩ := lift _ nj' hnj'
+    if hjx : sel j = x then
+      rw [heq hjx]
+      obtain ⟨p, hp, np, hnp, hrp⟩ := hx j hj1 hj2 hjx n hn
+      exact SegReview.mem_intersect_of_parent g n r (hr j hj1 hj2 n hn) p hp np hnp hrp
+    else
+      rw [hne hjx]; exact hr j hj1 hj2 n hn
+  obtain ⟨hlsome, hls⟩ := hsG.1.1 lo (Int.le_refl _) hlohi
+  obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hlsome
+  if hlx : sel lo = x then
+    have hlo1 : 1 ≤ lo := by rw [← hls, hlx]; exact hx1
+    obtain ⟨r0, hr0s, hr0l, hr0all⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 (lo - 1) (by omega)
+      (by omega) (Or.inl (by omega))
+    have hr0p : r0 ∈ nl.parents :=
+      hI1 _ nl hnl r0 (hr0all lo (Int.le_refl _) hlohi nl hnl) hr0l (by rw [hr0s, hls]; omega)
+    obtain ⟨nr0, hnr0⟩ := Option.isSome_iff_exists.mp (hplive _ nl hnl r0 hr0p)
+    have hback := hlsym sel lo hi hlohi hsG r0 nr0 hnr0 hr0s hr0all
+    have hs' := SegReview.seg_extend g sel lo hi hlohi hsG r0 nr0 hnr0 hr0s
+      (fun nl' hnl' => by rw [← Option.some.inj (hnl.symm.trans hnl')]; exact hr0p) hr0all hback
+    have hxonly : ∀ j, lo ≤ j → j ≤ hi → sel j = x → j = lo := by
+      intro j hj1 hj2 hjx
+      have := (hsG.1.1 j hj1 hj2).2
+      rw [hjx, ← hlx, hls] at this; omega
+    rcases int_eq_or_ne i (lo - 1) with hie | hie
+    · refine ⟨r0, by omega, live r0 hr0l, keep r0 hr0all (fun j hj1 hj2 hjx nj hnj => ?_)⟩
+      rw [hxonly j hj1 hj2 hjx] at hnj
+      rw [← Option.some.inj (hnl.symm.trans hnj)]
+      exact ⟨r0, hr0p, nr0, hnr0, hself _ nr0 hnr0⟩
+    · obtain ⟨r, hrs, hrl, hrall⟩ := hseg _ (lo - 1) hi (by omega) (by omega) hhi hs'.1 hs'.2 i hi0
+        hic (by omega)
+      have hr : ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners := by
+        intro j hj1 hj2 nj hnj
+        have := hrall j (by omega) hj2 nj
+        rw [upd_other sel (lo - 1) r0 (by omega)] at this
+        exact this hnj
+      refine ⟨r, hrs, live r hrl, keep r hr (fun j hj1 hj2 hjx nj hnj => ?_)⟩
+      rw [hxonly j hj1 hj2 hjx] at hnj
+      rw [← Option.some.inj (hnl.symm.trans hnj)]
+      have hrr0 := hrall (lo - 1) (Int.le_refl _) (by omega) nr0
+      rw [upd_self] at hrr0
+      exact ⟨r0, hr0p, nr0, hnr0, hrr0 hnr0⟩
+  else
+    obtain ⟨r, hrs, hrl, hrall⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 i hi0 hic hout
+    refine ⟨r, hrs, live r hrl, keep r hrall (fun j hj1 hj2 hjx nj hnj => ?_)⟩
+    have hjlo : j ≠ lo := fun h => hlx (by rw [← h]; exact hjx)
+    obtain ⟨hps, _⟩ := hsG.1.1 (j - 1) (by omega) (by omega)
+    obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp hps
+    have hl := hsG.1.2 (j - 1) (by omega) (by omega)
+    rw [show j - 1 + 1 = j by omega, hnj] at hl
+    simp only [Option.map_some, Option.getD_some] at hl
+    exact ⟨sel (j - 1), hl, np, hnp, hrall (j - 1) (by omega) (by omega) np hnp⟩
+
+/-- info: 'AbsSat.GraphPath.Model.PassCtx.segGoodL_reviewNode_parents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGoodL_reviewNode_parents
+
 end AbsSat.GraphPath.Model.PassCtx
