@@ -219,6 +219,7 @@ import AbsSat.GraphPath.Model.SegReview
 import AbsSat.GraphPath.Model.FullExt
 import AbsSat.GraphPath.Model.ReaderLadder
 import AbsSat.GraphPath.Model.LineSelf
+import AbsSat.GraphPath.Model.LineExt
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid
