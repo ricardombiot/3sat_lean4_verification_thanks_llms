@@ -3510,6 +3510,128 @@ def reportMI (name : String) (a : MIAcc) (ms : Nat) : IO Unit := do
   row "barrido, por nodo      " a.agg
   IO.println s!"   ({ms} ms)"
 
+/-! **`localsym`: la simetría que la prueba usa, y solo ésa.** En cada estado intermedio de las pasadas
+de padres e hijos, para cada tramo (de abajo arriba) se toman las entradas comunes `r₀` del paso
+justo debajo del tramo (y, en espejo, del paso justo encima): ¿tiene `r₀` a todos los miembros del
+tramo en su tabla? Se cuenta por pares (tramo, `r₀`) —la versión «para toda»— y por tramo —«existe
+alguna `r₀` simétrica»—, que es lo que la prueba necesita. -/
+
+partial def collectDown (g : GPathM) (P : List PathNodeId) (acc : List (List PathNodeId) × Nat) :
+    List (List PathNodeId) × Nat :=
+  let (out, budget) := acc
+  if budget == 0 then acc
+  else
+    match P with
+    | [] => acc
+    | low :: _ =>
+      let ps := match g.node? low with
+        | some n => n.parents.filter (fun p => P.all (fun y => mutuallyOwn g p y))
+        | none => []
+      ps.foldl (fun acc p => collectDown g (p :: P) acc) (P :: out, budget - 1)
+
+structure LSCell where
+  states : Nat := 0
+  segs   : Nat := 0
+  pairs  : Nat := 0
+  pairsBad : Nat := 0
+  segsWith : Nat := 0     -- tramos con alguna r₀ (hay entrada común en el paso)
+  segsNone : Nat := 0     -- ... y ninguna r₀ es simétrica
+  badDead : Nat := 0      -- r₀ no simétricas que no son nodo vivo
+  first  : String := ""
+  deriving Repr
+
+def commonAt (g : GPathM) (P : List PathNodeId) (i : Int) : List PathNodeId :=
+  match P with
+  | [] => []
+  | x :: rest => (ownersAt (tableOfAO g x) i).filter (fun r => rest.all (fun y => (tableOfAO g y).contains r))
+
+def checkLS (label : String) (g : GPathM) (cap budget : Nat) (c : LSCell) : LSCell := Id.run do
+  if !isValid g then return c
+  let mut c := { c with states := c.states + 1 }
+  for n in g.nodes.take cap do
+    let (segs, _) := collectDown g [n.id] ([], budget)
+    for P in segs do
+      c := { c with segs := c.segs + 1 }
+      -- abajo: P va de abajo arriba
+      for (edge, i) in [(P.head?, (P.head?.map (·.id.step)).getD 0 - 1),
+                        (P.getLast?, (P.getLast?.map (·.id.step)).getD 0 + 1)] do
+        if edge.isSome && i ≥ 0 && i < g.current_step then
+          let rs := commonAt g P i
+          if !rs.isEmpty then
+            let sym := rs.filter (fun r => P.all (fun y => (tableOfAO g r).contains y))
+            let dead := (rs.filter (fun r => !(P.all (fun y => (tableOfAO g r).contains y)) && (g.node? r).isNone)).length
+            c := { c with pairs := c.pairs + rs.length, pairsBad := c.pairsBad + (rs.length - sym.length)
+                        , badDead := c.badDead + dead
+                        , segsWith := c.segsWith + 1
+                        , segsNone := c.segsNone + (if sym.isEmpty then 1 else 0)
+                        , first := if c.first == "" && sym.isEmpty then
+                            s!"{label} tramo {P.map (·.id.step)} paso {i}" else c.first }
+  return c
+
+structure LSAcc where
+  formulas : Nat := 0
+  par  : LSCell := {}
+  sons : LSCell := {}
+  deriving Repr
+
+def instrStepsLS (lab : String) (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (cap budget : Nat) (c0 : LSCell) : GPathM × LSCell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      g := reviewNode g nb id
+      c := checkLS s!"{lab} nodo@{id.id.step}" g cap budget c
+  return (g, c)
+
+def reviewLS (lab : String) (F : GPathM) (cap budget : Nat) (a : LSAcc) : LSAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        let h := cleanInvalid g
+        let (h2, cp) := instrStepsLS s!"{lab} padres" h (·.parents) (intRange 1 (h.current_step - 1)) cap budget a.par
+        a := { a with par := cp }
+        let (h3, cs) := instrStepsLS s!"{lab} hijos" h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse cap budget a.sons
+        a := { a with sons := cs }
+        g := h3
+        if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g2 := AggressiveReview.aggSweep g
+      if GPathM.measure g2 < GPathM.measure g then g := g2 else outer := 0
+  return a
+
+def runFormulaLS (label : String) (φ : Cnf) (cap budget : Nat) (a : LSAcc) : LSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewLS s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
+def reportLS (name : String) (a : LSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  let row (lbl : String) (c : LSCell) : IO Unit := do
+    IO.println s!"   {lbl}: estados {c.states}, tramos {c.segs}"
+    IO.println s!"      pares (tramo, r₀) {c.pairs}, r₀ NO simetrica {c.pairsBad} (de ellas, id de nodo muerto: {c.badDead})"
+    IO.println s!"      bordes con alguna r₀ {c.segsWith}, sin ninguna r₀ simetrica {c.segsNone}"
+    if c.first != "" then IO.println s!"      primero: {c.first}"
+  row "pasada padres, por nodo" a.par
+  row "pasada hijos, por nodo " a.sons
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3686,6 +3808,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "localsym" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaLS path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportLS path a (t1 - t0)
+  | "localsym" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : LSAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaLS s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportLS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "midinv" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
