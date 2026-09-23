@@ -5708,6 +5708,88 @@ def reportCP (name : String) (a : CPAcc) (ms : Nat) : IO Unit := do
   reportPHCell "PINES salida de cleanInvalid " a.routput
   IO.println s!"   ({ms} ms)"
 
+/-! **`doomed`: los tramos que `cleanInvalid` deja sin entrada común viva, ¿mueren?** En los pines del
+lector (y en los envíos), tras cada `cleanInvalid` de cada vuelta: para cada tramo que viola
+`SegGoodL` (algún paso fuera sin entrada común viva), ¿sigue siendo tramo tras el review completo
+(`reviewAgg` del filtrado)? ¿y tras la pasada de padres e hijos de esa misma vuelta? -/
+
+structure DMAcc where
+  formulas : Nat := 0
+  bad : Nat := 0
+  badDieRound : Nat := 0
+  badDieFinal : Nat := 0
+  badSurvive : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def badSegs (g : GPathM) : List (List PathNodeId) := Id.run do
+  let mut out : List (List PathNodeId) := []
+  for x in g.nodes.take 20 do
+    let (segs, _) := collectDown g [x.id] ([], 30)
+    for P in segs do
+      match P.head?, P.getLast? with
+      | some lo, some hi =>
+        let tabs := P.filterMap (fun y => (g.node? y).map (·.owners))
+        let mut bad := false
+        for i in intRange 0 (g.current_step - 1) do
+          if i < lo.id.step || hi.id.step < i then
+            let common := (ownersAt (tabs.headD []) i).filter (fun r => tabs.all (fun t => t.contains r))
+            if !common.any (fun r => (g.node? r).isSome) then bad := true
+        if bad then out := P :: out
+      | _, _ => pure ()
+  return out
+
+def reviewDM (lab : String) (F : GPathM) (a : DMAcc) : DMAcc := Id.run do
+  let R := AggressiveReview.reviewAgg F
+  let mut a := a
+  let mut g := F
+  let mut fuel := GPathM.measure g + 1
+  while fuel > 0 do
+    fuel := fuel - 1
+    if !isValid g then fuel := 0
+    else
+      let g0 := g
+      let h := cleanInvalid g
+      let h3 := reviewSons (reviewParents h)
+      if isValid h then
+        for P in badSegs h do
+          let dieRound := !(isValid h3 && isSegment h3 P)
+          let dieFinal := !(isValid R && isSegment R P)
+          a := { a with bad := a.bad + 1, badDieRound := a.badDieRound + (if dieRound then 1 else 0)
+                      , badDieFinal := a.badDieFinal + (if dieFinal then 1 else 0)
+                      , badSurvive := a.badSurvive + (if dieFinal then 0 else 1)
+                      , first := if a.first == "" && !dieFinal then s!"{lab} tramo {P.map (·.id.step)}" else a.first }
+      g := h3
+      if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+  return a
+
+partial def walkDM (lab : String) (g : GPathM) (fuel : Nat) (a : DMAcc) : DMAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewDM lab ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkDM lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaDM (label : String) (φ : Cnf) (a : DMAcc) : DMAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkDM s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportDM (name : String) (a : DMAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   tramos sin entrada comun viva tras cleanInvalid (pines del lector): {a.bad}"
+  IO.println s!"     mueren en esa misma vuelta (padres + hijos): {a.badDieRound}   mueren al final del review: {a.badDieFinal}   SOBREVIVEN: {a.badSurvive}"
+  if a.first != "" then IO.println s!"   primero que sobrevive: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -6341,6 +6423,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "doomed" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaDM path φ {})
+        let t1 ← IO.monoMsNow
+        reportDM path a (t1 - t0)
+  | "doomed" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : DMAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaDM s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportDM s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
