@@ -656,4 +656,95 @@ theorem i1sL_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL
 #guard_msgs in
 #print axioms i1sL_reviewNode_parents
 
+-- ============================================================
+-- La pasada de padres entera
+-- ============================================================
+
+/-- **Lo que un estado de la pasada de padres lleva.** -/
+structure PState (g : GPathM) : Prop where
+  nd : NodupIds g
+  sgl : SegGoodL g
+  i1 : I1L g
+  i1s : I1sL g
+  plive : PLive g
+  self : SelfL g
+  lsym : SegReview.LocSym g
+  lsymU : SegReview.LocSymUp g
+  nr : Parents.NotRoot g
+  below : ∀ n ∈ g.nodes, n.id.id.step < g.current_step
+  oos : SelfOwn.OOS g
+  snn : SelfOwn.SNN g
+
+/-- **La simetría local se conserva nodo a nodo en la pasada de padres.** La única hipótesis de la
+pasada; medida (`row-degree localsym`, semilla 1): 0 casos entre nodos vivos. -/
+def LocSymStable : Prop :=
+  ∀ g x, PState g → 1 ≤ x.id.step → x.id.step ≤ g.current_step - 1 →
+    SegReview.LocSym (reviewNode g (·.parents) x) ∧ SegReview.LocSymUp (reviewNode g (·.parents) x)
+
+theorem pstate_reviewNode (hLS : LocSymStable) (g : GPathM) (h : PState g) (x : PathNodeId)
+    (hx1 : 1 ≤ x.id.step) (hxc : x.id.step ≤ g.current_step - 1) :
+    PState (reviewNode g (·.parents) x) := by
+  have hpr := pruned_reviewNode (·.parents) x g
+  obtain ⟨hl, hlu⟩ := hLS g x h hx1 hxc
+  exact
+    { nd := List.Nodup.sublist (NodeIds.ids_reviewNode g (·.parents) x) h.nd
+      sgl := segGoodL_reviewNode_parents g h.nd h.i1 h.i1s h.plive h.self h.lsym h.nr h.sgl x hx1 hxc
+      i1 := i1L_reviewNode_parents g h.nd h.sgl h.i1 h.i1s h.self h.lsym h.nr h.below x hx1 hxc
+      i1s := i1sL_reviewNode_parents g h.nd h.sgl h.i1 h.i1s h.self h.lsym h.lsymU h.nr x hx1 hxc
+      plive := pLive_reviewNode g h.nd h.plive _ x
+      self := selfL_reviewNode g h.nd h.oos h.snn h.below h.self _ x
+      lsym := hl
+      lsymU := hlu
+      nr := Parents.NotRoot_of_pruned hpr h.nr
+      below := Certifies.nodes_below_of_pruned hpr h.below
+      oos := SelfOwn.OOS_of_pruned hpr h.oos
+      snn := SelfOwn.SNN_of_pruned hpr h.snn }
+
+theorem pstate_foldl (hLS : LocSymStable) (k : Int) (hk1 : 1 ≤ k) :
+    ∀ (L : List PathNodeId) (g : GPathM), PState g → k ≤ g.current_step - 1 →
+      (∀ id ∈ L, id.id.step = k) →
+      PState (L.foldl (fun g id => reviewNode g (·.parents) id) g) := by
+  intro L
+  induction L with
+  | nil => intro g h _ _; exact h
+  | cons x xs ih =>
+    intro g h hkc hL
+    have hxs := hL x List.mem_cons_self
+    have hstep := (pruned_reviewNode (·.parents) x g).step_eq
+    exact ih _ (pstate_reviewNode hLS g h x (by omega) (by omega)) (by rw [hstep]; exact hkc)
+      (fun id hid => hL id (List.mem_cons_of_mem _ hid))
+
+theorem pstate_reviewLine (hLS : LocSymStable) (k : Int) (hk1 : 1 ≤ k) (g : GPathM)
+    (h : PState g) (hkc : k ≤ g.current_step - 1) : PState (reviewLine g (·.parents) k) := by
+  refine pstate_foldl hLS k hk1 _ g h hkc (fun id hid => ?_)
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hid
+  exact eq_of_beq (List.mem_filter.mp hn).2
+
+theorem pstate_reviewSteps (hLS : LocSymStable) (c : Int) :
+    ∀ (ks : List Int) (g : GPathM), PState g → g.current_step - 1 = c →
+      (∀ k ∈ ks, 1 ≤ k ∧ k ≤ c) → PState (reviewSteps g (·.parents) ks) := by
+  intro ks
+  induction ks with
+  | nil => intro g h _ _; exact h
+  | cons k ks ih =>
+    intro g h hc hks
+    unfold reviewSteps
+    split
+    · have hk := hks k List.mem_cons_self
+      have hstep := (pruned_reviewLine (·.parents) k g).step_eq
+      exact ih _ (pstate_reviewLine hLS k hk.1 g h (by omega)) (by rw [hstep]; exact hc)
+        (fun k' hk' => hks k' (List.mem_cons_of_mem _ hk'))
+    · exact h
+
+/-- **La pasada de padres entera conserva `PState`, y con él `SegGoodL`.** Única hipótesis:
+`LocSymStable`. -/
+theorem pstate_reviewParents (hLS : LocSymStable) (g : GPathM) (h : PState g) :
+    PState (reviewParents g) :=
+  pstate_reviewSteps hLS (g.current_step - 1) _ g h rfl
+    (fun _ hk => ⟨mem_intRange_lower hk, mem_intRange_upper hk⟩)
+
+/-- info: 'AbsSat.GraphPath.Model.PassCtx.pstate_reviewParents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pstate_reviewParents
+
 end AbsSat.GraphPath.Model.PassCtx
