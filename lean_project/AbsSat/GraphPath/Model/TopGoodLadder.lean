@@ -113,4 +113,26 @@ theorem readerVerdictW_iff_of_readerTopGood (h : ReaderTopGood) (φ : Cnf) (hwf 
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_readerTopGood
 
+-- ============================================================
+-- Hacia la pasada entera: lo que no toca las tablas
+-- ============================================================
+
+/-- **Un pin no toca las tablas de los nodos**, solo la global: conserva `TopGood` tal cual. -/
+theorem topGood_filterRequire (g : GPathM) (req : NodeId) (h : TopGoodUp.TopGood g) :
+    TopGoodUp.TopGood (filterRequire g req) := h
+
+/-- **El filtro débil tampoco.** -/
+theorem topGood_filterWeak (g : GPathM) (e : Int × List NodeId) (h : TopGoodUp.TopGood g) :
+    TopGoodUp.TopGood (PureDriverImproves.filterWeak g e) := h
+
+theorem topGood_foldl_filterRequire (reqs : List NodeId) :
+    ∀ g : GPathM, TopGoodUp.TopGood g → TopGoodUp.TopGood (reqs.foldl filterRequire g) := by
+  induction reqs with
+  | nil => intro g h; exact h
+  | cons r rs ih => intro g h; exact ih _ (topGood_filterRequire g r h)
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodLadder.topGood_foldl_filterRequire' does not depend on any axioms -/
+#guard_msgs in
+#print axioms topGood_foldl_filterRequire
+
 end AbsSat.GraphPath.Model.TopGoodLadder
