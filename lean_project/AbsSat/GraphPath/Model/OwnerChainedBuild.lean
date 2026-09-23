@@ -800,16 +800,17 @@ que trabaja.
 La inducción va sobre el paso: en el 0 los dos son raíces y las dos coordenadas de ventana son
 `none`; y arriba, los padres son iguales por la hipótesis de inducción, luego las ventanas
 coinciden. -/
-theorem path_eq_of_mapSingle (g : GPathM) (ctx : Pinned.Ctx g) (links : Bridge.LinksInOwners g)
-    (hsingle : ∀ k, 0 ≤ k → k < g.current_step → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
-      p.id.step = k → q.id.step = k → p.id = q.id) :
-    ∀ (d : Nat) (u v : PathNodeId), u ∈ g.gowners → v ∈ g.gowners →
+theorem path_eq_of_mapSingle (g : GPathM) (ctx : Pinned.Ctx g) (links : Bridge.LinksInOwners g) :
+    ∀ (d : Nat),
+      (∀ k, 0 ≤ k → k ≤ (d : Int) → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
+        p.id.step = k → q.id.step = k → p.id = q.id) →
+      ∀ (u v : PathNodeId), u ∈ g.gowners → v ∈ g.gowners →
       u.id.step = (d : Int) → v.id.step = (d : Int) → (d : Int) < g.current_step → u = v := by
   intro d
   induction d with
   | zero =>
-    intro u v hu hv hus hvs hcs
-    have hmap := hsingle 0 (Int.le_refl 0) (by exact_mod_cast hcs) u hu v hv
+    intro hsingle u v hu hv hus hvs hcs
+    have hmap := hsingle 0 (Int.le_refl 0) (by exact_mod_cast (Int.le_refl (0:Int))) u hu v hv
       (by exact_mod_cast hus) (by exact_mod_cast hvs)
     obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g u).mp (ctx.gn u hu))
     obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g v).mp (ctx.gn v hv))
@@ -825,10 +826,13 @@ theorem path_eq_of_mapSingle (g : GPathM) (ctx : Pinned.Ctx g) (links : Bridge.L
       rw [← hiv]; exact ctx.gpmp.2 nv (List.mem_of_find?_eq_some hnv) (by rw [hiv]; exact hpv)
     cases u; cases v; simp_all
   | succ n ih =>
-    intro u v hu hv hus hvs hcs
+    intro hsingle u v hu hv hus hvs hcs
     have hcast : ((n + 1 : Nat) : Int) = (n : Int) + 1 := by push_cast; omega
     rw [hcast] at hus hvs hcs
-    have hmap := hsingle ((n : Int) + 1) (by omega) hcs u hu v hv hus hvs
+    have hsingle' : ∀ k, 0 ≤ k → k ≤ (n : Int) → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
+        p.id.step = k → q.id.step = k → p.id = q.id :=
+      fun k hk0 hkn => hsingle k hk0 (by omega)
+    have hmap := hsingle ((n : Int) + 1) (by omega) (by omega) u hu v hv hus hvs
     obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g u).mp (ctx.gn u hu))
     obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff g v).mp (ctx.gn v hv))
     have hiu := node?_id_eq g u nu hnu
@@ -857,7 +861,7 @@ theorem path_eq_of_mapSingle (g : GPathM) (ctx : Pinned.Ctx g) (links : Bridge.L
       ctx.ownGow u nu hnu p ((links u nu hnu).1 p hp) (by rw [hps]; omega) (by rw [hps]; omega)
     have hqg : q ∈ g.gowners :=
       ctx.ownGow v nv hnv q ((links v nv hnv).1 q hq) (by rw [hqs]; omega) (by rw [hqs]; omega)
-    have hpq : p = q := ih p q hpg hqg hps hqs (by omega)
+    have hpq : p = q := ih hsingle' p q hpg hqg hps hqs (by omega)
     have hpu : u.parent_id = some p.id := by
       rw [← hiu]; exact (ctx.pmp nu hmu p hp).symm
     have hpv : v.parent_id = some q.id := by
@@ -913,7 +917,8 @@ theorem tableChainOwned_of_globalMapSingle (g : GPathM) (hok : AggFixpoint.AggOk
       p.id.step = k → q.id.step = k → p = q := by
     intro k hk0 hk1 p hp q hq hps hqs
     have hcast : ((k.toNat : Nat) : Int) = k := by omega
-    exact path_eq_of_mapSingle g ctx links hmap k.toNat p q hp hq
+    exact path_eq_of_mapSingle g ctx links k.toNat
+      (fun j hj0 hjk => hmap j hj0 (by omega)) p q hp hq
       (by rw [hcast]; exact hps) (by rw [hcast]; exact hqs) (by rw [hcast]; exact hk1)
   refine tableChainOwned_of_singleSteps g hok ctx hrange (fun a na hna i hi0 hi1 => ?_)
   intro u hu hus v hv hvs
@@ -944,5 +949,69 @@ O sea: la misma inducción que cerró `PinAlive`, ahora dentro de una tabla. -/
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableChainOwned_of_globalMapSingle' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms tableChainOwned_of_globalMapSingle
+
+-- ============================================================
+-- Por debajo de la frontera de lectura, cerrado
+-- ============================================================
+
+/-- **Todo par cuyo extremo bajo esté en la zona ya pinchada está cerrado.**
+
+No hace falta que el estado entero haya perdido la elección: basta que la haya perdido **por debajo
+del paso del par**. Las tres piezas se encadenan solas:
+
+* `path_eq_of_mapSingle` con la hipótesis acotada al prefijo —la ventana de un nodo del paso `i`
+  queda determinada por los ids de mapa de los pasos `≤ i`, no por los de arriba—;
+* `hostSingle_of_globalSingle` la baja de la tabla global a la del anfitrión;
+* y `mem_owners_of_singleAt` la cobra con `AggOk`.
+
+Y esto encaja con **cómo lee tu lector**: `ReaderExec.firstChoice` toma el paso **más bajo** con
+elección, así que la zona pinchada es siempre un prefijo `0 … m-1` y crece de uno en uno. Cada pin
+cierra un paso más de pares.
+
+Nótese además dónde se necesita `OwnerChained`: `ReaderChain.pinReachable_of_ownerChained` la usa
+**solo en el paso del pin**, que es justo el paso más bajo con elección. Es decir, el pin que el
+lector está a punto de hacer siempre está en la frontera, con todo lo de abajo ya fijado. -/
+theorem mem_owners_of_pinnedPrefix (g : GPathM) (hok : AggFixpoint.AggOk g) (ctx : Pinned.Ctx g)
+    (links : Bridge.LinksInOwners g) (m : Int)
+    (hpref : ∀ k, 0 ≤ k → k < m → ∀ p ∈ g.gowners, ∀ q ∈ g.gowners,
+      p.id.step = k → q.id.step = k → p.id = q.id)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (ha0 : 0 ≤ a.id.step) (ha1 : a.id.step < g.current_step)
+    (i : Int) (hi0 : 0 ≤ i) (him : i < m) (hi1 : i < g.current_step)
+    (u : PathNodeId) (hu : u ∈ na.owners) (hus : u.id.step = i)
+    (y : PathNodeId) (ny : PNodeM) (hny : g.node? y = some ny)
+    (hy0 : 0 ≤ y.id.step) (hy1 : y.id.step < g.current_step)
+    (hyn : y ∈ na.owners) : u ∈ ny.owners := by
+  have hcast : ((i.toNat : Nat) : Int) = i := by omega
+  have hpath : ∀ p ∈ g.gowners, ∀ q ∈ g.gowners, p.id.step = i → q.id.step = i → p = q := by
+    intro p hp q hq hps hqs
+    exact path_eq_of_mapSingle g ctx links i.toNat
+      (fun j hj0 hji => hpref j hj0 (by rw [hcast] at hji; omega)) p q hp hq
+      (by rw [hcast]; exact hps) (by rw [hcast]; exact hqs) (by rw [hcast]; exact hi1)
+  exact mem_owners_of_singleAt g hok ctx a na hna ha0 ha1 i hi0 hi1 u hu hus
+    (fun v hv hvs => hostSingle_of_globalSingle g ctx a na hna i hi0 hi1 hpath u hu hus v hv hvs)
+    y ny hny hy0 hy1 hyn
+
+/-! ## El hueco, ya solo por encima de la frontera
+
+Lo que queda de `TableChainOwned` es:
+
+> los pares de la cadena cuyo extremo bajo está **por encima** del paso más bajo con elección.
+
+Y hay dos cosas que conviene anotar de ese enunciado:
+
+* **la mitad de abajo ya no vuelve a aparecer**: un paso, una vez pinchado, se queda pinchado
+  (`TablesSoundBuild.singleIdAt_of_pruned`), así que la frontera solo sube y el residuo solo
+  encoge;
+* **y el lector solo necesita `OwnerChained` en la frontera**, no en todo el estado
+  (`pinReachable_of_ownerChained` la usa solo en el paso del pin). Así que lo que falta no es la
+  posesión entre pares arbitrarios de la tabla: es la posesión entre el nodo de la frontera y los
+  de arriba.
+
+Medido, ese residuo es el 4,7 % (`dos_de_tres`) y el 11,9 % (aleatorias) de los pares. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.mem_owners_of_pinnedPrefix' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mem_owners_of_pinnedPrefix
 
 end AbsSat.GraphPath.Model.OwnerChainedBuild
