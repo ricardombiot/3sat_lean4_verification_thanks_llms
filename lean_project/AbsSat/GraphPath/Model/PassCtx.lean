@@ -460,4 +460,141 @@ theorem segGoodL_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g
 #guard_msgs in
 #print axioms segGoodL_reviewNode_parents
 
+-- ============================================================
+-- La forma de `reviewNode` cuando `x` sobrevive, y la conservación de `I1L`
+-- ============================================================
+
+theorem beq_false_of_ne' (a b : PathNodeId) (h : a ≠ b) : (a == b) = false := by
+  cases hb : (a == b) with
+  | false => rfl
+  | true => exact absurd (eq_of_beq hb) h
+
+theorem removed_none (h : GPathM) (x : PathNodeId) : ((removeNode h x).node? x).isSome = false := by
+  cases hh : (removeNode h x).node? x with
+  | none => rfl
+  | some n => exact absurd rfl (SegReview.removeNode_ne _ x x n hh)
+
+/-- **Si `x` sobrevive, `reviewNode x` es cortar su tabla y desenlazar.** -/
+theorem kept_form (g : GPathM) (nb : PNodeM → List PathNodeId) (x : PathNodeId) (d : PNodeM)
+    (hd : g.node? x = some d) (hk : ((reviewNode g nb x).node? x).isSome = true) :
+    reviewNode g nb x = unlinkIncompatible (updateAt g x
+      (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) x := by
+  unfold reviewNode at hk ⊢
+  rw [hd] at hk ⊢
+  dsimp only at hk ⊢
+  split
+  · rename_i hv1
+    rw [if_pos hv1] at hk
+    split
+    · rfl
+    · rename_i hv2
+      rw [if_neg hv2, removed_none] at hk
+      exact Bool.noConfusion hk
+  · rename_i hv1
+    rw [if_neg hv1, removed_none] at hk
+    exact Bool.noConfusion hk
+
+/-- **El nodo `y` tras `reviewNode x`, si `x` sobrevive**: el de antes, desenlazado contra la nueva
+tabla de `x`. -/
+theorem node_after (g : GPathM) (nb : PNodeM → List PathNodeId) (x : PathNodeId) (d : PNodeM)
+    (hd : g.node? x = some d) (hk : ((reviewNode g nb x).node? x).isSome = true)
+    (y : PathNodeId) (n : PNodeM) (hn : g.node? y = some n) :
+    (reviewNode g nb x).node? y =
+      some (unlinkMap { d with owners := intersectOwners d.owners (unionOwnersOf g (nb d)) } x
+        (if y = x then { d with owners := intersectOwners d.owners (unionOwnersOf g (nb d)) }
+          else n)) := by
+  rw [kept_form g nb x d hd hk]
+  have hux : (updateAt g x
+      (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })).node? x
+      = some { d with owners := intersectOwners d.owners (unionOwnersOf g (nb d)) } := by
+    rw [updateAt_node? g x (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }) (fun _ => rfl) x d hd,
+      show (d.id == x) = true from beq_iff_eq.mpr (node?_id_eq g x d hd)]
+  if hyx : y = x then
+    subst hyx
+    rw [if_pos rfl]
+    exact unlinkIncompatible_node? _ y _ hux y _ hux
+  else
+    rw [if_neg hyx]
+    have huy : (updateAt g x
+        (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })).node? y
+        = some n := by
+      rw [updateAt_node? g x (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }) (fun _ => rfl) y n hn,
+        beq_false_of_ne' n.id x (by rw [node?_id_eq g y n hn]; exact hyx)]
+    exact unlinkIncompatible_node? _ x _ hux y n huy
+
+/-- **La pasada de padres conserva `I1L`.** El único caso con contenido: un hijo vivo `y` que tiene a
+`x` en su tabla. `LocSym` en `[y]` pone a `y` en la tabla de `x`, y en `[x, y]` en la de un padre
+de `x`; así que `y` queda en la nueva tabla de `x` y el desenlace no lo toca. -/
+theorem i1L_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL g) (hI1 : I1L g)
+    (hI1s : I1sL g) (hself : SelfL g) (hlsym : SegReview.LocSym g) (hnr : Parents.NotRoot g)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (x : PathNodeId) (hx1 : 1 ≤ x.id.step) (hxc : x.id.step ≤ g.current_step - 1) :
+    I1L (reviewNode g (·.parents) x) := by
+  have hsub := NodeIds.ids_reviewNode g (·.parents) x
+  have liveG : ∀ w, ((reviewNode g (·.parents) x).node? w).isSome → (g.node? w).isSome :=
+    fun w h => node_of_mem_ids g w (hsub.subset (mem_ids_of_node _ w h))
+  intro y ny hy w hw hwl hws
+  cases hd : g.node? x with
+  | none =>
+    have hR : reviewNode g (·.parents) x = g := by unfold reviewNode; rw [hd]
+    rw [hR] at hy hwl
+    exact hI1 y ny hy w hw hwl hws
+  | some d =>
+    have hk := kept_reviewNode_parents g hsgl hI1 hI1s hself hlsym hnr x d hd hx1 hxc
+    obtain ⟨n, hn, _, _⟩ := SegReview.reviewNode_owners g hnd (·.parents) x y ny hy
+    have hform := node_after g (·.parents) x d hd hk y n hn
+    rw [hy] at hform
+    have hny := Option.some.inj hform
+    have hwlg := liveG w hwl
+    if hyx : y = x then
+      subst hyx
+      rw [if_pos rfl, PinAliveChain.unlinkMap_self
+        { d with owners := intersectOwners d.owners (unionOwnersOf g d.parents) } y
+        (node?_id_eq g y d hd)] at hny
+      rw [hny] at hw ⊢
+      have hwd : w ∈ d.owners := (List.mem_filter.mp hw).1
+      have hwp := hI1 y d hd w hwd hwlg hws
+      exact List.mem_filter.mpr ⟨hwp, List.elem_iff.mpr hw⟩
+    else
+      rw [if_neg hyx] at hny
+      have hnid : n.id = y := node?_id_eq g y n hn
+      have hwn : w ∈ n.owners := by rw [hny, PinAliveChain.owners_unlinkMap] at hw; exact hw
+      have hwp := hI1 y n hn w hwn hwlg hws
+      if hwx : w = x then
+        subst hwx
+        -- `y` queda en la nueva tabla de `w` (= `x`)
+        have hnm : n ∈ g.nodes := List.mem_of_find?_eq_some hn
+        have hyc : y.id.step ≤ g.current_step - 1 := by have := hbelow n hnm; rw [hnid] at this; omega
+        have hsy := seg_single g y n hn
+        have hyd : y ∈ d.owners := hlsym (fun _ => y) y.id.step y.id.step (Int.le_refl _) hsy w d hd
+          (by omega) (fun _ _ _ nj hnj => by rw [← Option.some.inj (hn.symm.trans hnj)]; exact hwn)
+          y.id.step (Int.le_refl _) (Int.le_refl _)
+        have hs2 := SegReview.seg_extend g (fun _ => y) y.id.step y.id.step (Int.le_refl _) hsy w d hd
+          (by omega) (fun nl hnl => by rw [← Option.some.inj (hn.symm.trans hnl)]; exact hwp)
+          (fun _ _ _ nj hnj => by rw [← Option.some.inj (hn.symm.trans hnj)]; exact hwn)
+          (fun _ _ _ => hyd)
+        have hsel_w : upd (fun _ => y) (y.id.step - 1) w (y.id.step - 1) = w := upd_self _ _ _
+        have hsel_y : upd (fun _ => y) (y.id.step - 1) w y.id.step = y := upd_other _ _ _ (by omega)
+        obtain ⟨u, hus, hul, hu⟩ := hsgl _ (y.id.step - 1) y.id.step (by omega) (by omega) hyc
+          hs2.1 hs2.2 (y.id.step - 2) (by omega) (by omega) (Or.inl (by omega))
+        have hud : u ∈ d.owners := hu (y.id.step - 1) (Int.le_refl _) (by omega) d (by rw [hsel_w]; exact hd)
+        have hup : u ∈ d.parents := hI1 w d hd u hud hul (by omega)
+        obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp hul
+        have hyu : y ∈ nu.owners := by
+          have := hlsym _ (y.id.step - 1) y.id.step (by omega) hs2 u nu hnu (by omega) hu y.id.step
+            (by omega) (Int.le_refl _)
+          rw [hsel_y] at this; exact this
+        have hyT : y ∈ intersectOwners d.owners (unionOwnersOf g d.parents) :=
+          SegReview.mem_intersect_of_parent g d y hyd u hup nu hnu hyu
+        rw [PinAliveChain.unlinkMap_keeps _ _ _ (by rw [hnid]; exact hyx)
+          (by rw [hnid]; exact List.elem_iff.mpr hyT)] at hny
+        rw [hny]; exact hwp
+      else
+        rw [hny]
+        exact PinAliveChain.parents_unlinkMap_keeps _ x n (by rw [hnid]; exact hyx) w hwp hwx
+
+/-- info: 'AbsSat.GraphPath.Model.PassCtx.i1L_reviewNode_parents' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms i1L_reviewNode_parents
+
 end AbsSat.GraphPath.Model.PassCtx
