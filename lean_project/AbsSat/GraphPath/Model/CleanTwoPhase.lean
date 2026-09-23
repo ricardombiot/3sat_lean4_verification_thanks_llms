@@ -801,4 +801,155 @@ theorem reviewPass₂_review₂ (g : GPathM) (h : isValid (review₂ g) = true) 
 #guard_msgs in
 #print axioms reviewPass₂_review₂
 
+-- ============================================================
+-- No solution is lost (plan step 6, brick 5a)
+-- ============================================================
+
+/-! `ChainSound_cleanInvalid₂`: a sound chain — one node per step, linked by parents, owning each
+other, all in the global — survives. The cut first (`ChainSound_cutAll`): every chain node is an
+owner of every other one and a global entry, so it survives every cut, and the links between chain
+nodes are admitted from both ends. Then the purge: a chain node's cut is a node of the cut graph,
+which is sound, so it is valid (`isValidNode_of_chain`) — the purge never removes it. -/
+
+theorem node?_cutAll (g : GPathM) (pid : PathNodeId) :
+    (cutAll g).node? pid = (g.node? pid).map (cutNode g.gowners g) := by
+  simp only [GPathM.node?, cutAll, List.find?_map]
+  rfl
+
+theorem contains_cut (gow : List PathNodeId) (m : PNodeM) (q : PathNodeId) (hq : q ∈ m.owners)
+    (hg : q ∈ gow) : (cutOwners gow m).contains q = true :=
+  List.elem_eq_true_of_mem (mem_intersectOwners_of_mem _ _ q hq hg)
+
+theorem admits_of_node (gow : List PathNodeId) (g : GPathM) (p : PathNodeId) (n : PNodeM)
+    (hn : g.node? p = some n) (x : PathNodeId) (hx : x ∈ n.owners) (hg : x ∈ gow) :
+    admits gow g p x = true := by
+  unfold admits
+  rw [hn]
+  exact contains_cut gow n x hx hg
+
+/-- Pairwise ownership, read on a node. -/
+theorem owned_of_chain (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel)
+    (i j : Int) (hi : 0 ≤ i) (hj : 0 ≤ j) (hi' : i < g.current_step) (hj' : j < g.current_step)
+    (m : PNodeM) (hm : g.node? (sel j) = some m) : sel i ∈ m.owners := by
+  rcases int_eq_or_ne i j with hij | hij
+  · subst hij
+    have hs := h.self_owned i hi hi'
+    simp only [ownersOf, hm] at hs
+    exact hs
+  · have ho := h.chain.2.1 i j hi hj hi' hj' hij
+    simp only [ownersAt, List.mem_filter, ownersOf, hm] at ho
+    exact ho.1
+
+theorem ChainSound_cutAll (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel) :
+    ChainSound (cutAll g) sel := by
+  have hcs : (cutAll g).current_step = g.current_step := rfl
+  have hgow := h.chain.2.2
+  have hnodeAt : ∀ k, 0 ≤ k → k < g.current_step → ∃ m, g.node? (sel k) = some m := by
+    intro k hlo hhi
+    exact Option.isSome_iff_exists.mp (h.chain.1.1 k hlo hhi).1
+  refine ⟨⟨⟨?_, ?_⟩, ?_, ?_⟩, ?_, ?_, ?_⟩
+  · intro k hlo hhi
+    rw [hcs] at hhi
+    obtain ⟨m, hm⟩ := hnodeAt k hlo hhi
+    exact ⟨by rw [node?_cutAll, hm]; rfl, (h.chain.1.1 k hlo hhi).2⟩
+  · intro k hlo hhi
+    rw [hcs] at hhi
+    have hlink := h.chain.1.2 k hlo hhi
+    obtain ⟨m, hm⟩ := hnodeAt (k + 1) (by omega) hhi
+    obtain ⟨n, hn⟩ := hnodeAt k hlo (by omega)
+    have hmid : m.id = sel (k + 1) := node?_id_eq g _ m hm
+    rw [hm] at hlink
+    rw [node?_cutAll, hm]
+    simp only [Option.map_some, Option.getD_some] at hlink ⊢
+    simp only [cutNode, List.mem_filter, Bool.and_eq_true]
+    refine ⟨hlink, contains_cut _ m _ (owned_of_chain g sel h k (k + 1) hlo (by omega) (by omega)
+      hhi m hm) (hgow k hlo (by omega)), ?_⟩
+    rw [hmid]
+    exact admits_of_node _ g (sel k) n hn _ (owned_of_chain g sel h (k + 1) k (by omega) hlo hhi
+      (by omega) n hn) (hgow (k + 1) (by omega) hhi)
+  · intro i j hi hj hi' hj' hne
+    rw [hcs] at hi' hj'
+    obtain ⟨m, hm⟩ := hnodeAt j hj hj'
+    have ho := h.chain.2.1 i j hi hj hi' hj' hne
+    simp only [ownersAt, List.mem_filter, ownersOf, hm] at ho
+    simp only [ownersAt, List.mem_filter, ownersOf, node?_cutAll, hm, Option.map_some]
+    exact ⟨mem_intersectOwners_of_mem _ _ _ ho.1 (hgow i hi hi'), ho.2⟩
+  · intro k hlo hhi
+    exact hgow k hlo hhi
+  · intro k hlo hhi
+    rw [hcs] at hhi
+    obtain ⟨m, hm⟩ := hnodeAt k hlo hhi
+    simp only [ownersOf, node?_cutAll, hm, Option.map_some]
+    exact mem_intersectOwners_of_mem _ _ _ (owned_of_chain g sel h k k hlo hlo hhi hhi m hm)
+      (hgow k hlo hhi)
+  · intro k hlo hhi
+    rw [hcs] at hhi
+    have hs := h.son_link k hlo hhi
+    obtain ⟨m, hm⟩ := hnodeAt k hlo (by omega)
+    obtain ⟨n, hn⟩ := hnodeAt (k + 1) (by omega) hhi
+    have hmid : m.id = sel k := node?_id_eq g _ m hm
+    simp only [sonsOf, hm] at hs
+    simp only [sonsOf, node?_cutAll, hm, Option.map_some]
+    simp only [cutNode, List.mem_filter, Bool.and_eq_true]
+    refine ⟨hs, contains_cut _ m _ (owned_of_chain g sel h (k + 1) k (by omega) hlo hhi
+      (by omega) m hm) (hgow (k + 1) (by omega) hhi), ?_⟩
+    rw [hmid]
+    exact admits_of_node _ g (sel (k + 1)) n hn _ (owned_of_chain g sel h k (k + 1) hlo (by omega)
+      (by omega) hhi n hn) (hgow k hlo (by omega))
+  · exact ⟨h.root_shape.1, fun k hk hk' => h.root_shape.2 k hk (by rw [hcs] at hk'; exact hk')⟩
+
+/-- A chain node's cut is valid: it is a node of the cut graph, which carries the chain. -/
+theorem cut_valid_of_chain (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel)
+    (k : Int) (hlo : 0 ≤ k) (hhi : k < g.current_step) (n : PNodeM)
+    (hn : g.node? (sel k) = some n) : isValidNode g (cutNode g.gowners g n) = true := by
+  have hc := ChainSound_cutAll g sel h
+  have hn' : (cutAll g).node? (sel k) = some (cutNode g.gowners g n) := by
+    rw [node?_cutAll, hn]; rfl
+  exact isValidNode_of_chain (cutAll g) sel hc k _ hn' hlo hhi
+
+theorem ChainSound_purgeStep (g : GPathM) (id : PathNodeId) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) : ChainSound (purgeStep g id) sel := by
+  unfold purgeStep
+  split
+  · exact h
+  · next n hn =>
+    split
+    · exact h
+    · next hbad =>
+      refine ChainSound_removeNode g id sel h ?_
+      intro k hlo hhi hk
+      apply hbad
+      exact cut_valid_of_chain g sel h k hlo hhi n (by rw [hk]; exact hn)
+
+theorem ChainSound_purgeFuel (sel : Int → PathNodeId) :
+    ∀ (fuel : Nat) (g : GPathM), ChainSound g sel → ChainSound (purgeFuel fuel g) sel := by
+  have hround : ∀ g, ChainSound g sel → ChainSound (purgeRound g) sel := by
+    intro g hg
+    rw [purgeRound_eq]
+    generalize g.nodes.map (·.id) = ids
+    induction ids generalizing g with
+    | nil => exact hg
+    | cons id rest ih => exact ih _ (ChainSound_purgeStep g id sel hg)
+  intro fuel
+  induction fuel with
+  | zero => intro g hg; exact hg
+  | succ k ih =>
+    intro g hg
+    simp only [purgeFuel]
+    split
+    · split
+      · exact ih _ (hround g hg)
+      · exact hround g hg
+    · exact hg
+
+/-- **`cleanInvalid₂` loses no solution.** -/
+theorem ChainSound_cleanInvalid₂ (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel) :
+    ChainSound (cleanInvalid₂ g) sel :=
+  ChainSound_cutAll _ sel (ChainSound_purgeFuel sel _ g h)
+
+/-- info: 'AbsSat.GraphPath.Model.CleanTwoPhase.ChainSound_cleanInvalid₂' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ChainSound_cleanInvalid₂
+
 end AbsSat.GraphPath.Model.CleanTwoPhase
