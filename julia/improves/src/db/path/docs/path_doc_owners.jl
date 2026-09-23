@@ -140,6 +140,31 @@ module PathDocumentOwners
 
 
 
+    # ¿Quedaría válida owners_a tras intersect!(owners_a, owners_b)? Sin copiar ni modificar nada:
+    # devuelve lo mismo que is_valid(intersect!(deepcopy(owners_a), owners_b)). Basta con que en cada
+    # paso que tienen los dos haya UN id común, y se para en el primer paso que no lo tiene.
+    function is_valid_intersect(owners_a :: PathDocOwners, owners_b :: PathDocOwners) :: Bool
+        if !is_valid(owners_a) || owners_b.max_step > owners_a.max_step
+            return false
+        end
+        #! [for] $ O(S) $
+        for step in 0:owners_a.max_step
+            if have(owners_a, step) && have(owners_b, step)
+                set_owners_line_a = get(owners_a, step)
+                set_owners_line_b = get(owners_b, step)
+                # se recorre la línea más corta y se pregunta en la otra
+                if length(set_owners_line_b) < length(set_owners_line_a)
+                    set_owners_line_a, set_owners_line_b = set_owners_line_b, set_owners_line_a
+                end
+                #! [fixed] $ O(7) $
+                if !any(owner_id -> owner_id in set_owners_line_b, set_owners_line_a)
+                    return false
+                end
+            end
+        end
+        return true
+    end
+
     function check_if_isempty!(owners :: PathDocOwners, step :: Step)
         set_owners_line = get(owners, step)
 

@@ -64,10 +64,20 @@ const CLEAN_CASES = [
 @testset "cleanInvalid en dos fases" begin
     n_states = 0
     n_seq_dead = 0
+    n_nodes_checked = 0
+    n_mismatch = 0
     for rel in CLEAN_CASES
         path = joinpath(@__DIR__, rel)
         for g0 in pinned_states(path)
             n_states += 1
+            # is_valid_intersect = copiar, cortar y mirar la validez, nodo a nodo
+            for n in all_nodes(g0)
+                copy_cut = deepcopy(n.owners)
+                PathDocumentOwners.intersect!(copy_cut, g0.owners)
+                n_nodes_checked += 1
+                n_mismatch += PathDocumentOwners.is_valid_intersect(n.owners, g0.owners) !=
+                              PathDocumentOwners.is_valid(copy_cut)
+            end
             g_seq = deepcopy(g0)
             GraphPath.clean_invalid_nodes_sequential!(g_seq)
             if g_seq.is_valid && !tables_inside_global(g_seq)
@@ -87,5 +97,7 @@ const CLEAN_CASES = [
         end
     end
     println("cleanInvalid: estados pinchados $n_states; la secuencial deja ids fuera de la global en $n_seq_dead")
+    println("is_valid_intersect: $n_nodes_checked nodos comparados con copia + intersect!, $n_mismatch distintos")
+    @test n_mismatch == 0
     @test n_states > 0
 end

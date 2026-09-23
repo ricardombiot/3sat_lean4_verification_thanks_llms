@@ -64,9 +64,9 @@ function clean_invalid_nodes_two_phase!(gpath :: GPath)
         changed = false
         #! [fn-iter] $ O(S*7*7) $
         PathCollectionLines.filter!(gpath.table_lines, function (path_node)
-            owners_now = deepcopy(path_node.owners)
-            PathDocumentOwners.intersect!(owners_now, gpath.owners)
-            if is_valid_node_with_owners(gpath, path_node, owners_now)
+            #! [fixed] $ O(S*7) $ sin copiar la tabla: basta un id común por paso
+            owners_ok = PathDocumentOwners.is_valid_intersect(path_node.owners, gpath.owners)
+            if is_valid_node_by(gpath, path_node, owners_ok)
                 return false
             else
                 remove_node_owner!(gpath, path_node.id)
@@ -252,7 +252,11 @@ end
 # La validez de un nodo evaluada con una tabla de owners dada (la suya u otra), sin modificarlo.
 function is_valid_node_with_owners(gpath :: GPath, path_node :: PathDocNode,
                                    owners :: PathDocOwners) :: Bool
-    is_owners_valid = PathDocumentOwners.is_valid(owners)
+    return is_valid_node_by(gpath, path_node, PathDocumentOwners.is_valid(owners))
+end
+
+# Las reglas de validez de un nodo, con la validez de su tabla ya calculada.
+function is_valid_node_by(gpath :: GPath, path_node :: PathDocNode, is_owners_valid :: Bool) :: Bool
     is_root_node = PathDocumentNode.is_root(path_node)
     is_in_last_step = PathDocumentNode.get_step(path_node) == gpath.current_step-1
     have_parents = !isempty(path_node.parents)
