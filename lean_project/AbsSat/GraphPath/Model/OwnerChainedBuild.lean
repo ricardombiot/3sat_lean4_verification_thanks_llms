@@ -1182,4 +1182,176 @@ info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableHasOwnedChain_of_tableChain
 #guard_msgs in
 #print axioms tableHasOwnedChain_of_tableChainOwned
 
+-- ============================================================
+-- La recursión del descenso, hecha
+-- ============================================================
+
+open AbsSat.GraphPath.Model.Extendable (PartialChain PartialOwned upd upd_self upd_other
+  isChain_of_partial pairwiseOwned_of_partial)
+
+/-- **Lo construido hasta el paso `lo`**: una cadena parcial dentro de la tabla de `a`, poseída por
+pares. Es el invariante del descenso. -/
+structure OPart (g : GPathM) (na : PNodeM) (sel : Int → PathNodeId) (lo : Int) : Prop where
+  chain : PartialChain g sel lo (g.current_step - 1)
+  inTable : ∀ i, lo ≤ i → i ≤ g.current_step - 1 → sel i ∈ na.owners
+  owned : PartialOwned g sel lo (g.current_step - 1)
+
+/-- **Un paso del descenso**, con la obligación del autor como única entrada. -/
+theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g)
+    (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : OPart g na sel lo) : ∃ c, OPart g na (upd sel (lo - 1) c) (lo - 1) := by
+  obtain ⟨u, hun, hus, hupar, huown⟩ := hds a na hna (lo - 1) sel (by omega) (by omega)
+    (fun j hj1 hj2 => hp.inTable j (by omega) (by omega))
+    (fun i j hi1 hj1 hi2 hj2 hij nj hnj => by
+      have := hp.owned i j (by omega) (by omega) (by omega) (by omega) hij
+      simp only [ownersAt, List.mem_filter, ownersOf, hnj] at this
+      exact this.1)
+  obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp
+    (ctx.ownerNode a na hna u hun (by rw [hus]; omega) (by rw [hus]; omega))
+  refine ⟨u, ?_, ?_, ?_⟩
+  · refine ⟨?_, ?_⟩
+    · intro i hi1 hi2
+      rcases int_eq_or_ne i (lo - 1) with he | he
+      · subst he; rw [upd_self]; exact ⟨by rw [hnu]; rfl, hus⟩
+      · rw [upd_other sel (lo - 1) u he]; exact hp.chain.1 i (by omega) hi2
+    · intro i hi1 hi2
+      rcases int_eq_or_ne i (lo - 1) with he | he
+      · subst he
+        rw [upd_self, upd_other sel (lo - 1) u (by omega),
+          show lo - 1 + 1 = lo from by omega]
+        obtain ⟨hsome, _⟩ := hp.chain.1 lo (Int.le_refl _) hhi
+        obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp hsome
+        rw [hnl]
+        simp only [Option.map_some, Option.getD_some]
+        exact hupar nl (by rw [show lo - 1 + 1 = lo from by omega]; exact hnl)
+      · rw [upd_other sel (lo - 1) u he,
+          upd_other sel (lo - 1) u (by omega)]
+        exact hp.chain.2 i (by omega) hi2
+  · intro i hi1 hi2
+    rcases int_eq_or_ne i (lo - 1) with he | he
+    · subst he; rw [upd_self]; exact hun
+    · rw [upd_other sel (lo - 1) u he]; exact hp.inTable i (by omega) hi2
+  · intro i j hi1 hj1 hi2 hj2 hij
+    rcases int_eq_or_ne i (lo - 1) with hei | hei
+    · subst hei
+      rw [upd_self, upd_other sel (lo - 1) u (fun h => hij h.symm)]
+      obtain ⟨hsome, hstep⟩ := hp.chain.1 j (by omega) hj2
+      obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp hsome
+      refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hus⟩
+      simp only [ownersOf, hnj]
+      exact huown j (by omega) (by omega) nj hnj
+    · rcases int_eq_or_ne j (lo - 1) with hej | hej
+      · subst hej
+        rw [upd_self, upd_other sel (lo - 1) u hei]
+        obtain ⟨hsome, hstep⟩ := hp.chain.1 i (by omega) hi2
+        obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp hsome
+        refine List.mem_filter.mpr ⟨?_, beq_iff_eq.mpr hstep⟩
+        simp only [ownersOf, hnu]
+        exact hsym (sel i) ni u nu hni hnu (huown i (by omega) (by omega) ni hni)
+      · rw [upd_other sel (lo - 1) u hei, upd_other sel (lo - 1) u hej]
+        exact hp.owned i j (by omega) (by omega) hi2 hj2 hij
+
+/-- **Y el descenso entero**, por recursión sobre el paso. -/
+theorem descend_O (g : GPathM) (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g)
+    (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na) :
+    ∀ (fuel : Nat) (sel : Int → PathNodeId) (lo : Int), lo.toNat ≤ fuel → 0 ≤ lo →
+      lo ≤ g.current_step - 1 → OPart g na sel lo → ∃ sel', OPart g na sel' 0 := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro sel lo hm hlo _ hp
+    have : lo = 0 := by omega
+    subst this; exact ⟨sel, hp⟩
+  | succ fuel ih =>
+    intro sel lo hm hlo hhi hp
+    if hpos : 0 < lo then
+      obtain ⟨c, hp'⟩ := step_down_O g ctx hsym hds a na hna sel lo hpos hhi hp
+      exact ih _ (lo - 1) (by omega) (by omega) (by omega) hp'
+    else
+      have : lo = 0 := by omega
+      subst this; exact ⟨sel, hp⟩
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.step_down_O' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms step_down_O
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descend_O' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms descend_O
+
+/-- **Y con la semilla, `TableHasOwnedChain` entero desde la obligación de un paso.**
+
+La semilla es un owner de `a` en el paso de arriba —`isValidNode` lo da— y el descenso lo baja al
+paso 0 manteniendo la posesión por pares. Al final, `isChain_of_partial` y
+`pairwiseOwned_of_partial` convierten el tramo completo en una cadena de verdad, y `OOS` dice que en
+el paso de `a` la cadena elige `a`.
+
+Así que la escalera entera queda:
+
+    DescentStepOwned  →  TableHasOwnedChain  →  OwnerChained  →  PinAlive  →  el veredicto -/
+theorem tableHasOwnedChain_of_descentStep (g : GPathM) (ctx : Threaded.TCtx g)
+    (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g) (hpos : 0 < g.current_step)
+    (hds : DescentStepOwned g) : TableHasOwnedChain g := by
+  intro a na hna ha0 ha1
+  have hok := owners_ok_of_isValidNode g na (ctx.nodeval a na hna)
+  simp only [List.all_eq_true] at hok
+  obtain ⟨t, ht, hts⟩ := List.any_eq_true.mp
+    (hok (g.current_step - 1) (mem_intRange (by omega) (by omega)))
+  have htstep : t.id.step = g.current_step - 1 := eq_of_beq hts
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp
+    (ctx.ownerNode a na hna t ht (by rw [htstep]; omega) (by rw [htstep]; omega))
+  have hseed : OPart g na (fun _ => t) (g.current_step - 1) := by
+    refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
+    · intro i hi1 hi2
+      have hie : i = g.current_step - 1 := by omega
+      subst hie
+      exact ⟨by rw [hnt]; rfl, htstep⟩
+    · intro i hi1 hi2; exfalso; omega
+    · intro i _ _; exact ht
+    · intro i j hi1 hj1 hi2 hj2 hij; exfalso; omega
+  obtain ⟨sel, hp⟩ := descend_O g ctx hsym hds a na hna (g.current_step - 1).toNat
+    (fun _ => t) (g.current_step - 1) (Nat.le_refl _) (by omega) (by omega) hseed
+  refine ⟨sel, isChain_of_partial g sel hp.chain, pairwiseOwned_of_partial g sel hp.owned, ?_,
+    fun k hk0 hk1 => hp.inTable k hk0 (by omega)⟩
+  have hmem := hp.inTable a.id.step ha0 (by omega)
+  obtain ⟨_, hstep⟩ := hp.chain.1 a.id.step ha0 (by omega)
+  have hid : na.id = a := node?_id_eq g a na hna
+  have heq := hoos na (List.mem_of_find?_eq_some hna) (sel a.id.step) hmem
+    (by rw [hstep, hid])
+  rw [heq, hid]
+
+/-- **Y de ahí, la frase del autor cierra el teorema.** -/
+theorem ownerChained_of_descentStep (g : GPathM)
+    (adj : AdjacentOwners.Adj g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g)
+    (hgn : GownersNodes.GN g) (hds : DescentStepOwned g) : ReaderChain.OwnerChained g :=
+  ownerChained_of_tableHasOwnedChain g adj hsmp hpos hgn
+    (tableHasOwnedChain_of_descentStep g ctx hsym hoos hpos hds)
+
+/-! ## El hueco, en un paso de descenso
+
+    readerVerdictW ⟸ PinAlive ≡ OwnerChained ⟸ TableHasOwnedChain ⟸ DescentStepOwned
+
+Y `DescentStepOwned` es una frase sobre **un paso**:
+
+> dado lo ya elegido por encima de `k` dentro de la tabla de `a`, hay una entrada de esa tabla en el
+> paso `k` que es **padre** de la de `k+1` y está **poseída por todas** las de arriba.
+
+Todo lo demás está cerrado: la recursión (`descend_O`), la semilla, el paso a `ChainSound`, la
+escalera del lector, los cinco bucles del review, los filtros de envío y el pin del lector.
+
+Medido: `row-degree pairdesc`, columna «como lo hace el lector» —pinchar y **revisar** en cada
+paso—, **1.016/1.016** pares en `dos_de_tres.cnf` y **12.602/12.602** en el corpus aleatorio, **sin
+un solo retroceso**. Y `row-degree tablechain`, que construye ese descenso hasta el final:
+**194.850/194.850** pares poseídos, y el descenso **no se atasca nunca**. -/
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableHasOwnedChain_of_descentStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableHasOwnedChain_of_descentStep
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_of_descentStep' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_descentStep
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
