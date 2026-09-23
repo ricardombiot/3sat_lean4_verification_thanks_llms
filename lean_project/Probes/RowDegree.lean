@@ -2142,6 +2142,65 @@ def reportTC (name : String) (a : TCAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   TableChainOwned: {if a.bad == 0 then "SE CUMPLE en lo medido" else "FALLA"}"
   IO.println s!"   ({ms} ms)"
 
+/-! **¿Cuanto cubre `mem_owners_of_singleAt`?** Cierra el par `(u,v)` de la cadena de la tabla de `a`
+cuando la tabla de `a` tiene **un solo** id en el paso de `u`. Esta sonda lo cuenta sobre las mismas
+cadenas que mide `tablechain`. -/
+
+structure TCSAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  tables   : Nat := 0
+  pairs    : Nat := 0
+  single   : Nat := 0          -- cubierto por el teorema
+  choice   : Nat := 0          -- residuo: la tabla anfitriona ofrece dos
+  deriving Repr
+
+def scanTCS (g : GPathM) (cap : Nat) (a : TCSAcc) : TCSAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for na in g.nodes.take cap do
+    a := { a with tables := a.tables + 1 }
+    match tableChain g na with
+    | none => pure ()
+    | some ch =>
+      for u in ch do
+        let here := ownersAt na.owners u.id.step
+        let isSingle := here.all (fun w => w.id == u.id)
+        for v in ch do
+          if u.id.step != v.id.step then
+            a := { a with pairs := a.pairs + 1 }
+            if isSingle then a := { a with single := a.single + 1 }
+            else a := { a with choice := a.choice + 1 }
+  return a
+
+partial def walkTCS (g : GPathM) (fuel cap : Nat) (a : TCSAcc) : TCSAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanTCS g cap a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkTCS (filterAllAgg g [q.id]) (fuel - 1) cap a
+
+def runFormulaTCS (φ : Cnf) (cap : Nat) (a : TCSAcc) : TCSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := walkTCS g (stepCount φ).toNat cap a
+  return a
+
+def reportTCS (name : String) (a : TCSAcc) (ms : Nat) : IO Unit := do
+  let pct (x y : Nat) : String :=
+    if y == 0 then "-" else s!"{(x * 1000 / y) / 10}.{(x * 1000 / y) % 10}%"
+  IO.println s!"── {name}"
+  IO.println s!"   formulas {a.formulas}, estados {a.states}, tablas {a.tables}"
+  IO.println s!"   pares de la cadena de la tabla: {a.pairs}"
+  IO.println s!"     sin eleccion (CERRADO por mem_owners_of_singleAt): {a.single}  ({pct a.single a.pairs})"
+  IO.println s!"     con eleccion (residuo)                          : {a.choice}  ({pct a.choice a.pairs})"
+  IO.println s!"   ({ms} ms)"
+
 /-! **¿Cuanto cubre `realizes_pin_of_singleId`?** Cierra el caso en que la tabla de `x` NO tiene
 eleccion en el paso del pin: todos sus owners alli llevan ya el pin. Esta sonda lo cuenta sobre los
 pines que el lector se plantea de verdad. -/
@@ -2383,6 +2442,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "tcsingle" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTCS φ 40 {})
+        let t1 ← IO.monoMsNow
+        reportTCS path a (t1 - t0)
+  | "tcsingle" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TCSAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTCS φ 40 a
+      let t1 ← IO.monoMsNow
+      reportTCS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "pairdesc" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
