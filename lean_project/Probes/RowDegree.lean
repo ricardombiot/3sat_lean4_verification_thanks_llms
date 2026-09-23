@@ -4862,6 +4862,91 @@ def reportNS (name : String) (a : NSAcc) (ms : Nat) : IO Unit := do
   if a.revFirst != "" then IO.println s!"   primera al reves: {a.revFirst}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`topkill`: ¿quién mata la cadena que el filtro deja sin entrada común?** Para cada filtro de un
+paso `e` (paso `k`) sobre un estado revisado `T` —en el envío paso a paso y en los pines del
+lector—: cadenas desde la cima de `T` (enlazadas, poseídas por pares) que están por encima de `k` y
+cuya tabla colectiva en `T` no tiene en `k` ninguna entrada admitida. ¿Siguen siendo cadena tras el
+review base? ¿Y tras el agresivo? -/
+
+structure TKAcc where
+  formulas : Nat := 0
+  filters : Nat := 0
+  chains : Nat := 0
+  noAdm : Nat := 0
+  deadBase : Nat := 0
+  deadAgg : Nat := 0
+  alive : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def checkTK (lab : String) (T : GPathM) (e : Int × List NodeId) (a : TKAcc) : TKAcc := Id.run do
+  let k := e.1
+  let X := filterWeak T e
+  let B := review X
+  let R := AggressiveReview.reviewAgg X
+  let mut a := { a with filters := a.filters + 1 }
+  for n in T.line (T.current_step - 1) do
+    let (segs, _) := collectDown T [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        if low.id.step > k then
+          a := { a with chains := a.chains + 1 }
+          let tabs := P.filterMap (fun y => (T.node? y).map (·.owners))
+          let common := match tabs.head? with
+            | none => []
+            | some t0 => (ownersAt t0 k).filter (fun r => tabs.all (fun t => t.contains r))
+          if !common.any (fun r => e.2.contains r.id) then
+            a := { a with noAdm := a.noAdm + 1 }
+            let inB := isValid B && isSegment B P
+            let inR := isValid R && isSegment R P
+            if !inB then a := { a with deadBase := a.deadBase + 1 }
+            else if !inR then a := { a with deadAgg := a.deadAgg + 1 }
+            else
+              a := { a with alive := a.alive + 1
+                          , first := if a.first == "" then s!"{lab} k={k} cadena {P.map (·.id.step)}" else a.first }
+  return a
+
+partial def walkTK (lab : String) (g : GPathM) (fuel : Nat) (a : TKAcc) : TKAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := checkTK s!"{lab} pin" g (k, [q.id]) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkTK lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaTK (label : String) (φ : Cnf) (a : TKAcc) : TKAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        for e in es do
+          if isValid T then
+            a := checkTK s!"{label} envio paso {step}" T e a
+            T := AggressiveReview.reviewAgg (filterWeak T e)
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkTK s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportTK (name : String) (a : TKAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.filters} filtros de un paso)"
+  IO.println s!"   cadenas desde la cima por encima del paso filtrado: {a.chains}"
+  IO.println s!"   sin entrada comun admitida: {a.noAdm}"
+  IO.println s!"     mueren en el review base: {a.deadBase}   solo con el agresivo: {a.deadAgg}   SOBREVIVEN: {a.alive}"
+  if a.first != "" then IO.println s!"   primera que sobrevive: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5334,6 +5419,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportNS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "topkill" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaTK path φ {})
+        let t1 ← IO.monoMsNow
+        reportTK path a (t1 - t0)
+  | "topkill" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TKAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTK s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportTK s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
