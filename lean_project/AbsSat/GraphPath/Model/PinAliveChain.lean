@@ -2431,33 +2431,33 @@ Y el enunciado a atacar vuelve a ser el de siempre, ahora con la equivalencia de
 -- `reviewParents` y `reviewSons`: el corte contra los vecinos
 -- ============================================================
 
-/-- **Las tablas de `P` encajan con las de sus vecinos.**
+/-- **Las tablas de `P` encajan con las de sus vecinos, en los pasos que el barrido visita.**
 
-Lo que los dos pasos por vecinos exigen, y que `cleanInvalid` no necesitaba: cada protegido tiene un
-vecino —padre en `reviewParents`, hijo en `reviewSons`— **cuya tabla contiene a todos los miembros
-protegidos de la suya**.
+Lo que los dos pasos por vecinos exigen y `cleanInvalid` no necesitaba: para cada protegido que el
+barrido llega a mirar, sus miembros protegidos sobreviven al corte contra la unión de los vecinos.
 
-Para una cadena esto vale sin más: sus nodos se poseen dos a dos, así que la tabla del vecino
-contiene a todos los demás. Y es exactamente lo que hace que el corte contra la unión de los
-vecinos no toque nada de `P`. -/
-def Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId) : Prop :=
-  ∀ z nz, P z → g.node? z = some nz →
-    ∃ p ∈ nb nz, ∃ np, g.node? p = some np ∧ ∀ w, P w → w ∈ nz.owners → w ∈ np.owners
+El guarda `L` no es cosmético: `reviewParents` solo recorre los pasos `1 … cs-1` y `reviewSons` los
+`0 … cs-2`, y un nodo del paso 0 no tiene padres. Se pide solo donde se usa. -/
+def Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
+    (L : Int → Prop) : Prop :=
+  ∀ z nz, P z → L z.id.step → g.node? z = some nz → ∀ w, P w → w ∈ nz.owners →
+    w ∈ intersectOwners nz.owners (unionOwnersOf g (nb nz))
 
-/-- **Y entonces un miembro protegido de la tabla está en la unión de los vecinos.** -/
-theorem mem_uni_of_Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
-    (hN : Nested g P nb) (z : PathNodeId) (nz : PNodeM) (hPz : P z) (hz : g.node? z = some nz)
-    (w : PathNodeId) (hPw : P w) (hw : w ∈ nz.owners) : w ∈ unionOwnersOf g (nb nz) := by
-  obtain ⟨p, hpm, np, hnp, hsub⟩ := hN z nz hPz hz
-  exact mem_unionOwnersOf g (nb nz) p np w hpm hnp (hsub w hPw hw)
+/-- Cortar contra la lista vacía no quita nada: `intersectOwners` deja intactas las entradas cuyo
+paso la otra lista no menciona. Es lo que hace inofensivo el barrido sobre un nodo sin vecinos. -/
+theorem intersectOwners_nil (a : List PathNodeId) : intersectOwners a [] = a :=
+  List.filter_eq_self.mpr (fun _ _ => by simp [hasStepEntry])
 
-/-- **Y por tanto sobrevive al corte contra ella.** Es la pieza que en `cleanInvalid` hacía
-`w ∈ gowners` y que aquí hace el encaje de tablas. -/
-theorem mem_cut_of_Nested (g : GPathM) (P : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
-    (hN : Nested g P nb) (z : PathNodeId) (nz : PNodeM) (hPz : P z) (hz : g.node? z = some nz)
-    (w : PathNodeId) (hPw : P w) (hw : w ∈ nz.owners) :
-    w ∈ intersectOwners nz.owners (unionOwnersOf g (nb nz)) :=
-  mem_intersectOwners_of_mem _ _ w hw (mem_uni_of_Nested g P nb hN z nz hPz hz w hPw hw)
+/-- **Y basta un vecino cuya tabla contenga a los protegidos de la suya.** -/
+theorem nested_of_neighbour (g : GPathM) (P : PathNodeId → Prop)
+    (nb : PNodeM → List PathNodeId) (L : Int → Prop)
+    (h : ∀ z nz, P z → L z.id.step → g.node? z = some nz →
+      ∃ p ∈ nb nz, ∃ np, g.node? p = some np ∧ ∀ w, P w → w ∈ nz.owners → w ∈ np.owners) :
+    Nested g P nb L := by
+  intro z nz hPz hL hz w hPw hw
+  obtain ⟨p, hpm, np, hnp, hsub⟩ := h z nz hPz hL hz
+  exact mem_intersectOwners_of_mem _ _ w hw
+    (mem_unionOwnersOf g (nb nz) p np w hpm hnp (hsub w hPw hw))
 
 /-- **El paso por vecinos, cuando mira a un nodo NO protegido: el invariante pasa intacto.**
 
@@ -2483,9 +2483,9 @@ theorem Anchored_reviewNode_other (g : GPathM) (P : PathNodeId → Prop)
       · exact Anchored_removeNode _ P z id hne hPid h2
     · exact Anchored_removeNode g P z id hne hPid h
 
-/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.mem_cut_of_Nested' depends on axioms: [propext] -/
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.nested_of_neighbour' depends on axioms: [propext] -/
 #guard_msgs in
-#print axioms mem_cut_of_Nested
+#print axioms nested_of_neighbour
 
 /-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_reviewNode_other' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -2498,7 +2498,8 @@ testigo sobrevivía al corte por estar en la tabla global, aquí sobrevive por e
 (`mem_cut_of_Nested`). Todo lo demás —la cobertura, los anclajes, el papel de `RootAtZero`— es
 idéntico. -/
 theorem isValidNode_relink_of_Anchored_nb (g : GPathM) (P : PathNodeId → Prop)
-    (nb : PNodeM → List PathNodeId) (hN : Nested g P nb) (r : PathNodeId) (nr : PNodeM)
+    (nb : PNodeM → List PathNodeId) (L : Int → Prop) (hN : Nested g P nb L)
+    (r : PathNodeId) (hL : L r.id.step) (nr : PNodeM)
     (hrz : Sons.RootAtZero g) (hPr : P r) (hr0 : 0 ≤ r.id.step)
     (hr1 : r.id.step < g.current_step) (hn : g.node? r = some nr) (h : Anchored g P r) :
     isValidNode g (relink (intersectOwners nr.owners (unionOwnersOf g (nb nr))) nr) = true := by
@@ -2514,19 +2515,19 @@ theorem isValidNode_relink_of_Anchored_nb (g : GPathM) (P : PathNodeId → Prop)
     obtain ⟨w, hwm, hws, _, hwP⟩ := hcov k (mem_intRange_lower hk)
       (by have := mem_intRange_upper hk; omega)
     simp only [hasStepEntry, List.any_eq_true]
-    exact ⟨w, mem_cut_of_Nested g P nb hN r nr' hPr hn' w hwP hwm, beq_iff_eq.mpr hws⟩
+    exact ⟨w, hN r nr' hPr hL hn' w hwP hwm, beq_iff_eq.mpr hws⟩
   have hp : 1 ≤ r.id.step →
       (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').parents ≠ [] := by
     intro h1
     obtain ⟨p, hpm, hpP, hpo, _⟩ := hpar h1
     exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨hpm,
-      by simpa using mem_cut_of_Nested g P nb hN r nr' hPr hn' p hpP hpo⟩)
+      by simpa using hN r nr' hPr hL hn' p hpP hpo⟩)
   have hs : r.id.step ≤ g.current_step - 2 →
       (relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').sons ≠ [] := by
     intro h2
     obtain ⟨t, htm, htP, hto, _⟩ := hson h2
     exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨htm,
-      by simpa using mem_cut_of_Nested g P nb hN r nr' hPr hn' t htP hto⟩)
+      by simpa using hN r nr' hPr hL hn' t htP hto⟩)
   have hnr' : ¬((relink (intersectOwners nr'.owners (unionOwnersOf g (nb nr'))) nr').id.parent_id.isNone
       = true) → 1 ≤ r.id.step := by
     intro hrr
@@ -2566,7 +2567,8 @@ theorem isValidNode_relink_of_Anchored_nb (g : GPathM) (P : PathNodeId → Prop)
 La última de las tres. Idéntica a `Anchored_selfStep` con la misma sustitución: el encaje de tablas
 en el lugar donde antes iba la pertenencia a la tabla global. -/
 theorem Anchored_selfStep_nb (g : GPathM) (P : PathNodeId → Prop)
-    (nb : PNodeM → List PathNodeId) (hN : Nested g P nb) (r : PathNodeId) (nr : PNodeM)
+    (nb : PNodeM → List PathNodeId) (L : Int → Prop) (hN : Nested g P nb L)
+    (r : PathNodeId) (hL : L r.id.step) (nr : PNodeM)
     (hPr : P r) (hnr : g.node? r = some nr) (h : Anchored g P r) :
     Anchored (unlinkIncompatible (updateAt g r
       (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr)) })) r) P r := by
@@ -2600,18 +2602,18 @@ theorem Anchored_selfStep_nb (g : GPathM) (P : PathNodeId → Prop)
   · intro k hk0 hk1
     rw [hstep] at hk1
     obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
-    exact ⟨w, mem_cut_of_Nested g P nb hN r nr' hPr hn' w hwP hwm, hws,
+    exact ⟨w, hN r nr' hPr hL hn' w hwP hwm, hws,
       by rw [hgow]; exact hwg, hwP⟩
   · intro h1
     obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
     have hpc : p ∈ intersectOwners nr'.owners (unionOwnersOf g (nb nr')) :=
-      mem_cut_of_Nested g P nb hN r nr' hPr hn' p hpP hpo
+      hN r nr' hPr hL hn' p hpP hpo
     exact ⟨p, List.mem_filter.mpr ⟨hpm, by simpa using hpc⟩, hpP, hpc, by rw [hgow]; exact hpg⟩
   · intro h2
     rw [hstep] at h2
     obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
     have htc : t ∈ intersectOwners nr'.owners (unionOwnersOf g (nb nr')) :=
-      mem_cut_of_Nested g P nb hN r nr' hPr hn' t htP hto
+      hN r nr' hPr hL hn' t htP hto
     exact ⟨t, List.mem_filter.mpr ⟨htm, by simpa using htc⟩, htP, htc, by rw [hgow]; exact htg⟩
 
 /-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_selfStep_nb' depends on axioms: [propext, Quot.sound] -/
@@ -2624,7 +2626,8 @@ Aquí el corte toca **solo** la tabla del nodo mirado, así que la única direcc
 el otro extremo del par **es** ese nodo — y entonces el encaje de tablas lo salva, igual que en
 `Sym_cut` lo salvaba la tabla global. -/
 theorem Sym_cut_nb (g : GPathM) (P : PathNodeId → Prop)
-    (nb : PNodeM → List PathNodeId) (hN : Nested g P nb) (r : PathNodeId) (nr : PNodeM)
+    (nb : PNodeM → List PathNodeId) (L : Int → Prop) (hN : Nested g P nb L)
+    (r : PathNodeId) (hL : L r.id.step) (nr : PNodeM)
     (hPr : P r) (hnr : g.node? r = some nr) (h : Sym g P) :
     Sym (updateAt g r (fun n =>
       { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr)) })) P := by
@@ -2653,11 +2656,231 @@ theorem Sym_cut_nb (g : GPathM) (P : PathNodeId → Prop)
     have hnn : ny0 = nr := by
       subst hyr; exact Option.some.inj (hny0.symm.trans hnr)
     subst hnn
-    exact mem_cut_of_Nested g P nb hN r ny0 hPr (by rw [← hyr]; exact hny0) x hx hxy0
+    exact hN r ny0 hPr hL (by rw [← hyr]; exact hny0) x hx hxy0
   | false => exact hxy0
 
 /-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_cut_nb' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Sym_cut_nb
+
+-- ============================================================
+-- `reviewNode` cerrado para todo `id`
+-- ============================================================
+
+/-- El paso por vecinos, cuando ni el nodo era inválido ni el corte lo invalida. -/
+theorem reviewNode_keep (g : GPathM) (nb : PNodeM → List PathNodeId) (r : PathNodeId)
+    (d : PNodeM) (hd : g.node? r = some d) (hv : isValidNode g d = true)
+    (hc : isValidNode (unlinkIncompatible (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) r)
+      (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d) = true) :
+    reviewNode g nb r = unlinkIncompatible (updateAt g r (fun n =>
+      { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) r := by
+  unfold reviewNode
+  split
+  · next hnone => simp [hnone] at hd
+  · next d' hd' =>
+    have he : d' = d := Option.some.inj (hd'.symm.trans hd)
+    subst he
+    split
+    · simp only []
+      split
+      · rfl
+      · next hbad => exact absurd hc hbad
+    · next hbad => exact absurd hv hbad
+
+/-- **`reviewNode` conserva el invariante, cualquiera que sea el nodo mirado.**
+
+El análogo exacto de `Anchored_cleanStep_all` para los pasos por vecinos, con `Nested` en el papel
+que allí hacía `P ⊆ gowners`. -/
+theorem Anchored_reviewNode_all (g : GPathM) (P : PathNodeId → Prop) [DecidablePred P]
+    (nb : PNodeM → List PathNodeId) (L : Int → Prop) (hN : Nested g P nb L)
+    (hrz : Sons.RootAtZero g)
+    (hrange : ∀ y, P y → 0 ≤ y.id.step ∧ y.id.step < g.current_step)
+    (hSym : Sym g P) (hall : ∀ y, P y → Anchored g P y)
+    (z r : PathNodeId) (hL : L r.id.step) (hPz : P z) : Anchored (reviewNode g nb r) P z := by
+  by_cases hPr : P r
+  · obtain ⟨nr, hnr, hcovr, hparr, hsonr⟩ := hall r hPr
+    obtain ⟨nr2, hnr2, hvalid0⟩ := isValidNode_of_Anchored g P r hrz (hrange r hPr).1
+      (hrange r hPr).2 ⟨nr, hnr, hcovr, hparr, hsonr⟩
+    have hsame : nr2 = nr := Option.some.inj (hnr2.symm.trans hnr)
+    subst hsame
+    have hid : nr2.id = r := node?_id_eq g r nr2 hnr
+    have hcut : (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })).node? r
+        = some { nr2 with owners := intersectOwners nr2.owners (unionOwnersOf g (nb nr2)) } := by
+      rw [updateAt_node? g r
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })
+          (fun _ => rfl) r nr2 hnr, show (nr2.id == r) = true from beq_iff_eq.mpr hid]
+    have hstep2 : (unlinkIncompatible (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r).current_step
+        = g.current_step := current_step_unlinkIncompatible _ _
+    have hcond : isValidNode (unlinkIncompatible (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r)
+        (relink (intersectOwners nr2.owners (unionOwnersOf g (nb nr2))) nr2) = true := by
+      rw [isValidNode_congr_step g _ _ hstep2]
+      exact isValidNode_relink_of_Anchored_nb g P nb L hN r hL nr2 hrz hPr (hrange r hPr).1
+        (hrange r hPr).2 hnr ⟨nr2, hnr, hcovr, hparr, hsonr⟩
+    rw [reviewNode_keep g nb r nr2 hnr hvalid0 hcond]
+    by_cases hzr : z = r
+    · subst hzr
+      exact Anchored_selfStep_nb g P nb L hN z hL nr2 hPz hnr (hall z hPz)
+    · exact Anchored_unlinkIncompatible_protected _ P z r
+        (Sym_cut_nb g P nb L hN r hL nr2 hPr hnr hSym) hPz hPr hzr _ hcut
+        (Anchored_updateAt g P z r
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })
+          (fun _ => rfl) hzr (hall z hPz))
+  · exact Anchored_reviewNode_other g P nb z r
+      (fun he => hPr (by rw [← he]; exact hPz)) hPr (hall z hPz)
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_reviewNode_all' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_reviewNode_all
+
+-- ============================================================
+-- El puente: una cadena da el invariante entero
+-- ============================================================
+
+/-- **El conjunto protegido natural: los nodos de una cadena.** -/
+def chainSet (cs : Int) (sel : Int → PathNodeId) : PathNodeId → Prop :=
+  fun z => ∃ k, 0 ≤ k ∧ k < cs ∧ sel k = z
+
+/-- **Y una cadena ancla todos sus nodos.**
+
+Cada campo del invariante es un campo de `ChainSound`, leído en este otro idioma:
+
+* la **cobertura** es la posesión por pares más la posesión de sí mismo —los testigos son los propios
+  nodos de la cadena, y por eso están en `P`—;
+* el **padre anclado** es el enlace de `IsChain`, y el **hijo anclado** es `son_link`;
+* y que testigos y anclajes estén en la tabla global es la tercera componente de `ChainG`. -/
+theorem Anchored_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (k : Int) (h0 : 0 ≤ k) (h1 : k < g.current_step) :
+    Anchored g (chainSet g.current_step sel) (sel k) := by
+  obtain ⟨hsome, hstepk⟩ := hsc.chain.1.1 k h0 h1
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have hown : ∀ j, 0 ≤ j → j < g.current_step → sel j ∈ n.owners := by
+    intro j hj0 hj1
+    rcases int_eq_or_ne j k with hjk | hjk
+    · have := hsc.self_owned k h0 h1
+      simp only [ownersOf, hn] at this
+      rw [hjk]; exact this
+    · have := hsc.chain.2.1 j k hj0 h0 hj1 h1 hjk
+      simp only [ownersAt, List.mem_filter, ownersOf, hn] at this
+      exact this.1
+  have hcov : ∀ j, 0 ≤ j → j < g.current_step →
+      ∃ w ∈ n.owners, w.id.step = j ∧ w ∈ g.gowners ∧ chainSet g.current_step sel w := by
+    intro j hj0 hj1
+    exact ⟨sel j, hown j hj0 hj1, (hsc.chain.1.1 j hj0 hj1).2,
+      hsc.chain.2.2 j hj0 hj1, ⟨j, hj0, hj1, rfl⟩⟩
+  refine ⟨n, hn, hcov, ?_, ?_⟩
+  · intro h1step
+    rw [hstepk] at h1step
+    have hlink := hsc.chain.1.2 (k - 1) (by omega) (by omega)
+    rw [show k - 1 + 1 = k from by omega, hn] at hlink
+    simp only [Option.map_some, Option.getD_some] at hlink
+    exact ⟨sel (k - 1), hlink, ⟨k - 1, by omega, by omega, rfl⟩,
+      hown (k - 1) (by omega) (by omega), hsc.chain.2.2 (k - 1) (by omega) (by omega)⟩
+  · intro h2step
+    rw [hstepk] at h2step
+    have hlink := hsc.son_link k h0 (by omega)
+    simp only [sonsOf, hn] at hlink
+    exact ⟨sel (k + 1), hlink, ⟨k + 1, by omega, by omega, rfl⟩,
+      hown (k + 1) (by omega) (by omega), hsc.chain.2.2 (k + 1) (by omega) (by omega)⟩
+
+/-- **Y la simetría también.** La posesión por pares es simétrica por definición. -/
+theorem Sym_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel) :
+    Sym g (chainSet g.current_step sel) := by
+  intro x y nx ny hx hy _ hny _
+  obtain ⟨i, hi0, hi1, hix⟩ := hx
+  obtain ⟨j, hj0, hj1, hjy⟩ := hy
+  subst hix; subst hjy
+  rcases int_eq_or_ne i j with hij | hij
+  · have := hsc.self_owned j hj0 hj1
+    simp only [ownersOf, hny] at this
+    rw [hij]; exact this
+  · have := hsc.chain.2.1 i j hi0 hj0 hi1 hj1 hij
+    simp only [ownersAt, List.mem_filter, ownersOf, hny] at this
+    exact this.1
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Anchored_of_chainSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Anchored_of_chainSound
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_of_chainSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Sym_of_chainSound
+
+/-- La tabla de cualquier nodo de la cadena contiene a todos los nodos de la cadena. -/
+theorem chain_mem_owners (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (j k : Int) (hj0 : 0 ≤ j) (hj1 : j < g.current_step) (hk0 : 0 ≤ k)
+    (hk1 : k < g.current_step) (nk : PNodeM) (hnk : g.node? (sel k) = some nk) :
+    sel j ∈ nk.owners := by
+  rcases int_eq_or_ne j k with hjk | hjk
+  · have hh := hsc.self_owned k hk0 hk1
+    simp only [ownersOf, hnk] at hh
+    rw [hjk]; exact hh
+  · have hh := hsc.chain.2.1 j k hj0 hk0 hj1 hk1 hjk
+    simp only [ownersAt, List.mem_filter, ownersOf, hnk] at hh
+    exact hh.1
+
+/-- **Y las tablas de la cadena encajan con las de sus padres.** -/
+theorem Nested_parents_of_chainSound (g : GPathM) (sel : Int → PathNodeId)
+    (hsc : ChainSound g sel) :
+    Nested g (chainSet g.current_step sel) (·.parents) (fun k => 1 ≤ k) := by
+  refine nested_of_neighbour g _ _ _ (fun z nz hz hL hnz => ?_)
+  obtain ⟨k, hk0, hk1, hkz⟩ := hz
+  subst hkz
+  rw [(hsc.chain.1.1 k hk0 hk1).2] at hL
+  have hlink := hsc.chain.1.2 (k - 1) (by omega) (by omega)
+  rw [show k - 1 + 1 = k from by omega, hnz] at hlink
+  simp only [Option.map_some, Option.getD_some] at hlink
+  obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp (hsc.chain.1.1 (k - 1) (by omega) (by omega)).1
+  refine ⟨sel (k - 1), hlink, np, hnp, fun w hw _ => ?_⟩
+  obtain ⟨j, hj0, hj1, hjw⟩ := hw
+  subst hjw
+  exact chain_mem_owners g sel hsc j (k - 1) hj0 hj1 (by omega) (by omega) np hnp
+
+/-- **Y con las de sus hijos.** -/
+theorem Nested_sons_of_chainSound (g : GPathM) (sel : Int → PathNodeId)
+    (hsc : ChainSound g sel) :
+    Nested g (chainSet g.current_step sel) (·.sons) (fun k => k ≤ g.current_step - 2) := by
+  refine nested_of_neighbour g _ _ _ (fun z nz hz hL hnz => ?_)
+  obtain ⟨k, hk0, hk1, hkz⟩ := hz
+  subst hkz
+  rw [(hsc.chain.1.1 k hk0 hk1).2] at hL
+  have hlink := hsc.son_link k hk0 (by omega)
+  simp only [sonsOf, hnz] at hlink
+  obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp (hsc.chain.1.1 (k + 1) (by omega) (by omega)).1
+  refine ⟨sel (k + 1), hlink, np, hnp, fun w hw _ => ?_⟩
+  obtain ⟨j, hj0, hj1, hjw⟩ := hw
+  subst hjw
+  exact chain_mem_owners g sel hsc j (k + 1) hj0 hj1 (by omega) (by omega) np hnp
+
+/-- **Y el paquete entero: una cadena da `Prot`.** -/
+theorem Prot_of_chainSound (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
+    (hrz : Sons.RootAtZero g) (hnd : NodupIds g) : Prot g (chainSet g.current_step sel) where
+  rz := hrz
+  nd := hnd
+  range := fun y hy => by
+    obtain ⟨k, hk0, hk1, hkz⟩ := hy
+    subst hkz
+    rw [(hsc.chain.1.1 k hk0 hk1).2]
+    exact ⟨hk0, hk1⟩
+  gow := fun y hy => by
+    obtain ⟨k, hk0, hk1, hkz⟩ := hy
+    subst hkz
+    exact hsc.chain.2.2 k hk0 hk1
+  sym := Sym_of_chainSound g sel hsc
+  anch := fun y hy => by
+    obtain ⟨k, hk0, hk1, hkz⟩ := hy
+    subst hkz
+    exact Anchored_of_chainSound g sel hsc k hk0 hk1
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Prot_of_chainSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Prot_of_chainSound
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Nested_parents_of_chainSound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Nested_parents_of_chainSound
 
 end AbsSat.GraphPath.Model.PinAliveChain
