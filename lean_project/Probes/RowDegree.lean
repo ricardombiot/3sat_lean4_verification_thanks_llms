@@ -5395,6 +5395,99 @@ def reportFR (name : String) (a : FRAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   cadenas por encima de F: {a.over}   el mas bajo solo: {a.overLow}   algun ancla: {a.overAny}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`anchordist`: ¿a qué distancia del paso `i` está el ancla?** Mismos casos que `sandwich`. Para
+cada caso: distancia `paso − i` del miembro más cercano a `i` cuya tabla sola basta (si lo hay), y del
+más lejano; y si ninguno basta solo, la mejor pareja (la de menor distancia máxima a `i`). También:
+¿basta el miembro más cercano a `i`, el más bajo de la cadena? ¿basta el más alto (la cima)? -/
+
+structure ADAcc where
+  formulas : Nat := 0
+  cases : Nat := 0
+  nearest : Array Nat := #[]
+  farthest : Array Nat := #[]
+  pairOnly : Array Nat := #[]
+  lowOk : Nat := 0
+  topOk : Nat := 0
+  allAnchors : Nat := 0
+  lowOrTop : Nat := 0
+  lowTopPair : Nat := 0
+  deriving Repr
+
+def bumpAD (arr : Array Nat) (j : Nat) : Array Nat :=
+  let arr := if arr.size ≤ j then arr ++ Array.replicate (j + 1 - arr.size) 0 else arr
+  arr.modify j (· + 1)
+
+def checkAD (g : GPathM) (a : ADAcc) : ADAcc := Id.run do
+  if !isValid g then return a
+  let mut a := a
+  for n in g.line (g.current_step - 1) do
+    let (segs, _) := collectDown g [n.id] ([], 60)
+    for P in segs do
+      match P.head? with
+      | none => pure ()
+      | some low =>
+        if P.length ≥ 3 then
+          let nodes := P.filterMap (fun y => g.node? y)
+          for i in (intRange 0 (low.id.step - 1)) do
+            let ats : List (List PathNodeId) := nodes.map (fun m => ownersAt m.owners i)
+            let inAll : List PathNodeId → Bool := fun xs => xs.all (fun r => ats.all (fun t => t.contains r))
+            let inter : List PathNodeId → List PathNodeId → List PathNodeId :=
+              fun x y => x.filter (fun r => y.contains r)
+            let dist : Nat → Nat := fun j => ((P.getD j low).id.step - i).toNat
+            let anchors := (List.range ats.length).filter (fun j => inAll (ats.getD j []))
+            a := { a with cases := a.cases + 1
+                        , lowOk := a.lowOk + (if inAll (ats.headD []) then 1 else 0)
+                        , topOk := a.topOk + (if inAll (ats.getLastD []) then 1 else 0)
+                        , allAnchors := a.allAnchors + (if anchors.length == ats.length then 1 else 0)
+                        , lowOrTop := a.lowOrTop + (if inAll (ats.headD []) || inAll (ats.getLastD []) then 1 else 0)
+                        , lowTopPair := a.lowTopPair + (if inAll (inter (ats.headD []) (ats.getLastD [])) then 1 else 0) }
+            match anchors.head?, anchors.getLast? with
+            | some j0, some j1 =>
+              a := { a with nearest := bumpAD a.nearest (dist j0), farthest := bumpAD a.farthest (dist j1) }
+            | _, _ =>
+              let rng := List.range ats.length
+              let best := rng.foldl (fun (acc : Option Nat) x => rng.foldl (fun acc y =>
+                if inAll (inter (ats.getD x []) (ats.getD y [])) then
+                  let m := max (dist x) (dist y)
+                  match acc with | some b => some (min b m) | none => some m
+                else acc) acc) none
+              match best with
+              | some m => a := { a with pairOnly := bumpAD a.pairOnly m }
+              | none => pure ()
+  return a
+
+partial def walkAD (g : GPathM) (fuel : Nat) (a : ADAcc) : ADAcc :=
+  let a := checkAD g a
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkAD (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaAD (φ : Cnf) (a : ADAcc) : ADAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := checkAD (AggressiveReview.reviewAgg kv.2) a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkAD g (stepCount φ).toNat a
+  return a
+
+def reportAD (name : String) (a : ADAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.cases} casos)"
+  IO.println s!"   el mas bajo basta: {a.lowOk}   la cima basta: {a.topOk}   todos bastan: {a.allAnchors}"
+  IO.println s!"   el mas bajo o la cima: {a.lowOrTop}   la pareja (mas bajo, cima): {a.lowTopPair}"
+  IO.println s!"   ancla mas cercana a i, por distancia (paso - i): {a.nearest}"
+  IO.println s!"   ancla mas lejana a i, por distancia: {a.farthest}"
+  IO.println s!"   sin ancla sola, mejor pareja por distancia maxima: {a.pairOnly}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
 tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
 hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
@@ -5977,6 +6070,23 @@ def main (args : List String) : IO Unit := do
         a := runFormulaFR φ a
       let t1 ← IO.monoMsNow
       reportFR s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "anchordist" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaAD φ {})
+        let t1 ← IO.monoMsNow
+        reportAD path a (t1 - t0)
+  | "anchordist" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : ADAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaAD φ a
+      let t1 ← IO.monoMsNow
+      reportAD s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
