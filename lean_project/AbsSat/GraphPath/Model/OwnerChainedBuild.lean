@@ -1237,21 +1237,18 @@ structure OPart (g : GPathM) (na : PNodeM) (sel : Int → PathNodeId) (lo : Int)
   inTable : ∀ i, lo ≤ i → i ≤ g.current_step - 1 → sel i ∈ na.owners
   owned : PartialOwned g sel lo (g.current_step - 1)
 
-/-- **Un paso del descenso**, con la obligación del autor como única entrada. -/
-theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g)
-    (hsym : Threaded.OwnSymmetric g) (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+/-- **Alargar lo construido con una entrada `u`** poseída por todos los de arriba. El enlace de
+padre lo pone la tabla (`owners_below_iff_parents`) y la posesión inversa, la simetría. -/
+theorem opart_extend (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g)
+    (hsym : Threaded.OwnSymmetric g) (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
     (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
-    (hp : OPart g na sel lo) : ∃ c, OPart g na (upd sel (lo - 1) c) (lo - 1) := by
-  obtain ⟨u, hun, hus, huown⟩ := hds a na hna (lo - 1) sel (by omega) (by omega)
-    (fun j hj1 hj2 => hp.chain.1 j (by omega) (by omega))
-    (fun j hj1 hj2 => hp.inTable j (by omega) (by omega))
-    (fun i j hi1 hj1 hi2 hj2 hij nj hnj => by
-      have := hp.owned i j (by omega) (by omega) (by omega) (by omega) hij
-      simp only [ownersAt, List.mem_filter, ownersOf, hnj] at this
-      exact this.1)
+    (hp : OPart g na sel lo) (u : PathNodeId) (hun : u ∈ na.owners) (hus : u.id.step = lo - 1)
+    (huown : ∀ j, lo - 1 < j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+      u ∈ nj.owners) :
+    OPart g na (upd sel (lo - 1) u) (lo - 1) := by
   obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp
     (ctx.ownerNode a na hna u hun (by rw [hus]; omega) (by rw [hus]; omega))
-  refine ⟨u, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_⟩
   · refine ⟨?_, ?_⟩
     · intro i hi1 hi2
       rcases int_eq_or_ne i (lo - 1) with he | he
@@ -1296,6 +1293,21 @@ theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.A
         exact hsym (sel i) ni u nu hni hnu (huown i (by omega) (by omega) ni hni)
       · rw [upd_other sel (lo - 1) u hei, upd_other sel (lo - 1) u hej]
         exact hp.owned i j (by omega) (by omega) hi2 hj2 hij
+
+/-- **Un paso del descenso**, con la obligación del autor como única entrada. -/
+theorem step_down_O (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g)
+    (hsym : Threaded.OwnSymmetric g) (hds : DescentStepOwned g) (a : PathNodeId) (na : PNodeM)
+    (hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : OPart g na sel lo) : ∃ c, OPart g na (upd sel (lo - 1) c) (lo - 1) := by
+  obtain ⟨u, hun, hus, huown⟩ := hds a na hna (lo - 1) sel (by omega) (by omega)
+    (fun j hj1 hj2 => hp.chain.1 j (by omega) (by omega))
+    (fun j hj1 hj2 => hp.inTable j (by omega) (by omega))
+    (fun i j hi1 hj1 hi2 hj2 hij nj hnj => by
+      have := hp.owned i j (by omega) (by omega) (by omega) (by omega) hij
+      simp only [ownersAt, List.mem_filter, ownersOf, hnj] at this
+      exact this.1)
+  exact ⟨u, opart_extend g ctx adj hsym a na hna sel lo hpos hhi hp u hun hus huown⟩
 
 /-- **Y el descenso entero**, por recursión sobre el paso. -/
 theorem descend_O (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
@@ -1663,5 +1675,151 @@ theorem descentStep_of_pinned (g : GPathM) (hok : AggFixpoint.AggOk g)
 /-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descentStep_of_pinned' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms descentStep_of_pinned
+
+-- ============================================================
+-- El descenso COLECTIVO: la tabla de lo elegido, y cualquier opción
+-- ============================================================
+
+/-- **La tabla colectiva de lo elegido tiene entrada en el paso `i`**: hay una entrada de la tabla de
+`a` en ese paso que está en la tabla de **todos** los elegidos de `lo` a la cima. -/
+def CommonAt (g : GPathM) (na : PNodeM) (sel : Int → PathNodeId) (lo i : Int) : Prop :=
+  ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+    ∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners
+
+/-- **El invariante del descenso colectivo**: lo construido, y su tabla colectiva sin pasos vacíos
+por debajo. -/
+structure CPart (g : GPathM) (na : PNodeM) (sel : Int → PathNodeId) (lo : Int) : Prop where
+  op : OPart g na sel lo
+  common : ∀ i, 0 ≤ i → i < lo → CommonAt g na sel lo i
+
+/-- **«El lector no elige: cualquier opción tiene un camino.»**
+
+Escrita sobre la tabla colectiva: si lo elegido de `lo` a la cima tiene tabla colectiva sin pasos
+vacíos por debajo, entonces **cualquier** entrada `u` de esa tabla en el paso `lo - 1` la deja sin
+pasos vacíos al añadirse.
+
+No menciona padres, ni ventanas, ni ids de mapa: solo tablas de owners, que es lo que el review
+toca. Y es la única obligación del descenso (`descend_C`). -/
+def AnyOptionStep (g : GPathM) : Prop :=
+  ∀ a na, g.node? a = some na → ∀ (sel : Int → PathNodeId) (lo : Int), 0 < lo →
+    lo ≤ g.current_step - 1 → CPart g na sel lo →
+    ∀ u, u.id.step = lo - 1 → u ∈ na.owners →
+      (∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj → u ∈ nj.owners) →
+      ∀ i, 0 ≤ i → i < lo - 1 →
+        ∃ r, r.id.step = i ∧ r ∈ na.owners ∧
+          (∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+            r ∈ nj.owners) ∧
+          (∀ nu, g.node? u = some nu → r ∈ nu.owners)
+
+/-- **Un paso del descenso colectivo, con CUALQUIER opción.** Toda entrada de la tabla colectiva en
+el paso `lo - 1` alarga lo construido: la posesión por todos los de arriba la da la tabla colectiva
+misma, y los pasos de abajo, `AnyOptionStep`. -/
+theorem step_down_C (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g)
+    (hsym : Threaded.OwnSymmetric g) (hany : AnyOptionStep g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na)
+    (sel : Int → PathNodeId) (lo : Int) (hpos : 0 < lo) (hhi : lo ≤ g.current_step - 1)
+    (hp : CPart g na sel lo) (u : PathNodeId) (hus : u.id.step = lo - 1) (hun : u ∈ na.owners)
+    (huown : ∀ j, lo ≤ j → j < g.current_step → ∀ nj, g.node? (sel j) = some nj →
+      u ∈ nj.owners) :
+    CPart g na (upd sel (lo - 1) u) (lo - 1) := by
+  refine ⟨opart_extend g ctx adj hsym a na hna sel lo hpos hhi hp.op u hun hus
+    (fun j hj1 hj2 nj hnj => huown j (by omega) hj2 nj hnj), fun i hi0 hi1 => ?_⟩
+  obtain ⟨r, hrs, hrn, hrall, hru⟩ :=
+    hany a na hna sel lo hpos hhi hp u hus hun huown i hi0 hi1
+  refine ⟨r, hrs, hrn, fun j hj1 hj2 nj hnj => ?_⟩
+  rcases int_eq_or_ne j (lo - 1) with he | he
+  · subst he; rw [upd_self] at hnj; exact hru nj hnj
+  · rw [upd_other sel (lo - 1) u he] at hnj; exact hrall j (by omega) hj2 nj hnj
+
+/-- **Y el descenso colectivo entero.** En cada paso la opción la da la propia tabla colectiva
+(`CPart.common`): no hay búsqueda. -/
+theorem descend_C (g : GPathM) (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g)
+    (hsym : Threaded.OwnSymmetric g) (hany : AnyOptionStep g)
+    (a : PathNodeId) (na : PNodeM) (hna : g.node? a = some na) :
+    ∀ (fuel : Nat) (sel : Int → PathNodeId) (lo : Int), lo.toNat ≤ fuel → 0 ≤ lo →
+      lo ≤ g.current_step - 1 → CPart g na sel lo → ∃ sel', CPart g na sel' 0 := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro sel lo hm hlo _ hp
+    have : lo = 0 := by omega
+    subst this; exact ⟨sel, hp⟩
+  | succ fuel ih =>
+    intro sel lo hm hlo hhi hp
+    if hpos : 0 < lo then
+      obtain ⟨u, hus, hun, huown⟩ := hp.common (lo - 1) (by omega) (by omega)
+      exact ih _ (lo - 1) (by omega) (by omega) (by omega)
+        (step_down_C g ctx adj hsym hany a na hna sel lo hpos hhi hp u hus hun huown)
+    else
+      have : lo = 0 := by omega
+      subst this; exact ⟨sel, hp⟩
+
+/-- **La semilla: la cima y `a` comparten entrada en cada paso** (`shared_at`, es decir `AggOk`). -/
+theorem tableHasOwnedChain_of_anyOption (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (ctx : Threaded.TCtx g) (adj : AdjacentOwners.Adj g) (hsym : Threaded.OwnSymmetric g)
+    (hoos : SelfOwn.OOS g) (hpos : 0 < g.current_step) (hany : AnyOptionStep g) :
+    TableHasOwnedChain g := by
+  intro a na hna ha0 ha1
+  have hok' := owners_ok_of_isValidNode g na (ctx.nodeval a na hna)
+  simp only [List.all_eq_true] at hok'
+  obtain ⟨t, ht, hts⟩ := List.any_eq_true.mp
+    (hok' (g.current_step - 1) (mem_intRange (by omega) (by omega)))
+  have htstep : t.id.step = g.current_step - 1 := eq_of_beq hts
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp
+    (ctx.ownerNode a na hna t ht (by rw [htstep]; omega) (by rw [htstep]; omega))
+  have hseed : CPart g na (fun _ => t) (g.current_step - 1) := by
+    refine ⟨⟨⟨?_, ?_⟩, ?_, ?_⟩, ?_⟩
+    · intro i hi1 hi2
+      have hie : i = g.current_step - 1 := by omega
+      subst hie
+      exact ⟨by rw [hnt]; rfl, htstep⟩
+    · intro i hi1 hi2; exfalso; omega
+    · intro i _ _; exact ht
+    · intro i j hi1 hj1 hi2 hj2 hij; exfalso; omega
+    · intro i hi0 hi1
+      obtain ⟨r, hrn, hrs, hrt⟩ := shared_at g hok adj.ctx a na hna ha0 ha1 t nt hnt
+        (by omega) (by omega) ht i hi0 (by omega)
+      exact ⟨r, hrs, hrn, fun j _ _ nj hnj => by
+        rw [← Option.some.inj (hnt.symm.trans hnj)]; exact hrt⟩
+  obtain ⟨sel, hp⟩ := descend_C g ctx adj hsym hany a na hna (g.current_step - 1).toNat
+    (fun _ => t) (g.current_step - 1) (Nat.le_refl _) (by omega) (by omega) hseed
+  refine ⟨sel, isChain_of_partial g sel hp.op.chain, pairwiseOwned_of_partial g sel hp.op.owned,
+    ?_, fun k hk0 hk1 => hp.op.inTable k hk0 (by omega)⟩
+  have hmem := hp.op.inTable a.id.step ha0 (by omega)
+  obtain ⟨_, hstep⟩ := hp.op.chain.1 a.id.step ha0 (by omega)
+  have hid : na.id = a := node?_id_eq g a na hna
+  have heq := hoos na (List.mem_of_find?_eq_some hna) (sel a.id.step) hmem
+    (by rw [hstep, hid])
+  rw [heq, hid]
+
+/-- **Y la escalera entera desde la frase del lector.**
+
+    AnyOptionStep  →  TableHasOwnedChain  →  OwnerChained  →  PinAlive  →  el veredicto -/
+theorem ownerChained_of_anyOption (g : GPathM) (hok : AggFixpoint.AggOk g)
+    (adj : AdjacentOwners.Adj g) (hsmp : Sons.SMP g) (hpos : 0 < g.current_step)
+    (ctx : Threaded.TCtx g) (hsym : Threaded.OwnSymmetric g) (hoos : SelfOwn.OOS g)
+    (hgn : GownersNodes.GN g) (hany : AnyOptionStep g) : ReaderChain.OwnerChained g :=
+  ownerChained_of_tableHasOwnedChain g adj hsmp hpos hgn
+    (tableHasOwnedChain_of_anyOption g hok ctx adj hsym hoos hpos hany)
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.opart_extend' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms opart_extend
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.step_down_C' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms step_down_C
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.descend_C' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms descend_C
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.tableHasOwnedChain_of_anyOption' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tableHasOwnedChain_of_anyOption
+
+/-- info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_of_anyOption' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ownerChained_of_anyOption
 
 end AbsSat.GraphPath.Model.OwnerChainedBuild
