@@ -21,6 +21,8 @@ open AbsSat.GraphPath.Model.GPathM
 open AbsSat.GraphPath.Model.AggressiveReview
 open AbsSat.GraphPath.Model.FullExt (FullChainG chainSound_of_fullChain fullChain_of_chainSound)
 open AbsSat.GraphPath.Model.PinPairs (FrontierPairs)
+open AbsSat.GraphPath.Model.FullExt1 (FullExt1)
+open AbsSat.GraphPath.Model.Extendable (upd upd_self upd_other)
 open AbsSat.GraphPath.Model.ReaderAgg
 open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak)
 open AbsSat.GraphPath.Model.StepFilter (SCtx mem_filterWeak fullChain_stepFilter)
@@ -155,5 +157,101 @@ theorem tablesExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx 
 theorem filterRequire_eq_filterWeak (g : GPathM) (req : NodeId) :
     filterRequire g req = filterWeak g (req.step, [req]) := by
   simp only [filterRequire, filterWeak, List.contains_cons, List.contains_nil, Bool.or_false]
+
+-- ============================================================
+-- El `up`
+-- ============================================================
+
+/-- **El `up` conserva la verdad de las tablas.** Una pareja de nodos viejos: su cadena, más el hijo
+de fila de la cima. Una pareja con un nodo de fila `v`: el otro está en la tabla de un padre `p` de
+`v`, y la cadena de la pareja `(p, x)` —o la de `p` solo, si `x = p`— más `v`. -/
+theorem tablesExact_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step = P.current_step)
+    (hpos : 0 < P.current_step)
+    (hbelow : ∀ n ∈ P.nodes, n.id.id.step < P.current_step)
+    (hgow : ∀ pid n, P.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < P.current_step → q ∈ P.gowners)
+    (hself : ∀ pid n, P.node? pid = some n → pid ∈ n.owners)
+    (hoos : SelfOwn.OOS P) (hob : SelfOwn.OwnBelow P)
+    (hF : FullExt1 P) (hE : TablesExact P) : TablesExact (addNode P d t) := by
+  have rowOf : ∀ p np, P.node? p = some np → p.id.step = P.current_step - 1 →
+      shiftPid p d ∈ newRowIds P d ∧ p ∈ rowParents P d (shiftPid p d) := by
+    intro p np hnp hps
+    have hpn : p ∈ newParents P := by
+      unfold newParents; rw [if_pos hpos]; exact mem_line_of_node? P p np hnp _ hps
+    exact ⟨mem_newRowIds_of_mem_newParents P d p hpos hpn, mem_rowParents_of_mem_newParents P d p hpn⟩
+  have hc : (addNode P d t).current_step - 1 = P.current_step := by rw [addNode_current]; omega
+  have grow : ∀ s, FullChainG P s → ∀ v, v ∈ newRowIds P d →
+      s (P.current_step - 1) ∈ rowParents P d v →
+      FullChainG (addNode P d t) (upd s P.current_step v) := by
+    intro s hs v hv hpv
+    obtain ⟨hsU, hgU⟩ := FullExt.append_row P d t hd hbelow hself s hs.1 hs.2 v hv hpv hpos
+    exact ⟨by rw [hc]; exact hsU, fun j h0 h1 => hgU j h0 (by rw [hc] at h1; exact h1)⟩
+  -- una entrada de la tabla de un padre de fila `v`: cadena por ella y por `v`
+  have viaParent : ∀ v ∈ newRowIds P d, ∀ p ∈ rowParents P d v, ∀ np, P.node? p = some np →
+      ∀ x ∈ np.owners, x ∈ P.gowners →
+      ∃ s', FullChainG (addNode P d t) s' ∧ s' x.id.step = x ∧ s' P.current_step = v := by
+    intro v hv p hp np hnp x hx hxg
+    have hps := (TopGoodUp.rowParent_node P hpos d v p hp).2
+    have hnpm : np ∈ P.nodes := List.mem_of_find?_eq_some hnp
+    have hnpid : np.id = p := node?_id_eq P p np hnp
+    have hxs : x.id.step < P.current_step := hob np hnpm x hx
+    have hpg : p ∈ P.gowners := hgow p np hnp p (hself p np hnp) (by omega) (by omega)
+    rcases int_eq_or_ne x.id.step (P.current_step - 1) with hxe | hxe
+    · have hxp : x = p := by
+        rw [← hnpid]; exact hoos np hnpm x hx (by rw [hxe, hnpid, hps])
+      obtain ⟨s, hs, hsp⟩ := hF p hpg (by omega) (by omega)
+      have htop : s (P.current_step - 1) = p := by rw [← hps]; exact hsp
+      refine ⟨_, grow s hs v hv (by rw [htop]; exact hp), ?_, upd_self s _ v⟩
+      rw [upd_other s _ v (by omega), hxp]; exact hsp
+    · obtain ⟨s, hs, hsp, hsx⟩ := hE p hpg x hxg (by rw [hps]; exact hxe) (by omega) (by omega)
+        ⟨np, hnp, hx⟩
+      have htop : s (P.current_step - 1) = p := by rw [← hps]; exact hsp
+      exact ⟨_, grow s hs v hv (by rw [htop]; exact hp),
+        by rw [upd_other s _ v (by omega)]; exact hsx, upd_self s _ v⟩
+  rintro r hr q' hq' hne h0 h1 ⟨nr, hnr, hown⟩
+  rw [addNode_gowners] at hr hq'
+  rcases TopGoodUp.lookup P d t hd hbelow r nr hnr with ⟨hrs, m, hm, rfl⟩ | ⟨hrs, hrrow, rfl⟩
+  · have hmm : m ∈ P.nodes := List.mem_of_find?_eq_some hm
+    have hmid : m.id = r := node?_id_eq P r m hm
+    rw [upMap_owners] at hown
+    rcases List.mem_append.mp hown with hqm | hqg
+    · -- dos nodos viejos
+      have hqs : q'.id.step < P.current_step := hob m hmm q' hqm
+      have hqP : q' ∈ P.gowners := by
+        rcases List.mem_append.mp hq' with h | h
+        · exact h
+        · have := mapId_of_mem_newRowIds P d q' h; rw [this, hd] at hqs; omega
+      have hrP : r ∈ P.gowners := by
+        rcases List.mem_append.mp hr with h | h
+        · exact h
+        · have := mapId_of_mem_newRowIds P d r h; rw [this, hd] at hrs; omega
+      obtain ⟨s, hs, hsr, hsq⟩ := hE r hrP q' hqP hne h0 hrs ⟨m, hm, hqm⟩
+      obtain ⟨hpsome, hps⟩ := hs.1.1.1 (P.current_step - 1) (by omega) (Int.le_refl _)
+      obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp hpsome
+      obtain ⟨hv, hpv⟩ := rowOf _ np hnp hps
+      exact ⟨_, grow s hs _ hv hpv, by rw [upd_other s _ _ (by omega)]; exact hsr,
+        by rw [upd_other s _ _ (by omega)]; exact hsq⟩
+    · -- `q'` es de la fila y `r` está en su tabla
+      have hqrow := gainedOwners_subset P d m q' hqg
+      have hrin : r ∈ rowOwners P d q' := by
+        have := (List.mem_filter.mp hqg).2
+        rw [hmid] at this; exact List.elem_iff.mp this
+      rcases (mem_rowOwners_iff P d q' r).mp hrin with ⟨hu, hrP⟩ | hreq
+      · obtain ⟨p, hp, np, hnp, hrp⟩ := exists_owner_of_mem_unionOwnersOf P _ r hu
+        obtain ⟨s', hs', hs'r, hs'q⟩ := viaParent q' hqrow p hp np hnp r hrp hrP
+        have hqs : q'.id.step = P.current_step := by rw [mapId_of_mem_newRowIds P d q' hqrow, hd]
+        exact ⟨s', hs', hs'r, by rw [hqs]; exact hs'q⟩
+      · exact absurd (by rw [hreq]) hne
+  · -- `r` es de la fila
+    rw [rowNode_owners] at hown
+    rcases (mem_rowOwners_iff P d r q').mp hown with ⟨hu, hqP⟩ | hqeq
+    · obtain ⟨p, hp, np, hnp, hqp⟩ := exists_owner_of_mem_unionOwnersOf P _ q' hu
+      obtain ⟨s', hs', hs'q, hs'r⟩ := viaParent r hrrow p hp np hnp q' hqp hqP
+      exact ⟨s', hs', by rw [hrs]; exact hs'r, hs'q⟩
+    · exact absurd (by rw [hqeq]) hne
+
+/-- info: 'AbsSat.GraphPath.Model.TablesExact.tablesExact_addNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms tablesExact_addNode
 
 end AbsSat.GraphPath.Model.TablesExact
