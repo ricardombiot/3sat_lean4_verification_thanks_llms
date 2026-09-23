@@ -3090,6 +3090,81 @@ def runFormulaNHn (label : String) (φ : Cnf) (cap budget : Nat) (a : RNAcc) : R
     line := pureAdvanceW φ line
   return a
 
+/-! **`segments`: tramos sin anfitrión que NO arrancan en la cima.** Bajando: todo tramo enlazado y
+poseído por pares, con extremo alto cualquiera, ¿tiene entrada común en cada paso por debajo? Y
+subiendo: todo tramo que crece por hijos desde un nodo cualquiera, ¿la tiene en cada paso por
+encima? Son las dos mitades de construir la cadena DESDE `a`. -/
+
+def commonAboveNH (g : GPathM) (P : List PathNodeId) (hi : Int) : Bool :=
+  (List.range (g.current_step - 1 - hi).toNat).all (fun k =>
+    let i : Int := hi + 1 + k
+    match P with
+    | [] => true
+    | x :: rest => (ownersAt (tableOfAO g x) i).any (fun r =>
+        rest.all (fun y => (tableOfAO g y).contains r)))
+
+partial def dfsUpNH (g : GPathM) (P : List PathNodeId) (acc : Nat × Nat × Nat) : Nat × Nat × Nat :=
+  let (chains, bad, budget) := acc
+  if budget == 0 then (chains, bad, 0)
+  else
+    match P with
+    | [] => acc
+    | high :: _ =>
+      let ok := commonAboveNH g P high.id.step
+      let ss := match g.node? high with
+        | some n => n.sons.filter (fun q => P.all (fun y => mutuallyOwn g q y))
+        | none => []
+      ss.foldl (fun acc q => dfsUpNH g (q :: P) acc)
+        (chains + 1, bad + (if ok then 0 else 1), budget - 1)
+
+structure SGAcc where
+  formulas : Nat := 0
+  states   : Nat := 0
+  down     : Nat := 0
+  downBad  : Nat := 0
+  up       : Nat := 0
+  upBad    : Nat := 0
+  firstDown : String := ""
+  firstUp   : String := ""
+  deriving Repr
+
+def scanSG (label : String) (g : GPathM) (cap budget : Nat) (a : SGAcc) : SGAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for n in g.nodes.take cap do
+    let (c1, b1, _) := dfsNH g [n.id] (0, 0, budget)
+    let (c2, b2, _) := dfsUpNH g [n.id] (0, 0, budget)
+    a := { a with down := a.down + c1, downBad := a.downBad + b1, up := a.up + c2, upBad := a.upBad + b2
+                , firstDown := if a.firstDown == "" && b1 > 0 then s!"{label} desde @{n.id.id.step}" else a.firstDown
+                , firstUp := if a.firstUp == "" && b2 > 0 then s!"{label} desde @{n.id.id.step}" else a.firstUp }
+  return a
+
+partial def walkSG (label : String) (g : GPathM) (fuel cap budget : Nat) (a : SGAcc) : SGAcc :=
+  if fuel == 0 then a
+  else
+    let a := scanSG label g cap budget a
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => a
+      | some q => walkSG label (filterAllAgg g [q.id]) (fuel - 1) cap budget a
+
+def runFormulaSG (label : String) (φ : Cnf) (cap budget : Nat) (a : SGAcc) : SGAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  for kv in pureRunW φ do
+    if isValid kv.2 then a := scanSG s!"{label} linea" kv.2 cap budget a
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkSG s!"{label} lector" g (stepCount φ).toNat cap budget a
+  return a
+
+def reportSG (name : String) (a : SGAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.states} estados)"
+  IO.println s!"   bajando  (extremo alto cualquiera): tramos {a.down}, sin entrada comun debajo {a.downBad}"
+  if a.firstDown != "" then IO.println s!"      primero: {a.firstDown}"
+  IO.println s!"   subiendo (por hijos)              : tramos {a.up}, sin entrada comun encima {a.upBad}"
+  if a.firstUp != "" then IO.println s!"      primero: {a.firstUp}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3266,6 +3341,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "segments" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSG path φ 40 400 {})
+        let t1 ← IO.monoMsNow
+        reportSG path a (t1 - t0)
+  | "segments" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SGAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSG s!"seed {seed} #{idx}" φ 40 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSG s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "nohostops" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
