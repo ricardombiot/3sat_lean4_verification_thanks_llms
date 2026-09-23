@@ -327,4 +327,50 @@ sobrevivió al punto fijo**, y ése es justamente el dato que el contraejemplo n
 #guard_msgs in
 #print axioms pinResidue_of_sharedTriple
 
+-- ============================================================
+-- Los pasos de cláusula, con `ReqSatisfying`: el filtro no elige, propaga
+-- ============================================================
+
+/-- **Una cadena de un estado de la máquina satisface, por sí sola, los requisitos del nodo al que
+se está enviando.**
+
+Y eso cierra los pasos de cláusula, que era la casilla que quedaba.
+
+El argumento, en tres frases:
+
+1. la **cima** del estado lleva un solo id de mapa, el del envío (`TopSingleId`), así que toda cadena
+   del estado elige `d` allí — no hay elección en la cima;
+2. `MapChain.reqSatisfying_of_pairwiseOwned` dice que una cadena **satisface los requisitos de todo
+   nodo que elige**: la posesión por pares mete `sel req.step` en la tabla de `sel k`, y
+   `ReqFiltered` dice que esa tabla, en el paso del requisito, solo contiene el requisito;
+3. luego la cadena satisface `reqOf d`, y `ChainSound_filterAllAgg` la pasa al otro lado entera.
+
+Dicho en el lenguaje del algoritmo, y es la frase del autor: **el filtro de un envío no elige nada,
+propaga lo que la cima ya fijó.** Los tres requisitos de una cláusula son consecuencia del nodo de
+cláusula al que se envía, y cualquier camino que llegue a ese nodo los cumple ya. -/
+theorem ownerChained_filterAllAgg_of_reqSatisfying (P : GPathM) (reqOf : NodeId → List NodeId)
+    (d : NodeId) (htop : TopSingleId P d) (hpos : 0 < P.current_step)
+    (hrf : ReqFiltered reqOf P)
+    (hback : ∀ n ∈ P.nodes, ∀ req ∈ reqOf n.id.id, req.step < n.id.id.step)
+    (ho : ReaderChain.OwnerChained P) :
+    ReaderChain.OwnerChained (filterAllAgg P (reqOf d)) := by
+  intro q hq h0 h1
+  have hpr := pruned_filterAllAgg P (reqOf d)
+  have h1' : q.id.step < P.current_step := by rw [← hpr.step_eq]; exact h1
+  obtain ⟨sel, hsc, hsel⟩ := ho q (hpr.gowners_sub q hq) h0 h1'
+  have hstepTop := (hsc.chain.1.1 (P.current_step - 1) (by omega) (by omega)).2
+  have htopsel : (sel (P.current_step - 1)).id = d :=
+    htop (sel (P.current_step - 1)) (hsc.chain.2.2 _ (by omega) (by omega)) hstepTop
+  have hrs := MapChain.reqSatisfying_of_pairwiseOwned reqOf P hrf hback sel
+    hsc.chain.1 hsc.chain.2.1
+  refine ⟨sel, ChainSound_filterAllAgg P (reqOf d) sel hsc (fun req hreq hr0 hr1 => ?_), hsel⟩
+  exact hrs (P.current_step - 1) (by omega) (by omega) req (by rw [htopsel]; exact hreq) hr0 hr1
+
+/--
+info: 'AbsSat.GraphPath.Model.OwnerChainedBuild.ownerChained_filterAllAgg_of_reqSatisfying' depends on axioms: [propext,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms ownerChained_filterAllAgg_of_reqSatisfying
+
 end AbsSat.GraphPath.Model.OwnerChainedBuild
