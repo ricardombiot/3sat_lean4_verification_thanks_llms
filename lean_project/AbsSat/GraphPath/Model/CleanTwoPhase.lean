@@ -26,7 +26,8 @@ Proved here, the shape (plan step 6, bricks 1–2):
   is what makes the mirror hold after one simultaneous cut.
 
 And the postconditions (brick 3): `owners_live_cleanInvalid₂` — no dead ids in the tables — and
-`isValidNode_cleanInvalid₂` — every node valid when the graph is.
+`isValidNode_cleanInvalid₂` — every node valid when the graph is. And the fixpoint (brick 4):
+`cleanInvalid₂_eq_self` — no drop in the measure, no change — hence `reviewPass₂_review₂`.
 
 The probe `clean2` (`Probes/RowDegree.lean`) compares the review over it with the current one.
 -/
@@ -618,5 +619,186 @@ theorem isValidNode_cleanInvalid₂ (g : GPathM) (hnd : NodupIds g)
 -/
 #guard_msgs in
 #print axioms isValidNode_cleanInvalid₂
+
+-- ============================================================
+-- At the fixpoint (plan step 6, brick 4): no shrink, no change
+-- ============================================================
+
+private theorem sum_map_le_pt {α : Type} (l : List α) (f h : α → Nat)
+    (hle : ∀ a ∈ l, f a ≤ h a) : (l.map f).sum ≤ (l.map h).sum := sum_map_le' l f h hle
+
+private theorem sum_map_eq_pt {α : Type} (l : List α) (f h : α → Nat)
+    (hle : ∀ a ∈ l, f a ≤ h a) (hsum : (l.map f).sum = (l.map h).sum) :
+    ∀ a ∈ l, f a = h a := by
+  induction l with
+  | nil => intro a ha; exact absurd ha List.not_mem_nil
+  | cons a as ih =>
+    simp only [List.map_cons, List.sum_cons] at hsum
+    have hhead : f a ≤ h a := hle a List.mem_cons_self
+    have htail : ∀ x ∈ as, f x ≤ h x := fun x hx => hle x (List.mem_cons_of_mem _ hx)
+    have hsums := sum_map_le_pt as f h htail
+    have hfa : f a = h a := by omega
+    have htails : (as.map f).sum = (as.map h).sum := by omega
+    intro x hx
+    rcases List.mem_cons.mp hx with e | hx'
+    · rw [e]; exact hfa
+    · exact ih htail htails x hx'
+
+private theorem map_eq_self_pt {α : Type} (l : List α) (f : α → α)
+    (h : ∀ a ∈ l, f a = a) : l.map f = l := by
+  induction l with
+  | nil => rfl
+  | cons a as ih =>
+    simp only [List.map_cons]
+    rw [h a List.mem_cons_self, ih (fun x hx => h x (List.mem_cons_of_mem _ hx))]
+
+private theorem filter_eq_self_len {α : Type} (l : List α) (p : α → Bool)
+    (h : (l.filter p).length = l.length) : l.filter p = l :=
+  List.filter_eq_self.mpr (List.length_filter_eq_length_iff.mp h)
+
+/-- A cut that keeps the weight keeps the node. -/
+theorem cutNode_eq_self_of_weight (gow : List PathNodeId) (g : GPathM) (n : PNodeM)
+    (h : PNodeM.weight (cutNode gow g n) = PNodeM.weight n) : cutNode gow g n = n := by
+  simp only [PNodeM.weight, cutNode] at h
+  have h1 : (cutOwners gow n).length ≤ n.owners.length := List.length_filter_le _ _
+  have h2 := List.length_filter_le
+    (fun p => (cutOwners gow n).contains p && admits gow g p n.id) n.parents
+  have h3 := List.length_filter_le
+    (fun s => (cutOwners gow n).contains s && admits gow g s n.id) n.sons
+  have ho : (cutOwners gow n).length = n.owners.length := by omega
+  have hp : (n.parents.filter (fun p => (cutOwners gow n).contains p && admits gow g p n.id)).length
+      = n.parents.length := by omega
+  have hs : (n.sons.filter (fun s => (cutOwners gow n).contains s && admits gow g s n.id)).length
+      = n.sons.length := by omega
+  have ho' : cutOwners gow n = n.owners := filter_eq_self_len _ _ ho
+  simp only [cutNode]
+  rw [filter_eq_self_len _ _ hp, filter_eq_self_len _ _ hs, ho']
+
+theorem cutAll_eq_self (g : GPathM) (h : GPathM.measure (cutAll g) = GPathM.measure g) :
+    cutAll g = g := by
+  simp only [GPathM.measure, cutAll] at h
+  rw [List.map_map] at h
+  have hsum := Nat.add_left_cancel h
+  have hpt := sum_map_eq_pt g.nodes _ PNodeM.weight
+    (fun n _ => weight_cutNode_le g.gowners g n) hsum
+  have hmap : g.nodes.map (cutNode g.gowners g) = g.nodes :=
+    map_eq_self_pt _ _ (fun n hn => cutNode_eq_self_of_weight _ _ n (hpt n hn))
+  simp only [cutAll, hmap]
+
+theorem purgeStep_eq_self (g : GPathM) (id : PathNodeId)
+    (h : GPathM.measure (purgeStep g id) = GPathM.measure g) : purgeStep g id = g := by
+  unfold purgeStep at h ⊢
+  split at h
+  · rfl
+  · next n hn =>
+    split at h
+    · next hv => simp only [hv, if_true]
+    · next hv =>
+      have hlt := GPathM.measure_removeNode_lt g id n (List.mem_of_find?_eq_some hn)
+        (node?_id_eq g id n hn)
+      exact absurd h (Nat.ne_of_lt hlt)
+
+theorem purgeRound_eq_self (g : GPathM)
+    (h : GPathM.measure (purgeRound g) = GPathM.measure g) : purgeRound g = g := by
+  rw [purgeRound_eq] at h ⊢
+  generalize g.nodes.map (·.id) = ids at h ⊢
+  induction ids generalizing g with
+  | nil => rfl
+  | cons id rest ih =>
+    simp only [List.foldl_cons] at h ⊢
+    have h₁ := measure_purgeStep_le g id
+    have h₂ := measure_foldl_purgeStep_le rest (purgeStep g id)
+    have hstep : GPathM.measure (purgeStep g id) = GPathM.measure g := by omega
+    rw [purgeStep_eq_self g id hstep] at h ⊢
+    exact ih g h
+
+theorem purgeFuel_eq_self : ∀ (fuel : Nat) (g : GPathM),
+    GPathM.measure (purgeFuel fuel g) = GPathM.measure g → purgeFuel fuel g = g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g _; rfl
+  | succ k ih =>
+    intro g h
+    simp only [purgeFuel] at h ⊢
+    split at h
+    · next hv =>
+      rw [if_pos hv]
+      split at h
+      · next hshr =>
+        rw [if_pos hshr]
+        have h₁ := measure_purgeFuel_le k (purgeRound g)
+        have h₂ := measure_purgeRound_le g
+        have hr : GPathM.measure (purgeRound g) = GPathM.measure g := by omega
+        rw [purgeRound_eq_self g hr] at h ⊢
+        exact ih g h
+      · next hshr =>
+        rw [if_neg hshr]
+        exact purgeRound_eq_self g h
+    · next hv => rw [if_neg hv]
+
+/-- **At the fixpoint `cleanInvalid₂` changes nothing**: if the measure does not drop, the graph is
+the same. What `Fuel` needs for the fixpoint of `review₂`. -/
+theorem cleanInvalid₂_eq_self (g : GPathM)
+    (h : GPathM.measure (cleanInvalid₂ g) = GPathM.measure g) : cleanInvalid₂ g = g := by
+  unfold cleanInvalid₂ at h ⊢
+  have h₁ := measure_cutAll_le (purgeFuel (g.nodes.length + 1) g)
+  have h₂ := measure_purgeFuel_le (g.nodes.length + 1) g
+  have hp : GPathM.measure (purgeFuel (g.nodes.length + 1) g) = GPathM.measure g := by omega
+  rw [purgeFuel_eq_self _ g hp] at h ⊢
+  exact cutAll_eq_self g h
+
+theorem reviewPass₂_eq_self (g : GPathM) (h : GPathM.measure (reviewPass₂ g) = GPathM.measure g) :
+    reviewPass₂ g = g := by
+  have h₁ := measure_cleanInvalid₂_le g
+  have h₂ := measure_reviewParents_le (cleanInvalid₂ g)
+  have h₃ := measure_reviewSons_le (reviewParents (cleanInvalid₂ g))
+  simp only [reviewPass₂] at h ⊢
+  have hclean : GPathM.measure (cleanInvalid₂ g) = GPathM.measure g := by omega
+  rw [cleanInvalid₂_eq_self g hclean] at h ⊢
+  have h₂' := measure_reviewParents_le g
+  have h₃' := measure_reviewSons_le (reviewParents g)
+  have hpar : GPathM.measure (reviewParents g) = GPathM.measure g := by omega
+  rw [reviewParents_eq_self g hpar] at h ⊢
+  exact reviewSons_eq_self g h
+
+theorem reviewFuel₂_fixpoint : ∀ (fuel : Nat) (g : GPathM), GPathM.measure g < fuel →
+    isValid (reviewFuel₂ fuel g) = true →
+    reviewPass₂ (reviewFuel₂ fuel g) = reviewFuel₂ fuel g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g hlt; exact absurd hlt (Nat.not_lt_zero _)
+  | succ fuel ih =>
+    intro g hlt hvalid
+    simp only [reviewFuel₂] at hvalid ⊢
+    split at hvalid
+    · next hv =>
+      rw [if_pos hv]
+      split at hvalid
+      · next hdec =>
+        rw [if_pos hdec]
+        exact ih (reviewPass₂ g) (by omega) hvalid
+      · next hdec =>
+        rw [if_neg hdec]
+        have hle := measure_reviewPass₂_le g
+        have hfix : reviewPass₂ g = g := reviewPass₂_eq_self g (by omega)
+        simp only [hfix]
+    · next hv =>
+      rw [if_neg hv]
+      exact absurd hvalid hv
+
+/-- **`review₂` is a fixpoint of its round** (when valid) — the mirror of `reviewPass_review`. -/
+theorem reviewPass₂_review₂ (g : GPathM) (h : isValid (review₂ g) = true) :
+    reviewPass₂ (review₂ g) = review₂ g :=
+  reviewFuel₂_fixpoint _ g (Nat.lt_succ_self _) h
+
+/-- info: 'AbsSat.GraphPath.Model.CleanTwoPhase.cleanInvalid₂_eq_self' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms cleanInvalid₂_eq_self
+
+/-- info: 'AbsSat.GraphPath.Model.CleanTwoPhase.reviewPass₂_review₂' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms reviewPass₂_review₂
 
 end AbsSat.GraphPath.Model.CleanTwoPhase
