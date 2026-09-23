@@ -3100,4 +3100,130 @@ sanas, solo quitar, y no inventar identificadores. -/
 #guard_msgs in
 #print axioms Nested_reviewAgg
 
+-- ============================================================
+-- La escalera, restringida a los pines que el lector hace de verdad
+-- ============================================================
+
+/-- **Los estados que el lector visita**, y no todos los que un pin arbitrario alcanzaría.
+
+`ReaderAgg.ReadFrom` admite cualquier `mid` en cualquier paso. El lector no: `readLoop` pincha
+siempre en `firstChoice g` —el paso **más bajo** con elección— y siempre una entrada de la tabla
+global de ese paso. Esta relación dice exactamente eso.
+
+Y la diferencia importa, porque por debajo de `firstChoice` no hay elección, así que todo estado
+que el lector visita tiene **un prefijo de pasos ya fijado**, y el pin que está a punto de hacer está
+justo en la frontera. -/
+inductive ReadFromR (g₀ : GPathM) : GPathM → Prop where
+  | start : ReadFromR g₀ g₀
+  | pin (g : GPathM) (k : Int) (q : PathNodeId) : ReadFromR g₀ g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      ReadFromR g₀ (filterAllAgg g [q.id])
+
+theorem readFrom_of_readFromR (g₀ g : GPathM) (h : ReadFromR g₀ g) : ReadFrom g₀ g := by
+  induction h with
+  | start => exact ReadFrom.start
+  | pin g _ q _ hv _ _ ih => exact ReadFrom.pin g q.id ih hv
+
+/-- **La obligación de progreso, sobre los estados que el lector visita.** -/
+def ProgressAggR (g₀ : GPathM) : Prop :=
+  ∀ g, ReadFromR g₀ g → isValid g = true → ∀ k, ReaderExec.firstChoice g = some k →
+    ∃ q ∈ ownersAt g.gowners k, isValid (filterAllAgg g [q.id]) = true
+
+/-- **Y el lector termina con ella.** Es `ReaderExec.readLoop_complete` con la relación estrecha:
+la única diferencia es que en la recursión se construye `ReadFromR.pin`, que recuerda que el paso era
+el primero con elección y que la entrada venía de su tabla. -/
+theorem readLoop_completeR (g₀ : GPathM) (hP : ProgressAggR g₀) :
+    ∀ (n : Nat) (g : GPathM), GPathM.measure g ≤ n → ReadFromR g₀ g → isValid g = true →
+      (ReaderExec.readLoop n g).isSome = true := by
+  intro n
+  induction n with
+  | zero =>
+    intro g hm hF hv
+    simp only [ReaderExec.readLoop]
+    by_cases hc : PickInduction.hasChoice g = true
+    · obtain ⟨k, hk⟩ := ReaderExec.firstChoice_of_hasChoice g hc
+      obtain ⟨q, hq, _⟩ := hP g hF hv k hk
+      have := ReaderAgg.measure_lt_of_choiceAt g k (ReaderExec.choiceAt_of_firstChoice g k hk) q hq
+      omega
+    · rw [if_neg hc]; rfl
+  | succ n ih =>
+    intro g hm hF hv
+    simp only [ReaderExec.readLoop]
+    cases hf : ReaderExec.firstChoice g with
+    | none => rfl
+    | some k =>
+      obtain ⟨q₀, hq₀, hv₀⟩ := hP g hF hv k hf
+      have hsome := ReaderExec.findSome_isSome g (ownersAt g.gowners k) ⟨q₀, hq₀, hv₀⟩
+      obtain ⟨h', ht⟩ := Option.isSome_iff_exists.mp hsome
+      have ht' : ReaderExec.tryPins g k = some h' := ht
+      simp only [ht']
+      obtain ⟨q, hq, e, hv'⟩ := ReaderExec.findSome_valid g _ h' ht
+      subst e
+      have hlt := ReaderAgg.measure_lt_of_choiceAt g k
+        (ReaderExec.choiceAt_of_firstChoice g k hf) q hq
+      exact ih _ (by omega) (ReadFromR.pin g k q hF hv hf hq) hv'
+
+theorem readAgg_completeR (g₀ : GPathM) (hv : isValid g₀ = true) (hP : ProgressAggR g₀) :
+    (ReaderExec.readAgg g₀).isSome = true := by
+  unfold ReaderExec.readAgg
+  rw [if_pos hv]
+  exact readLoop_completeR g₀ hP _ g₀ (Nat.le_refl _) ReadFromR.start hv
+
+/-- **Y basta una cadena en cada estado que el lector visita.** -/
+theorem progressAggR_of_chains (g₀ : GPathM)
+    (hC : ∀ g, ReadFromR g₀ g → isValid g = true → ∃ sel, ChainSound g sel) : ProgressAggR g₀ := by
+  intro g hF hv k hk
+  obtain ⟨sel, hsc⟩ := hC g hF hv
+  have hmem := List.mem_of_find?_eq_some hk
+  have h0 : 0 ≤ k := mem_intRange_lower hmem
+  have h1 : k < g.current_step := by have := mem_intRange_upper hmem; omega
+  obtain ⟨_, hstep⟩ := hsc.chain.1.1 k h0 h1
+  refine ⟨sel k, List.mem_filter.mpr ⟨hsc.chain.2.2 k h0 h1, beq_iff_eq.mpr hstep⟩, ?_⟩
+  exact PickInduction.isValid_of_ChainG _ sel
+    (ChainSound_filterAllAgg g [(sel k).id] sel hsc (fun req hreq _ _ => by
+      rw [List.mem_singleton.mp hreq, hstep])).chain
+
+/-! ## Lo que la restricción compra
+
+La escalera estrecha pide `OwnerChained` **solo en el paso que el lector va a pinchar**, y ese paso
+es siempre `firstChoice` — el más bajo con elección. Por tanto:
+
+* todos los pasos **por debajo** ya están fijados, y ahí `OwnerChainedBuild.mem_owners_of_pinnedPrefix`
+  cierra los pares;
+* y lo que queda del enunciado abierto es la posesión entre **el nodo de la frontera** y los de
+  arriba.
+
+Que es una frase sobre un nodo y los pasos superiores, no sobre todos los pares de una tabla. -/
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.readLoop_completeR' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readLoop_completeR
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.progressAggR_of_chains' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms progressAggR_of_chains
+
+/-- **Y el veredicto, por la escalera estrecha.** -/
+theorem readerVerdictW_completeR (φ : Cnf) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (hP : ProgressAggR (filterAllAgg kv.2 [])) : ReaderExec.readerVerdictW φ = true :=
+  List.any_eq_true.mpr ⟨kv, hkv, readAgg_completeR _ hv hP⟩
+
+/-- **Todo junto: una cadena en cada estado que el lector visita de verdad, y el veredicto sale.**
+
+Es la versión estrecha de `readerVerdictW_of_pinAlive`. La hipótesis ya no habla de todo pin posible
+en todo estado alcanzable, sino de los estados que `readLoop` recorre: los que se obtienen pinchando
+siempre en el paso más bajo con elección. -/
+theorem readerVerdictW_of_chainsR (φ : Cnf) (kv : NodeId × GPathM)
+    (hkv : kv ∈ PureDriverImproves.pureRunW φ)
+    (hv : isValid (filterAllAgg kv.2 []) = true)
+    (hC : ∀ g, ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ∃ sel, ChainSound g sel) : ReaderExec.readerVerdictW φ = true :=
+  readerVerdictW_completeR φ kv hkv hv (progressAggR_of_chains _ hC)
+
+/-- info: 'AbsSat.GraphPath.Model.PinAliveChain.readerVerdictW_of_chainsR' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_of_chainsR
+
 end AbsSat.GraphPath.Model.PinAliveChain
