@@ -4304,6 +4304,131 @@ def reportFK (name : String) (a : FKAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primero que NO se extiende y SOBREVIVE: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`filterkillcs`: la completitud en la forma `ChainSound`.** Como `filterkill`, pero la extensión
+tiene que ser `ChainSound`: cada miembro se posee, el enlace se ve desde los dos lados (padre en el
+hijo, hijo en el padre) y la raíz está en el paso 0 y solo allí. -/
+
+def csNodeOk (g : GPathM) (r : PathNodeId) : Bool :=
+  match g.node? r with
+  | none => false
+  | some n => n.owners.contains r &&
+      (if r.id.step == 0 then r.parent_id.isNone else r.parent_id.isSome)
+
+def csLinked (g : GPathM) (lo hi : PathNodeId) : Bool :=
+  (match g.node? hi with | some n => n.parents.contains lo | none => false) &&
+  (match g.node? lo with | some n => n.sons.contains hi | none => false)
+
+partial def extendCS (g : GPathM) (ok : PathNodeId → Bool) (P : List PathNodeId) (budget : Nat) :
+    Option Bool × Nat :=
+  if budget == 0 then (none, 0)
+  else
+    match P.head?, P.getLast? with
+    | some low, some high =>
+      let step (cands : List PathNodeId) (mk : PathNodeId → List PathNodeId) : Option Bool × Nat :=
+        cands.foldl (fun (acc : Option Bool × Nat) r =>
+          match acc with
+          | (some true, b) => (some true, b)
+          | (res, b) =>
+            if b == 0 then (none, 0)
+            else
+              let (r', b') := extendCS g ok (mk r) (b - 1)
+              match r', res with
+              | some true, _ => (some true, b')
+              | none, _ => (none, b')
+              | some false, none => (none, b')
+              | some false, _ => (some false, b'))
+          (some false, budget)
+      if low.id.step > 0 then
+        let cands := match g.node? low with
+          | some n => n.parents.filter (fun r => ok r && fitsAll g P r && csNodeOk g r && csLinked g r low)
+          | none => []
+        step cands (fun r => r :: P)
+      else if high.id.step < g.current_step - 1 then
+        let cands := match g.node? high with
+          | some n => n.sons.filter (fun r => ok r && fitsAll g P r && csNodeOk g r && csLinked g high r)
+          | none => []
+        step cands (fun r => P ++ [r])
+      else (some true, budget)
+    | _, _ => (some true, budget)
+
+structure FKCAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  segs : Nat := 0
+  segCS : Nat := 0        -- tramos cuyos propios miembros ya cumplen la forma ChainSound
+  plainExt : Nat := 0
+  csExt : Nat := 0
+  csExtSurv : Nat := 0
+  plainNotCs : Nat := 0   -- se extiende, pero no en forma ChainSound
+  noExtSurv : Nat := 0    -- sobreviven sin extensión ChainSound
+  first : String := ""
+  deriving Repr
+
+def checkFKC (lab : String) (F : GPathM) (cap budget : Nat) (a : FKCAcc) : FKCAcc := Id.run do
+  let R := AggressiveReview.reviewAgg F
+  let mut a := { a with states := a.states + 1 }
+  let gow := F.gowners
+  for n in F.nodes.take cap do
+    if gow.contains n.id then
+      let (segs, _) := collectDown F [n.id] ([], 60)
+      for P in segs do
+        if P.all (fun x => gow.contains x) then
+          a := { a with segs := a.segs + 1 }
+          let own := P.all (fun x => csNodeOk F x) &&
+            (List.range (P.length - 1)).all (fun k =>
+              match P[k]?, P[k + 1]? with
+              | some x, some y => csLinked F x y
+              | _, _ => false)
+          if own then a := { a with segCS := a.segCS + 1 }
+          let surv := isValid R && isSegment R P
+          let pe := (extendFullIn F (fun r => gow.contains r) P budget).1 == some true
+          let ce := own && (extendCS F (fun r => gow.contains r) P budget).1 == some true
+          a := { a with plainExt := a.plainExt + (if pe then 1 else 0)
+                      , csExt := a.csExt + (if ce then 1 else 0)
+                      , csExtSurv := a.csExtSurv + (if ce && surv then 1 else 0)
+                      , plainNotCs := a.plainNotCs + (if pe && !ce then 1 else 0)
+                      , noExtSurv := a.noExtSurv + (if !ce && surv then 1 else 0)
+                      , first := if a.first == "" && !ce && surv then
+                          s!"{lab} tramo {P.map (·.id.step)} forma={own} ext={pe}" else a.first }
+  return a
+
+partial def walkFKC (lab : String) (g : GPathM) (fuel cap budget : Nat) (a : FKCAcc) : FKCAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := checkFKC s!"{lab} pin" ([q.id].foldl filterRequire g) cap budget a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkFKC lab (filterAllAgg g [q.id]) (fuel - 1) cap budget a
+
+def runFormulaFKC (label : String) (φ : Cnf) (cap budget : Nat) (a : FKCAcc) : FKCAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := checkFKC s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkFKC s!"{label} lector" g (stepCount φ).toNat cap budget a
+  return a
+
+def reportFKC (name : String) (a : FKCAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.states} estados filtrados)"
+  IO.println s!"   tramos dentro de la global: {a.segs} (sus miembros ya en forma ChainSound: {a.segCS})"
+  IO.println s!"   se extienden (forma simple)        : {a.plainExt}"
+  IO.println s!"   se extienden en forma ChainSound   : {a.csExt}  (sobreviven al review: {a.csExtSurv})"
+  IO.println s!"   simple SI pero ChainSound NO       : {a.plainNotCs}"
+  IO.println s!"   SOBREVIVEN sin extension ChainSound: {a.noExtSurv}"
+  if a.first != "" then IO.println s!"   primero: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -4480,6 +4605,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "filterkillcs" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaFKC path φ 20 2000 {})
+        let t1 ← IO.monoMsNow
+        reportFKC path a (t1 - t0)
+  | "filterkillcs" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : FKCAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaFKC s!"seed {seed} #{idx}" φ 20 2000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportFKC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "filterkill" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
