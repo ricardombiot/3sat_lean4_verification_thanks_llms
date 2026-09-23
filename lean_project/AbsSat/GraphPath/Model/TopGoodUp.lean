@@ -379,4 +379,152 @@ theorem topGood_doJoin (A B : GPathM) (tA : TopGood A) (tB : TopGood B)
 #guard_msgs in
 #print axioms topGood_doJoin
 
+-- ============================================================
+-- SIN anfitrión
+-- ============================================================
+
+/-! El anfitrión es lo que rompía los estados intermedios: con él, `cleanInvalid` nodo a nodo deja
+134 de 519 estados sin entrada común en `dos_de_tres.cnf`; sin él, **ninguno**, y ninguno en las
+demás pasadas (`row-degree nohostnodes`). En los estados de la máquina y del lector tampoco falla
+(`row-degree nohostops`: semilla 1, 0 de 194.166 cadenas). Y la escalera no lo necesita:
+`ownerChained_of_tableHasOwnedChain` no usa que la cadena esté en la tabla de `a`. -/
+
+/-- **Toda cadena desde la cima es buena**, sin anfitrión: enlazada por padres y poseída por pares,
+tiene en cada paso de abajo una entrada común a las tablas de todos sus miembros. -/
+def TopGoodNH (g : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo : Int), 0 ≤ lo → lo ≤ g.current_step - 1 →
+    Extendable.PartialChain g sel lo (g.current_step - 1) →
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ g.current_step - 1 → j ≤ g.current_step - 1 → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners) →
+    ∀ i, 0 ≤ i → i < lo → ∃ r, r.id.step = i ∧
+      ∀ j, lo ≤ j → j ≤ g.current_step - 1 → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners
+
+/-- **El `up` conserva `TopGoodNH`**, con menos hipótesis que con anfitrión: ni simetría ni la
+forma de la tabla global. Por debajo de la cima nueva la cadena es del estado de antes; su entrada
+común está en la tabla del padre de la cima, y `rowOwners` la hereda. Si la cadena es solo la cima,
+basta un padre suyo. -/
+theorem topGoodNH_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step = P.current_step)
+    (hpos : 0 < P.current_step)
+    (hbelow : ∀ n ∈ P.nodes, n.id.id.step < P.current_step)
+    (hgow : ∀ pid n, P.node? pid = some n → ∀ q ∈ n.owners, 0 ≤ q.id.step →
+      q.id.step < P.current_step → q ∈ P.gowners)
+    (hself : ∀ pid n, P.node? pid = some n → pid ∈ n.owners) (hg : TopGoodNH P) :
+    TopGoodNH (addNode P d t) := by
+  intro sel lo hlo0 hlo1 hch hpw i hi0 hilo
+  have hcsU : (addNode P d t).current_step - 1 = P.current_step := by rw [addNode_current]; omega
+  rw [hcsU] at hlo1 hch hpw ⊢
+  obtain ⟨hvsome, hvs⟩ := hch.1 P.current_step hlo1 (Int.le_refl _)
+  obtain ⟨mv, hmv⟩ := Option.isSome_iff_exists.mp hvsome
+  obtain ⟨hvrow, hmveq⟩ : sel P.current_step ∈ newRowIds P d ∧
+      mv = rowNode P d t (sel P.current_step) := by
+    rcases lookup P d t hd hbelow _ mv hmv with ⟨hlt, _⟩ | ⟨_, hr, he⟩
+    · omega
+    · exact ⟨hr, he⟩
+  subst hmveq
+  have toTop : ∀ p ∈ rowParents P d (sel P.current_step), ∀ np, P.node? p = some np →
+      ∀ r ∈ np.owners, 0 ≤ r.id.step → r.id.step < P.current_step →
+      r ∈ (rowNode P d t (sel P.current_step)).owners := fun p hp np hnp r hr h0 h1 =>
+    row_of_parent P d _ p hp np hnp r hr (hgow p np hnp r hr h0 h1)
+  have oldAt : ∀ j, lo ≤ j → j ≤ P.current_step - 1 →
+      ∃ nj, P.node? (sel j) = some nj ∧ (addNode P d t).node? (sel j) = some (upMap P d nj) := by
+    intro j hj1 hj2
+    obtain ⟨hs, hjs⟩ := hch.1 j hj1 (by omega)
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+    rcases lookup P d t hd hbelow _ m hm with ⟨_, n, hn, rfl⟩ | ⟨hst, _⟩
+    · exact ⟨n, hn, hm⟩
+    · omega
+  rcases (show lo < P.current_step ∨ lo = P.current_step by omega) with hlt | heq
+  · obtain ⟨np, hnp, _⟩ := oldAt (P.current_step - 1) (by omega) (Int.le_refl _)
+    have hpv : sel (P.current_step - 1) ∈ rowParents P d (sel P.current_step) := by
+      have hl := hch.2 (P.current_step - 1) (by omega) (by omega)
+      rw [show P.current_step - 1 + 1 = P.current_step by omega, hmv] at hl
+      simpa [rowNode_parents] using hl
+    have hchP : Extendable.PartialChain P sel lo (P.current_step - 1) := by
+      refine ⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩
+      · obtain ⟨nj, hnj, _⟩ := oldAt j hj1 hj2
+        exact ⟨by rw [hnj]; rfl, (hch.1 j hj1 (by omega)).2⟩
+      · obtain ⟨nj, hnj, hnjU⟩ := oldAt (j + 1) (by omega) hj2
+        have hl := hch.2 j hj1 (by omega)
+        rw [hnjU] at hl
+        rw [hnj]
+        simpa [upMap_parents] using hl
+    have hpwP : ∀ i j, lo ≤ i → lo ≤ j → i ≤ P.current_step - 1 → j ≤ P.current_step - 1 →
+        i ≠ j → ∀ nj, P.node? (sel j) = some nj → sel i ∈ nj.owners := by
+      intro i' j hi1 hj1 hi2 hj2 hij nj hnj
+      have h := hpw i' j hi1 hj1 (by omega) (by omega) hij (upMap P d nj)
+        (by rw [addNode_node?_old P d t _ nj hnj])
+      exact (old_mem P d hd nj _ (by rw [(hch.1 i' hi1 (by omega)).2]; omega)).mp h
+    obtain ⟨r, hrs, hrall⟩ := hg sel lo hlo0 (by omega) hchP hpwP i hi0 hilo
+    refine ⟨r, hrs, fun j hj1 hj2 nj hnj => ?_⟩
+    rcases (show j ≤ P.current_step - 1 ∨ j = P.current_step by omega) with hjl | hje
+    · obtain ⟨nj0, hnj0, hnjU⟩ := oldAt j hj1 hjl
+      rw [hnjU] at hnj; cases hnj
+      exact (old_mem P d hd nj0 r (by omega)).mpr (hrall j hj1 hjl nj0 hnj0)
+    · subst hje
+      rw [hmv] at hnj; cases hnj
+      exact toTop _ hpv np hnp r (hrall _ (by omega) (Int.le_refl _) np hnp) (by omega) (by omega)
+  · rw [heq] at hilo ⊢
+    obtain ⟨p, hp⟩ := row_has_parent P hpos d _ hvrow
+    obtain ⟨⟨np, hnp⟩, hps⟩ := rowParent_node P hpos d _ p hp
+    have hconc : ∀ r, r ∈ (rowNode P d t (sel P.current_step)).owners →
+        ∀ j, P.current_step ≤ j → j ≤ P.current_step → ∀ nj,
+          (addNode P d t).node? (sel j) = some nj → r ∈ nj.owners := by
+      intro r hr j hj1 hj2 nj hnj
+      have : j = P.current_step := by omega
+      rw [this, hmv] at hnj; cases hnj; exact hr
+    rcases (show i = P.current_step - 1 ∨ i < P.current_step - 1 by omega) with hie | hil
+    · exact ⟨p, by omega, hconc p (toTop p hp np hnp p (hself p np hnp) (by omega) (by omega))⟩
+    · have hchp : Extendable.PartialChain P (fun _ => p) (P.current_step - 1)
+          (P.current_step - 1) :=
+        ⟨fun j hj1 hj2 => ⟨by rw [hnp]; rfl, by rw [hps]; omega⟩, fun j hj1 hj2 => by omega⟩
+      obtain ⟨r, hrs, hrall⟩ := hg (fun _ => p) (P.current_step - 1) (by omega) (Int.le_refl _)
+        hchp (fun _ _ h1 h2 h3 h4 hne => absurd (by omega) hne) i hi0 (by omega)
+      exact ⟨r, hrs, hconc r (toTop p hp np hnp r
+        (hrall _ (Int.le_refl _) (Int.le_refl _) np hnp) (by omega) (by omega))⟩
+
+/-- La cadena sin anfitrión, empaquetada. -/
+def ChainFromNH (g : GPathM) (sel : Int → PathNodeId) (lo : Int) : Prop :=
+  0 ≤ lo ∧ lo ≤ g.current_step - 1 ∧ Extendable.PartialChain g sel lo (g.current_step - 1) ∧
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ g.current_step - 1 → j ≤ g.current_step - 1 → i ≠ j →
+      ∀ nj, g.node? (sel j) = some nj → sel i ∈ nj.owners)
+
+/-- **La unión no mezcla**, sin anfitrión. -/
+def NoMixNH (J A B : GPathM) : Prop :=
+  ∀ sel lo, ChainFromNH J sel lo → ChainFromNH A sel lo ∨ ChainFromNH B sel lo
+
+theorem commonNH_of_grown {g J : GPathM} (hgr : Grown g J) (hg : TopGoodNH g)
+    (sel : Int → PathNodeId) (lo : Int) (hc : ChainFromNH g sel lo) (i : Int) (hi0 : 0 ≤ i)
+    (hi1 : i < lo) :
+    ∃ r, r.id.step = i ∧
+      ∀ j, lo ≤ j → j ≤ J.current_step - 1 → ∀ nj, J.node? (sel j) = some nj → r ∈ nj.owners := by
+  obtain ⟨hlo0, hlo1, hch, hpw⟩ := hc
+  obtain ⟨r, hrs, hrall⟩ := hg sel lo hlo0 hlo1 hch hpw i hi0 hi1
+  refine ⟨r, hrs, fun j hj1 hj2 nj hnj => ?_⟩
+  rw [hgr.step_eq] at hj2
+  obtain ⟨hs, _⟩ := hch.1 j hj1 hj2
+  obtain ⟨gj, hgj⟩ := Option.isSome_iff_exists.mp hs
+  obtain ⟨nj', hnj', hownj, _, _⟩ := hgr.node?_grown _ gj hgj
+  rw [hnj] at hnj'; cases hnj'
+  exact hownj r (hrall j hj1 hj2 gj hgj)
+
+/-- **El `doJoin` conserva `TopGoodNH`** si la unión no mezcla. -/
+theorem topGoodNH_doJoin (A B : GPathM) (tA : TopGoodNH A) (tB : TopGoodNH B)
+    (hmix : okJoin A B = true → NoMixNH (join A B) A B) : TopGoodNH (doJoin A B) := by
+  unfold doJoin
+  split
+  · next hok =>
+    intro sel lo hlo0 hlo1 hch hpw i hi0 hi1
+    rcases hmix hok sel lo ⟨hlo0, hlo1, hch, hpw⟩ with hc | hc
+    · exact commonNH_of_grown (grown_join_left A B) tA sel lo hc i hi0 hi1
+    · exact commonNH_of_grown (grown_join_right A B hok) tB sel lo hc i hi0 hi1
+  · exact tA
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.topGoodNH_addNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topGoodNH_addNode
+
+/-- info: 'AbsSat.GraphPath.Model.TopGoodUp.topGoodNH_doJoin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topGoodNH_doJoin
+
 end AbsSat.GraphPath.Model.TopGoodUp

@@ -2884,6 +2884,212 @@ def reportRO (name : String) (a : ROAcc) (ms : Nat) : IO Unit := do
   row "final (reviewAgg)   " a.final
   IO.println s!"   ({ms} ms)"
 
+/-! **`reviewnodes`: `TopGood` nodo a nodo dentro del review.** Como `reviewops`, pero midiendo tras
+cada operación de un nodo: un paso de `cleanInvalidGo`, cada `reviewNode` de las pasadas de padres e
+hijos, y cada `aggNode` del barrido. -/
+
+structure RNAcc where
+  formulas : Nat := 0
+  clean : TGCell := {}
+  par   : TGCell := {}
+  sons  : TGCell := {}
+  agg   : TGCell := {}
+  deriving Repr
+
+def instrSteps (lab : String) (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (cap budget : Nat) (c0 : TGCell) : GPathM × TGCell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      g := reviewNode g nb id
+      c := measureTG s!"{lab} nodo@{id.id.step}" g cap budget c
+  return (g, c)
+
+def reviewNodesInstr (lab : String) (F : GPathM) (cap budget : Nat) (a : RNAcc) : RNAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        -- cleanInvalid, nodo a nodo
+        let mut h := g
+        for id in g.nodes.map (·.id) do
+          h := cleanInvalidGo h [id]
+          a := { a with clean := measureTG s!"{lab} clean@{id.id.step}" h cap budget a.clean }
+        let (h2, cp) := instrSteps lab h (·.parents) (intRange 1 (h.current_step - 1)) cap budget a.par
+        a := { a with par := cp }
+        let (h3, cs) := instrSteps lab h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse cap budget a.sons
+        a := { a with sons := cs }
+        g := h3
+        if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g0 := g
+      let mut h := g
+      for k in (intRange 0 (g.current_step - 1)).reverse do
+        for id in (h.line k).map (·.id) do
+          h := AggressiveReview.aggNode h id
+          a := { a with agg := measureTG s!"{lab} agg@{id.id.step}" h cap budget a.agg }
+      if GPathM.measure h < GPathM.measure g0 then g := h else outer := 0
+  return a
+
+def runFormulaRN (label : String) (φ : Cnf) (cap budget : Nat) (a : RNAcc) : RNAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewNodesInstr s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
+def reportRN (name : String) (a : RNAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  let row (lbl : String) (c : TGCell) : IO Unit := do
+    IO.println s!"   {lbl}: estados {c.states} (con fallo {c.statesBad}), cadenas {c.chains}, sin entrada comun {c.bad}"
+    if c.first != "" then IO.println s!"      primero: {c.first}"
+  row "cleanInvalid, por nodo " a.clean
+  row "pasada padres, por nodo" a.par
+  row "pasada hijos, por nodo " a.sons
+  row "barrido, por nodo      " a.agg
+  IO.println s!"   ({ms} ms)"
+
+/-! **`nohost`: `TopGood` SIN anfitrión.** Toda cadena desde la cima, enlazada por padres y poseída por
+pares, tiene en cada paso de abajo una entrada común a las tablas de sus miembros. Se mide con las
+mismas clases de estado que `topgoodops` (`nohostops`) y nodo a nodo dentro del review
+(`nohostnodes`). -/
+
+def commonBelowNH (g : GPathM) (P : List PathNodeId) (lo : Int) : Bool :=
+  (List.range lo.toNat).all (fun i =>
+    match P with
+    | [] => true
+    | x :: rest => (ownersAt (tableOfAO g x) (i : Int)).any (fun r =>
+        rest.all (fun y => (tableOfAO g y).contains r)))
+
+partial def dfsNH (g : GPathM) (P : List PathNodeId) (acc : Nat × Nat × Nat) : Nat × Nat × Nat :=
+  let (chains, bad, budget) := acc
+  if budget == 0 then (chains, bad, 0)
+  else
+    match P with
+    | [] => acc
+    | low :: _ =>
+      let ok := commonBelowNH g P low.id.step
+      let ps := match g.node? low with
+        | some n => n.parents.filter (fun p => P.all (fun y => mutuallyOwn g p y))
+        | none => []
+      ps.foldl (fun acc p => dfsNH g (p :: P) acc)
+        (chains + 1, bad + (if ok then 0 else 1), budget - 1)
+
+def measureNH (label : String) (g : GPathM) (_cap budget : Nat) (c : TGCell) : TGCell := Id.run do
+  if !isValid g then return c
+  let mut ch := 0
+  let mut bd := 0
+  for t in (g.line (g.current_step - 1)).map (·.id) do
+    let (c1, b1, _) := dfsNH g [t] (0, 0, budget)
+    ch := ch + c1
+    bd := bd + b1
+  return { states := c.states + 1, chains := c.chains + ch, bad := c.bad + bd
+         , statesBad := c.statesBad + (if bd > 0 then 1 else 0)
+         , first := if c.first == "" && bd > 0 then label else c.first }
+
+partial def walkNHo (label : String) (g : GPathM) (fuel cap budget : Nat) (c : TGCell) : TGCell :=
+  if fuel == 0 then c
+  else
+    let c := measureNH label g cap budget c
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k =>
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => c
+      | some q => walkNHo label (filterAllAgg g [q.id]) (fuel - 1) cap budget c
+
+def runFormulaNHo (label : String) (φ : Cnf) (cap budget : Nat) (a : TGAcc) : TGAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      let lab := s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩"
+      a := { a with line := measureNH s!"{lab} linea" kv.2 cap budget a.line }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        let B := review F
+        a := { a with base := measureNH s!"{lab}→⟨{d.step},{d.index}⟩ review" B cap budget a.base }
+        let R := AggressiveReview.reviewAgg F
+        if isValid R then
+          a := { a with agg := measureNH s!"{lab}→⟨{d.step},{d.index}⟩ agg" R cap budget a.agg
+                      , up := measureNH s!"{lab}→⟨{d.step},{d.index}⟩ up" (addNode R d "") cap budget a.up }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with reader := walkNHo s!"{label} lector" g (stepCount φ).toNat cap budget a.reader }
+  return a
+
+def instrStepsNH (lab : String) (g0 : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (cap budget : Nat) (c0 : TGCell) : GPathM × TGCell := Id.run do
+  let mut g := g0
+  let mut c := c0
+  for k in ks do
+    if !isValid g then return (g, c)
+    for id in (g.line k).map (·.id) do
+      g := reviewNode g nb id
+      c := measureNH s!"{lab} nodo@{id.id.step}" g cap budget c
+  return (g, c)
+
+def reviewNodesNH (lab : String) (F : GPathM) (cap budget : Nat) (a : RNAcc) : RNAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure F + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        -- cleanInvalid, nodo a nodo
+        let mut h := g
+        for id in g.nodes.map (·.id) do
+          h := cleanInvalidGo h [id]
+          a := { a with clean := measureNH s!"{lab} clean@{id.id.step}" h cap budget a.clean }
+        let (h2, cp) := instrStepsNH lab h (·.parents) (intRange 1 (h.current_step - 1)) cap budget a.par
+        a := { a with par := cp }
+        let (h3, cs) := instrStepsNH lab h2 (·.sons) (intRange 0 (h2.current_step - 2)).reverse cap budget a.sons
+        a := { a with sons := cs }
+        g := h3
+        if !(GPathM.measure h3 < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g0 := g
+      let mut h := g
+      for k in (intRange 0 (g.current_step - 1)).reverse do
+        for id in (h.line k).map (·.id) do
+          h := AggressiveReview.aggNode h id
+          a := { a with agg := measureNH s!"{lab} agg@{id.id.step}" h cap budget a.agg }
+      if GPathM.measure h < GPathM.measure g0 then g := h else outer := 0
+  return a
+
+def runFormulaNHn (label : String) (φ : Cnf) (cap budget : Nat) (a : RNAcc) : RNAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewNodesNH s!"{label} paso {step} ⟨{kv.1.step},{kv.1.index}⟩→⟨{d.step},{d.index}⟩" F cap budget a
+    line := pureAdvanceW φ line
+  return a
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -3060,6 +3266,63 @@ def main (args : List String) : IO Unit := do
         a := runFormulaTC φ 40 a
       let t1 ← IO.monoMsNow
       reportTC s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "nohostops" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaNHo path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportTG s!"{path} [SIN anfitrion]" a (t1 - t0)
+  | "nohostops" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TGAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaNHo s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportTG s!"seed {seed} ({cases} formulas, {nvMin}+ vars) [SIN anfitrion]" a (t1 - t0)
+  | "nohostnodes" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaNHn path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportRN s!"{path} [SIN anfitrion]" a (t1 - t0)
+  | "nohostnodes" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : RNAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaNHn s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportRN s!"seed {seed} ({cases} formulas, {nvMin}+ vars) [SIN anfitrion]" a (t1 - t0)
+  | "reviewnodes" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaRN path φ 20 400 {})
+        let t1 ← IO.monoMsNow
+        reportRN path a (t1 - t0)
+  | "reviewnodes" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : RNAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaRN s!"seed {seed} #{idx}" φ 20 400 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportRN s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "reviewops" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
