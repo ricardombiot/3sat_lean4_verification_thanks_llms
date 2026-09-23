@@ -6084,7 +6084,15 @@ structure MNAcc where
   anyA : Nat := 0
   anyWoven : Nat := 0
   tSize : Nat := 0
+  apFail : Nat := 0
+  apPairsFail : Nat := 0
+  dupTables : Nat := 0
+  picks : Nat := 0
+  pickClosedFail : Nat := 0
+  pickValid : Nat := 0
+  pickKeeps : Nat := 0
   first : String := ""
+  firstP : String := ""
   deriving Repr
 
 def tableOf (G : GPathM) (p : PathNodeId) : List PathNodeId :=
@@ -6115,8 +6123,9 @@ def measureMN (lab : String) (G : GPathM) (a : MNAcc) : MNAcc := Id.run do
   | none => return a
   | some n0 =>
   let m := G.nodes.foldl (fun b n => if n.owners.length < b.owners.length then n else b) n0
-  let T := m.owners
+  let T := m.owners.eraseDups
   let mut a := { a with states := a.states + 1, tSize := a.tSize + T.length }
+  if T.length != m.owners.length then a := { a with dupTables := a.dupTables + 1 }
   if !T.all (fun w => (tableOf G w).contains m.id) then a := { a with symFail := a.symFail + 1 }
   let pairs := T.length * T.length
   let bad := (T.map (fun w => (T.filter (fun v => !(tableOf G w).contains v)).length)).sum
@@ -6135,6 +6144,23 @@ def measureMN (lab : String) (G : GPathM) (a : MNAcc) : MNAcc := Id.run do
     (fun l => (T.filter (fun q => q.id.step == l)).length > 1)).length
   if multi == 0 then a := { a with solved := a.solved + 1 }
   a := { a with multiSteps := a.multiSteps + multi }
+  -- (a') relative to the step: T without w's siblings is inside w's table
+  let sib := fun (w v : PathNodeId) => v.id.step == w.id.step && v != w
+  let badP := (T.map (fun w => (T.filter (fun v => !sib w v && !(tableOf G w).contains v)).length)).sum
+  a := { a with apPairsFail := a.apPairsFail + badP }
+  if badP != 0 then a := { a with apFail := a.apFail + 1 }
+  -- each pick `w` with siblings: S_w = T with only `w` at its step
+  for w in T do
+    if T.any (fun v => sib w v) then
+      let S := T.filter (fun v => !sib w v)
+      a := { a with picks := a.picks + 1 }
+      if !closedOn G S then a := { a with pickClosedFail := a.pickClosedFail + 1 }
+      let Rw := AggressiveReview.reviewAgg { G with gowners := G.gowners.filter (fun q => S.contains q) }
+      if isValid Rw then
+        a := { a with pickValid := a.pickValid + 1 }
+        if S.all (fun q => Rw.gowners.contains q) then a := { a with pickKeeps := a.pickKeeps + 1 }
+      if (!closedOn G S || !isValid Rw) && a.firstP == "" then
+        a := { a with firstP := s!"{lab}: |T|={T.length}, pick {w.id.step}/{w.id.index}, closed {closedOn G S}, valido {isValid Rw}" }
   if G.nodes.any (fun x => ownsAll G x.owners) then a := { a with anyA := a.anyA + 1 }
   if G.nodes.any (fun x => ownsAll G x.owners && closedOn G x.owners) then
     a := { a with anyWoven := a.anyWoven + 1 }
@@ -6174,12 +6200,103 @@ def runFormulaMN (lab : String) (φ : Cnf) (a : MNAcc) : MNAcc := Id.run do
 def reportMN (name : String) (a : MNAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas)"
   IO.println s!"   estados del lector: {a.states}; |T| medio {if a.states == 0 then 0 else a.tSize / a.states}"
-  IO.println s!"   (sym) algun w de T sin m: {a.symFail}"
+  IO.println s!"   (sym) algun w de T sin m: {a.symFail}; tablas de m con ids repetidos: {a.dupTables}"
   IO.println s!"   (a) T no contenida en alguna tabla de T: {a.aFail} estados; pares (w,v) con v no en tabla(w): {a.aPairsFail} de {a.aPairs}"
   IO.println s!"   (b) Closed falla: {a.closedFail};  Woven (a y b) se cumple: {a.wovenOk}"
   IO.println s!"   (c) restringir a T y reviewAgg: valido {a.restrictValid}, conserva T entera {a.restrictKeepsT}"
   IO.println s!"   (d) ya resuelto (un owner por paso): {a.solved}; pasos con varios owners (total): {a.multiSteps}"
   IO.println s!"   (any) algun nodo cumple (a): {a.anyA}; alguno cumple Woven: {a.anyWoven}"
+  IO.println s!"   (a') T sin los hermanos de w dentro de tabla(w): falla en {a.apFail} estados; pares {a.apPairsFail}"
+  IO.println s!"   eleccion w con hermanos: {a.picks}; S_w no Closed {a.pickClosedFail}; restringir a S_w y reviewAgg: valido {a.pickValid}, conserva S_w {a.pickKeeps}"
+  if a.firstP != "" then IO.println s!"   primer fallo de eleccion: {a.firstP}"
+  if a.first != "" then IO.println s!"   primer fallo: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
+/-! **`minreader`: el lector `ReaderMinOwner` simulado entero.** Desde cada estado inicial del lector
+(línea final tras `reviewAgg`): `m` = nodo con menos owners, restringir la global a su tabla y
+`reviewAgg`. Después, mientras algún paso tenga más de un owner global: en el primero, probar **cada**
+owner `w` (fijar la global de ese paso a `w` y `reviewAgg`) y contar las que dejan el grafo inválido;
+seguir con la primera. Al final, con un owner por paso: ¿forman una cadena enlazada por padres? -/
+
+structure MRAcc where
+  formulas : Nat := 0
+  starts : Nat := 0
+  restrictInvalid : Nat := 0
+  choicePoints : Nat := 0
+  choices : Nat := 0
+  choicesInvalid : Nat := 0
+  pointsAllInvalid : Nat := 0
+  finished : Nat := 0
+  chainOk : Nat := 0
+  rounds : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def pinExact (G : GPathM) (w : PathNodeId) : GPathM :=
+  { G with gowners := G.gowners.filter (fun q => q.id.step != w.id.step || q == w) }
+
+def ownersAtStep (G : GPathM) (k : Int) : List PathNodeId :=
+  (G.gowners.filter (fun q => q.id.step == k)).eraseDups
+
+def chainOf1 (G : GPathM) : Bool :=
+  (intRange 0 (G.current_step - 2)).all (fun k =>
+    match ownersAtStep G k, ownersAtStep G (k + 1) with
+    | [a], [b] => (match G.node? b with | some nb => nb.parents.contains a | none => false)
+    | _, _ => false)
+
+partial def minReaderLoop (lab : String) (G : GPathM) (fuel : Nat) (a : MRAcc) : MRAcc :=
+  if fuel == 0 then a
+  else if !isValid G then a
+  else
+    match (intRange 0 (G.current_step - 1)).find? (fun k => (ownersAtStep G k).length > 1) with
+    | none =>
+      let ok := chainOf1 G
+      let a := { a with finished := a.finished + 1, chainOk := a.chainOk + (if ok then 1 else 0) }
+      if !ok && a.first == "" then { a with first := s!"{lab}: un owner por paso pero sin cadena" } else a
+    | some k => Id.run do
+      let ws := ownersAtStep G k
+      let mut a := { a with choicePoints := a.choicePoints + 1, rounds := a.rounds + 1 }
+      let mut next : Option GPathM := none
+      let mut bad := 0
+      for w in ws do
+        let R := AggressiveReview.reviewAgg (pinExact G w)
+        a := { a with choices := a.choices + 1 }
+        if isValid R then
+          if next.isNone then next := some R
+        else bad := bad + 1
+      a := { a with choicesInvalid := a.choicesInvalid + bad }
+      if bad > 0 && a.first == "" then
+        a := { a with first := s!"{lab}: paso {k}, {bad} de {ws.length} elecciones dejan el grafo invalido" }
+      match next with
+      | none => return { a with pointsAllInvalid := a.pointsAllInvalid + 1 }
+      | some R => return minReaderLoop lab R (fuel - 1) a
+
+def runFormulaMR (lab : String) (φ : Cnf) (a : MRAcc) : MRAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      match g.nodes.head? with
+      | none => pure ()
+      | some n0 =>
+        let m := g.nodes.foldl (fun b n => if n.owners.length < b.owners.length then n else b) n0
+        let T := m.owners
+        a := { a with starts := a.starts + 1 }
+        let G := AggressiveReview.reviewAgg { g with gowners := g.gowners.filter (fun q => T.contains q) }
+        if !isValid G then
+          a := { a with restrictInvalid := a.restrictInvalid + 1 }
+          if a.first == "" then a := { a with first := s!"{lab}: restringir a T_m deja el grafo invalido" }
+        else a := minReaderLoop lab G (stepCount φ).toNat a
+  return a
+
+def reportMR (name : String) (a : MRAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   arranques: {a.starts}; restringir a T_m invalido: {a.restrictInvalid}"
+  IO.println s!"   puntos de eleccion: {a.choicePoints}; elecciones probadas: {a.choices}; invalidas: {a.choicesInvalid}; puntos sin ninguna valida: {a.pointsAllInvalid}"
+  IO.println s!"   terminados con un owner por paso: {a.finished}; de ellos cadena por padres: {a.chainOk}"
   if a.first != "" then IO.println s!"   primer fallo: {a.first}"
   IO.println s!"   ({ms} ms)"
 
@@ -6691,6 +6808,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "minreader" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaMR path φ {})
+        let t1 ← IO.monoMsNow
+        reportMR path a (t1 - t0)
+  | "minreader" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : MRAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaMR s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportMR s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "minnode" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
