@@ -3414,6 +3414,7 @@ nodo. Se cuentan los estados que violan cada una, tras cada operación de nodo d
 
 structure MICell where
   states : Nat := 0
+  i1s : Nat := 0
   i1 : Nat := 0
   i2 : Nat := 0
   i3 : Nat := 0
@@ -3424,6 +3425,7 @@ def checkMI (g : GPathM) (c : MICell) : MICell := Id.run do
   let mut b1 := false
   let mut b2 := false
   let mut b3 := false
+  let mut b4 := false
   for n in g.nodes do
     for w in n.owners do
       if w.id.step ≥ 0 && w.id.step < g.current_step then
@@ -3432,7 +3434,8 @@ def checkMI (g : GPathM) (c : MICell) : MICell := Id.run do
         | some m =>
           if !m.owners.contains n.id then b2 := true
           if w.id.step + 1 == n.id.id.step && !n.parents.contains w then b1 := true
-  return { states := c.states + 1, i1 := c.i1 + (if b1 then 1 else 0)
+          if w.id.step == n.id.id.step + 1 && !n.sons.contains w then b4 := true
+  return { states := c.states + 1, i1s := c.i1s + (if b4 then 1 else 0), i1 := c.i1 + (if b1 then 1 else 0)
          , i2 := c.i2 + (if b2 then 1 else 0), i3 := c.i3 + (if b3 then 1 else 0) }
 
 structure MIAcc where
@@ -3502,7 +3505,7 @@ def runFormulaMI (φ : Cnf) (a : MIAcc) : MIAcc := Id.run do
 def reportMI (name : String) (a : MIAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas)"
   let row (lbl : String) (c : MICell) : IO Unit :=
-    IO.println s!"   {lbl}: estados {c.states}; violan (I1) owner-debajo=padre {c.i1}, (I2) simetria {c.i2}, (I3) owner es nodo {c.i3}"
+    IO.println s!"   {lbl}: estados {c.states}; violan (I1) owner-debajo=padre {c.i1}, (I2) simetria {c.i2}, (I3) owner es nodo {c.i3}, (I1-hijos) owner-encima=hijo {c.i1s}"
   row "filtrado (entrada)     " a.filt
   row "cleanInvalid, por nodo " a.clean
   row "pasada padres, por nodo" a.par

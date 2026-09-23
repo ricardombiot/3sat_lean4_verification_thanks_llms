@@ -274,4 +274,171 @@ theorem segGood_reviewNode_parents (g : GPathM) (hnd : NodupIds g)
 #guard_msgs in
 #print axioms segGood_reviewNode_parents
 
+-- ============================================================
+-- La pasada de hijos, nodo a nodo: el espejo
+-- ============================================================
+
+/-- Lo que está en la tabla de un vecino queda en la de `x` tras cortarla con la unión. -/
+theorem mem_intersect_of_nb (g : GPathM) (n : PNodeM) (ids : List PathNodeId) (r : PathNodeId)
+    (hr : r ∈ n.owners) (p : PathNodeId) (hp : p ∈ ids) (np : PNodeM) (hnp : g.node? p = some np)
+    (hrp : r ∈ np.owners) : r ∈ intersectOwners n.owners (unionOwnersOf g ids) := by
+  refine List.mem_filter.mpr ⟨hr, ?_⟩
+  have hu := mem_unionOwnersOf g ids p np r hp hnp hrp
+  simp only [Bool.or_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, List.elem_iff]
+  exact Or.inr hu
+
+/-- **Un tramo se alarga por arriba** con un nodo `r₀` que tiene al más alto por padre, está en todas
+las tablas del tramo y lo tiene entero en la suya. -/
+theorem seg_extend_up (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) (hlohi : lo ≤ hi)
+    (hs : Seg g sel lo hi) (r0 : PathNodeId) (nr0 : PNodeM) (hnr0 : g.node? r0 = some nr0)
+    (hr0s : r0.id.step = hi + 1) (hpar : sel hi ∈ nr0.parents)
+    (hin : ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r0 ∈ nj.owners)
+    (hback : ∀ j, lo ≤ j → j ≤ hi → sel j ∈ nr0.owners) :
+    Seg g (upd sel (hi + 1) r0) lo (hi + 1) := by
+  obtain ⟨hch, hpw⟩ := hs
+  refine ⟨⟨fun i hi1 hi2 => ?_, fun i hi1 hi2 => ?_⟩, fun i j hi1 hj1 hi2 hj2 hij nj hnj => ?_⟩
+  · rcases int_eq_or_ne i (hi + 1) with he | he
+    · subst he; rw [upd_self]; exact ⟨by rw [hnr0]; rfl, hr0s⟩
+    · rw [upd_other sel (hi + 1) r0 he]; exact hch.1 i hi1 (by omega)
+  · rcases int_eq_or_ne i hi with he | he
+    · subst he
+      rw [upd_self, upd_other sel (i + 1) r0 (by omega), hnr0]
+      simp only [Option.map_some, Option.getD_some]
+      exact hpar
+    · rw [upd_other sel (hi + 1) r0 (by omega), upd_other sel (hi + 1) r0 (by omega)]
+      exact hch.2 i hi1 (by omega)
+  · rcases int_eq_or_ne i (hi + 1) with hei | hei
+    · subst hei
+      rw [upd_self]
+      rw [upd_other sel (hi + 1) r0 (fun h => hij h.symm)] at hnj
+      exact hin j hj1 (by omega) nj hnj
+    · rw [upd_other sel (hi + 1) r0 hei]
+      rcases int_eq_or_ne j (hi + 1) with hej | hej
+      · subst hej
+        rw [upd_self] at hnj
+        rw [← Option.some.inj (hnr0.symm.trans hnj)]
+        exact hback i hi1 (by omega)
+      · rw [upd_other sel (hi + 1) r0 hej] at hnj
+        exact hpw i j hi1 hj1 (by omega) (by omega) hij nj hnj
+
+/-- **La simetría local por arriba**: la entrada común de un tramo en el paso de justo encima, cuando
+es un nodo vivo, tiene al tramo entero en su tabla (`row-degree localsym`, borde de arriba). -/
+def LocSymUp (g : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), lo ≤ hi → Seg g sel lo hi →
+    ∀ r0 nr0, g.node? r0 = some nr0 → r0.id.step = hi + 1 →
+    (∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r0 ∈ nj.owners) →
+    ∀ j, lo ≤ j → j ≤ hi → sel j ∈ nr0.owners
+
+/-- **`reviewNode x`, con los hijos como vecinos, conserva `SegGood`.** El caso difícil es ahora el
+más ALTO del tramo: la entrada común de encima es un hijo suyo (I1-hijos), y es por padres que el
+tramo se alarga con ella (I1). -/
+theorem segGood_reviewNode_sons (g : GPathM) (hnd : NodupIds g)
+    (hI1 : ∀ y ny, g.node? y = some ny → ∀ w ∈ ny.owners, w.id.step + 1 = y.id.step →
+      w ∈ ny.parents)
+    (hI1s : ∀ y ny, g.node? y = some ny → ∀ w ∈ ny.owners, w.id.step = y.id.step + 1 →
+      w ∈ ny.sons)
+    (hslive : ∀ y ny, g.node? y = some ny → ∀ q ∈ ny.sons, (g.node? q).isSome)
+    (hself : ∀ y ny, g.node? y = some ny → y ∈ ny.owners)
+    (hlsym : LocSymUp g) (hseg : SegGood g) (x : PathNodeId)
+    (hxl : x.id.step ≤ g.current_step - 2) :
+    SegGood (reviewNode g (·.sons) x) := by
+  have hpr := pruned_reviewNode (·.sons) x g
+  have lift : ∀ y n', (reviewNode g (·.sons) x).node? y = some n' →
+      ∃ n, g.node? y = some n ∧ (∀ q ∈ n'.owners, q ∈ n.owners) ∧
+        (∀ p ∈ n'.parents, p ∈ n.parents) ∧ (y ≠ x → n'.owners = n.owners) ∧
+        (y = x → n'.owners = intersectOwners n.owners (unionOwnersOf g n.sons)) := by
+    intro y n' h
+    obtain ⟨n, hn, hne, heq⟩ := reviewNode_owners g hnd (·.sons) x y n' h
+    obtain ⟨n0, hn0, hid0, hown0, hpar0⟩ := hpr.nodes_derived n' (List.mem_of_find?_eq_some h)
+    have hy : n'.id = y := node?_id_eq _ y n' h
+    have hn0' : g.node? y = some n0 := by rw [← hy, hid0]; exact node?_of_mem hnd n0 hn0
+    rw [hn] at hn0'; cases hn0'
+    exact ⟨n, hn, hown0, hpar0, hne, heq⟩
+  intro sel lo hi hlo0 hlohi hhi hch' hpw' i hi0 hic hout
+  rw [hpr.step_eq] at hhi hic
+  have hsG : Seg g sel lo hi := by
+    refine ⟨⟨fun j hj1 hj2 => ?_, fun j hj1 hj2 => ?_⟩, fun a b ha1 hb1 ha2 hb2 hab nb hnb => ?_⟩
+    · obtain ⟨hs, hjs⟩ := hch'.1 j hj1 hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _⟩ := lift _ m hm
+      exact ⟨by rw [hn]; rfl, hjs⟩
+    · obtain ⟨hs, _⟩ := hch'.1 (j + 1) (by omega) hj2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, _, hpar, _⟩ := lift _ m hm
+      have hl := hch'.2 j hj1 hj2
+      rw [hm] at hl
+      rw [hn]
+      simp only [Option.map_some, Option.getD_some] at hl ⊢
+      exact hpar _ hl
+    · obtain ⟨hs, _⟩ := hch'.1 b hb1 hb2
+      obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
+      obtain ⟨n, hn, hown, _⟩ := lift _ m hm
+      rw [← Option.some.inj (hn.symm.trans hnb)]
+      exact hown _ (hpw' a b ha1 hb1 ha2 hb2 hab m hm)
+  have keep : ∀ r, (∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) →
+      (∀ j, lo ≤ j → j ≤ hi → sel j = x → ∀ nj, g.node? (sel j) = some nj →
+        ∃ p ∈ nj.sons, ∃ np, g.node? p = some np ∧ r ∈ np.owners) →
+      ∀ j, lo ≤ j → j ≤ hi → ∀ nj', (reviewNode g (·.sons) x).node? (sel j) = some nj' →
+        r ∈ nj'.owners := by
+    intro r hr hx j hj1 hj2 nj' hnj'
+    obtain ⟨n, hn, _, _, hne, heq⟩ := lift _ nj' hnj'
+    if hjx : sel j = x then
+      rw [heq hjx]
+      obtain ⟨p, hp, np, hnp, hrp⟩ := hx j hj1 hj2 hjx n hn
+      exact mem_intersect_of_nb g n n.sons r (hr j hj1 hj2 n hn) p hp np hnp hrp
+    else
+      rw [hne hjx]; exact hr j hj1 hj2 n hn
+  obtain ⟨hhsome, hhs⟩ := hsG.1.1 hi hlohi (Int.le_refl _)
+  obtain ⟨nh, hnh⟩ := Option.isSome_iff_exists.mp hhsome
+  if hhx : sel hi = x then
+    -- el más alto es `x`: se alarga el tramo con un hijo suyo
+    have hhi2 : hi ≤ g.current_step - 2 := by rw [← hhs, hhx]; exact hxl
+    obtain ⟨r0, hr0s, hr0all⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 (hi + 1) (by omega)
+      (by omega) (Or.inr (by omega))
+    have hr0son : r0 ∈ nh.sons :=
+      hI1s _ nh hnh r0 (hr0all hi hlohi (Int.le_refl _) nh hnh) (by rw [hr0s, hhs])
+    obtain ⟨nr0, hnr0⟩ := Option.isSome_iff_exists.mp (hslive _ nh hnh r0 hr0son)
+    have hback := hlsym sel lo hi hlohi hsG r0 nr0 hnr0 hr0s hr0all
+    have hpar : sel hi ∈ nr0.parents :=
+      hI1 _ nr0 hnr0 _ (hback hi hlohi (Int.le_refl _)) (by rw [hhs, hr0s])
+    have hs' := seg_extend_up g sel lo hi hlohi hsG r0 nr0 hnr0 hr0s hpar hr0all hback
+    have hxonly : ∀ j, lo ≤ j → j ≤ hi → sel j = x → j = hi := by
+      intro j hj1 hj2 hjx
+      have := (hsG.1.1 j hj1 hj2).2
+      rw [hjx, ← hhx, hhs] at this; omega
+    rcases int_eq_or_ne i (hi + 1) with hie | hie
+    · refine ⟨r0, by omega, keep r0 hr0all (fun j hj1 hj2 hjx nj hnj => ?_)⟩
+      rw [hxonly j hj1 hj2 hjx] at hnj
+      rw [← Option.some.inj (hnh.symm.trans hnj)]
+      exact ⟨r0, hr0son, nr0, hnr0, hself _ nr0 hnr0⟩
+    · obtain ⟨r, hrs, hrall⟩ := hseg _ lo (hi + 1) hlo0 (by omega) (by omega) hs'.1 hs'.2 i hi0
+        hic (by omega)
+      have hr : ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners := by
+        intro j hj1 hj2 nj hnj
+        have := hrall j hj1 (by omega) nj
+        rw [upd_other sel (hi + 1) r0 (by omega)] at this
+        exact this hnj
+      refine ⟨r, hrs, keep r hr (fun j hj1 hj2 hjx nj hnj => ?_)⟩
+      rw [hxonly j hj1 hj2 hjx] at hnj
+      rw [← Option.some.inj (hnh.symm.trans hnj)]
+      have hrr0 := hrall (hi + 1) (by omega) (Int.le_refl _) nr0
+      rw [upd_self] at hrr0
+      exact ⟨r0, hr0son, nr0, hnr0, hrr0 hnr0⟩
+  else
+    -- el más alto no es `x`: si `x` está en el tramo, su hijo en el tramo tiene la entrada
+    obtain ⟨r, hrs, hrall⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 i hi0 hic hout
+    refine ⟨r, hrs, keep r hrall (fun j hj1 hj2 hjx nj hnj => ?_)⟩
+    have hjhi : j ≠ hi := fun h => hhx (by rw [← h]; exact hjx)
+    obtain ⟨hss, hs1⟩ := hsG.1.1 (j + 1) (by omega) (by omega)
+    obtain ⟨ns, hns⟩ := Option.isSome_iff_exists.mp hss
+    have hjs := (hsG.1.1 j hj1 hj2).2
+    have hson : sel (j + 1) ∈ nj.sons :=
+      hI1s _ nj hnj _ (hsG.2 (j + 1) j (by omega) hj1 (by omega) hj2 (by omega) nj hnj)
+        (by rw [hs1, hjs])
+    exact ⟨sel (j + 1), hson, ns, hns, hrall (j + 1) (by omega) (by omega) ns hns⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SegReview.segGood_reviewNode_sons' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms segGood_reviewNode_sons
+
 end AbsSat.GraphPath.Model.SegReview
