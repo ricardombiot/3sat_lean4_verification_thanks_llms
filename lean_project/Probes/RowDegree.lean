@@ -7404,6 +7404,7 @@ structure REAcc where
   pins : Nat := 0
   clean : SECell := {}
   round1 : SECell := {}
+  cleanP : SECell := {}
   u2cFails : Nat := 0
   detail : List String := []
   doomed : Nat := 0
@@ -7504,6 +7505,7 @@ def pinRE (lab : String) (X : GPathM) (a : REAcc) : REAcc := Id.run do
   let mut a := { a with pins := a.pins + 1 }
   let C := cleanInvalid₂ X
   a := { a with clean := checkSE s!"{lab} limpieza" C 300 a.clean }
+  a := { a with cleanP := checkSE s!"{lab} limpieza+parejas" (cleanPair X) 300 a.cleanP }
   let R1 := reviewPass X
   a := { a with round1 := checkSE s!"{lab} vuelta1" R1 300 a.round1 }
   if !isValid C then return a
@@ -7581,6 +7583,7 @@ def reportRE (name : String) (a : REAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
   reportSECell "salida de la limpieza del pin" a.clean
   reportSECell "salida de la 1ª vuelta       " a.round1
+  reportSECell "salida de limpieza+parejas  " a.cleanP
   IO.println s!"   condenados {a.doomed}: conflicto de pareja en algun paso sin comun {a.pairConf} (pareja contigua {a.badPairAdj}); conflicto solo colectivo {a.hellyConf}"
   if a.hellyDetail != "" then IO.println s!"      primer conflicto colectivo: {a.hellyDetail}"
   IO.println s!"   Helly: {a.hStates} estados; parejas mutuas {a.hPairs}, no anidadas ni disjuntas {a.hNonLam}; trios (dos a dos con comun) {a.hTriples}, sin comun {a.hTripleFail}"

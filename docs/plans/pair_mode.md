@@ -406,3 +406,28 @@ el modelo con y sin regla, mismos estados en los envíos y los pines.
 
 Pendiente: **A5** (adoptar `:on` por defecto) y **C1** (sonda `pairhelly`, la condición 4 de la
 decisión).
+
+## Resultados de la fase B (24-sept-2026)
+
+`lake build AbsSat` verde (271 jobs), sin `sorry` nuevos, los teoremas con `[propext, Quot.sound]`.
+Commits `b58079f` (B0–B4) y `23355a0` (B5–B6).
+
+* **B0**: `pairShares`, `pairBad`, `pairSweep`, `pairFuel`, `cleanPair`; `reviewPass` usa `cleanPair`.
+* **B1**: la regla es correcta, **no pierde soluciones**: `ChainSound_pairSweep`, `ChainSound_cleanPair`.
+  Y `cleanPair_eq_clean`: siempre termina en una limpieza normal.
+* **B2–B4**: todos los invariantes llevados a `cleanPair`. Una sorpresa: `Fabric` necesitaba una
+  cláusula nueva, **`agg`** (dos entradas de una tabla comparten otra en cada paso), la misma que ya
+  tenía `Sup`. Se ha añadido y demostrado en todas las construcciones (semilla, `addNode`, uniones,
+  núcleo, cadenas, soluciones, `Fabric_whole` por el triángulo). `Fabric_of_PreFabric` y
+  `PinNonEmpty_of_star` reciben `agg` como hipótesis (es de tipo Helly para la estrella). `LaterValid`
+  pide además que la regla no quite nada al empezar una vuelta siguiente que progresa.
+* **B5**: `pairFixed_cleanPair`: tras `cleanPair`, si es válido, la regla no quita nada (`PairOk`).
+* **B6**: **`AggInactive` pasa a ser un teorema** (`aggInactive_of_revOk`): en el punto fijo del
+  review, el barrido agresivo es la identidad. Escalera nueva `readerVerdictW_iff_of_pairHelly`:
+  `hStart` y, por pin, `PairHelly (cleanPair X)`, `CleanRest X` y `LaterValid X`.
+* **Medición** (sonda `roundexact`, 86 pines): tras `cleanPair X`, **0 tramos sin cadena completa**
+  (8.888 y 9.112 tramos, los mismos que a la salida de la primera vuelta). `PairHelly` se cumple, y en
+  su forma fuerte (`SegExact`, no solo `SegGood`).
+
+Pendiente: C2–C3 (la regla en el ejecutable IO y las comparaciones diferenciales del modelo), la
+medición de `CleanRest` y de la parte nueva de `LaterValid`, y A5.
