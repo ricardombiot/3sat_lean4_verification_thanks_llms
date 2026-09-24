@@ -885,4 +885,79 @@ theorem survives_of_pinned_owner (g : GPathM) (hPE : PairExact g) (qid : NodeId)
 #guard_msgs in
 #print axioms survives_of_pinned_owner
 
+-- ============================================================
+-- (W1) + (W3): el testigo pinchado se conserva; la supervivencia desde (W2)
+-- ============================================================
+
+/-- **(W1) + (W3), arriba**: hay un testigo de `g` que posee en `g` un nodo vivo del nodo pinchado, y que
+en `C` sigue enlazado con el extremo y en la tabla de todo miembro. Que siga **vivo** no se pide: lo da
+(W2). Medido (`tri3x`): todo tramo tiene testigos así, y la regla nunca se los quita todos. -/
+def KeptUp (g C : GPathM) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi + 1 ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w nw p, WitUp g sel lo hi w ∧ g.node? w = some nw ∧ p ∈ nw.owners ∧
+      (g.node? p).isSome = true ∧ p.id = qid ∧
+      sel hi ∈ ((C.node? w).map PNodeM.parents).getD [] ∧
+      ∀ j, lo ≤ j → j ≤ hi → ownsB C (sel j) w = true
+
+/-- **Y abajo.** -/
+def KeptDown (g C : GPathM) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 1 ≤ lo → lo ≤ hi → hi ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w nw p, WitDown g sel lo hi w ∧ g.node? w = some nw ∧ p ∈ nw.owners ∧
+      (g.node? p).isSome = true ∧ p.id = qid ∧
+      w ∈ ((C.node? (sel lo)).map PNodeM.parents).getD [] ∧
+      ∀ j, lo ≤ j → j ≤ hi → ownsB C (sel j) w = true
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **La supervivencia, desde (W2)**: con la exactitud por parejas de `g`, el testigo de `KeptUp` sigue
+vivo en `C = cleanPair (pin de g)`, y con el enlace y la posesión que `KeptUp` da, alarga el tramo. -/
+theorem survivesUp_of_kept (g : GPathM) (qid : NodeId) (hPE : PairExact g)
+    (hK : KeptUp g (cleanPair (filterWeak g (qid.step, [qid]))) qid) :
+    SurvivesUp g (cleanPair (filterWeak g (qid.step, [qid]))) := by
+  intro sel lo hi hlo hlh hhi h
+  obtain ⟨w, nw, p, hW, hnw, hp, hpl, hpid, hlink, hall⟩ := hK sel lo hi hlo hlh hhi h
+  have halive := survives_of_pinned_owner g hPE qid w nw hnw p hp hpl hpid
+  rw [hpid] at halive
+  exact ⟨w, hW, ⟨halive, hW.1.2.1, hlink⟩, hall⟩
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+theorem survivesDown_of_kept (g : GPathM) (qid : NodeId) (hPE : PairExact g)
+    (hK : KeptDown g (cleanPair (filterWeak g (qid.step, [qid]))) qid) :
+    SurvivesDown g (cleanPair (filterWeak g (qid.step, [qid]))) := by
+  intro sel lo hi hlo hlh hhi h
+  obtain ⟨w, nw, p, hW, hnw, hp, hpl, hpid, hlink, hall⟩ := hK sel lo hi hlo hlh hhi h
+  have halive := survives_of_pinned_owner g hPE qid w nw hnw p hp hpl hpid
+  rw [hpid] at halive
+  exact ⟨w, hW, ⟨halive, hW.1.2.1, hlink⟩, hall⟩
+
+open AbsSat.Cnf in
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **El lector sin retroceso decide 3-SAT**, con `hStart` y, en cada pin del lector (estado `g`, nodo
+pinchado `q`): la **exactitud por parejas** de `g` (`PairExact`), un testigo pinchado que se conserva
+en cada tramo tras `cleanPair` (`KeptUp`, `KeptDown`), el resto de `PStateG` (`CleanRest`) y las vueltas
+siguientes listas (`LaterValid`). Que el testigo sobreviva a la purga está demostrado (W2). -/
+theorem readerVerdictW_iff_of_kept
+    (hStart : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (AggressiveReview.filterAllAgg kv.2 []) = true →
+        SegExact.SegExact (AggressiveReview.filterAllAgg kv.2 []))
+    (hPin : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (AggressiveReview.filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      PairExact g ∧
+        KeptUp g (cleanPair (filterWeak g (q.id.step, [q.id]))) q.id ∧
+        KeptDown g (cleanPair (filterWeak g (q.id.step, [q.id]))) q.id ∧
+        PairHelly.CleanRest (filterWeak g (q.id.step, [q.id])) ∧
+        PinDoomed.LaterValid (filterWeak g (q.id.step, [q.id])))
+    (φ : Cnf) (hwf : WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine readerVerdictW_iff_of_survives hStart ?_ φ hwf
+  intro φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hPE, hU, hD, hC, hL⟩ := hPin φ' hwf' kv hkv g k q hR hv hk hq
+  exact ⟨survivesUp_of_kept g q.id hPE hU, survivesDown_of_kept g q.id hPE hD, hC, hL⟩
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.readerVerdictW_iff_of_kept' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_kept
+
 end AbsSat.GraphPath.Model.OneStep
