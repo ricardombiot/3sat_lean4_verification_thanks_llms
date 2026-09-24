@@ -6711,6 +6711,62 @@ def reportSE (name : String) (a : SEAcc) (ms : Nat) : IO Unit := do
   reportSECell "lector " a.reader
   IO.println s!"   ({ms} ms)"
 
+/-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
+línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
+mezclados, ¿están aun así en una cadena completa del estado unido? -/
+
+structure SMAcc where
+  formulas : Nat := 0
+  joins : Nat := 0
+  segs : Nat := 0
+  inA : Nat := 0
+  inB : Nat := 0
+  mixed : Nat := 0
+  mixedInChain : Nat := 0
+  mixedNoChain : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def measureSM (lab : String) (A B : GPathM) (a : SMAcc) : SMAcc := Id.run do
+  if !okJoin A B then return a
+  let J := join A B
+  let mut a := { a with joins := a.joins + 1 }
+  for P in segsOf J do
+    a := { a with segs := a.segs + 1 }
+    if isSegment A P then a := { a with inA := a.inA + 1 }
+    else if isSegment B P then a := { a with inB := a.inB + 1 }
+    else
+      a := { a with mixed := a.mixed + 1 }
+      match (extendFullIn J (fun x => J.gowners.contains x) P 5000).1 with
+      | some true => a := { a with mixedInChain := a.mixedInChain + 1 }
+      | _ => a := { a with mixedNoChain := a.mixedNoChain + 1 }
+      if a.first == "" then
+        a := { a with first := s!"{lab}: tramo {(P.head?.map (·.id.step)).getD 0}..{(P.getLast?.map (·.id.step)).getD 0}" }
+  return a
+
+def runFormulaSM (label : String) (φ : Cnf) (a : SMAcc) : SMAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    let mut next : PureLine := []
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let h := upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+        if isValid h then
+          match next.find? (fun e => e.1 == d) with
+          | some (_, existing) =>
+            a := measureSM s!"{label} paso {step}" existing h a
+            next := next.map (fun e => if e.1 == d then (d, doJoin existing h) else e)
+          | none => next := next ++ [(d, h)]
+    line := next
+  return a
+
+def reportSM (name : String) (a : SMAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   uniones {a.joins}, tramos {a.segs}: de A {a.inA}, de B {a.inB}, MEZCLADOS {a.mixed} (en cadena completa {a.mixedInChain}, sin cadena {a.mixedNoChain})"
+  if a.first != "" then IO.println s!"   primer mezclado: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7219,6 +7275,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "segmix" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSM path φ {})
+        let t1 ← IO.monoMsNow
+        reportSM path a (t1 - t0)
+  | "segmix" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SMAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSM s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSM s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "segexact" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
