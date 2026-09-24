@@ -85,7 +85,8 @@ Test (`test/db/test_path_doc_owners.jl`, o donde vivan los de `intersect_removed
 
 ### A2. La regla
 
-En `graph_path_filter.jl`:
+En un fichero propio, `src/graph_path/graph_path_filter_pair.jl`, incluido en `graph_path.jl` junto a
+los demás filtros (hecho: commit `e2cf8ba`). El test de pareja (A1) va en `PathDocumentOwners`.
 
 ```julia
 # Regla de parejas tras la limpieza (informe v185 §5, plan pair_mode).
