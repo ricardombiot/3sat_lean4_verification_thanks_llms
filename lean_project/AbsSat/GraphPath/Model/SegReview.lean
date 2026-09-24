@@ -64,10 +64,8 @@ theorem mirrorMap_self_cut (x : PathNodeId) (d : PNodeM) (B : List PathNodeId) (
       have : (cutRemoved d B).contains d.id = true := hc
       rw [hd] at this
       exact List.contains_iff_mem.mp this
-    have hnot := (List.mem_filter.mp hxr).2
     have hq' : x ∈ intersectOwners d.owners B := hqx ▸ hq
-    simp only [List.contains_iff_mem.mpr hq', Bool.not_true] at hnot
-    exact absurd hnot (by simp)
+    exact ((mem_cutRemoved d B x).mp hxr).2 hq'
   · rfl
 
 /-- A node that does not hold `x` is untouched by the mirror of `x`. -/
@@ -88,10 +86,7 @@ theorem mirrorMap_self_cut_eq (x : PathNodeId) (d : PNodeM) (B : List PathNodeId
   | false => exact mirrorMap_of_not x _ _ (by show (cutRemoved d B).contains d.id = false; rw [hd]; exact hc)
   | true =>
     refine mirrorMap_of_not_mem x _ _ (fun hx => ?_)
-    have hxr := List.contains_iff_mem.mp hc
-    have hnot := (List.mem_filter.mp hxr).2
-    simp only [List.contains_iff_mem.mpr hx, Bool.not_true] at hnot
-    exact absurd hnot (by simp)
+    exact ((mem_cutRemoved d B x).mp (List.contains_iff_mem.mp hc)).2 hx
 
 theorem NodupIds_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : NodupIds g) :
     NodupIds (mirrorDrop g x rem) := by
@@ -152,7 +147,8 @@ theorem reviewNode_owners (g : GPathM) (hnd : NodupIds g) (nb : PNodeM → List 
           | true => exact List.contains_iff_mem.mp hcut
           | false =>
             have hmem : y ∈ cutRemoved d (unionOwnersOf g (nb d)) :=
-              List.mem_filter.mpr ⟨hin, by rw [hcut]; rfl⟩
+              (mem_cutRemoved d _ y).mpr ⟨hin, fun h => by
+                rw [List.contains_iff_mem.mpr h] at hcut; exact Bool.noConfusion hcut⟩
             rw [List.contains_iff_mem.mpr hmem] at hc
             exact absurd hc (by simp)
     have fromG2 : ∀ n2, (unlinkIncompatible (mirrorDrop (updateAt g x (fun n =>

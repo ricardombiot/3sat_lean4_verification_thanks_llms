@@ -336,9 +336,11 @@ tables: never adds, never touches ids, links or the global owners. -/
 def mirrorDrop (g : GPathM) (x : PathNodeId) (removed : List PathNodeId) : GPathM :=
   { g with nodes := g.nodes.map (mirrorMap x removed) }
 
-/-- The owners `n` loses when cut against `uni`. -/
+/-- The owners `n` loses when cut against `uni`: those at a step `uni` mentions that `uni` does not
+contain — the negation of `intersectOwners`' own test, so the cut is not recomputed for every owner
+(it was, and made the model's review cubic per node; see `Probes/ModelSlow.lean`). -/
 def cutRemoved (n : PNodeM) (uni : List PathNodeId) : List PathNodeId :=
-  n.owners.filter (fun q => !(intersectOwners n.owners uni).contains q)
+  n.owners.filter (fun q => hasStepEntry uni q.id.step && !uni.contains q)
 
 /-- Coherence review of one node against a neighbor selector (parents on the
 top-down pass, sons on the bottom-up pass): intersect its owners with the

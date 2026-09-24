@@ -379,22 +379,38 @@ theorem mirrorDrop_node?_inv (g : GPathM) (x : PathNodeId) (rem : List PathNodeI
     rw [mirrorDrop_node? g x rem pid n hn] at hn'
     exact ⟨n, rfl, (Option.some.inj hn').symm⟩
 
+/-- **What the cut removes**: an owner that is not in the cut. -/
+theorem mem_cutRemoved (n : PNodeM) (B : List PathNodeId) (q : PathNodeId) :
+    q ∈ cutRemoved n B ↔ q ∈ n.owners ∧ q ∉ intersectOwners n.owners B := by
+  unfold cutRemoved intersectOwners
+  simp only [List.mem_filter, Bool.and_eq_true, Bool.not_eq_true', Bool.or_eq_true]
+  constructor
+  · intro ⟨hq, hs, hc⟩
+    refine ⟨hq, fun ⟨_, h⟩ => ?_⟩
+    rcases h with h | h
+    · rw [hs] at h; exact Bool.noConfusion h
+    · rw [hc] at h; exact Bool.noConfusion h
+  · intro ⟨hq, hn⟩
+    refine ⟨hq, ?_, ?_⟩
+    · cases hs : hasStepEntry B q.id.step with
+      | true => rfl
+      | false => exact absurd ⟨hq, Or.inl hs⟩ hn
+    · cases hc : B.contains q with
+      | false => rfl
+      | true => exact absurd ⟨hq, Or.inr hc⟩ hn
+
 /-- An owner the cut keeps is not among the removed ones. -/
 theorem not_mem_cutRemoved (n : PNodeM) (B : List PathNodeId) (q : PathNodeId)
     (h : q ∈ n.owners → q ∈ intersectOwners n.owners B) : (cutRemoved n B).contains q = false := by
   cases hc : (cutRemoved n B).contains q with
   | false => rfl
   | true =>
-    have hm : q ∈ cutRemoved n B := List.contains_iff_mem.mp hc
-    obtain ⟨hq, hnot⟩ := List.mem_filter.mp hm
-    have := h hq
-    simp only [Bool.not_eq_true'] at hnot
-    rw [List.contains_iff_mem.mpr this] at hnot
-    exact absurd hnot (by simp)
+    obtain ⟨hq, hnot⟩ := (mem_cutRemoved n B q).mp (List.contains_iff_mem.mp hc)
+    exact absurd (h hq) hnot
 
 /-- Removed owners were owners. -/
 theorem mem_of_cutRemoved (n : PNodeM) (B : List PathNodeId) (q : PathNodeId)
-    (h : q ∈ cutRemoved n B) : q ∈ n.owners := (List.mem_filter.mp h).1
+    (h : q ∈ cutRemoved n B) : q ∈ n.owners := ((mem_cutRemoved n B q).mp h).1
 
 end GPathM
 

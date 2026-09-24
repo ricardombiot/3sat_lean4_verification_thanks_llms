@@ -125,3 +125,7 @@ root = "Probes.RowDegree"
 [[lean_exe]]
 name = "exec-diff"
 root = "Probes.ExecDiff"
+
+[[lean_exe]]
+name = "model-slow"
+root = "Probes.ModelSlow"
