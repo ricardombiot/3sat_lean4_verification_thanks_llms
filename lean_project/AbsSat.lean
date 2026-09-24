@@ -240,6 +240,7 @@ import AbsSat.GraphPath.Model.SegExactFilter
 import AbsSat.GraphPath.Model.SegExactAdm
 import AbsSat.GraphPath.Model.SymInvariant
 import AbsSat.GraphPath.Model.ReadyInv
+import AbsSat.GraphPath.Model.PassProp
 import AbsSat.GraphPath.Model.PinDoomed
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
