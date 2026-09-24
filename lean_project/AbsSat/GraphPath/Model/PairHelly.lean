@@ -288,4 +288,79 @@ theorem readerVerdictW_iff_of_pairHelly
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_pairHelly
 
+
+-- ============================================================
+-- B7. Hacia `PairHelly`: la reducción a una cadena por el tramo y por el pin
+-- ============================================================
+
+/-- **El pin débil conserva las cadenas que pasan por el nodo pinchado**: solo quita de la global los
+nodos de ese paso con otro nodo del mapa. -/
+theorem chainSound_filterWeak (g : GPathM) (k : Int) (qid : NodeId) (sel : Int → PathNodeId)
+    (h : ChainSound g sel) (hq : 0 ≤ k → k < g.current_step → (sel k).id = qid) :
+    ChainSound (filterWeak g (k, [qid])) sel := by
+  obtain ⟨⟨hchain, howned, hgow⟩, hself, hson, hroot⟩ := h
+  refine ⟨⟨hchain, howned, ?_⟩, hself, hson, hroot⟩
+  intro j hlo hhi
+  simp only [filterWeak, List.mem_filter]
+  refine ⟨hgow j hlo hhi, ?_⟩
+  have hstepj := (hchain.1 j hlo hhi).2
+  rcases int_eq_or_ne j k with hjk | hjk
+  · subst hjk
+    have hid : (sel j).id = qid := hq hlo hhi
+    simp [hid]
+  · simp only [Bool.or_eq_true]
+    refine Or.inl ?_
+    simp only [bne_iff_ne, hstepj]
+    exact hjk
+
+/-- **Un tramo de `C` que se extiende a una cadena sana de `X`**: la hipótesis que queda. -/
+def SegThrough (X : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi ≤ (cleanPair X).current_step - 1 →
+    Extendable.PartialChain (cleanPair X) sel lo hi →
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ hi → j ≤ hi → i ≠ j →
+      ∀ nj, (cleanPair X).node? (sel j) = some nj → sel i ∈ nj.owners) →
+    ∃ s, ChainSound X s ∧ ∀ j, lo ≤ j → j ≤ hi → s j = sel j
+
+/-- **`SegThrough` da `SegGood` tras la limpieza con parejas**: la cadena sana de `X` sigue sana en
+`cleanPair X` (`ChainSound_cleanPair`), y su nodo en cada paso es la entrada común del tramo. -/
+theorem segGood_of_segThrough (X : GPathM) (h : SegThrough X) : SegGood (cleanPair X) := by
+  intro sel lo hi hlo hlh hhi hpc hpo i hi0 hi1 _
+  obtain ⟨s, hs, hagree⟩ := h sel lo hi hlo hlh hhi hpc hpo
+  have hC : ChainSound (cleanPair X) s := ChainSound_cleanPair X s hs
+  have hstep : (cleanPair X).current_step = X.current_step := (pruned_cleanPair X).step_eq
+  refine ⟨s i, (hC.chain.1.1 i hi0 (by omega)).2, ?_⟩
+  intro j hj0 hj1 nj hnj
+  rw [← hagree j hj0 hj1] at hnj
+  exact chain_mem_owners (cleanPair X) s hC j (by omega) (by omega) nj hnj i hi0 (by omega)
+
+/-- Y por tanto `PairHelly`. -/
+theorem pairHelly_of_segThrough (X : GPathM) (h : SegThrough X) : PairHelly (cleanPair X) :=
+  fun _ _ => segGood_of_segThrough X h
+
+/-- **La forma sobre el estado del lector**: el tramo se extiende a una cadena sana de `g` **que pasa
+por el nodo pinchado**. Es la afirmación abierta: sobre `g`, que ya cumple `SegExact`, y la regla. -/
+def SegThroughPin (g : GPathM) (k : Int) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi →
+    hi ≤ (cleanPair (filterWeak g (k, [qid]))).current_step - 1 →
+    Extendable.PartialChain (cleanPair (filterWeak g (k, [qid]))) sel lo hi →
+    (∀ i j, lo ≤ i → lo ≤ j → i ≤ hi → j ≤ hi → i ≠ j →
+      ∀ nj, (cleanPair (filterWeak g (k, [qid]))).node? (sel j) = some nj → sel i ∈ nj.owners) →
+    ∃ s, ChainSound g s ∧ (0 ≤ k → k < g.current_step → (s k).id = qid) ∧
+      ∀ j, lo ≤ j → j ≤ hi → s j = sel j
+
+theorem segThrough_of_pin (g : GPathM) (k : Int) (qid : NodeId) (h : SegThroughPin g k qid) :
+    SegThrough (filterWeak g (k, [qid])) := by
+  intro sel lo hi hlo hlh hhi hpc hpo
+  obtain ⟨s, hs, hk, hagree⟩ := h sel lo hi hlo hlh hhi hpc hpo
+  exact ⟨s, chainSound_filterWeak g k qid s hs hk, hagree⟩
+
+/-- **`PairHelly` en cada pin, desde `SegThroughPin`.** -/
+theorem pairHelly_of_segThroughPin (g : GPathM) (k : Int) (qid : NodeId)
+    (h : SegThroughPin g k qid) : PairHelly (cleanPair (filterWeak g (k, [qid]))) :=
+  pairHelly_of_segThrough _ (segThrough_of_pin g k qid h)
+
+/-- info: 'AbsSat.GraphPath.Model.PairHelly.pairHelly_of_segThroughPin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairHelly_of_segThroughPin
+
 end AbsSat.GraphPath.Model.PairHelly

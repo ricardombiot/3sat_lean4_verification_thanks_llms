@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/GPathM.lean
 import AbsSat.Utils.Alias
+import Std.Data.HashSet
 
 /-!
 # `GPathM` — the pure mirror of `GPath`
@@ -398,6 +399,45 @@ only occur in a node the next purge removes. -/
 def pairShares (cs : Int) (xo wo : List PathNodeId) : Bool :=
   (intRange 0 (cs - 1)).all (fun k =>
     !hasStepEntry xo k || !hasStepEntry wo k || (ownersAt xo k).any (fun r => wo.contains r))
+
+/-- The same test, fast (plan `pair_mode`: the list form made the model's review ~30× slower on a
+7-variable UNSAT instance, `Probes/ModelSlow.lean`): the steps of each table and the entries they
+share, as hash sets, once. Equal to `pairShares` (`pairShares_eq_fast`), so the compiler runs this one
+(`@[csimp]`) while every proof keeps reading `pairShares`. -/
+def pairSharesFast (cs : Int) (xo wo : List PathNodeId) : Bool :=
+  let ws := Std.HashSet.ofList wo
+  let xs := Std.HashSet.ofList (xo.map (·.id.step))
+  let wss := Std.HashSet.ofList (wo.map (·.id.step))
+  let cms := Std.HashSet.ofList ((xo.filter (fun r => ws.contains r)).map (·.id.step))
+  (intRange 0 (cs - 1)).all (fun k => !xs.contains k || !wss.contains k || cms.contains k)
+
+@[csimp] theorem pairShares_eq_fast : @pairShares = @pairSharesFast := by
+  funext cs xo wo
+  unfold pairShares pairSharesFast
+  congr 1
+  funext k
+  have h1 : ∀ o : List PathNodeId, (Std.HashSet.ofList (o.map (·.id.step))).contains k = hasStepEntry o k := by
+    intro o
+    rw [Std.HashSet.contains_ofList]
+    unfold hasStepEntry
+    apply Bool.eq_iff_iff.mpr
+    rw [List.elem_iff, List.mem_map, List.any_eq_true]
+    constructor
+    · rintro ⟨q, hq, hk⟩; exact ⟨q, hq, beq_iff_eq.mpr hk⟩
+    · rintro ⟨q, hq, hk⟩; exact ⟨q, hq, beq_iff_eq.mp hk⟩
+  have h2 : hasStepEntry (xo.filter (fun r => (Std.HashSet.ofList wo).contains r)) k =
+      (ownersAt xo k).any (fun r => wo.contains r) := by
+    unfold hasStepEntry ownersAt
+    apply Bool.eq_iff_iff.mpr
+    rw [List.any_eq_true, List.any_eq_true]
+    constructor
+    · rintro ⟨r, hr, hk⟩
+      rw [List.mem_filter, Std.HashSet.contains_ofList] at hr
+      exact ⟨r, List.mem_filter.mpr ⟨hr.1, hk⟩, hr.2⟩
+    · rintro ⟨r, hr, hw⟩
+      rw [List.mem_filter] at hr
+      exact ⟨r, List.mem_filter.mpr ⟨hr.1, by rw [Std.HashSet.contains_ofList]; exact hw⟩, hr.2⟩
+  simp only [h1, h2]
 
 /-- `w` is a bad pair of `n` in `g`: another live node whose table shares nothing with `n`'s at some
 common step. No solution goes through both. -/
