@@ -686,4 +686,82 @@ theorem readerVerdictW_iff_of_nested
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_nested
 
+-- ============================================================
+-- La escalera final: la unión con `AdmittedExt`, lo demás con Hellys de un paso
+-- ============================================================
+
+open AbsSat.GraphPath.Model.SegExactFilter in
+/-- **El lector sin retroceso decide 3-SAT**, con:
+* el primer estado (la línea final revisada, una unión): `SegExact`, y en sus pines, `AdmittedExt`
+  —medido (`nodeadm`, semilla 1): los 39 tramos de ese estado sin cadena admitida mueren en el pin—;
+* los estados tras un pin: en sus pines, `CommonAdm`, `GapStepBelow` y `GapStepAbove`, afirmaciones de un
+  solo paso sobre las tablas de ese estado. -/
+theorem readerVerdictW_iff_of_hellyAfterFirst
+    (hStart : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (filterAllAgg kv.2 []) = true → SegExact (filterAllAgg kv.2 []))
+    (hFirst : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ k q,
+      isValid (filterAllAgg kv.2 []) = true →
+      ReaderExec.firstChoice (filterAllAgg kv.2 []) = some k →
+      q ∈ ownersAt (filterAllAgg kv.2 []).gowners k →
+      AdmittedExt (filterAllAgg kv.2 []) (q.id.step, [q.id]))
+    (hLater : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      ∀ g₁ k₁ q₁ k q, PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g₁ → isValid g₁ = true →
+      ReaderExec.firstChoice g₁ = some k₁ → q₁ ∈ ownersAt g₁.gowners k₁ →
+      isValid (filterAllAgg g₁ [q₁.id]) = true →
+      ReaderExec.firstChoice (filterAllAgg g₁ [q₁.id]) = some k →
+      q ∈ ownersAt (filterAllAgg g₁ [q₁.id]).gowners k →
+      CommonAdm (filterAllAgg g₁ [q₁.id]) (q.id.step, [q.id]) ∧
+        GapStepBelow (filterAllAgg g₁ [q₁.id]) ∧ GapStepAbove (filterAllAgg g₁ [q₁.id]))
+    (φ : AbsSat.Cnf.Cnf) (hwf : AbsSat.Cnf.WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ AbsSat.Cnf.Satisfiable φ := by
+  refine SegExact.readerVerdictW_iff_of_readerSegExact ?_ φ hwf
+  intro φ' hwf' kv hkv g hR hv
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  revert hv
+  induction hR with
+  | start => exact hStart φ' hwf' kv hkv
+  | pin g k q hR hv hk hq ih =>
+    intro hv'
+    have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+    have rc := ReaderAgg.RCtx_of_readableAgg g ctx.rd
+    have cG := Reader.Ctx_of_readable g (ReaderAgg.readable_of_readableAgg g ctx.rd) hv
+    have c0 : StepFilter.SCtx g := ⟨rc, ctx.smp, cG.self, ctx.pos⟩
+    have hS := ih hv
+    have hqk : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+    have hkr : k ∈ intRange 0 (g.current_step - 1) := List.mem_of_find?_eq_some hk
+    have hk0 := mem_intRange_lower hkr
+    have hk1 := mem_intRange_upper hkr
+    have he0 : 0 ≤ (q.id.step, [q.id]).1 := by show 0 ≤ q.id.step; rw [hqk]; exact hk0
+    have he1 : (q.id.step, [q.id]).1 < g.current_step := by show q.id.step < _; rw [hqk]; omega
+    have hv'' := hv'
+    rw [filterAllAgg_pin] at hv''
+    have hAdm : AdmittedExt g (q.id.step, [q.id]) := by
+      cases hR with
+      | start => exact hFirst φ' hwf' kv hkv k q hv hk hq
+      | pin g₁ k₁ q₁ hR₁ hv₁ hk₁ hq₁ =>
+        obtain ⟨hA, hBl, hAb⟩ := hLater φ' hwf' kv hkv g₁ k₁ q₁ k q hR₁ hv₁ hk₁ hq₁ hv hk hq
+        have adj := AdjacentOwners.adj_of_readable _ ctx.rd hv ctx.pms ctx.sn
+        have hok : AggFixpoint.AggOk (filterAllAgg g₁ [q₁.id]) := by
+          have hv2 := hv
+          obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+          rw [hg] at hv2 ⊢
+          exact AggFixpoint.aggOk_reviewAgg _ hv2
+        have hsym := PinExactBoundary.ownSymmetric_of_aggOk _ hok rc.snn rc.below adj.ctx.nodeval
+        have hG := gapExact_of_far _ adj hsym hS (gapExactFar_of_steps _ adj hsym hS hBl hAb)
+        exact admittedExt_of_nodeAdm _ _ c0 he0 he1 hv'' (nodeAdmToChain_of _ _ he0 he1 hA hG)
+    rw [filterAllAgg_pin] at hv' ⊢
+    exact segExact_stepFilter_adm g _ c0 hS he0 he1 hAdm hv'
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactAdm.readerVerdictW_iff_of_hellyAfterFirst' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_hellyAfterFirst
+
 end AbsSat.GraphPath.Model.SegExactAdm

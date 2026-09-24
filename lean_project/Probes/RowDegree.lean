@@ -7233,6 +7233,12 @@ structure NACell where
   bChain : Nat := 0
   bNoChain : Nat := 0
   cut : Nat := 0
+  failSurvive : Nat := 0
+  failDie : Nat := 0
+  failAtStart : Nat := 0
+  bFailSurvive : Nat := 0
+  bFailAtStart : Nat := 0
+  aFailAtStart : Nat := 0
   firstA : String := ""
   firstB : String := ""
   deriving Repr
@@ -7255,14 +7261,21 @@ def naFilter (lab : String) (T : GPathM) (e : Int × List NodeId) (c : NACell) :
         let okAdm := fun x => T.gowners.contains x && (x.id.step != e.1 || e.2.contains x.id)
         let hasChain := match (extendFullIn T okAdm P 5000).1 with
           | some true => some true | some false => some false | none => none
+        let R := AggressiveReview.reviewAgg (PureDriverImproves.filterWeak T e)
+        let survives := isValid R && isSegment R P
         match hasChain with
         | some true => c := { c with chain := c.chain + 1 }
-        | some false => c := { c with noChain := c.noChain + 1 }
+        | some false =>
+          c := { c with noChain := c.noChain + 1 }
+          if survives then c := { c with failSurvive := c.failSurvive + 1 }
+          else c := { c with failDie := c.failDie + 1 }
+          if lab.endsWith "inicio" then c := { c with failAtStart := c.failAtStart + 1 }
         | none => c := { c with cut := c.cut + 1 }
         let commons := (tab (P.headD lo)).filter (fun r => r.id.step == e.1 && P.all (fun p => (tab p).contains r)) |>.eraseDups
         if commons.any admIn then c := { c with commonAdm := c.commonAdm + 1 }
         else
           c := { c with noCommonAdm := c.noCommonAdm + 1 }
+          if lab.endsWith "inicio" then c := { c with aFailAtStart := c.aFailAtStart + 1 }
           if hasChain == some true then c := { c with noCommonButChain := c.noCommonButChain + 1 }
           if c.firstA == "" then c := { c with firstA := s!"{lab} filtro paso {e.1}, tramo {lo.id.step}..{hi.id.step}, comunes {commons.length}, cadena {hasChain}" }
         for r in commons do
@@ -7272,12 +7285,14 @@ def naFilter (lab : String) (T : GPathM) (e : Int × List NodeId) (c : NACell) :
           | some true => c := { c with bChain := c.bChain + 1 }
           | some false =>
             c := { c with bNoChain := c.bNoChain + 1 }
+            if survives then c := { c with bFailSurvive := c.bFailSurvive + 1 }
+            if lab.endsWith "inicio" then c := { c with bFailAtStart := c.bFailAtStart + 1 }
             if c.firstB == "" then c := { c with firstB := s!"{lab} filtro paso {e.1}, tramo {lo.id.step}..{hi.id.step}, r admitida {admIn r}" }
           | none => c := { c with cut := c.cut + 1 }
     | _, _ => pure ()
   return c
 
-partial def walkNA (lab : String) (g : GPathM) (fuel : Nat) (c : NACell) : NACell :=
+partial def walkNA (lab : String) (g : GPathM) (fuel : Nat) (c : NACell) (first : Bool := true) : NACell :=
   if fuel == 0 then c
   else
     match ReaderExec.firstChoice g with
@@ -7285,10 +7300,10 @@ partial def walkNA (lab : String) (g : GPathM) (fuel : Nat) (c : NACell) : NACel
     | some k => Id.run do
       let mut c := c
       for q in ownersAt g.gowners k do
-        c := naFilter s!"{lab} pin" g (k, [q.id]) c
+        c := naFilter (if first then s!"{lab} pin inicio" else s!"{lab} pin") g (k, [q.id]) c
       match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
       | none => return c
-      | some q => return walkNA lab (filterAllAgg g [q.id]) (fuel - 1) c
+      | some q => return walkNA lab (filterAllAgg g [q.id]) (fuel - 1) c false
 
 def runFormulaNA (label : String) (φ : Cnf) (a : NAAcc) : NAAcc := Id.run do
   let mut a := { a with formulas := a.formulas + 1 }
@@ -7312,6 +7327,7 @@ def reportNACell (lbl : String) (c : NACell) : IO Unit := do
   IO.println s!"   {lbl}: tramos con TODOS los nodos con entrada admitida {c.cases}; con cadena admitida {c.chain}, SIN {c.noChain}, presupuesto {c.cut}"
   IO.println s!"      (a) hay entrada admitida COMUN: {c.commonAdm}; no la hay: {c.noCommonAdm} (de esos, con cadena igualmente: {c.noCommonButChain})"
   IO.println s!"      (b) entradas comunes r (cualquiera): {c.bCommon}; con cadena por P y r {c.bChain}, SIN {c.bNoChain}"
+  IO.println s!"      sin cadena admitida: SOBREVIVEN al filtro {c.failSurvive}, mueren {c.failDie}; en el primer estado del lector {c.failAtStart}; (b) sin cadena que sobreviven {c.bFailSurvive}; fallos de (b) en el primer estado {c.bFailAtStart} de {c.bNoChain}; fallos de (a) en el primer estado {c.aFailAtStart} de {c.noCommonAdm}"
   if c.firstA != "" then IO.println s!"      primero sin comun admitida: {c.firstA}"
   if c.firstB != "" then IO.println s!"      primera comun sin cadena: {c.firstB}"
 
@@ -7942,6 +7958,20 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormulaNA path φ {})
         let t1 ← IO.monoMsNow
         reportNA path a (t1 - t0)
+  | "nodeadm-pins" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NAAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        let mut pins := a.pins
+        for kv in pureRunW φ do
+          let g := filterAllAgg kv.2 []
+          if isValid g then pins := walkNA s!"seed {seed} #{idx} lector" g (stepCount φ).toNat pins
+        a := { a with formulas := a.formulas + 1, pins := pins }
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportNA s!"seed {seed} ({cases} formulas, {nvMin}+ vars, solo pines)" a (t1 - t0)
   | "nodeadm" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
