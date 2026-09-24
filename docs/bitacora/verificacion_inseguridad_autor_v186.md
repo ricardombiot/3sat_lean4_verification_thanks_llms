@@ -159,3 +159,26 @@ empalme**: dos cadenas completas de `g` que coinciden en un nodo (o en una venta
 y pegar en una cadena completa. Con él, una cadena por el tramo y una cadena por `q` que se cruzan
 darían la cadena buscada. Si vale, es de estructura de cadena y encaja con lo que el v185 dijo que
 había que buscar; si no vale, dirá qué información guarda la tabla que el empalme pierde.
+
+**Ya formalizado** (`PairHelly.lean`, B7): `chainSound_filterWeak` (una cadena sana que pasa por el
+nodo pinchado sobrevive al pin débil), `SegThrough` y `segGood_of_segThrough`, y
+`pairHelly_of_segThroughPin`. **`PairHelly` queda reducido a `SegThroughPin`**, la afirmación sobre
+`g` de arriba.
+
+**Una forma más pequeña de atacarlo: extender de un paso en un paso.** Si en `C = cleanPair X` todo
+tramo se puede alargar un paso (hacia arriba o hacia abajo) con un nodo que todos sus miembros
+poseen, repitiendo se llega a una cadena completa de `C`. Esa cadena es completa en `g` (al subir por
+una poda solo se gana, `fullChain_before`), y en el paso pinchado solo puede estar `q`: justo lo que
+pide `SegThroughPin`. Cada extensión es un Helly de un solo paso, y además restringido: en el paso
+siguiente al extremo `t`, las entradas de `t` son sus hijos (I1-hijos), que solo se distinguen por el
+nodo del mapa. La regla de parejas da, para cada miembro `u`, un hijo de `t` compartido con `u`. Falta
+que sea el mismo para todos. Es el candidato a medir primero: tramos de `C` que no se pueden alargar
+un paso. Tendría que salir 0, porque `SegExact` en `C` lo implica.
+
+## 7. Qué queda
+
+1. **Velocidad del modelo**, para que `diffTest` vuelva a pasar con su tercera banda: indexar los
+   nodos y las tablas una vez por barrido (no por pareja) y demostrar la igualdad como con
+   `pairSharesFast`.
+2. **`SegThroughPin`**, por la extensión de un paso en un paso (§6).
+3. C2 (la regla en el ejecutable IO) y A5 (`PAIR_MODE = :on` por defecto).
