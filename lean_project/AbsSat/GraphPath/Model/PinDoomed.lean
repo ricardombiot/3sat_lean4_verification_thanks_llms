@@ -1,6 +1,7 @@
 -- lean_project/AbsSat/GraphPath/Model/PinDoomed.lean
 import AbsSat.GraphPath.Model.SymInvariant
 import AbsSat.GraphPath.Model.SegExactAdm
+import AbsSat.GraphPath.Model.ReadyInv
 
 /-!
 # El lector, por el invariante de las pasadas (review simétrico)
@@ -22,9 +23,10 @@ pin, y `SegGood` en todos los estados del lector da el veredicto
 
 * `PinFirstRound X` — **los tramos condenados mueren en la primera vuelta**: si el estado pinchado
   `X` cumple `PStateG`, la primera vuelta termina en `PStateG`;
-* `LaterReady X` — las vueltas siguientes que aún progresan empiezan con todo nodo válido, en la
-  global y con los enlaces en su tabla; entonces su limpieza no cambia nada
-  (`cleanInvalid₂_eq_self_of_ready`), y la vuelta final es la identidad por el punto fijo;
+* `LaterValid X` — las vueltas siguientes que aún progresan empiezan con todo nodo válido; como
+  estar en la global y tener los enlaces en la tabla lo deja la vuelta anterior (`ReadyInv`), su
+  limpieza no cambia nada (`cleanInvalid₂_eq_self_of_ready`); la vuelta final es la identidad por el
+  punto fijo;
 * `AggInactive X` — el barrido agresivo no quita nada tras el review base.
 
 `PStateG` del estado pinchado sale de `SegGood` del estado del lector anterior
@@ -65,12 +67,14 @@ structure Ready (g : GPathM) : Prop where
   gow : Ownership.NodesAreGowners g
   links : Bridge.LinksInOwners g
 
-/-- **Las vueltas siguientes que aún progresan empiezan listas** (`Ready`). La última vuelta no lo
-necesita: en el punto fijo la vuelta entera es la identidad. Medido (`row-degree cleanpin`): a la
-entrada de toda limpieza siguiente, 0 nodos inválidos, 0 fuera de la global, 0 enlaces fuera de la
-tabla, y la limpieza no cambia nada; y ninguna vuelta siguiente progresa. -/
-def LaterReady (X : GPathM) : Prop :=
-  ∀ j, 1 ≤ j → measure (reviewPass (iterPass j X)) < measure (iterPass j X) → Ready (iterPass j X)
+/-- **Las vueltas siguientes que aún progresan empiezan con todo nodo válido.** Es lo único de `Ready`
+que queda como hipótesis: estar en la global y tener los enlaces en la tabla son invariantes de la
+vuelta anterior (`ReadyInv.nodesGow_reviewPass`, `ReadyInv.links_reviewPass`). La última vuelta no
+lo necesita: en el punto fijo la vuelta entera es la identidad. Medido (`row-degree cleanpin`): a la
+entrada de toda limpieza siguiente, 0 nodos inválidos; y ninguna vuelta siguiente progresa. -/
+def LaterValid (X : GPathM) : Prop :=
+  ∀ j, 1 ≤ j → measure (reviewPass (iterPass j X)) < measure (iterPass j X) →
+    ∀ n ∈ (iterPass j X).nodes, isValidNode (iterPass j X) n = true
 
 /-- **El barrido agresivo no quita nada tras el review base.** -/
 def AggInactive (X : GPathM) : Prop :=
@@ -189,10 +193,30 @@ theorem gn_iterPass (X : GPathM) (h : GownersNodes.GN X) : ∀ j, GownersNodes.G
   | zero => exact h
   | succ n ih => exact GownersNodes.GN_reviewPass _ ih
 
-/-- **Las vueltas siguientes conservan `PStateG` y la simetría**, con `LaterReady`: si la vuelta
-progresa, su limpieza no cambia nada (`cleanInvalid₂_eq_self_of_ready`) y las pasadas conservan todo;
-si no progresa, la vuelta entera es la identidad. -/
-theorem pstateG_reviewFuel (X : GPathM) (hL : LaterReady X) (hgn : GownersNodes.GN X) :
+theorem nodup_shape_iterPass (X : GPathM) (hr : RevOk X) :
+    ∀ j, NodupIds (iterPass j X) ∧ ShapeOk (iterPass j X) := by
+  intro j
+  induction j with
+  | zero => exact ⟨hr.nd, hr.sh⟩
+  | succ n ih =>
+    exact ⟨PinAliveChain.NodupIds_reviewPass _ ih.1, ih.2.of_pruned (pruned_reviewPass _)⟩
+
+/-- **Una vuelta siguiente, válida, empieza lista** si sus nodos son válidos: lo demás lo deja la
+vuelta anterior. -/
+theorem ready_iterPass (X : GPathM) (hr : RevOk X) (i : Nat)
+    (hv : isValid (iterPass (i + 1) X) = true)
+    (hval : ∀ n ∈ (iterPass (i + 1) X).nodes, isValidNode (iterPass (i + 1) X) n = true) :
+    Ready (iterPass (i + 1) X) := by
+  obtain ⟨hnd, hsh⟩ := nodup_shape_iterPass X hr i
+  have hpr : Pruned (cleanInvalid₂ (iterPass i X)) (reviewPass (iterPass i X)) :=
+    Pruned.trans (pruned_reviewParents _) (pruned_reviewSons _)
+  have hvc : isValid (cleanInvalid₂ (iterPass i X)) = true := Certifies.isValid_of_pruned hpr hv
+  exact ⟨hval, ReadyInv.nodesGow_reviewPass _ hnd hsh hvc, ReadyInv.links_reviewPass _ hnd⟩
+
+/-- **Las vueltas siguientes conservan `PStateG` y la simetría**, con `LaterValid`: si la vuelta
+progresa, empieza lista y su limpieza no cambia nada (`cleanInvalid₂_eq_self_of_ready`); si no
+progresa, la vuelta entera es la identidad. -/
+theorem pstateG_reviewFuel (X : GPathM) (hr : RevOk X) (hL : LaterValid X) (hgn : GownersNodes.GN X) :
     ∀ (n j : Nat), 1 ≤ j → PStateG (iterPass j X) → OwnSymmetric (iterPass j X) →
       isValid (reviewFuel n (iterPass j X)) = true → PStateG (reviewFuel n (iterPass j X)) := by
   intro n
@@ -207,10 +231,12 @@ theorem pstateG_reviewFuel (X : GPathM) (hL : LaterReady X) (hgn : GownersNodes.
       split
       · next hlt =>
         rw [if_pos hlt] at hv
-        have hce := cleanInvalid₂_eq_self_of_ready _ hP hS (gn_iterPass X hgn j) (hL j hj hlt)
-        obtain ⟨hP1, hS1⟩ := pstateG_reviewPass' (iterPass j X) (by rw [hce]; exact hP)
+        obtain ⟨i, rfl⟩ : ∃ i, j = i + 1 := ⟨j - 1, by omega⟩
+        have hrd := ready_iterPass X hr i hg (hL (i + 1) hj hlt)
+        have hce := cleanInvalid₂_eq_self_of_ready _ hP hS (gn_iterPass X hgn (i + 1)) hrd
+        obtain ⟨hP1, hS1⟩ := pstateG_reviewPass' (iterPass (i + 1) X) (by rw [hce]; exact hP)
           (by rw [hce]; exact hS)
-        exact ih (j + 1) (by omega) hP1 hS1 hv
+        exact ih (i + 1 + 1) (by omega) hP1 hS1 hv
       · next hlt =>
         have hfix : reviewPass (iterPass j X) = iterPass j X :=
           reviewPass_eq_self _ (Nat.le_antisymm (measure_reviewPass_le _) (Nat.not_lt.mp hlt))
@@ -219,7 +245,7 @@ theorem pstateG_reviewFuel (X : GPathM) (hL : LaterReady X) (hgn : GownersNodes.
 
 /-- **`SegGood` en el punto fijo del pin**, con las tres hipótesis del pin. -/
 theorem segGood_pinReview (X : GPathM) (hr : RevOk X) (hP0 : PStateG X) (hgn : GownersNodes.GN X)
-    (hF : PinFirstRound X) (hL : LaterReady X) (hA : AggInactive X)
+    (hF : PinFirstRound X) (hL : LaterValid X) (hA : AggInactive X)
     (hv : isValid (reviewAgg X) = true) :
     SegGood (reviewAgg X) := by
   have hRA : reviewAgg X = review X := by
@@ -242,7 +268,7 @@ theorem segGood_pinReview (X : GPathM) (hr : RevOk X) (hP0 : PStateG X) (hgn : G
         Certifies.isValid_of_pruned (pruned_reviewFuel _ _) hv
       have hP1 := hF hP0 hv1
       have hS1 := OwnSymmetric_reviewPass X hr hv1
-      exact (pstateG_reviewFuel X hL hgn (measure X) 1 (Nat.le_refl 1) hP1 hS1 hv).sg
+      exact (pstateG_reviewFuel X hr hL hgn (measure X) 1 (Nat.le_refl 1) hP1 hS1 hv).sg
     · next hlt =>
       rw [if_neg hlt] at hv
       exact (hF hP0 hv).sg
@@ -322,7 +348,8 @@ theorem ownSymmetric_filterWeak (g : GPathM) (e : Int × List NodeId) (h : OwnSy
 estado, medido: 0 tramos sin cadena), y en cada pin del lector, sobre el estado pinchado
 `X = filterWeak g (paso de q, [q])`, las tres hipótesis medidas de `row-degree cleanpin`:
 **los tramos condenados mueren en la primera vuelta** (`PinFirstRound`), las vueltas siguientes que
-progresan empiezan listas (`LaterReady`) y el barrido agresivo no actúa (`AggInactive`). -/
+progresan empiezan con todo nodo válido (`LaterValid`) y el barrido agresivo no actúa
+(`AggInactive`). -/
 theorem readerVerdictW_iff_of_pinDoomed
     (hStart : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
       isValid (filterAllAgg kv.2 []) = true → SegExact.SegExact (filterAllAgg kv.2 []))
@@ -330,7 +357,7 @@ theorem readerVerdictW_iff_of_pinDoomed
       PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
       ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
       PinFirstRound (filterWeak g (q.id.step, [q.id])) ∧
-        LaterReady (filterWeak g (q.id.step, [q.id])) ∧
+        LaterValid (filterWeak g (q.id.step, [q.id])) ∧
         AggInactive (filterWeak g (q.id.step, [q.id])))
     (φ : Cnf) (hwf : WF φ) :
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
