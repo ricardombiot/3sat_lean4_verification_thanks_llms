@@ -605,11 +605,14 @@ theorem triTopDown_of_inner (C : GPathM) (hP : PairHelly.PairFixed C)
       exact ⟨p, hp, h2, h1⟩
     · exact hin j (by omega) hj1 k (by omega) hk1
 
-/-- **Helly de tres**: tres nodos que se poseen mutuamente comparten una entrada en cada paso. -/
+/-- **Helly de tres, en el paso contiguo al tercero**: tres nodos que se poseen mutuamente comparten
+una entrada en el paso inmediatamente por encima o por debajo del tercero (`c`). Es lo único que usa
+la extensión de un paso: `c` es el extremo del tramo. -/
 def Tri3 (C : GPathM) : Prop :=
   ∀ a na b nb c nc, C.node? a = some na → C.node? b = some nb → C.node? c = some nc →
     b ∈ na.owners → c ∈ na.owners → c ∈ nb.owners →
-    ∀ k, 0 ≤ k → k < C.current_step → ∃ q ∈ na.owners, q.id.step = k ∧ q ∈ nb.owners ∧ q ∈ nc.owners
+    ∀ k, (k = c.id.step + 1 ∨ k + 1 = c.id.step) → 0 ≤ k → k < C.current_step →
+      ∃ q ∈ na.owners, q.id.step = k ∧ q ∈ nb.owners ∧ q ∈ nc.owners
 
 /-- **Pieza 4 desde `Tri3`, hacia arriba**: dos miembros interiores y el extremo se poseen mutuamente;
 su entrada común en el paso siguiente es una entrada del extremo, luego un candidato. -/
@@ -637,7 +640,7 @@ theorem triTopUp_of_tri3 (C : GPathM) (hP : PairHelly.PairFixed C)
     exact ⟨q, candUp_of_top_entry C hi1s hsl hpms sel hi nt ht hts q hq hqs (by omega) hhi, ho, ho⟩
   · have hkj : sel k ∈ nj.owners := h.2 k j hk0 hj0 (by omega) (by omega) (Ne.symm hjk) nj hnj
     obtain ⟨q, hqj, hqs, hqk, hqt⟩ := h3 (sel j) nj (sel k) nk (sel hi) nt hnj hnk ht hkj htj htk
-      (hi + 1) (by omega) (by omega)
+      (hi + 1) (Or.inl (by rw [hts])) (by omega) (by omega)
     exact ⟨q, candUp_of_top_entry C hi1s hsl hpms sel hi nt ht hts q hqt hqs (by omega) hhi,
       (ownsB_of C (sel j) q nj hnj).mpr hqj, (ownsB_of C (sel k) q nk hnk).mpr hqk⟩
 
@@ -666,7 +669,7 @@ theorem triTopDown_of_tri3 (C : GPathM) (hP : PairHelly.PairFixed C)
       ho, ho⟩
   · have hkj : sel k ∈ nj.owners := h.2 k j (by omega) (by omega) hk1 hj1 (Ne.symm hjk) nj hnj
     obtain ⟨q, hqj, hqs, hqk, hqb⟩ := h3 (sel j) nj (sel k) nk (sel lo) nb hnj hnk hb hkj hbj hbk
-      (lo - 1) (by omega) (by omega)
+      (lo - 1) (Or.inr (by rw [hbs]; omega)) (by omega) (by omega)
     exact ⟨q, candDown_of_bottom_entry C hi1 hpl sel lo nb hb hbs q hqb hqs (by omega) (by omega),
       (ownsB_of C (sel j) q nj hnj).mpr hqj, (ownsB_of C (sel k) q nk hnk).mpr hqk⟩
 

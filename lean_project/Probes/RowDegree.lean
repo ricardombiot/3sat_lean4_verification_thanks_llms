@@ -7524,7 +7524,8 @@ def pinRE (lab : String) (X : GPathM) (a : REAcc) : REAcc := Id.run do
   let R1 := reviewPass X
   a := { a with round1 := checkSE s!"{lab} vuelta1" R1 300 a.round1 }
   if !isValid C then return a
-  a := hellyState C a
+  -- Tri3 on the state the ladder uses now: after the clean with pairs
+  if isValid (cleanPair X) then a := hellyState (cleanPair X) a
   -- the doomed segments of `C`: pair conflict or collective conflict at their bad steps
   for y in C.nodes.take 20 do
     let (segs, _) := collectDown C [y.id] ([], 30)
