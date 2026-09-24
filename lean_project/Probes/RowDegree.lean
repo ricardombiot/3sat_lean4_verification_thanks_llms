@@ -5859,6 +5859,11 @@ structure DTAcc where
   u2cCommon : Nat := 0
   u2cFail : Nat := 0
   u2cFirst : String := ""
+  side : List (String × Nat) := []
+  sonsDetail : String := ""
+  adjBad : Nat := 0
+  adjGood : Nat := 0
+  adjGoodDetail : String := ""
   first : String := ""
   deriving Repr
 
@@ -5876,6 +5881,34 @@ def badSteps (g : GPathM) (P : List PathNodeId) : List Int :=
 def classifyDeath (X C : GPathM) (kpin : Int) (g g' : GPathM) (x : PathNodeId) (P : List PathNodeId)
     (bad : List Int) (parents : Bool) (a : DTAcc) : DTAcc := Id.run do
   let mut a := if parents then { a with inPar := a.inPar + 1 } else { a with inSons := a.inSons + 1 }
+  -- which side of the segment its bad steps are on, crossed with the pass that kills it
+  let loS := (P.headD x).id.step
+  let hiS := (P.getLastD x).id.step
+  let below := bad.any (· < loS)
+  let above := bad.any (· > hiS)
+  let sideTag := (if below && above then "ambos" else if below then "abajo" else "arriba") ++
+    (if parents then "/padres" else "/hijos") ++ (if (if parents then P.headD x else P.getLastD x) == x then "/extremo" else "/interior")
+  a := { a with side := match a.side.find? (·.1 == sideTag) with
+    | some _ => a.side.map (fun (t, c) => if t == sideTag then (t, c + 1) else (t, c))
+    | none => (sideTag, 1) :: a.side }
+  -- is the step next to the killing end, on the side the pass looks at, a bad step?
+  let adj := if parents then loS - 1 else hiS + 1
+  if bad.contains adj then a := { a with adjBad := a.adjBad + 1 }
+  else
+    a := { a with adjGood := a.adjGood + 1 }
+    if a.adjGoodDetail == "" then
+      a := { a with adjGoodDetail := s!"tramo {P.map (·.id.step)}, sin comun {bad}, muere en {if parents then "padres" else "hijos"} con x={x.id.step}" }
+  if !parents && below && a.sonsDetail == "" then
+    -- the sons pass kills a segment with bad steps below: detail
+    match g.node? x, g'.node? x with
+    | some d, some d' =>
+      let members := P.filter (· != x)
+      let dropped := members.filter (fun y => d.owners.contains y && !d'.owners.contains y)
+      let owns (q y : PathNodeId) : Bool := match g.node? q with
+        | some nq => nq.owners.contains y | none => false
+      let cover := members.map (fun y => (y.id.step, d.sons.filter (fun q => owns q y) |>.map (·.id.step)))
+      a := { a with sonsDetail := s!"x={x.id.step}, tramo {P.map (·.id.step)}, sin comun {bad}, hijos de x {d.sons.map (·.id.step)}, deja fuera {dropped.map (·.id.step)}, cubridores (paso miembro, pasos de hijos que lo tienen) {cover}" }
+    | _, _ => pure ()
   if bad.contains kpin then a := { a with kBad := a.kBad + 1 }
   let dist := x.id.step - kpin
   a := { a with distHist := match a.distHist.find? (·.1 == dist) with
@@ -6052,6 +6085,10 @@ def reportDT (name : String) (a : DTAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   tras la pasada de padres de la 1ª vuelta ({a.afterPar} estados validos): con algun nodo invalido {a.afterParInvalid}, violan I1 (vivos) {a.afterParI1}"
   IO.println s!"   UnionToCommon ahi: tramos {a.u2cSegs}; la union de padres del extremo cubre {a.u2cUnion}; con padre comun {a.u2cCommon}; FALLA {a.u2cFail}"
   if a.u2cFirst != "" then IO.println s!"   primer fallo: {a.u2cFirst}"
+  IO.println s!"   lado de los pasos sin comun / pasada que mata / quien corta: {a.side}"
+  IO.println s!"   el paso vecino al extremo que corta (del lado de la pasada) es un paso sin comun: {a.adjBad}; no lo es: {a.adjGood}"
+  if a.adjGoodDetail != "" then IO.println s!"   primer caso en que no lo es: {a.adjGoodDetail}"
+  if a.sonsDetail != "" then IO.println s!"   un condenado con pasos sin comun abajo muerto en hijos: {a.sonsDetail}"
   IO.println s!"   miembros que faltan: todos sus cubridores de X muertos tras la limpieza {a.missDead} (en el paso fijado {a.deadAtK}, en otro {a.deadElse}); con algun cubridor vivo {a.missAlive}"
   if a.first != "" then IO.println s!"   primero: {a.first}"
   IO.println s!"   ({ms} ms)"
@@ -7356,6 +7393,91 @@ def reportSE (name : String) (a : SEAcc) (ms : Nat) : IO Unit := do
   reportSECell "lector " a.reader
   IO.println s!"   ({ms} ms)"
 
+/-! **`roundexact`: ¿restaura la primera vuelta de un pin `SegExact`?** En cada pin del lector (con el
+review simétrico): `SegExact` (todo tramo en una cadena completa dentro de la global) en la salida de
+la limpieza del pin y en la salida de la primera vuelta. Y, tras la pasada de padres de esa vuelta,
+los tramos cuya unión de padres del extremo los cubre sin un padre común: los ids completos (con la
+ventana) de esos padres y a qué miembros cubre cada uno. -/
+
+structure REAcc where
+  formulas : Nat := 0
+  pins : Nat := 0
+  clean : SECell := {}
+  round1 : SECell := {}
+  u2cFails : Nat := 0
+  detail : List String := []
+  deriving Repr
+
+def pidStr (p : PathNodeId) : String :=
+  s!"{p.id.step}/{p.id.index}" ++ (match p.parent_id with
+    | some q => s!"<{q.step}/{q.index}"
+    | none => "<-") ++ (match p.gparent_id with
+    | some q => s!"<{q.step}/{q.index}"
+    | none => "<-")
+
+def pinRE (lab : String) (X : GPathM) (a : REAcc) : REAcc := Id.run do
+  let mut a := { a with pins := a.pins + 1 }
+  let C := cleanInvalid₂ X
+  a := { a with clean := checkSE s!"{lab} limpieza" C 300 a.clean }
+  let R1 := reviewPass X
+  a := { a with round1 := checkSE s!"{lab} vuelta1" R1 300 a.round1 }
+  if !isValid C then return a
+  let P := reviewParents C
+  if !isValid P then return a
+  for y in P.nodes.take 20 do
+    let (segs, _) := collectDown P [y.id] ([], 30)
+    for S in segs do
+      match S.head? with
+      | some lo =>
+        match P.node? lo with
+        | some nl =>
+          if lo.id.step ≥ 1 && S.length ≥ 2 then
+            let rest := S.filter (· != lo)
+            let owns (q z : PathNodeId) : Bool := match P.node? q with
+              | some nq => nq.owners.contains z | none => false
+            if rest.all (fun z => nl.parents.any (fun q => owns q z)) &&
+               !nl.parents.any (fun q => rest.all (fun z => owns q z)) then
+              a := { a with u2cFails := a.u2cFails + 1 }
+              if a.detail.length < 3 then
+                let par := nl.parents.map (fun q =>
+                  s!"{pidStr q} cubre {(rest.filter (fun z => owns q z)).map (fun z => z.id.step)}")
+                a := { a with detail := a.detail ++
+                  [s!"{lab}: extremo {pidStr lo}, tramo {S.map pidStr}; padres: {par}"] }
+        | none => pure ()
+      | none => pure ()
+  return a
+
+partial def walkRE (lab : String) (g : GPathM) (fuel : Nat) (a : REAcc) : REAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := pinRE lab ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkRE lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaRE (lab : String) (φ : Cnf) (a : REAcc) : REAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkRE lab g (stepCount φ).toNat a
+  return a
+
+def reportRE (name : String) (a : REAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
+  reportSECell "salida de la limpieza del pin" a.clean
+  reportSECell "salida de la 1ª vuelta       " a.round1
+  IO.println s!"   tras la pasada de padres: union de padres del extremo que cubre sin padre comun {a.u2cFails}"
+  for d in a.detail do IO.println s!"      {d}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
 mezclados, ¿están aun así en una cadena completa del estado unido? -/
@@ -8627,6 +8749,17 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "roundexact" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : REAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaRE s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportRE s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
       (← IO.getStdout).flush
   | "cleanpin" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
