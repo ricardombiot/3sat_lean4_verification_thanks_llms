@@ -960,4 +960,263 @@ theorem readerVerdictW_iff_of_kept
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_kept
 
+-- ============================================================
+-- El enlace sobrevive a la limpieza con parejas
+-- ============================================================
+
+section LinkKeep
+
+variable (t w : PathNodeId)
+
+/-- «Si `t` y `w` están vivos, `t` es padre de `w`.» -/
+def LinkQ (A : GPathM) : Prop :=
+  (A.node? t).isSome = true → ∀ nw, A.node? w = some nw → t ∈ nw.parents
+
+theorem ne_of_alive_removeNode (A : GPathM) (id x : PathNodeId) (n : PNodeM)
+    (h : (removeNode A id).node? x = some n) : x ≠ id := by
+  have hmem : n ∈ (removeNode A id).nodes := List.mem_of_find?_eq_some h
+  rw [removeNode_nodes] at hmem
+  obtain ⟨m, hm, rfl⟩ := List.mem_map.mp hmem
+  have hmid : (m.id != id) = true := (List.mem_filter.mp hm).2
+  have hx : (unlink id m).id = x := node?_id_eq _ x _ h
+  intro hxid
+  have hm' : m.id = id := by rw [← hxid, ← hx]; rfl
+  rw [hm'] at hmid
+  simp at hmid
+
+theorem linkQ_removeNode (A : GPathM) (hnd : NodupIds A) (id : PathNodeId) (h : LinkQ t w A) :
+    LinkQ t w (removeNode A id) := by
+  intro ht nw hw
+  have hwid := ne_of_alive_removeNode A id w nw hw
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp ht
+  have htid := ne_of_alive_removeNode A id t nt hnt
+  obtain ⟨nt0, hnt0, _⟩ := PinAliveChain.removeNode_node?_inv A hnd id t nt hnt
+  obtain ⟨nw0, hnw0, _⟩ := PinAliveChain.removeNode_node?_inv A hnd id w nw hw
+  have hlink := h (by rw [hnt0]; rfl) nw0 hnw0
+  rw [removeNode_node? A id w nw0 hnw0 hwid] at hw
+  obtain rfl := Option.some.inj hw
+  exact List.mem_filter.mpr ⟨hlink, bne_iff_ne.mpr htid⟩
+
+theorem linkQ_pairSweep (A : GPathM) (h : LinkQ t w A) : LinkQ t w (pairSweep A) := by
+  intro ht nw hw
+  obtain ⟨nt, hnt⟩ := Option.isSome_iff_exists.mp ht
+  obtain ⟨nt0, hnt0, _⟩ := pairSweep_node?_inv A t nt hnt
+  obtain ⟨nw0, hnw0, rfl⟩ := pairSweep_node?_inv A w nw hw
+  exact h (by rw [hnt0]; rfl) nw0 hnw0
+
+/-- El corte conserva el enlace si los dos se admiten: cada uno en la tabla del otro y en la global. -/
+theorem linkQ_cutAll (P : GPathM) (h : LinkQ t w P)
+    (hadm : ∀ nt nw, P.node? t = some nt → P.node? w = some nw →
+      t ∈ nw.owners ∧ w ∈ nt.owners ∧ t ∈ P.gowners ∧ w ∈ P.gowners) :
+    LinkQ t w (cutAll P) := by
+  intro ht nw' hw'
+  rw [node?_cutAll] at ht hw'
+  cases hnt : P.node? t with
+  | none => rw [hnt] at ht; exact absurd ht (by simp)
+  | some nt =>
+    cases hnw : P.node? w with
+    | none => rw [hnw] at hw'; exact absurd hw' (by simp)
+    | some nw =>
+      rw [hnw] at hw'
+      obtain rfl := (Option.some.inj hw').symm
+      obtain ⟨h1, h2, h3, h4⟩ := hadm nt nw hnt hnw
+      have hlink := h (by rw [hnt]; rfl) nw hnw
+      have hwid : nw.id = w := node?_id_eq P w nw hnw
+      have hin : ∀ (m x : PathNodeId) (nm : PNodeM), P.node? m = some nm → x ∈ nm.owners →
+          x ∈ P.gowners → admits P.gowners P m x = true := by
+        intro m x nm hm hx hg
+        unfold admits cutOwners intersectOwners
+        rw [hm]
+        have hc : P.gowners.contains x = true := List.contains_iff_mem.mpr hg
+        exact List.contains_iff_mem.mpr (List.mem_filter.mpr ⟨hx, by rw [hc, Bool.or_true]⟩)
+      unfold cutNode
+      refine List.mem_filter.mpr ⟨hlink, ?_⟩
+      rw [hwid, hin w t nw hnw h1 h3, hin t w nt hnt h2 h4]
+      rfl
+
+/-- **A través de `cleanInvalid₂`**, con el estado final `C` (podado del resultado): los hechos de
+admisión se leen en `C` y valen antes porque las tablas y la global solo encogen. -/
+theorem linkQ_cleanInvalid₂ (C Y : GPathM) (hnd : NodupIds Y) (hpr : Pruned (cleanInvalid₂ Y) C)
+    (hC : ∀ nt nw, C.node? t = some nt → C.node? w = some nw →
+      t ∈ nw.owners ∧ w ∈ nt.owners ∧ t ∈ C.gowners ∧ w ∈ C.gowners)
+    (htC : (C.node? t).isSome = true) (hwC : (C.node? w).isSome = true)
+    (h : LinkQ t w Y) : LinkQ t w (cleanInvalid₂ Y) := by
+  let P := purgeFuel (Y.nodes.length + 1) Y
+  have hP : NodupIds P ∧ LinkQ t w P :=
+    purgeFuel_inv (fun A => NodupIds A ∧ LinkQ t w A)
+      (fun A id hA => ⟨PinAliveChain.NodupIds_removeNode A id hA.1, linkQ_removeNode t w A hA.1 id hA.2⟩)
+      _ Y ⟨hnd, h⟩
+  have hPC : Pruned P C := Pruned.trans (pruned_cutAll P) hpr
+  refine linkQ_cutAll t w P hP.2 (fun nt nw hnt hnw => ?_)
+  obtain ⟨ntC, hntC⟩ := Option.isSome_iff_exists.mp htC
+  obtain ⟨nwC, hnwC⟩ := Option.isSome_iff_exists.mp hwC
+  obtain ⟨h1, h2, h3, h4⟩ := hC ntC nwC hntC hnwC
+  obtain ⟨nt', hnt', hownt, _⟩ := SegExact.node_before P C hPC hP.1 t ntC hntC
+  obtain ⟨nw', hnw', hownw, _⟩ := SegExact.node_before P C hPC hP.1 w nwC hnwC
+  rw [hnt] at hnt'; obtain rfl := Option.some.inj hnt'
+  rw [hnw] at hnw'; obtain rfl := Option.some.inj hnw'
+  exact ⟨hownw t h1, hownt w h2, hPC.gowners_sub t h3, hPC.gowners_sub w h4⟩
+
+/-- **El enlace sobrevive a `cleanPair`**: si en `X` `t` es padre de `w`, y en `C = cleanPair X` los dos
+están vivos, se poseen mutuamente y están en la global, `t` sigue siendo padre de `w` en `C`. -/
+theorem link_cleanPair (X : GPathM) (hnd : NodupIds X) (h : LinkQ t w X)
+    (hC : ∀ nt nw, (cleanPair X).node? t = some nt → (cleanPair X).node? w = some nw →
+      t ∈ nw.owners ∧ w ∈ nt.owners ∧ t ∈ (cleanPair X).gowners ∧ w ∈ (cleanPair X).gowners)
+    (htC : ((cleanPair X).node? t).isSome = true) :
+    ∀ nw, (cleanPair X).node? w = some nw → t ∈ nw.parents := by
+  intro nw hnw
+  have hwC : ((cleanPair X).node? w).isSome = true := by rw [hnw]; rfl
+  have key := cleanPair_inv (fun A => NodupIds A ∧ (Pruned A (cleanPair X) → LinkQ t w A)) X
+    ⟨CleanTwoPhase.nodupIds_cleanInvalid₂ X hnd,
+      fun hpr => linkQ_cleanInvalid₂ t w _ X hnd hpr hC htC hwC h⟩
+    (fun A _ ⟨hndA, hA⟩ =>
+      ⟨CleanTwoPhase.nodupIds_cleanInvalid₂ _ (SymInvariant.nodupIds_pairSweep A hndA),
+        fun hpr => linkQ_cleanInvalid₂ t w _ (pairSweep A) (SymInvariant.nodupIds_pairSweep A hndA)
+          hpr hC htC hwC (linkQ_pairSweep t w A
+            (hA (Pruned.trans (pruned_pairSweep A) (Pruned.trans (pruned_cleanInvalid₂ _) hpr))))⟩)
+  exact key.2 (Pruned.refl _) htC nw hnw
+
+end LinkKeep
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.link_cleanPair' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms link_cleanPair
+
+-- ============================================================
+-- Sin el enlace en la hipótesis
+-- ============================================================
+
+/-- **(W1) + (W3) sin enlace, arriba**: hay un testigo de `g` que posee en `g` un nodo vivo del nodo
+pinchado y que en `C` sigue en la tabla de todo miembro. Vivo lo da (W2); enlazado, `link_cleanPair`. -/
+def KeptOwnUp (g C : GPathM) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi + 1 ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w nw p, WitUp g sel lo hi w ∧ g.node? w = some nw ∧ p ∈ nw.owners ∧
+      (g.node? p).isSome = true ∧ p.id = qid ∧ ∀ j, lo ≤ j → j ≤ hi → ownsB C (sel j) w = true
+
+def KeptOwnDown (g C : GPathM) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 1 ≤ lo → lo ≤ hi → hi ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w nw p, WitDown g sel lo hi w ∧ g.node? w = some nw ∧ p ∈ nw.owners ∧
+      (g.node? p).isSome = true ∧ p.id = qid ∧ ∀ j, lo ≤ j → j ≤ hi → ownsB C (sel j) w = true
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- La posesión mutua en `C` y la pertenencia a la global, para un miembro y un nodo que todos poseen. -/
+theorem mutual_in_C (C : GPathM) (hsym : OwnSymmetric C) (hgow : Ownership.NodesAreGowners C)
+    (a b : PathNodeId) (hab : ownsB C a b = true) :
+    ∀ na nb, C.node? a = some na → C.node? b = some nb →
+      a ∈ nb.owners ∧ b ∈ na.owners ∧ a ∈ C.gowners ∧ b ∈ C.gowners := by
+  intro na nb ha hb
+  have hba : b ∈ na.owners := (ownsB_of C a b na ha).mp hab
+  refine ⟨hsym a na b nb ha hb hba, hba, ?_, ?_⟩
+  · have := hgow na (List.mem_of_find?_eq_some ha); rwa [node?_id_eq C a na ha] at this
+  · have := hgow nb (List.mem_of_find?_eq_some hb); rwa [node?_id_eq C b nb hb] at this
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+theorem survivesUp_of_keptOwn (g : GPathM) (qid : NodeId) (hnd : NodupIds g) (hPE : PairExact g)
+    (hsym : OwnSymmetric (cleanPair (filterWeak g (qid.step, [qid]))))
+    (hgow : Ownership.NodesAreGowners (cleanPair (filterWeak g (qid.step, [qid]))))
+    (hK : KeptOwnUp g (cleanPair (filterWeak g (qid.step, [qid]))) qid) :
+    SurvivesUp g (cleanPair (filterWeak g (qid.step, [qid]))) := by
+  intro sel lo hi hlo hlh hhi h
+  obtain ⟨w, nw, p, hW, hnw, hp, hpl, hpid, hall⟩ := hK sel lo hi hlo hlh hhi h
+  have halive := survives_of_pinned_owner g hPE qid w nw hnw p hp hpl hpid
+  rw [hpid] at halive
+  obtain ⟨nwC, hnwC⟩ := Option.isSome_iff_exists.mp halive
+  have hlinkX : LinkQ (sel hi) w (filterWeak g (qid.step, [qid])) := by
+    intro _ nw' hw'
+    have hw'' : g.node? w = some nw' := hw'
+    have := hW.1.2.2
+    rw [hw''] at this
+    exact this
+  have hlink := link_cleanPair (sel hi) w (filterWeak g (qid.step, [qid])) hnd hlinkX
+    (mutual_in_C _ hsym hgow (sel hi) w (hall hi hlh (Int.le_refl _)))
+    (h.1.1 hi hlh (Int.le_refl _)).1 nwC hnwC
+  refine ⟨w, hW, ⟨halive, hW.1.2.1, ?_⟩, hall⟩
+  rw [hnwC]; exact hlink
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+theorem survivesDown_of_keptOwn (g : GPathM) (qid : NodeId) (hnd : NodupIds g) (hPE : PairExact g)
+    (hsym : OwnSymmetric (cleanPair (filterWeak g (qid.step, [qid]))))
+    (hgow : Ownership.NodesAreGowners (cleanPair (filterWeak g (qid.step, [qid]))))
+    (hK : KeptOwnDown g (cleanPair (filterWeak g (qid.step, [qid]))) qid) :
+    SurvivesDown g (cleanPair (filterWeak g (qid.step, [qid]))) := by
+  intro sel lo hi hlo hlh hhi h
+  obtain ⟨w, nw, p, hW, hnw, hp, hpl, hpid, hall⟩ := hK sel lo hi hlo hlh hhi h
+  have halive := survives_of_pinned_owner g hPE qid w nw hnw p hp hpl hpid
+  rw [hpid] at halive
+  obtain ⟨nb, hnb⟩ := Option.isSome_iff_exists.mp (h.1.1 lo (Int.le_refl _) hlh).1
+  have hlinkX : LinkQ w (sel lo) (filterWeak g (qid.step, [qid])) := by
+    intro _ nb' hb'
+    have hb'' : g.node? (sel lo) = some nb' := hb'
+    have := hW.1.2.2
+    rw [hb''] at this
+    exact this
+  have hmut := mutual_in_C _ hsym hgow (sel lo) w (hall lo (Int.le_refl _) hlh)
+  have hlink := link_cleanPair w (sel lo) (filterWeak g (qid.step, [qid])) hnd hlinkX
+    (fun nw' nb' hw' hb' => by
+      obtain ⟨h1, h2, h3, h4⟩ := hmut nb' nw' hb' hw'
+      exact ⟨h2, h1, h4, h3⟩)
+    halive nb hnb
+  refine ⟨w, hW, ⟨halive, hW.1.2.1, ?_⟩, hall⟩
+  rw [hnb]; exact hlink
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.survivesUp_of_keptOwn' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms survivesUp_of_keptOwn
+
+open AbsSat.Cnf in
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **El lector sin retroceso decide 3-SAT**, con `hStart` y, en cada pin del lector (estado `g`, nodo
+pinchado `q`): la exactitud por parejas de `g` (`PairExact`), **un testigo pinchado que sigue en la
+tabla de todo miembro** tras `cleanPair` (`KeptOwnUp`, `KeptOwnDown`), el resto de `PStateG`
+(`CleanRest`) y las vueltas siguientes listas (`LaterValid`). Que el testigo siga vivo (W2) y enlazado
+con el extremo (`link_cleanPair`) está demostrado. -/
+theorem readerVerdictW_iff_of_keptOwn
+    (hStart : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (AggressiveReview.filterAllAgg kv.2 []) = true →
+        SegExact.SegExact (AggressiveReview.filterAllAgg kv.2 []))
+    (hPin : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (AggressiveReview.filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      PairExact g ∧
+        KeptOwnUp g (cleanPair (filterWeak g (q.id.step, [q.id]))) q.id ∧
+        KeptOwnDown g (cleanPair (filterWeak g (q.id.step, [q.id]))) q.id ∧
+        PairHelly.CleanRest (filterWeak g (q.id.step, [q.id])) ∧
+        PinDoomed.LaterValid (filterWeak g (q.id.step, [q.id])))
+    (φ : Cnf) (hwf : WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine PairHelly.readerVerdictW_iff_of_pairHelly hStart ?_ φ hwf
+  intro φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hPE, hU, hD, hC, hL⟩ := hPin φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  refine ⟨?_, hC, hL⟩
+  intro hvC _
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (AggressiveReview.filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(AggressiveReview.pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+  have rc := ReaderAgg.RCtx_of_readableAgg g ctx.rd
+  have hsymX : Threaded.OwnSymmetric (filterWeak g (q.id.step, [q.id])) :=
+    PinDoomed.ownSymmetric_filterWeak g _ (PinExactBoundary.ownSymmetric_of_aggOk g (by
+      obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+      rw [hg] at hv ⊢
+      exact AggFixpoint.aggOk_reviewAgg _ hv) rc.snn rc.below
+      (AdjacentOwners.adj_of_readable g ctx.rd hv ctx.pms ctx.sn).ctx.nodeval)
+  have hshX : SymInvariant.ShapeOk (filterWeak g (q.id.step, [q.id])) := ⟨rc.oos, rc.snn, rc.below⟩
+  have hrX : SymInvariant.RevOk (filterWeak g (q.id.step, [q.id])) := ⟨rc.nodup, hshX, hsymX⟩
+  have hsymC := (SymInvariant.OwnSymmetric_cleanPair _ hrX.nd hrX.sh hrX.sym hvC).2
+  have hgowC := ReadyInv.nodesGow_cleanPair _ hrX.nd hrX.sh hvC
+  exact segGood_of_oneStep _
+    (oneStepUp_of_survives g _ hsymC (survivesUp_of_keptOwn g q.id rc.nodup hPE hsymC hgowC hU))
+    (oneStepDown_of_survives g _ hsymC (survivesDown_of_keptOwn g q.id rc.nodup hPE hsymC hgowC hD))
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.readerVerdictW_iff_of_keptOwn' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_keptOwn
+
 end AbsSat.GraphPath.Model.OneStep
