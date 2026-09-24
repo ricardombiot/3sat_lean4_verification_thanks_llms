@@ -27,6 +27,14 @@ en cada pin, **tres afirmaciones de un solo paso** sobre el estado de antes (`Co
 `GapStepBelow`, `GapStepAbove`).
 
 Medido (`row-degree nodeadm`, `dos_de_tres`): (a) 3.779 de 3.779; (b) 4.009 de 4.009.
+
+**A escala (semillas 1 y 7, pines del lector): (a) se cumple siempre (8.240 de 8.240), pero (b) es
+FALSA**, también tras un pin (semilla 7: 12 entradas comunes sin cadena en estados posteriores al
+primero), y con ella `NodeAdmToChain` (51 tramos). Todos esos tramos **mueren en el pin**: lo que la
+prueba necesita, `AdmittedExt` (solo sobre los supervivientes), no tiene contraejemplo. Las
+descomposiciones de este módulo piden demasiado —hablan de todos los tramos del estado de antes— y
+quedan como implicaciones correctas con hipótesis que no siempre se cumplen. La escalera sin
+contraejemplo conocido es `SegExactFilter.readerVerdictW_iff_of_admittedExt`.
 -/
 
 namespace AbsSat.GraphPath.Model.SegExactAdm
