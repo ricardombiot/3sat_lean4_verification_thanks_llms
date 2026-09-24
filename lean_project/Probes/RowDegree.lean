@@ -6631,6 +6631,86 @@ def reportMS (name : String) (a : MSAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer evento asimetrico: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`segexact`: todo tramo está en una cadena completa.** La versión por tramos de `TablesExact`: en
+cada estado válido, cada tramo (enlazado por padres, poseído por pares) ¿se extiende, dentro de la
+global, a una cadena completa del paso 0 al último, cuyos miembros se poseen todos entre sí?
+Clases: la línea (cada estado tras cada avance y la final revisada), los envíos (tras `reviewAgg`) y
+los estados del lector (cada pin, hermanos incluidos). -/
+
+structure SECell where
+  states : Nat := 0
+  segs : Nat := 0
+  notInGow : Nat := 0
+  ok : Nat := 0
+  bad : Nat := 0
+  cut : Nat := 0
+  first : String := ""
+  deriving Repr
+
+structure SEAcc where
+  formulas : Nat := 0
+  line : SECell := {}
+  sends : SECell := {}
+  reader : SECell := {}
+  deriving Repr
+
+def checkSE (lab : String) (g : GPathM) (budget : Nat) (c : SECell) : SECell := Id.run do
+  if !isValid g then return c
+  let mut c := { c with states := c.states + 1 }
+  for P in segsOf g do
+    c := { c with segs := c.segs + 1 }
+    if !P.all (fun p => g.gowners.contains p) then
+      c := { c with notInGow := c.notInGow + 1 }
+    else
+      match (extendFullIn g (fun x => g.gowners.contains x) P budget).1 with
+      | some true => c := { c with ok := c.ok + 1 }
+      | some false =>
+        let msg := s!"{lab}: tramo {(P.head?.map (·.id.step)).getD 0}..{(P.getLast?.map (·.id.step)).getD 0} (long {P.length})"
+        c := { c with bad := c.bad + 1, first := if c.first == "" then msg else c.first }
+      | none => c := { c with cut := c.cut + 1 }
+  return c
+
+partial def walkSE (lab : String) (g : GPathM) (fuel budget : Nat) (c : SECell) : SECell :=
+  let c := checkSE lab g budget c
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := checkSE s!"{lab} pin" (filterAllAgg g [q.id]) budget c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkSE lab (filterAllAgg g [q.id]) (fuel - 1) budget c
+
+def runFormulaSE (label : String) (φ : Cnf) (budget : Nat) (a : SEAcc) : SEAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      a := { a with line := checkSE s!"{label} linea paso {step}" kv.2 budget a.line }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := { a with sends := checkSE s!"{label} envio paso {step}" (AggressiveReview.reviewAgg F) budget a.sends }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    a := { a with line := checkSE s!"{label} linea final" g budget a.line }
+    if isValid g then a := { a with reader := walkSE s!"{label} lector" g (stepCount φ).toNat budget a.reader }
+  return a
+
+def reportSECell (lbl : String) (c : SECell) : IO Unit := do
+  IO.println s!"   {lbl}: estados {c.states}, tramos {c.segs}; en cadena completa {c.ok}, SIN cadena {c.bad}, presupuesto {c.cut}, fuera de la global {c.notInGow}"
+  if c.first != "" then IO.println s!"      primer tramo sin cadena: {c.first}"
+
+def reportSE (name : String) (a : SEAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportSECell "linea  " a.line
+  reportSECell "envios " a.sends
+  reportSECell "lector " a.reader
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7139,6 +7219,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "segexact" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSE path φ 5000 {})
+        let t1 ← IO.monoMsNow
+        reportSE path a (t1 - t0)
+  | "segexact" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SEAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSE s!"seed {seed} #{idx}" φ 5000 a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSE s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "midsym" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
