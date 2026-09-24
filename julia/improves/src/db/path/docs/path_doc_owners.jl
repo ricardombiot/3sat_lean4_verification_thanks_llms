@@ -140,6 +140,37 @@ module PathDocumentOwners
 
 
 
+    # El mismo corte que intersect!(owners_a, owners_b), devolviendo los ids que quita (review
+    # simétrico, docs/plans/review_simetrico.md A1). Se recogen antes de borrar: no se borra de un
+    # conjunto mientras se recorre.
+    function intersect_removed!(owners_a :: PathDocOwners, owners_b :: PathDocOwners) :: Vector{PathNodeId}
+        removed = PathNodeId[]
+        if owners_b.max_step > owners_a.max_step
+            owners_a.valid = false
+        else
+            #! [for] $ O(S) $
+            for step in 0:owners_a.max_step
+                if have(owners_a, step) && have(owners_b, step)
+                    set_owners_line_a = get(owners_a, step)
+                    set_owners_line_b = get(owners_b, step)
+                    n0 = length(removed)
+                    #! [fixed] $ O(7) $
+                    for owner_id in set_owners_line_a
+                        if !(owner_id in set_owners_line_b)
+                            Base.push!(removed, owner_id)
+                        end
+                    end
+                    #! [fixed] $ O(7) $
+                    for k in n0+1:length(removed)
+                        delete!(set_owners_line_a, removed[k])
+                    end
+                    check_if_isempty!(owners_a, step)
+                end
+            end
+        end
+        return removed
+    end
+
     # ¿Quedaría válida owners_a tras intersect!(owners_a, owners_b)? Sin copiar ni modificar nada:
     # devuelve lo mismo que is_valid(intersect!(deepcopy(owners_a), owners_b)). Basta con que en cada
     # paso que tienen los dos haya UN id común, y se para en el primer paso que no lo tiene.

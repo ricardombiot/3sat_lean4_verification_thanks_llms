@@ -43,6 +43,10 @@ end
 end
 
 
+@time @testset "ReviewSimetrico" begin
+    include("./graph_path/test_symmetric_review.jl")
+end
+
 @time @testset "ExaustiveSolver" begin
     #include("./exaustive/test_exaustive_solver.jl")
 end

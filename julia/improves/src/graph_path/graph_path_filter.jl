@@ -82,7 +82,21 @@ function clean_invalid_nodes_two_phase!(gpath :: GPath)
 
     #! [fn-iter] $ O(S*7*7) $
     PathCollectionLines.for_each(gpath.table_lines, function (path_node)
-        PathDocumentOwners.intersect!(path_node.owners, gpath.owners)
+        if SYM_MODE[] == :on
+            # Tras la purga todo nodo vivo está en la global, así que este corte solo quita ids
+            # muertos y no hay espejo que escribir (plan A3, nota). Se comprueba con el contador.
+            # (en un grafo inválido la purga se para antes: ahí puede haber vivos fuera de la global,
+            # pero ese grafo se descarta)
+            removed = PathDocumentOwners.intersect_removed!(path_node.owners, gpath.owners)
+            if gpath.is_valid && gpath.table_lines.is_valid
+                #! [for] $ O(S*7) $
+                for w_id in removed
+                    CLEAN_CUT_LIVE[] += PathCollectionLines.get_node(gpath.table_lines, w_id) !== nothing
+                end
+            end
+        else
+            PathDocumentOwners.intersect!(path_node.owners, gpath.owners)
+        end
     end)
 end
 #! [fixed] $ O(S*7*7*S*7*7) $
@@ -111,6 +125,41 @@ function clean_links!(gpath :: GPath, path_node :: PathDocNode)
     for node_id_son in path_node.sons
         node_son = PathCollectionLines.get_node(gpath.table_lines, node_id_son)
         PathDocumentNode.remove_parent!(node_son, path_node.id)
+    end
+end
+
+# Review simétrico (docs/plans/review_simetrico.md, A2). Cuando el review quita w de la tabla de x
+# afirma «ninguna solución pasa a la vez por x y por w»; la frase es simétrica, así que con :on se
+# borra también el espejo: x sale de la tabla de w si w sigue vivo.
+#   :off — (por defecto) la máquina de antes: el corte solo se escribe en la tabla de x.
+#   :on  — las pasadas de padres y de hijos escriben el espejo.
+const SYM_MODE = Ref(:off)
+
+# Contadores (solo para medir; no cambian nada).
+const MIRROR_REMOVED = Ref(0)   # entradas espejo borradas
+const CLEAN_CUT_LIVE = Ref(0)   # ids de nodos VIVOS quitados por el corte de clean (debería ser 0)
+
+# El corte de la tabla de x en una pasada, con espejo si SYM_MODE[] == :on.
+function cut_owners!(gpath :: GPath, path_node :: PathDocNode, owners_cut :: PathDocOwners)
+    if SYM_MODE[] == :on
+        removed = PathDocumentOwners.intersect_removed!(path_node.owners, owners_cut)
+        mirror_remove!(gpath, path_node.id, removed)
+    else
+        PathDocumentOwners.intersect!(path_node.owners, owners_cut)
+    end
+end
+
+# x perdió estos owners: cada uno que siga vivo pierde a x. w no se valida aquí: si queda inválido
+# lo elimina la propia pasada cuando lo procese o la purga de la vuelta siguiente.
+function mirror_remove!(gpath :: GPath, x_id :: PathNodeId, removed :: Vector{PathNodeId})
+    #! [for] $ O(S*7) $
+    for w_id in removed
+        node_w = PathCollectionLines.get_node(gpath.table_lines, w_id)
+        if node_w !== nothing && PathDocumentOwners.is_owner(node_w.owners, x_id)
+            PathDocumentNode.remove_owner!(node_w, x_id)
+            MIRROR_REMOVED[] += 1
+            gpath.review_owners = true
+        end
     end
 end
 
@@ -151,7 +200,7 @@ function review_owners_parents_sons!(gpath :: GPath)
                         end
                     end
 
-                    PathDocumentOwners.intersect!(path_node.owners, owners_union_parents)
+                    cut_owners!(gpath, path_node, owners_union_parents)
                     return remove_if_invalid_node!(gpath, path_node)
                 else
                     return remove_if_invalid_node!(gpath, path_node)
@@ -200,7 +249,7 @@ function review_owners_sons_parents!(gpath :: GPath)
                         end
                     end
 
-                    PathDocumentOwners.intersect!(path_node.owners, owners_union_sons)
+                    cut_owners!(gpath, path_node, owners_union_sons)
                     return remove_if_invalid_node!(gpath, path_node)
                 else
                     return remove_if_invalid_node!(gpath, path_node)

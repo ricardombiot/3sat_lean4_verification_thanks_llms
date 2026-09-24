@@ -1,5 +1,9 @@
 
 # 14-sept-2026
+
+# Veces que se dispara la rama «asymmetric» (solo para medir; con SYM_MODE :on debería quedar en 0).
+const AGG_ASYM = Ref(0)
+
 function agressive_consistence_filter!(gpath :: GPath)
     if gpath.is_valid 
         #! [for] $ O(S) $
@@ -20,6 +24,7 @@ function agressive_consistence_filter!(gpath :: GPath)
                             if is_valid_w
                                 if !symmetric_entry(gpath, node_x, node_w)
                                     PathDocumentNode.remove_owner!(node_x, node_id_w)
+                                    AGG_ASYM[] += 1
                                     # println("Apply Agressive: [Asymetric Detection] Step_x $(step) Step_w $(step_w) <-- ")
                                     gpath.review_owners = true
                                 else
