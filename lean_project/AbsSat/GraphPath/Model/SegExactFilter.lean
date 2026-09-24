@@ -323,4 +323,108 @@ theorem readerVerdictW_iff_of_startSegExact
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_startSegExact
 
+-- ============================================================
+-- Una sola obligación por pin: `AdmittedExt`
+-- ============================================================
+
+/-- **La completitud tras un filtro, por tramos**: todo tramo del revisado que no cubre el paso
+filtrado se extiende, en el estado de antes, a una cadena completa cuyo nodo en ese paso está
+admitido. Es lo único que el caso «no cubre» usa: esa cadena pasa el filtro y sobrevive. -/
+def AdmittedExt (T : GPathM) (e : Int × List NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi →
+    hi ≤ (reviewAgg (filterWeak T e)).current_step - 1 →
+    Seg (reviewAgg (filterWeak T e)) sel lo hi → (e.1 < lo ∨ hi < e.1) →
+    ∃ s, FullChainG T s ∧ (∀ j, lo ≤ j → j ≤ hi → s j = sel j) ∧ (s e.1).id ∈ e.2
+
+/-- **Las dos obligaciones de antes dan `AdmittedExt`**: la entrada común `c` es de la global del
+revisado, luego admitida. `AdmittedExt` es la más débil de las dos juntas. -/
+theorem admittedExt_of_common_triples (T : GPathM) (e : Int × List NodeId)
+    (hCommon : CommonAtFilter T e) (hTri : StepSegTriples T e) : AdmittedExt T e := by
+  have hprX : Pruned (filterWeak T e) (reviewAgg (filterWeak T e)) := pruned_reviewAgg _
+  intro sel lo hi hlo hlh hhi hseg hout
+  obtain ⟨c, hcR, hcs, hcall⟩ := hCommon sel lo hi hlo hlh hhi hseg hout
+  obtain ⟨s, hs, hsel, hsc⟩ := hTri sel lo hi c hlo hlh hhi hseg hout hcR hcs hcall
+  refine ⟨s, hs, hsel, ?_⟩
+  rw [hsc]
+  exact ((mem_filterWeak T e c).mp (hprX.gowners_sub c hcR)).2 hcs
+
+/-- **Un filtro de un paso y su review conservan `SegExact`, con una sola obligación**
+(`AdmittedExt`) además de `SegExact` del estado de antes. -/
+theorem segExact_stepFilter_adm (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
+    (hS : SegExact T) (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step) (hA : AdmittedExt T e)
+    (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
+    SegExact (reviewAgg (filterWeak T e)) := by
+  let R := reviewAgg (filterWeak T e)
+  have hprX : Pruned (filterWeak T e) R := pruned_reviewAgg _
+  have hprR : Pruned T R := Pruned.trans (ConservationCore.pruned_filterWeak T e) hprX
+  have rcX : Reader.RCtx (filterWeak T e) :=
+    RCtx_of_keeps (ReaderAggRun.keeps_filterWeak T e) c0.rc
+  have hRd : ReadableAgg R := ⟨filterWeak T e, [], rcX, rfl⟩
+  have cR := Reader.Ctx_of_readable R (readable_of_readableAgg R hRd) hv'
+  have hcsR : R.current_step = T.current_step := hprR.step_eq
+  have keep := fullChain_stepFilter T e c0.self c0.smp c0.rc.rootz c0.rc.shape.notroot c0.pos
+  have clean : ∀ y ∈ R.gowners, y.id.step = e.1 → y.id ∈ e.2 :=
+    fun y hy hys => ((mem_filterWeak T e y).mp (hprX.gowners_sub y hy)).2 hys
+  have hcov := coverChained_of_segExact T e c0.rc.nodup hS
+  intro sel lo hi hlo hlh hhi hpc hpo
+  rcases Int.lt_or_le e.1 lo with hlt | hle
+  · obtain ⟨s, hs, hsel, hadm⟩ := hA sel lo hi hlo hlh hhi ⟨hpc, hpo⟩ (Or.inl hlt)
+    exact ⟨s, keep s hs hadm, hsel⟩
+  rcases Int.lt_or_le hi e.1 with hgt | hle2
+  · obtain ⟨s, hs, hsel, hadm⟩ := hA sel lo hi hlo hlh hhi ⟨hpc, hpo⟩ (Or.inr hgt)
+    exact ⟨s, keep s hs hadm, hsel⟩
+  obtain ⟨s, hs, hsel⟩ := hcov sel lo hi hlo hlh hhi ⟨hpc, hpo⟩ hle hle2
+  obtain ⟨hsome, hstep⟩ := hpc.1 e.1 hle hle2
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+  have hmem : sel e.1 ∈ R.gowners :=
+    cR.ownGow _ n hn _ (cR.self _ n hn) (by rw [hstep]; exact he0)
+      (by rw [hstep, hcsR]; exact he1)
+  refine ⟨s, keep s hs ?_, hsel⟩
+  rw [hsel e.1 hle hle2]
+  exact clean _ hmem hstep
+
+/-- **El lector sin retroceso decide 3-SAT, con una sola obligación por pin**: `SegExact` en la línea
+final revisada, y en cada pin, `AdmittedExt` —todo tramo que sobrevive al pin tenía, antes, una cadena
+completa por un nodo admitido en el paso fijado—. -/
+theorem readerVerdictW_iff_of_admittedExt
+    (hStart : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (filterAllAgg kv.2 []) = true → SegExact (filterAllAgg kv.2 []))
+    (hPin : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      AdmittedExt g (q.id.step, [q.id]))
+    (φ : AbsSat.Cnf.Cnf) (hwf : AbsSat.Cnf.WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ AbsSat.Cnf.Satisfiable φ := by
+  refine SegExact.readerVerdictW_iff_of_readerSegExact ?_ φ hwf
+  intro φ' hwf' kv hkv g hR hv
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  revert hv
+  induction hR with
+  | start => exact hStart φ' hwf' kv hkv
+  | pin g k q hR hv hk hq ih =>
+    intro hv'
+    have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+    have cG := Reader.Ctx_of_readable g (ReaderAgg.readable_of_readableAgg g ctx.rd) hv
+    have c0 : SCtx g := ⟨ReaderAgg.RCtx_of_readableAgg g ctx.rd, ctx.smp, cG.self, ctx.pos⟩
+    have hqk : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+    have hkr : k ∈ intRange 0 (g.current_step - 1) := List.mem_of_find?_eq_some hk
+    have hk0 := mem_intRange_lower hkr
+    have hk1 := mem_intRange_upper hkr
+    have hA := hPin φ' hwf' kv hkv g k q hR hv hk hq
+    rw [filterAllAgg_pin] at hv' ⊢
+    exact segExact_stepFilter_adm g _ c0 (ih hv) (by rw [hqk]; exact hk0) (by rw [hqk]; omega)
+      hA hv'
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactFilter.readerVerdictW_iff_of_admittedExt' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_admittedExt
+
 end AbsSat.GraphPath.Model.SegExactFilter
