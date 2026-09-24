@@ -7117,6 +7117,102 @@ def reportMT (name : String) (a : MTAcc) (ms : Nat) : IO Unit := do
   if a.firstStory != "" then IO.println s!"   ejemplo: {a.firstStory}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`admtrace`: cómo mata el review un tramo sin salida admitida.** Antes de cada filtro de un paso
+(los de los envíos, paso a paso, y los pines del lector): los tramos que no cubren el paso filtrado y
+no tienen ninguna cadena completa por un nodo admitido allí («condenados» por `AdmittedExt`). Se sigue
+cada uno por el review, etapa a etapa (`traceMT`), y se cuenta si alguno sobrevive. -/
+
+structure ATAcc where
+  formulas : Nat := 0
+  filters : Nat := 0
+  doomed : Nat := 0
+  distHist : List (Int × Nat) := []
+  someNodeNoAdm : Nat := 0
+  nearestNoAdm : Nat := 0
+  allHaveAdm : Nat := 0
+  firstAll : String := ""
+  mt : MTAcc := {}
+  deriving Repr
+
+def doomedSegs (T : GPathM) (e : Int × List NodeId) : List (List PathNodeId) :=
+  (segsOf T).filter (fun P =>
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      (e.1 < lo.id.step || hi.id.step < e.1) &&
+      (match (extendFullIn T (fun x => T.gowners.contains x &&
+          (x.id.step != e.1 || e.2.contains x.id)) P 5000).1 with
+       | some false => true
+       | _ => false)
+    | _, _ => false)
+
+def atFilter (lab : String) (T : GPathM) (e : Int × List NodeId) (a : ATAcc) : ATAcc := Id.run do
+  let mut a := { a with filters := a.filters + 1 }
+  for P in (doomedSegs T e).take 6 do
+    a := { a with doomed := a.doomed + 1 }
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      let dist := if e.1 < lo.id.step then lo.id.step - e.1 else e.1 - hi.id.step
+      let key := if dist ≥ 5 then 5 else dist
+      a := { a with distHist := match a.distHist.find? (fun p => p.1 == key) with
+        | some _ => a.distHist.map (fun p => if p.1 == key then (p.1, p.2 + 1) else p)
+        | none => (key, 1) :: a.distHist }
+    | _, _ => pure ()
+    -- does some node of P (or the nearest one) have no admitted entry at the filtered step?
+    let admAt := fun (p : PathNodeId) => ((T.node? p).map (·.owners) |>.getD []).any (fun r =>
+      r.id.step == e.1 && e.2.contains r.id && T.gowners.contains r)
+    let nearest := match P.head?, P.getLast? with
+      | some lo, some hi => if e.1 < lo.id.step then lo else hi
+      | _, _ => P.headD default
+    if P.any (fun p => !admAt p) then a := { a with someNodeNoAdm := a.someNodeNoAdm + 1 }
+    else
+      a := { a with allHaveAdm := a.allHaveAdm + 1 }
+      if a.firstAll == "" then a := { a with firstAll := s!"{lab} filtro paso {e.1}, tramo {(P.head?.map (·.id.step)).getD 0}..{(P.getLast?.map (·.id.step)).getD 0}" }
+    if !admAt nearest then a := { a with nearestNoAdm := a.nearestNoAdm + 1 }
+    a := { a with mt := traceMT lab T P e a.mt }
+  return a
+
+partial def walkAT (lab : String) (g : GPathM) (fuel : Nat) (a : ATAcc) : ATAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := atFilter s!"{lab} pin" g (k, [q.id]) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkAT lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaAT (label : String) (φ : Cnf) (a : ATAcc) : ATAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        for e in es do
+          if isValid T then
+            a := atFilter s!"{label} envio paso {step}" T e a
+            T := AggressiveReview.reviewAgg (PureDriverImproves.filterWeak T e)
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkAT s!"{label} lector" g (stepCount φ).toNat a
+  return a
+
+def reportAT (name : String) (a : ATAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   filtros {a.filters}; tramos condenados seguidos {a.doomed}; distancia al paso filtrado (5 = 5+): {a.distHist.reverse}"
+  IO.println s!"   condenados con algun nodo SIN entrada admitida en el paso filtrado: {a.someNodeNoAdm} (el mas cercano sin ella: {a.nearestNoAdm}); con TODOS teniendola: {a.allHaveAdm}"
+  if a.firstAll != "" then IO.println s!"      primero con todos teniendola: {a.firstAll}"
+  IO.println s!"   (filtros que no cortan no se siguen) casos seguidos {a.mt.cases}"
+  IO.println s!"   etapa en que se rompe: {a.mt.stage.reverse}"
+  IO.println s!"   por que: {(a.mt.reason.reverse).take 12}"
+  if a.mt.firstStory != "" then IO.println s!"   ejemplo: {a.mt.firstStory}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7625,6 +7721,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "admtrace" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaAT path φ {})
+        let t1 ← IO.monoMsNow
+        reportAT path a (t1 - t0)
+  | "admtrace" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : ATAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaAT s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportAT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "mixtrace" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow

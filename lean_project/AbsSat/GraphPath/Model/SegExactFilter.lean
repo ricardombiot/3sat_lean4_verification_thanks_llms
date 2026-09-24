@@ -427,4 +427,65 @@ theorem readerVerdictW_iff_of_admittedExt
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_admittedExt
 
+-- ============================================================
+-- `AdmittedExt` desde una afirmación sin review: `NodeAdmToChain`
+-- ============================================================
+
+/-- **Lo colectivo, antes del filtro y sin review**: si cada nodo de un tramo tiene en su tabla una
+entrada admitida (de la global) en el paso filtrado, el tramo se extiende a una cadena completa por un
+nodo admitido allí.
+
+Medido (`row-degree admtrace`, `dos_de_tres`): los 965 tramos condenados tenían algún nodo sin entrada
+admitida en el paso filtrado (964, el más cercano a él); ninguno con todos teniéndola. Es el mecanismo:
+ese nodo se queda sin entrada en el paso al cortar, y la purga lo elimina. -/
+def NodeAdmToChain (T : GPathM) (e : Int × List NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi ≤ T.current_step - 1 →
+    Seg T sel lo hi → (e.1 < lo ∨ hi < e.1) →
+    (∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj →
+      ∃ r ∈ nj.owners, r ∈ T.gowners ∧ r.id.step = e.1 ∧ r.id ∈ e.2) →
+    ∃ s, FullChainG T s ∧ (∀ j, lo ≤ j → j ≤ hi → s j = sel j) ∧ (s e.1).id ∈ e.2
+
+/-- **`NodeAdmToChain` da `AdmittedExt`**: un tramo que sobrevive al filtro era tramo antes, y cada nodo
+suyo, válido en el revisado, tiene allí una entrada en el paso filtrado, que es de la global filtrada
+—luego admitida— y estaba ya en su tabla de antes. -/
+theorem admittedExt_of_nodeAdm (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
+    (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
+    (hv' : isValid (reviewAgg (filterWeak T e)) = true) (h : NodeAdmToChain T e) :
+    AdmittedExt T e := by
+  let R := reviewAgg (filterWeak T e)
+  have hprX : Pruned (filterWeak T e) R := pruned_reviewAgg _
+  have hprR : Pruned T R := Pruned.trans (ConservationCore.pruned_filterWeak T e) hprX
+  have rcX : Reader.RCtx (filterWeak T e) :=
+    RCtx_of_keeps (ReaderAggRun.keeps_filterWeak T e) c0.rc
+  have hRd : ReadableAgg R := ⟨filterWeak T e, [], rcX, rfl⟩
+  have cR := Reader.Ctx_of_readable R (readable_of_readableAgg R hRd) hv'
+  have hcsR : R.current_step = T.current_step := hprR.step_eq
+  intro sel lo hi hlo hlh hhi hseg hout
+  obtain ⟨hpc0, hpo0⟩ := seg_before T R hprR c0.rc.nodup sel lo hi hseg.1 hseg.2
+  refine h sel lo hi hlo hlh (by rw [← hcsR]; exact hhi) ⟨hpc0, hpo0⟩ hout ?_
+  intro j hj0 hj1 nj hnj
+  -- the node in R
+  obtain ⟨hs, _⟩ := hseg.1.1 j hj0 hj1
+  obtain ⟨n', hn'⟩ := Option.isSome_iff_exists.mp hs
+  obtain ⟨n0, hn0, hid0, hown0, _⟩ := hprR.nodes_derived n' (List.mem_of_find?_eq_some hn')
+  have hn0g : T.node? (sel j) = some n0 := by
+    rw [← node?_id_eq _ _ n' hn', hid0]; exact node?_of_mem c0.rc.nodup n0 hn0
+  rw [hnj] at hn0g
+  cases hn0g
+  -- its entry at the filtered step in R
+  have hent := List.all_eq_true.mp (owners_ok_of_isValidNode R n' (cR.nodeval _ n' hn')) e.1
+    (mem_intRange he0 (by rw [hcsR]; omega))
+  simp only [hasStepEntry, List.any_eq_true] at hent
+  obtain ⟨r, hr, hrs⟩ := hent
+  have hrs' : r.id.step = e.1 := eq_of_beq hrs
+  have hrR : r ∈ R.gowners :=
+    cR.ownGow _ n' hn' r hr (by rw [hrs']; exact he0) (by rw [hrs', hcsR]; exact he1)
+  have hrF := hprX.gowners_sub r hrR
+  exact ⟨r, hown0 r hr, ((mem_filterWeak T e r).mp hrF).1, hrs', ((mem_filterWeak T e r).mp hrF).2 hrs'⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactFilter.admittedExt_of_nodeAdm' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms admittedExt_of_nodeAdm
+
 end AbsSat.GraphPath.Model.SegExactFilter
