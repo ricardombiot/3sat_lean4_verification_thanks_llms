@@ -5833,6 +5833,27 @@ structure DTAcc where
   posAbove : Nat := 0
   posBad : Nat := 0
   posOther : Nat := 0
+  len1 : Nat := 0
+  len2 : Nat := 0
+  len3 : Nat := 0
+  dropped1 : Nat := 0
+  droppedMore : Nat := 0
+  xEnd : Nat := 0
+  xInner : Nat := 0
+  nbAll : Nat := 0
+  nbAllButOne : Nat := 0
+  nbLess : Nat := 0
+  unionAll : Nat := 0
+  kBad : Nat := 0
+  coverX : Nat := 0
+  missDead : Nat := 0
+  missAlive : Nat := 0
+  deadAtK : Nat := 0
+  deadElse : Nat := 0
+  distHist : List (Int × Nat) := []
+  afterPar : Nat := 0
+  afterParInvalid : Nat := 0
+  afterParI1 : Nat := 0
   first : String := ""
   deriving Repr
 
@@ -5847,9 +5868,33 @@ def badSteps (g : GPathM) (P : List PathNodeId) : List Int :=
         (fun r => (g.node? r).isSome))
   | _, _ => []
 
-def classifyDeath (g g' : GPathM) (x : PathNodeId) (P : List PathNodeId) (bad : List Int)
-    (parents : Bool) (a : DTAcc) : DTAcc := Id.run do
+def classifyDeath (X C : GPathM) (kpin : Int) (g g' : GPathM) (x : PathNodeId) (P : List PathNodeId)
+    (bad : List Int) (parents : Bool) (a : DTAcc) : DTAcc := Id.run do
   let mut a := if parents then { a with inPar := a.inPar + 1 } else { a with inSons := a.inSons + 1 }
+  if bad.contains kpin then a := { a with kBad := a.kBad + 1 }
+  let dist := x.id.step - kpin
+  a := { a with distHist := match a.distHist.find? (·.1 == dist) with
+    | some _ => a.distHist.map (fun (d, c) => if d == dist then (d, c + 1) else (d, c))
+    | none => (dist, 1) :: a.distHist }
+  -- the neighbours of `x` in the pinned state `X`, and in the cut state `g`
+  match X.node? x, g.node? x with
+  | some dX, some dg =>
+    let nbX := if parents then dX.parents else dX.sons
+    let nbg := if parents then dg.parents else dg.sons
+    let members := P.filter (fun y => y != x)
+    let owns (G : GPathM) (q y : PathNodeId) : Bool :=
+      match G.node? q with | some nq => nq.owners.contains y | none => false
+    if members.all (fun y => nbX.any (fun q => owns X q y)) then
+      a := { a with coverX := a.coverX + 1 }
+    let missing := members.filter (fun y => !nbg.any (fun q => owns g q y))
+    for y in missing do
+      let coverers := nbX.filter (fun q => owns X q y)
+      if coverers.all (fun q => (C.node? q).isNone) then
+        a := { a with missDead := a.missDead + 1 }
+        if coverers.all (fun q => q.id.step == kpin) then a := { a with deadAtK := a.deadAtK + 1 }
+        else a := { a with deadElse := a.deadElse + 1 }
+      else a := { a with missAlive := a.missAlive + 1 }
+  | _, _ => pure ()
   if P.any (fun y => (g'.node? y).isNone) then
     a := { a with byRemove := a.byRemove + 1 }
   else if P.any (fun y => P.any (fun z => y != z && !mutuallyOwn g' y z)) then
@@ -5860,6 +5905,28 @@ def classifyDeath (g g' : GPathM) (x : PathNodeId) (P : List PathNodeId) (bad : 
     -- a parent link between consecutive members
     let touch := P.contains x
     if touch then a := { a with byLinkX := a.byLinkX + 1 } else a := { a with byLinkOther := a.byLinkOther + 1 }
+  -- the cut of `x`: how many members it drops, is `x` the end facing the pass, and its neighbours
+  match g.node? x, g'.node? x with
+  | some d, some d' =>
+    let dropped := P.filter (fun y => y != x && d.owners.contains y && !d'.owners.contains y)
+    if dropped.length == 1 then a := { a with dropped1 := a.dropped1 + 1 }
+    else a := { a with droppedMore := a.droppedMore + 1 }
+    let isEnd := if parents then P.head? == some x else P.getLast? == some x
+    if isEnd then a := { a with xEnd := a.xEnd + 1 } else a := { a with xInner := a.xInner + 1 }
+    let nbs := if parents then d.parents else d.sons
+    let members := P.filter (fun y => y != x)
+    let counts := nbs.map (fun q => match g.node? q with
+      | some nq => (members.filter (fun y => nq.owners.contains y)).length
+      | none => 0)
+    let best := counts.foldl max 0
+    if best == members.length then a := { a with nbAll := a.nbAll + 1 }
+    else if best + 1 == members.length then a := { a with nbAllButOne := a.nbAllButOne + 1 }
+    else a := { a with nbLess := a.nbLess + 1 }
+    let union := members.all (fun y => nbs.any (fun q => match g.node? q with
+      | some nq => nq.owners.contains y
+      | none => false))
+    if union then a := { a with unionAll := a.unionAll + 1 }
+  | _, _ => pure ()
   match P.head?, P.getLast? with
   | some lo, some hi =>
     let k := x.id.step
@@ -5871,7 +5938,7 @@ def classifyDeath (g g' : GPathM) (x : PathNodeId) (P : List PathNodeId) (bad : 
   | _, _ => pure ()
   return a
 
-def dtSteps (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+def dtSteps (X C : GPathM) (kpin : Int) (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
     (parents : Bool) (alive : List (List PathNodeId × List Int)) (a : DTAcc) :
     DTAcc × GPathM × List (List PathNodeId × List Int) := Id.run do
   let mut a := a
@@ -5885,14 +5952,14 @@ def dtSteps (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (ks : 
       for (P, bad) in alive do
         if isSegment g' P then keep := (P, bad) :: keep
         else
-          a := classifyDeath g g' id P bad parents a
+          a := classifyDeath X C kpin g g' id P bad parents a
           if a.first == "" then
             a := { a with first := s!"{lab}: tramo {P.map (fun y => y.id.step)}, sin comun en {bad}, muere en {if parents then "padres" else "hijos"} con x={id.id.step}/{id.id.index}" }
       alive := keep
       g := g'
   return (a, g, alive)
 
-def pinDT (lab : String) (X : GPathM) (a : DTAcc) : DTAcc := Id.run do
+def pinDT (lab : String) (kpin : Int) (X : GPathM) (a : DTAcc) : DTAcc := Id.run do
   let mut a := { a with pins := a.pins + 1 }
   let C := cleanInvalid₂ X
   if !isValid C then return a
@@ -5904,8 +5971,20 @@ def pinDT (lab : String) (X : GPathM) (a : DTAcc) : DTAcc := Id.run do
     return out).filter (fun P => !(badSteps C P).isEmpty)
   let alive := segs.map (fun P => (P, badSteps C P))
   a := { a with doomed := a.doomed + alive.length }
-  let (a1, p, alive1) := dtSteps lab C (·.parents) (intRange 1 (C.current_step - 1)) true alive a
-  let (a2, _, alive2) := dtSteps lab p (·.sons) (intRange 0 (p.current_step - 2)).reverse false alive1 a1
+  for (P, _) in alive do
+    if P.length == 1 then a := { a with len1 := a.len1 + 1 }
+    else if P.length == 2 then a := { a with len2 := a.len2 + 1 }
+    else a := { a with len3 := a.len3 + 1 }
+  let (a1, p, alive1) := dtSteps X C kpin lab C (·.parents) (intRange 1 (C.current_step - 1)) true alive a
+  let a1 := if isValid p then
+    let inv := p.nodes.any (fun n => !isValidNode p n)
+    let i1 := p.nodes.any (fun n => n.owners.any (fun w => (p.node? w).isSome &&
+      w.id.step + 1 == n.id.id.step && !n.parents.contains w))
+    let b1 := { a1 with afterPar := a1.afterPar + 1 }
+    let b2 := { b1 with afterParInvalid := b1.afterParInvalid + (if inv then 1 else 0) }
+    { b2 with afterParI1 := b2.afterParI1 + (if i1 then 1 else 0) }
+  else a1
+  let (a2, _, alive2) := dtSteps X C kpin lab p (·.sons) (intRange 0 (p.current_step - 2)).reverse false alive1 a1
   return { a2 with survive := a2.survive + alive2.length }
 
 partial def walkDT (lab : String) (g : GPathM) (fuel : Nat) (a : DTAcc) : DTAcc :=
@@ -5916,7 +5995,7 @@ partial def walkDT (lab : String) (g : GPathM) (fuel : Nat) (a : DTAcc) : DTAcc 
     | some k => Id.run do
       let mut a := a
       for q in ownersAt g.gowners k do
-        a := pinDT lab ([q.id].foldl filterRequire g) a
+        a := pinDT lab k ([q.id].foldl filterRequire g) a
       match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
       | none => return a
       | some q => return walkDT lab (filterAllAgg g [q.id]) (fuel - 1) a
@@ -5937,6 +6016,13 @@ def reportDT (name : String) (a : DTAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   mueren en padres {a.inPar}, en hijos {a.inSons}"
   IO.println s!"   causa: miembro eliminado {a.byRemove}; posesion perdida con x {a.byOwnX}, sin x {a.byOwnOther}; enlace perdido tocando x {a.byLinkX}, sin x {a.byLinkOther}"
   IO.println s!"   x respecto al tramo: dentro {a.posIn}, justo debajo {a.posBelow}, justo encima {a.posAbove}, en el paso sin comun {a.posBad}, otro {a.posOther}"
+  IO.println s!"   longitud de los condenados: 1 nodo {a.len1}, 2 nodos {a.len2}, 3 o mas {a.len3}"
+  IO.println s!"   el corte de x deja fuera: 1 miembro {a.dropped1}, mas {a.droppedMore}; x es el extremo que mira a la pasada {a.xEnd}, interior {a.xInner}"
+  IO.println s!"   el mejor vecino de x posee: a todo el resto {a.nbAll}, a todos menos uno {a.nbAllButOne}, menos {a.nbLess}; la union de vecinos cubre al resto {a.unionAll}"
+  IO.println s!"   el paso fijado es un paso sin comun del tramo: {a.kBad}; distancia paso(x) - paso fijado: {a.distHist}"
+  IO.println s!"   en el estado pinchado X, la union de vecinos de x cubria al resto: {a.coverX}"
+  IO.println s!"   tras la pasada de padres de la 1ª vuelta ({a.afterPar} estados validos): con algun nodo invalido {a.afterParInvalid}, violan I1 (vivos) {a.afterParI1}"
+  IO.println s!"   miembros que faltan: todos sus cubridores de X muertos tras la limpieza {a.missDead} (en el paso fijado {a.deadAtK}, en otro {a.deadElse}); con algun cubridor vivo {a.missAlive}"
   if a.first != "" then IO.println s!"   primero: {a.first}"
   IO.println s!"   ({ms} ms)"
 

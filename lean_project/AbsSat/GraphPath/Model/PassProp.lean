@@ -310,4 +310,112 @@ theorem downCov_reviewParents (g : GPathM) (hc : PCtx g) (hv : isValid (reviewPa
 #guard_msgs in
 #print axioms downCov_reviewParents
 
+-- ============================================================
+-- La iteración hacia abajo: cada entrada de abajo, por un camino de padres
+-- ============================================================
+
+/-- **`r` se alcanza desde `y` bajando por padres que tienen a `r` en su tabla**, hasta un nodo del
+que `r` es padre. -/
+inductive Desc (P : GPathM) (r : PathNodeId) : PathNodeId → Prop
+  | base (y : PathNodeId) (ny : PNodeM) : P.node? y = some ny → r ∈ ny.parents → Desc P r y
+  | step (y : PathNodeId) (ny : PNodeM) (p : PathNodeId) (np : PNodeM) : P.node? y = some ny →
+      p ∈ ny.parents → P.node? p = some np → r ∈ np.owners → Desc P r p → Desc P r y
+
+/-- Lo que el estado tras la pasada de padres tiene (medido en la primera vuelta de los pines del
+lector, `row-degree doomtrace`: 86 de 86): nodos válidos, `I1`, y la forma. -/
+structure AfterPar (P : GPathM) : Prop where
+  cov : ∀ y, 1 ≤ y.id.step → DownCov P y
+  valid : ∀ n ∈ P.nodes, isValidNode P n = true
+  i1 : PassCtx.I1L P
+  plive : PassCtx.PLive P
+  nr : Parents.NotRoot P
+  pb : Parents.PBelow P
+  sh : SymInvariant.ShapeOk P
+  nd : NodupIds P
+
+/-- **Un paso hacia abajo**: una entrada de la tabla de `y`, por debajo de `y`, está en la tabla de
+un padre de `y` (los padres válidos tienen entrada en todo paso, así que `DownCov` se aplica). -/
+theorem parent_owning (P : GPathM) (h : AfterPar P) (y : PathNodeId) (ny : PNodeM)
+    (hny : P.node? y = some ny) (r : PathNodeId) (hr : r ∈ ny.owners) (hr0 : 0 ≤ r.id.step)
+    (hrs : r.id.step < y.id.step) : ∃ p ∈ ny.parents, ∃ np, P.node? p = some np ∧ r ∈ np.owners := by
+  have hm := List.mem_of_find?_eq_some hny
+  have hid := node?_id_eq P y ny hny
+  have hbelow := h.sh.below ny hm
+  rw [hid] at hbelow
+  have hroot : ny.id.parent_id.isNone = false := by
+    cases hp : ny.id.parent_id with
+    | none => exact absurd hp (h.nr ny hm (by rw [hid]; omega))
+    | some _ => rfl
+  obtain ⟨p0, hp0⟩ := List.exists_mem_of_ne_nil _
+    (SelfOwn.have_parents_of_isValidNode P ny (h.valid ny hm) hroot)
+  obtain ⟨np0, hnp0⟩ := Option.isSome_iff_exists.mp (h.plive y ny hny p0 hp0)
+  have hok := owners_ok_of_isValidNode _ _ (h.valid np0 (List.mem_of_find?_eq_some hnp0))
+  have hk := List.all_eq_true.mp hok r.id.step (mem_intRange hr0 (by omega))
+  obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp hk
+  have hent : hasStepEntry (unionOwnersOf P ny.parents) r.id.step = true :=
+    List.any_eq_true.mpr ⟨q, mem_unionOwnersOf P ny.parents p0 np0 q hp0 hnp0 hq, hqs⟩
+  exact h.cov y (by omega) ny hny r hr hrs hent
+
+/-- **Toda entrada viva por debajo de `y` se alcanza bajando por padres que la tienen.** -/
+theorem desc_of_owner (P : GPathM) (h : AfterPar P) :
+    ∀ (n : Nat) (y : PathNodeId) (ny : PNodeM) (r : PathNodeId), (y.id.step - r.id.step).toNat = n + 1 →
+      P.node? y = some ny → r ∈ ny.owners → 0 ≤ r.id.step → (P.node? r).isSome → Desc P r y := by
+  intro n
+  induction n with
+  | zero =>
+    intro y ny r hn hny hr hr0 hrl
+    exact Desc.base y ny hny (h.i1 y ny hny r hr hrl (by omega))
+  | succ n ih =>
+    intro y ny r hn hny hr hr0 hrl
+    obtain ⟨p, hp, np, hnp, hrp⟩ := parent_owning P h y ny hny r hr hr0 (by omega)
+    have hps : p.id.step = y.id.step - 1 := by
+      rw [← node?_id_eq P y ny hny]; exact h.pb ny (List.mem_of_find?_eq_some hny) p hp
+    exact Desc.step y ny p np hny hp hnp hrp (ih p np r (by omega) hnp hrp hr0 hrl)
+
+/-- info: 'AbsSat.GraphPath.Model.PassProp.desc_of_owner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms desc_of_owner
+
+-- ============================================================
+-- El hueco, con nombre: de la unión a un padre común
+-- ============================================================
+
+/-- **De la unión a un padre común** (la parte de tipo Helly, como hipótesis): si cada miembro de un
+tramo por encima de su miembro más bajo está en la tabla de **algún** padre de ese miembro, **un solo**
+padre los tiene a todos. Medido (`doomtrace`): en los tramos condenados la unión nunca cubre (0 de 86),
+así que esta implicación no se contradice en ellos; es lo que falta para bajar un tramo paso a paso. -/
+def UnionToCommon (P : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), lo ≤ hi → TopGoodUp.Seg P sel lo hi →
+    ∀ nl, P.node? (sel lo) = some nl →
+    (∀ j, lo < j → j ≤ hi → ∃ p ∈ nl.parents, ∃ np, P.node? p = some np ∧ sel j ∈ np.owners) →
+    ∃ p ∈ nl.parents, ∃ np, P.node? p = some np ∧ ∀ j, lo < j → j ≤ hi → sel j ∈ np.owners
+
+/-- **Con un padre común, el tramo baja un paso**: con la simetría y los enlaces en la tabla, ese
+padre alarga el tramo. -/
+theorem seg_down_of_common (P : GPathM) (hsym : Threaded.OwnSymmetric P) (hlinks : LinksInOwners P)
+    (hpb : Parents.PBelow P)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlohi : lo ≤ hi) (hs : TopGoodUp.Seg P sel lo hi)
+    (nl : PNodeM) (hnl : P.node? (sel lo) = some nl) (p : PathNodeId) (hp : p ∈ nl.parents)
+    (np : PNodeM) (hnp : P.node? p = some np) (hall : ∀ j, lo < j → j ≤ hi → sel j ∈ np.owners) :
+    TopGoodUp.Seg P (Extendable.upd sel (lo - 1) p) (lo - 1) hi := by
+  have hlos : (sel lo).id.step = lo := (hs.1.1 lo (Int.le_refl _) hlohi).2
+  have hps : p.id.step = lo - 1 := by
+    rw [← hlos, ← node?_id_eq P _ nl hnl]; exact hpb nl (List.mem_of_find?_eq_some hnl) p hp
+  have hpl : p ∈ nl.owners := (hlinks _ nl hnl).1 p hp
+  have hback : ∀ j, lo ≤ j → j ≤ hi → sel j ∈ np.owners := by
+    intro j hj1 hj2
+    rcases Int.lt_or_le lo j with hlt | hle
+    · exact hall j hlt hj2
+    · have hj : j = lo := by omega
+      subst hj
+      exact hsym (sel j) nl p np hnl hnp hpl
+  refine SegReview.seg_extend P sel lo hi hlohi hs p np hnp hps
+    (fun nl' hnl' => by rw [← Option.some.inj (hnl.symm.trans hnl')]; exact hp) ?_ hback
+  intro j hj1 hj2 nj hnj
+  exact hsym p np (sel j) nj hnp hnj (hback j hj1 hj2)
+
+/-- info: 'AbsSat.GraphPath.Model.PassProp.seg_down_of_common' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms seg_down_of_common
+
 end AbsSat.GraphPath.Model.PassProp
