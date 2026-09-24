@@ -7610,6 +7610,7 @@ structure MJAcc where
   notMajByKind : List (String × Nat) := []
   exLive : String := ""
   exNoNode : String := ""
+  lives : List String := []
   deriving Repr
 
 def decodeNode (φ : Cnf) (d : NodeId) : List (Nat × Int) :=
@@ -7641,7 +7642,7 @@ def majAsg (x y z : List (Nat × Int)) : List (Nat × Int) :=
   List.zipWith (fun a (bc : (Nat × Int) × (Nat × Int)) =>
     (a.1, if a.2 == bc.1.2 || a.2 == bc.2.2 then a.2 else bc.1.2)) x (List.zip y z)
 
-def mjState (φ : Cnf) (g : GPathM) (a : MJAcc) : MJAcc := Id.run do
+def mjState (src : String) (φ : Cnf) (g : GPathM) (a : MJAcc) : MJAcc := Id.run do
   let mut a := { a with states := a.states + 1 }
   for b in intRange 0 (g.current_step - 1) do
     let U0 := (ownersAt g.gowners b).eraseDups
@@ -7667,6 +7668,31 @@ def mjState (φ : Cnf) (g : GPathM) (a : MJAcc) : MJAcc := Id.run do
         a := { a with notMajByKind := (kd, cur + 1) :: a.notMajByKind.filter (·.1 != kd) }
         if bad.any (fun m => Ud.contains m) then
           a := { a with notMajLive := a.notMajLive + 1 }
+          let Wn := (ownersAt n.owners b).eraseDups
+          let dw (w : PathNodeId) : List (Nat × Int) := (decodeWin φ w).getD []
+          let trs := Wn.flatMap (fun x => Wn.flatMap (fun y => Wn.filterMap (fun z =>
+            let m := majAsg (dw x) (dw y) (dw z)
+            if Ud.contains m && !A.contains m then some (x, y, z, m) else none)))
+          match trs.head? with
+          | some (x, y, z, m) =>
+            let wm := U0.find? (fun u => dw u == m)
+            let mNode := (wm.bind (fun u => g.node? u)).map (·.owners)
+            let nIn := match wm with | some _ => (mNode.getD []).contains n.id | none => false
+            let xyzOwnN := [x, y, z].map (fun w => ((g.node? w).map (·.owners) |>.getD []).contains n.id)
+            -- fuerza bruta: soluciones de φ con la asignación del nodo y con cada una de x, y, z, m
+            let nA := dw n.id
+            let nv := φ.nVars
+            let sols := (List.range (2 ^ nv)).filter (fun bits =>
+              let val (v : Nat) : Int := ((bits / 2 ^ v) % 2 : Nat)
+              let lit (l : Lit) : Bool := (val l.v == 1) == l.pos
+              φ.clauses.all (fun c => lit c.l1 || lit c.l2 || lit c.l3))
+            let fits (asg : List (Nat × Int)) (bits : Nat) : Bool :=
+              asg.all (fun (v, x) => (((bits / 2 ^ v) % 2 : Nat) : Int) == x)
+            let cnt (asg : List (Nat × Int)) : Nat := (sols.filter (fun bb => fits nA bb && fits asg bb)).length
+            let fstr := s!"         soluciones con {nA}: total {(sols.filter (fits nA)).length}; con x {cnt (dw x)}, y {cnt (dw y)}, z {cnt (dw z)}, mayoria {cnt m}; con la mayoria sin el nodo {(sols.filter (fits m)).length}; clausulas {φ.clauses.map (fun c => [c.l1, c.l2, c.l3].map (fun l => if l.pos then (l.v : Int) else -(l.v : Int) - 100))}"
+            a := { a with lives := a.lives ++ [fstr] }
+            a := { a with lives := a.lives ++ [s!"{src} paso {b} ({kd}), nodo {pidStr n.id} (paso {n.id.id.step}), estado paso {g.current_step}:\n         x={pidStr x} {dw x}\n         y={pidStr y} {dw y}\n         z={pidStr z} {dw z}\n         mayoria {m} = ventana {(wm.map pidStr).getD "?"} (viva: {(mNode.isSome)}, posee al nodo: {nIn}); x,y,z poseen al nodo: {xyzOwnN}\n         tabla del nodo en {b}: {Wn.map pidStr}\n         vivas en {b}: {U0.map pidStr}"] }
+          | none => pure ()
           if a.exLive == "" then
             a := { a with exLive := s!"paso {b} ({kd}): tabla {A} ; mayoria viva fuera {(bad.filter Ud.contains).headD []}" }
         else
@@ -7681,10 +7707,10 @@ partial def walkMJ (φ : Cnf) (g : GPathM) (fuel : Nat) (a : MJAcc) : MJAcc :=
     match ReaderExec.firstChoice g with
     | none => a
     | some k => Id.run do
-      let mut a := mjState φ g a
+      let mut a := mjState "lector" φ g a
       for q in ownersAt g.gowners k do
         let C := cleanInvalid₂ ([q.id].foldl filterRequire g)
-        if isValid C then a := mjState φ C a
+        if isValid C then a := mjState s!"limpieza del pin {pidStr q}" φ C a
       match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
       | none => return a
       | some q => return walkMJ φ (filterAllAgg g [q.id]) (fuel - 1) a
@@ -7706,6 +7732,7 @@ def reportMJ (name : String) (a : MJAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   por tipo de paso (b/b-1/b-2): {a.notMajByKind}"
   if a.exLive != "" then IO.println s!"      {a.exLive}"
   if a.exNoNode != "" then IO.println s!"      {a.exNoNode}"
+  for l in a.lives do IO.println s!"   ✗ {l}"
   IO.println s!"   ({ms} ms)"
 
 
