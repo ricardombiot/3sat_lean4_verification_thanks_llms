@@ -6906,6 +6906,12 @@ structure BDAcc where
   surviveSend : Nat := 0
   surviveStillBad : Nat := 0
   readerBad : Nat := 0
+  -- each filter alone, from T0: (class, kills, total); class 0 = in the gap, 1 = inside, 2 = elsewhere
+  cls : List (Nat × Nat × Nat) := [(0, 0, 0), (1, 0, 0), (2, 0, 0)]
+  firstCls : List (Nat × Nat) := []
+  cutsNothing : Nat := 0
+  gapInfo : String := ""
+  fixInfo : String := ""
   first : String := ""
   firstSurv : String := ""
   deriving Repr
@@ -6931,9 +6937,38 @@ def runFormulaBD (label : String) (φ : Cnf) (a : BDAcc) : BDAcc := Id.run do
       let bads := (segsOf T0).filter (fun P => noChain T0 P)
       if bads.isEmpty then continue
       a := { a with badStates := a.badStates + 1, bads := a.bads + bads.length }
+      -- is T0 really a fixpoint of every stage?
+      let rp := reviewPass T0
+      let sw := AggressiveReview.aggSweep T0
+      let c2 := cleanInvalid₂ T0
+      let pp := reviewParents T0
+      let ps := reviewSons T0
+      let fix := s!"medida T0 {GPathM.measure T0}; tras cleanInvalid₂ {GPathM.measure c2}, padres {GPathM.measure pp}, hijos {GPathM.measure ps}, reviewPass {GPathM.measure rp}, aggSweep {GPathM.measure sw}; tramos malos tras cada uno: clean {((bads.filter (fun P => isSegment c2 P)).length)}, pass {((bads.filter (fun P => isSegment rp P)).length)}, sweep {((bads.filter (fun P => isSegment sw P)).length)}"
+      a := { a with fixInfo := a.fixInfo ++ s!" | {fix}" }
       if a.first == "" then a := { a with first := s!"{label} paso {step}: {bads.length} tramos sin cadena" }
       for d in mapSons φ kv.1.step kv.1.index do
         let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        -- every filter alone, classified against each bad segment's gap
+        for P in bads do
+          match P.head?, P.getLast? with
+          | some lo, some hi =>
+            let gap := (intRange 0 (T0.current_step - 1)).filter (fun i =>
+              (i < lo.id.step || hi.id.step < i) && (commonAtRS T0 P i).isEmpty)
+            if a.gapInfo == "" then
+              a := { a with gapInfo := s!"tramo {lo.id.step}..{hi.id.step}, cs {T0.current_step}, hueco {gap}, filtros del envio en pasos {es.map (·.1)}" }
+            let classOf := fun (k : Int) => if gap.contains k then 0 else if lo.id.step ≤ k && k ≤ hi.id.step then 1 else 2
+            let mut firstDone := false
+            for e in es do
+              let F := PureDriverImproves.filterWeak T0 e
+              if F.gowners.length == T0.gowners.length then a := { a with cutsNothing := a.cutsNothing + 1 }
+              let R := AggressiveReview.reviewAgg F
+              let kills := !isValid R || !isSegment R P
+              let c := classOf e.1
+              a := { a with cls := a.cls.map (fun t => if t.1 == c then (t.1, t.2.1 + (if kills then 1 else 0), t.2.2 + 1) else t) }
+              if !firstDone then
+                firstDone := true
+                a := { a with firstCls := bumpDie a.firstCls c }
+          | _, _ => pure ()
         for P in bads do
           a := { a with tracks := a.tracks + 1 }
           let mut T := T0
@@ -6970,6 +7005,10 @@ def reportBD (name : String) (a : BDAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   seguimientos (tramo × envio) {a.tracks}: muere en el filtro n (99 = en el up) {a.dieAt.reverse}; envio invalido {a.sendInvalid}"
   IO.println s!"   SOBREVIVE al envio entero {a.surviveSend} (y sigue sin cadena {a.surviveStillBad})"
   IO.println s!"   lector (linea final revisada): tramos sin cadena {a.readerBad}"
+  IO.println s!"   cada filtro solo, desde T0 — (clase, lo mata, total), clase 0 = en el hueco, 1 = dentro del tramo, 2 = fuera con comun: {a.cls}"
+  IO.println s!"   clase del PRIMER filtro: {a.firstCls.reverse}; filtros que no quitan nada de la global: {a.cutsNothing}"
+  if a.gapInfo != "" then IO.println s!"   ejemplo: {a.gapInfo}"
+  IO.println s!"   punto fijo de T0:{a.fixInfo}"
   if a.first != "" then IO.println s!"   primero: {a.first}"
   if a.firstSurv != "" then IO.println s!"   primer superviviente: {a.firstSurv}"
   IO.println s!"   ({ms} ms)"
