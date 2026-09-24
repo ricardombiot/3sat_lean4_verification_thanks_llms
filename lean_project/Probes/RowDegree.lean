@@ -7961,6 +7961,148 @@ def reportOS (name : String) (a : OSAcc) (ms : Nat) : IO Unit := do
   if a.exNotBox != "" then IO.println s!"      no caja: {a.exNotBox}"
   IO.println s!"   ({ms} ms)"
 
+
+/-! **`tri3x`: el triángulo con el extremo, visto desde la historia y con dos candidatos.** Para cada
+tramo de `C = cleanPair (pin de g)` y el paso siguiente a su extremo `t`: candidatos = hijos vivos de
+`t` en `C` (y en `g`). Para cada pareja de miembros interiores `a`, `b`: los testigos comunes
+`W_C = cand_C ∩ B_a ∩ B_b` y `W_g` (lo mismo en `g`). -/
+
+structure TXAcc where
+  formulas : Nat := 0
+  pins : Nat := 0
+  pairs : Nat := 0
+  wcEmpty : Nat := 0
+  wcEqAlive : Nat := 0
+  wcSmallerThanAlive : Nat := 0
+  wgHasDead : Nat := 0
+  wgAllDead : Nat := 0
+  byDom : List (Nat × Nat) := []
+  two : Nat := 0
+  twoSingleA : Nat := 0
+  twoBothSingleSame : Nat := 0
+  twoBothSingleDiff : Nat := 0
+  exSmaller : String := ""
+  singOld : Nat := 0
+  singNew : Nat := 0
+  singNewOtherDeadG : Nat := 0
+  sameCauseOld : Nat := 0
+  segs : Nat := 0
+  wgSegEmpty : Nat := 0
+  e1Fail : Nat := 0
+  e2Fail : Nat := 0
+  wcSegEmpty : Nat := 0
+  e1FailDom : List (Nat × Nat) := []
+  exE1 : String := ""
+  deriving Repr
+
+def txTab (g : GPathM) (z : PathNodeId) : List PathNodeId := (g.node? z).map (·.owners) |>.getD []
+
+def txSons (g : GPathM) (t : PathNodeId) : List PathNodeId :=
+  (g.line (t.id.step + 1)).map (·.id) |>.filter (fun r => r.parent_id == some t.id && r.gparent_id == t.parent_id)
+
+def txState (g C : GPathM) (a : TXAcc) : TXAcc := Id.run do
+  let mut a := a
+  let mut seen : List (List PathNodeId) := []
+  for x in C.nodes.take 40 do
+    let (segs, _) := collectDown C [x.id] ([], 30)
+    for S in segs do
+      if seen.contains S then continue
+      seen := S :: seen
+      match S.getLast? with
+      | none => pure ()
+      | some t =>
+        if t.id.step + 1 > C.current_step - 1 then continue
+        let cC := txSons C t
+        let cG := txSons g t
+        -- the whole segment: witnesses in g (sons of t owned by every member in g) and in C
+        a := { a with segs := a.segs + 1 }
+        let wSg := cG.filter (fun r => S.all (fun u => (txTab g u).contains r))
+        let wSc := cC.filter (fun r => S.all (fun u => (txTab C u).contains r))
+        let wSgAlive := wSg.filter cC.contains
+        if wSg.isEmpty then a := { a with wgSegEmpty := a.wgSegEmpty + 1 }
+        if wSc.isEmpty then a := { a with wcSegEmpty := a.wcSegEmpty + 1 }
+        if wSgAlive.isEmpty then
+          a := { a with e1Fail := a.e1Fail + 1, e1FailDom := osBumpN a.e1FailDom cC.length }
+          if a.exE1 == "" then
+            a := { a with exE1 := s!"t {pidStr t}, tramo {S.map pidStr}: testigos en g {wSg.map pidStr}, vivos en C {cC.map pidStr}, testigos en C {wSc.map pidStr}" }
+        else if !(wSgAlive.all wSc.contains) then a := { a with e2Fail := a.e2Fail + 1 }
+        let inner := S.filter (· != t)
+        for u in inner do
+          for v in inner do
+            if u == v then continue
+            a := { a with pairs := a.pairs + 1, byDom := osBumpN a.byDom cC.length }
+            let wC := cC.filter (fun r => (txTab C u).contains r && (txTab C v).contains r)
+            let wG := cG.filter (fun r => (txTab g u).contains r && (txTab g v).contains r)
+            let wGalive := wG.filter (fun r => cC.contains r)
+            if wC.isEmpty then a := { a with wcEmpty := a.wcEmpty + 1 }
+            if wC.length == wGalive.length && wC.all wGalive.contains then
+              a := { a with wcEqAlive := a.wcEqAlive + 1 }
+            else
+              a := { a with wcSmallerThanAlive := a.wcSmallerThanAlive + 1 }
+              if a.exSmaller == "" then
+                a := { a with exSmaller := s!"t {pidStr t}, a {pidStr u}, b {pidStr v}: W_C {wC.map pidStr}, W_g vivos {wGalive.map pidStr}, W_g {wG.map pidStr}" }
+            if wG.any (fun r => !cC.contains r) then a := { a with wgHasDead := a.wgHasDead + 1 }
+            if !wG.isEmpty && wGalive.isEmpty then a := { a with wgAllDead := a.wgAllDead + 1 }
+            if cC.length == 2 then
+              let bA := cC.filter (fun r => (txTab C u).contains r)
+              let bB := cC.filter (fun r => (txTab C v).contains r)
+              a := { a with two := a.two + 1 }
+              if bA.length == 1 then
+                a := { a with twoSingleA := a.twoSingleA + 1 }
+                -- the missing son: was it already missing from u's table in g?
+                match cC.find? (fun r => !bA.contains r) with
+                | some miss =>
+                  if !(txTab g u).contains miss then a := { a with singOld := a.singOld + 1 }
+                  else
+                    a := { a with singNew := a.singNew + 1 }
+                | none => pure ()
+              if bA.length == 1 && bB.length == 1 && bA == bB then
+                match cC.find? (fun r => !bA.contains r) with
+                | some miss =>
+                  if !(txTab g u).contains miss && !(txTab g v).contains miss then
+                    a := { a with sameCauseOld := a.sameCauseOld + 1 }
+                | none => pure ()
+              if bA.length == 1 && bB.length == 1 then
+                if bA == bB then a := { a with twoBothSingleSame := a.twoBothSingleSame + 1 }
+                else a := { a with twoBothSingleDiff := a.twoBothSingleDiff + 1 }
+  return a
+
+partial def walkTX (g : GPathM) (fuel : Nat) (a : TXAcc) : TXAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        let C := cleanPair (filterWeak g (q.id.step, [q.id]))
+        a := { a with pins := a.pins + 1 }
+        if isValid C then a := txState g C a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkTX (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaTX (φ : Cnf) (a : TXAcc) : TXAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkTX g (stepCount φ).toNat a
+  return a
+
+def reportTX (name : String) (a : TXAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
+  IO.println s!"   parejas interiores {a.pairs} (por numero de hijos vivos de t: {a.byDom}); W_C vacio {a.wcEmpty}"
+  IO.println s!"   historia: W_C = testigos de g que siguen vivos {a.wcEqAlive}; W_C menor {a.wcSmallerThanAlive}; W_g con testigos muertos por el pin {a.wgHasDead}; con todos muertos {a.wgAllDead}"
+  IO.println s!"   dos hijos vivos {a.two}: B_a de un solo hijo {a.twoSingleA}; ambos de un solo hijo: el mismo {a.twoBothSingleSame}, distintos {a.twoBothSingleDiff}"
+  IO.println s!"   tramos {a.segs}: sin testigo en g {a.wgSegEmpty}; E1 (ningun testigo de g sigue vivo) {a.e1Fail} (por hijos vivos {a.e1FailDom}); E2 (alguno vivo pero cleanPair se lo quita a un miembro) {a.e2Fail}; sin testigo en C {a.wcSegEmpty}"
+  if a.exE1 != "" then IO.println s!"      E1: {a.exE1}"
+  IO.println s!"   hijo que falta en un B_a de un solo hijo: ya faltaba en g {a.singOld}, lo quito cleanPair {a.singNew}; parejas con el mismo hijo unico y el otro ausente ya en g en las dos tablas {a.sameCauseOld}"
+  if a.exSmaller != "" then IO.println s!"      W_C menor: {a.exSmaller}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
 mezclados, ¿están aun así en una cadena completa del estado unido? -/
@@ -9232,6 +9374,15 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "tri3x" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : TXAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTX φ a
+      let t1 ← IO.monoMsNow
+      reportTX s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
       (← IO.getStdout).flush
   | "onestep" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
