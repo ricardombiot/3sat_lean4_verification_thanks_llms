@@ -6666,6 +6666,116 @@ def reportRS (name : String) (a : RSAcc) (ms : Nat) : IO Unit := do
   if a.first2 != "" then IO.println s!"   primer S2: {a.first2}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`nodeseg`: `SegGood` nodo a nodo con el espejo** (review simétrico, B2). En cada `reviewNode` de
+las dos pasadas de cada vuelta de la review agresiva (envíos y pines del lector): si `SegGood` (sobre
+la muestra `segsOf`) vale antes, ¿vale después? Con el `reviewNode` del modelo (con espejo) y con la
+copia sin espejo `reviewNodeA`, desde el mismo estado. -/
+
+/-- `reviewNode` sin espejo (el de antes del 2026-09-24), solo para comparar. -/
+def reviewNodeA (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) : GPathM :=
+  match g.node? id with
+  | none => g
+  | some d =>
+    if isValidNode g d then
+      let uni := unionOwnersOf g (nb d)
+      let d := relink (intersectOwners d.owners uni) d
+      let g := unlinkIncompatible
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners uni })) id
+      if isValidNode g d then g else removeNode g id
+    else
+      removeNode g id
+
+structure NGAcc where
+  formulas : Nat := 0
+  steps : Nat := 0
+  inputBad : Nat := 0
+  failM : Nat := 0
+  failA : Nat := 0
+  mirrorActs : Nat := 0
+  first : String := ""
+  deriving Repr
+
+def ngSteps (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (a : NGAcc) : NGAcc × GPathM := Id.run do
+  let mut a := a
+  let mut g := g
+  for k in ks do
+    if !isValid g then break
+    for id in (g.line k).map (·.id) do
+      let gm := reviewNode g nb id
+      if isValid gm then
+        a := { a with steps := a.steps + 1 }
+        let ga := reviewNodeA g nb id
+        let mirrored := (gm.nodes.map (·.owners.length)).sum != (ga.nodes.map (·.owners.length)).sum
+        if mirrored then
+          a := { a with mirrorActs := a.mirrorActs + 1 }
+          if !inputSegGood g then a := { a with inputBad := a.inputBad + 1 }
+          else
+            if !inputSegGood gm then
+              a := { a with failM := a.failM + 1 }
+              if a.first == "" then a := { a with first := s!"{lab}: paso {k}, nodo {id.id.step}/{id.id.index}" }
+            if isValid ga && !inputSegGood ga then a := { a with failA := a.failA + 1 }
+      g := gm
+  return (a, g)
+
+def reviewAggNG (lab : String) (F : GPathM) (a : NGAcc) : NGAcc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure g + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        let h := cleanInvalid₂ g
+        let (a1, p) := ngSteps lab h (·.parents) (intRange 1 (h.current_step - 1)) a
+        let (a2, s) := ngSteps lab p (·.sons) (intRange 0 (p.current_step - 2)).reverse a1
+        a := a2
+        g := s
+        if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g₂ := AggressiveReview.aggSweep g
+      if GPathM.measure g₂ < GPathM.measure g then g := g₂ else outer := 0
+  return a
+
+partial def walkNG (lab : String) (g : GPathM) (fuel : Nat) (a : NGAcc) : NGAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewAggNG lab ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkNG lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaNG (lab : String) (φ : Cnf) (a : NGAcc) : NGAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := reviewAggNG lab F a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkNG lab g (stepCount φ).toNat a
+  return a
+
+def reportNG (name : String) (a : NGAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   reviewNode validos {a.steps}; con espejo activo {a.mirrorActs} (SegGood ya roto a la entrada {a.inputBad})"
+  IO.println s!"   SegGood se rompe: con espejo {a.failM}, sin espejo {a.failA}"
+  if a.first != "" then IO.println s!"   primero: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`midsym`: la simetría de la posesión a mitad de pasada.** En cada vuelta de la review agresiva
 de cada envío y pin del lector, antes de cada `reviewNode` de las dos pasadas:
 
@@ -8365,6 +8475,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportMS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "nodeseg" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaNG path φ {})
+        let t1 ← IO.monoMsNow
+        reportNG path a (t1 - t0)
+  | "nodeseg" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NGAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaNG s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportNG s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "roundseg" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with

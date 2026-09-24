@@ -171,6 +171,55 @@ theorem pruned_cleanInvalidGo (ids : List PathNodeId) :
 theorem pruned_cleanInvalid (g : GPathM) : Pruned g (cleanInvalid g) :=
   pruned_cleanInvalidGo _ g
 
+-- ============================================================
+-- The mirror (review simétrico, 2026-09-24)
+-- ============================================================
+
+theorem mirrorMap_id (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    (mirrorMap x rem m).id = m.id := by
+  unfold GPathM.mirrorMap; split <;> rfl
+
+theorem mirrorMap_parents (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    (mirrorMap x rem m).parents = m.parents := by
+  unfold GPathM.mirrorMap; split <;> rfl
+
+theorem mirrorMap_sons (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    (mirrorMap x rem m).sons = m.sons := by
+  unfold GPathM.mirrorMap; split <;> rfl
+
+theorem mirrorMap_title (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    (mirrorMap x rem m).title = m.title := by
+  unfold GPathM.mirrorMap; split <;> rfl
+
+theorem mirrorMap_owners_sub (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    ∀ q ∈ (mirrorMap x rem m).owners, q ∈ m.owners := by
+  unfold GPathM.mirrorMap; split
+  · intro q hq; exact (List.mem_filter.mp hq).1
+  · intro q hq; exact hq
+
+/-- The mirror keeps every entry other than `x`. -/
+theorem mirrorMap_owners_keep (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM)
+    (q : PathNodeId) (hq : q ∈ m.owners) (hqx : q ≠ x) : q ∈ (mirrorMap x rem m).owners := by
+  unfold GPathM.mirrorMap; split
+  · exact List.mem_filter.mpr ⟨hq, bne_iff_ne.mpr hqx⟩
+  · exact hq
+
+/-- A node that is not among the removed ids is untouched. -/
+theorem mirrorMap_of_not (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM)
+    (h : rem.contains m.id = false) : mirrorMap x rem m = m := by
+  unfold GPathM.mirrorMap; rw [h]; rfl
+
+theorem pruned_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) :
+    Pruned g (mirrorDrop g x rem) where
+  step_eq := rfl
+  map_parent_eq := rfl
+  gowners_sub _ hq := hq
+  nodes_derived n' hn' := by
+    obtain ⟨m, hm, hEq⟩ := List.mem_map.mp hn'
+    subst hEq
+    exact ⟨m, hm, mirrorMap_id x rem m, mirrorMap_owners_sub x rem m,
+      fun p hp => by rw [mirrorMap_parents] at hp; exact hp⟩
+
 theorem pruned_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId)
     (g : GPathM) : Pruned g (reviewNode g nb id) := by
   simp only [reviewNode]
@@ -182,7 +231,8 @@ theorem pruned_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId)
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         pruned_updateAt g id _ (fun _ => rfl)
           (fun _ q hq => (List.mem_filter.mp hq).1) (fun _ _ hp => hp)
-      have h₂ := Pruned.trans h₁ (pruned_unlinkIncompatible _ id)
+      have h₂ := Pruned.trans (Pruned.trans h₁ (pruned_mirrorDrop _ id
+        (cutRemoved d (unionOwnersOf g (nb d))))) (pruned_unlinkIncompatible _ id)
       split
       · exact h₂
       · exact Pruned.trans h₂ (pruned_removeNode _ id)
@@ -299,6 +349,52 @@ theorem node?_id_eq (g : GPathM) (pid : PathNodeId) (n : PNodeM)
   have h' : g.nodes.find? (fun m => m.id == pid) = some n := h
   have hp := List.find?_some h'
   exact eq_of_beq hp
+
+/-- `node?` follows a node through the mirror (the mirror keeps every id). -/
+theorem mirrorDrop_node? (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (pid : PathNodeId) (n : PNodeM) (hn : g.node? pid = some n) :
+    (mirrorDrop g x rem).node? pid = some (mirrorMap x rem n) := by
+  have hp : (fun m : PNodeM => (mirrorMap x rem m).id == pid) = (fun m : PNodeM => m.id == pid) := by
+    funext m; rw [mirrorMap_id]
+  show List.find? _ (g.nodes.map (mirrorMap x rem)) = _
+  simp only [List.find?_map, Function.comp_def, hp]
+  rw [show g.nodes.find? (fun m : PNodeM => m.id == pid) = some n from hn]
+  rfl
+
+/-- ... and back: a node of the mirrored graph comes from a node of `g`. -/
+theorem mirrorDrop_node?_inv (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (pid : PathNodeId) (n' : PNodeM) (hn' : (mirrorDrop g x rem).node? pid = some n') :
+    ∃ n, g.node? pid = some n ∧ n' = mirrorMap x rem n := by
+  cases hn : g.node? pid with
+  | none =>
+    have hp : (fun m : PNodeM => (mirrorMap x rem m).id == pid) = (fun m : PNodeM => m.id == pid) := by
+      funext m; rw [mirrorMap_id]
+    have : (mirrorDrop g x rem).node? pid = none := by
+      show List.find? _ (g.nodes.map (mirrorMap x rem)) = _
+      simp only [List.find?_map, Function.comp_def, hp]
+      rw [show g.nodes.find? (fun m : PNodeM => m.id == pid) = none from hn]
+      rfl
+    rw [this] at hn'; exact absurd hn' (by simp)
+  | some n =>
+    rw [mirrorDrop_node? g x rem pid n hn] at hn'
+    exact ⟨n, rfl, (Option.some.inj hn').symm⟩
+
+/-- An owner the cut keeps is not among the removed ones. -/
+theorem not_mem_cutRemoved (n : PNodeM) (B : List PathNodeId) (q : PathNodeId)
+    (h : q ∈ n.owners → q ∈ intersectOwners n.owners B) : (cutRemoved n B).contains q = false := by
+  cases hc : (cutRemoved n B).contains q with
+  | false => rfl
+  | true =>
+    have hm : q ∈ cutRemoved n B := List.contains_iff_mem.mp hc
+    obtain ⟨hq, hnot⟩ := List.mem_filter.mp hm
+    have := h hq
+    simp only [Bool.not_eq_true'] at hnot
+    rw [List.contains_iff_mem.mpr this] at hnot
+    exact absurd hnot (by simp)
+
+/-- Removed owners were owners. -/
+theorem mem_of_cutRemoved (n : PNodeM) (B : List PathNodeId) (q : PathNodeId)
+    (h : q ∈ cutRemoved n B) : q ∈ n.owners := (List.mem_filter.mp h).1
 
 end GPathM
 

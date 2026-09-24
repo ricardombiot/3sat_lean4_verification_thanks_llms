@@ -325,18 +325,35 @@ def cutAll (g : GPathM) : GPathM :=
 def cleanInvalid₂ (g : GPathM) : GPathM :=
   cutAll (purgeFuel (g.nodes.length + 1) g)
 
+/-- What the mirror does to one node: if `m` is among the owners `x` just lost, `m` loses `x`. -/
+def mirrorMap (x : PathNodeId) (removed : List PathNodeId) (m : PNodeM) : PNodeM :=
+  if removed.contains m.id then { m with owners := m.owners.filter (· != x) } else m
+
+/-- **The mirror** (review simétrico, `docs/plans/review_simetrico.md` B1; Julia `mirror_remove!`,
+`SYM_MODE = :on` since 2026-09-24). When the review removes `w` from the table of `x` it asserts
+that no solution goes through both; the statement is symmetric, so `w` loses `x` too. Only shrinks
+tables: never adds, never touches ids, links or the global owners. -/
+def mirrorDrop (g : GPathM) (x : PathNodeId) (removed : List PathNodeId) : GPathM :=
+  { g with nodes := g.nodes.map (mirrorMap x removed) }
+
+/-- The owners `n` loses when cut against `uni`. -/
+def cutRemoved (n : PNodeM) (uni : List PathNodeId) : List PathNodeId :=
+  n.owners.filter (fun q => !(intersectOwners n.owners uni).contains q)
+
 /-- Coherence review of one node against a neighbor selector (parents on the
 top-down pass, sons on the bottom-up pass): intersect its owners with the
-union of its neighbors' owners, dropping it if that leaves it invalid. -/
+union of its neighbors' owners, **mirror the cut** (every owner it lost loses it),
+and drop it if that leaves it invalid. -/
 def reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) : GPathM :=
   match g.node? id with
   | none => g
   | some d =>
     if isValidNode g d then
       let uni := unionOwnersOf g (nb d)
+      let rem := cutRemoved d uni
       let d := relink (intersectOwners d.owners uni) d
-      let g := unlinkIncompatible
-        (updateAt g id (fun n => { n with owners := intersectOwners n.owners uni })) id
+      let g := unlinkIncompatible (mirrorDrop
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners uni })) id rem) id
       if isValidNode g d then g else removeNode g id
     else
       removeNode g id

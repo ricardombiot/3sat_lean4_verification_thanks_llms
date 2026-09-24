@@ -352,6 +352,37 @@ theorem AOk_cleanInvalid (g : GPathM) (h : AOk g S R) : AOk (cleanInvalid g) S R
 -- The coherence sweeps
 -- ============================================================
 
+/-- **The mirror.** It deletes only the entry `x`, and only from the tables of removed ids; a node
+`R`-linked to `x` is not among them. -/
+theorem Sup_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (hR : ∀ y, R y x → rem.contains y = false) (h : Sup g S R) : Sup (mirrorDrop g x rem) S R := by
+  have hn : ∀ p n, g.node? p = some n → (mirrorDrop g x rem).node? p = some (mirrorMap x rem n) :=
+    fun p n hn => mirrorDrop_node? g x rem p n hn
+  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym, ?_⟩
+  · intro p hp
+    obtain ⟨n, hn'⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [hn p n hn']; rfl
+  · intro y v n' hr hn'
+    obtain ⟨n, hn0⟩ := Option.isSome_iff_exists.mp (h.node y (h.dom y v hr).1)
+    rw [hn y n hn0] at hn'
+    rw [← Option.some.inj hn']
+    refine mem_mirrorMap_owners x rem n v (h.own y v n hr hn0) (fun hvx => ?_)
+    rw [node?_id_eq g y n hn0]
+    exact hR y (hvx ▸ hr)
+  · intro y d' hS hd' hroot v hr
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node y hS)
+    rw [hn y d hd] at hd'
+    rw [← Option.some.inj hd', mirrorMap_parents]
+    exact h.par y d hS hd hroot v hr
+  · intro y hS hlast v hr
+    obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son y hS hlast v hr
+    exact ⟨c, _, hn c m hm, by rw [mirrorMap_parents]; exact hxm, h1, h2, h3⟩
+  · intro y c d' hxc hcx hs hd'
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node y (h.dom y c hxc).1)
+    rw [hn y d hd] at hd'
+    rw [← Option.some.inj hd', mirrorMap_parents]
+    exact h.link y c d hxc hcx hs hd
+
 theorem AOk_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (h : AOk g S R) (id : PathNodeId)
     (hsh : ∀ d, g.node? id = some d → S id → ∀ v, R id v → v ∈ unionOwnersOf g (nb d)) :
     AOk (reviewNode g nb id) S R := by
@@ -366,9 +397,12 @@ theorem AOk_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (h : AOk g
     split
     · have hb : S id → ∀ v, R id v → v ∈ unionOwnersOf g (nb d) := fun hS => hsh d hd hS
       have h₁ := Sup_updateAt g id (unionOwnersOf g (nb d)) hb h.sup
-      have h₂ := Sup_unlink _ id h₁
-      have hstep₂ : (unlinkIncompatible (updateAt g id (fowA (unionOwnersOf g (nb d)))) id).current_step
-          = g.current_step := by rw [unlinkIncompatible_current]; rfl
+      have hR : ∀ y, R y id → (cutRemoved d (unionOwnersOf g (nb d))).contains y = false := fun y hr =>
+        not_mem_cutRemoved d _ y (fun hq => mem_intersectOwners_of_mem _ _ _ hq
+          (hb (h.sup.dom y id hr).2 y (h.sup.sym y id hr)))
+      have h₂ := Sup_unlink _ id (Sup_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) hR h₁)
+      have hstep₂ : (unlinkIncompatible (mirrorDrop (updateAt g id (fowA (unionOwnersOf g (nb d))))
+          id (cutRemoved d (unionOwnersOf g (nb d)))) id).current_step = g.current_step := by rw [unlinkIncompatible_current]; rfl
       split
       · exact h₂
       · next hbad =>

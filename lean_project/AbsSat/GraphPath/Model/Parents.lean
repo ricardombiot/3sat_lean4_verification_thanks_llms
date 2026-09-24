@@ -100,6 +100,15 @@ theorem PN_cleanInvalidGo (ids : List PathNodeId) :
 theorem PN_cleanInvalid (g : GPathM) (h : PN g) : PN (cleanInvalid g) :=
   PN_cleanInvalidGo _ g h
 
+/-- The mirror keeps every node, with its id and its parents. -/
+theorem PN_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : PN g) :
+    PN (mirrorDrop g x rem) := by
+  intro n' hn' p hp
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  rw [← hEq, mirrorMap_parents] at hp
+  obtain ⟨m, hm, hmid⟩ := h n hn p hp
+  exact ⟨mirrorMap x rem m, List.mem_map_of_mem hm, by rw [mirrorMap_id]; exact hmid⟩
+
 theorem PN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
     (h : PN g) : PN (reviewNode g nb id) := by
   simp only [reviewNode]
@@ -110,7 +119,8 @@ theorem PN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : G
     · have h₁ : PN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         PN_updateAt g id _ (fun _ => rfl) (fun _ => rfl) h
-      have h₂ := PN_unlinkIncompatible _ id h₁
+      have h₂ := PN_unlinkIncompatible _ id
+        (PN_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
       split
       · exact h₂
       · exact PN_removeNode _ id h₂

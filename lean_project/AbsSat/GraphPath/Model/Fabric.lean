@@ -480,6 +480,44 @@ theorem FOk_unlink (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
   smp := Sons.SMP_unlinkIncompatible g id h.smp
   nr := Parents.NotRoot_of_pruned (pruned_unlinkIncompatible g id) h.nr
 
+/-- **The review mirror** (review simétrico): it deletes only the entry `x`, from the tables of the
+removed ids, and a member holding `x` in its table is not among them. -/
+theorem Fabric_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (hR : ∀ p, S p → T p x → rem.contains p = false) (h : Fabric g S T) :
+    Fabric (mirrorDrop g x rem) S T := by
+  have hnode : ∀ p n, g.node? p = some n → (mirrorDrop g x rem).node? p = some (mirrorMap x rem n) :=
+    fun p n hn => mirrorDrop_node? g x rem p n hn
+  have hback : ∀ p n', S p → (mirrorDrop g x rem).node? p = some n' →
+      ∃ n, g.node? p = some n ∧ n' = mirrorMap x rem n := by
+    intro p n' hp hn'
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    exact ⟨n, hn, Option.some.inj (hn'.symm.trans (hnode p n hn))⟩
+  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_⟩
+  · intro p hp
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [hnode p n hn]; rfl
+  · intro p n' hn' hp v hv
+    obtain ⟨n, hn, rfl⟩ := hback p n' hp hn'
+    refine mem_mirrorMap_owners x rem n v (h.sub p n hn hp v hv) (fun hvx => ?_)
+    rw [node?_id_eq g p n hn]
+    exact hR p hp (hvx ▸ hv)
+  · intro p n' hn' hp hroot v hv
+    obtain ⟨n, hn, rfl⟩ := hback p n' hp hn'
+    rw [mirrorMap_parents]
+    exact h.up p n hn hp hroot v hv
+  · intro p hp hlast v hv
+    obtain ⟨c, m, hm, hpm, h1, h2⟩ := h.down p hp hlast v hv
+    exact ⟨c, _, hnode c m hm, by rw [mirrorMap_parents]; exact hpm, h1, h2⟩
+
+theorem FOk_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (hR : ∀ p, S p → T p x → rem.contains p = false) (h : FOk g S T) :
+    FOk (mirrorDrop g x rem) S T where
+  fab := Fabric_mirrorDrop g x rem S T hR h.fab
+  smp := Sons.SMP_mirrorDrop g x rem h.smp
+  nr := Parents.NotRoot_of_pruned (pruned_mirrorDrop g x rem) h.nr
+
 theorem FOk_symmetrize (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
     (T : PathNodeId → PathNodeId → Prop) (h : FOk g S T) :
     FOk (symmetrize g id) S T where
@@ -565,7 +603,11 @@ theorem FOk_reviewNode (g : GPathM) (S : PathNodeId → Prop)
     simp only
     split
     · have hb : S id → ∀ v, T id v → v ∈ unionOwnersOf g (nb d) := fun hS => hsh d hd hS
-      have h₂ := FOk_unlink _ id S T (FOk_updateAt g id S T _ hb h)
+      have hR : ∀ p, S p → T p id → (cutRemoved d (unionOwnersOf g (nb d))).contains p = false := fun p hp hT =>
+        not_mem_cutRemoved d _ p (fun hq => mem_intersectOwners_of_mem _ _ _ hq
+          (hb (h.fab.inS p id hp hT) p (h.fab.symm p id hp hT)))
+      have h₂ := FOk_unlink _ id S T
+        (FOk_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) S T hR (FOk_updateAt g id S T _ hb h))
       split
       · exact h₂
       · next hbad =>

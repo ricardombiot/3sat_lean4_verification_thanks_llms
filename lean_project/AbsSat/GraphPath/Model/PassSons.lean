@@ -106,11 +106,11 @@ theorem kept_reviewNode_sons (g : GPathM) (hsgl : SegGoodL g) (hI1 : I1L g) (hI1
       exact ⟨q, hT'sub q hq, hqs⟩
     · obtain ⟨u, hu, _⟩ := hpar hnr
       exact List.ne_nil_of_mem hu
-  have hcs : (unlinkIncompatible (updateAt g x
-      (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g d.sons) })) x
+  have hcs : (unlinkIncompatible (mirrorDrop (updateAt g x
+      (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g d.sons) })) x (cutRemoved d (unionOwnersOf g d.sons))) x
       ).current_step = g.current_step := PinAliveChain.current_step_unlinkIncompatible _ x
-  have hvd' : isValidNode (unlinkIncompatible (updateAt g x
-      (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g d.sons) })) x)
+  have hvd' : isValidNode (unlinkIncompatible (mirrorDrop (updateAt g x
+      (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g d.sons) })) x (cutRemoved d (unionOwnersOf g d.sons))) x)
       (relink T' d) = true := by
     refine isValidNode_of' _ _ (fun k hk0 hk1 => ?_) (fun hnr => ?_) (fun _ => ?_)
     · rw [hcs] at hk1; exact hokT k hk0 hk1
@@ -124,7 +124,7 @@ theorem kept_reviewNode_sons (g : GPathM) (hsgl : SegGoodL g) (hI1 : I1L g) (hI1
   simp only [hvd, ↓reduceIte]
   rw [if_pos hvd']
   apply node_of_mem_ids
-  rw [ids_unlinkIncompatible,
+  rw [ids_unlinkIncompatible, NodeIds.ids_mirrorDrop,
     ids_updateAt g x (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g d.sons) })
       (fun _ => rfl)]
   exact hxin
@@ -145,26 +145,23 @@ theorem live_reviewNode_sons (g : GPathM) (hsgl : SegGoodL g) (hI1 : I1L g) (hI1
   else
     exact survives_reviewNode g (·.sons) x r hr hrx
 
-/-- **`reviewNode x`, con los hijos como vecinos, conserva `SegGoodL`.** La prueba del v179
-(`SegReview.segGood_reviewNode_sons`) con las hipótesis vivas. -/
+/-- **`reviewNode x`, con los hijos como vecinos, conserva `SegGoodL`** (review simétrico): el
+argumento de `PassCtx.segGoodL_reviewNode_parents` con el hijo de `x` en la cadena completa `Q`, que
+`I1sL` saca de la posesión por pares. -/
 theorem segGoodL_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g) (hI1s : I1sL g)
-    (hslive : SLive g) (hself : SelfL g) (hlsymU : SegReview.LocSymUp g)
+    (hplive : PLive g) (hslive : SLive g) (hself : SelfL g) (hlsym : SegReview.LocSym g)
+    (hlsymU : SegReview.LocSymUp g)
     (hrootz : Sons.RootAtZero g) (hseg : SegGoodL g) (x : PathNodeId) (hx0 : 0 ≤ x.id.step)
     (hxl : x.id.step ≤ g.current_step - 2) :
     SegGoodL (reviewNode g (·.sons) x) := by
   have hpr := pruned_reviewNode (·.sons) x g
   have live := live_reviewNode_sons g hseg hI1 hI1s hself hlsymU hrootz x hx0 hxl
   have lift : ∀ y n', (reviewNode g (·.sons) x).node? y = some n' →
-      ∃ n, g.node? y = some n ∧ (∀ q ∈ n'.owners, q ∈ n.owners) ∧
-        (∀ p ∈ n'.parents, p ∈ n.parents) ∧ (y ≠ x → n'.owners = n.owners) ∧
-        (y = x → n'.owners = intersectOwners n.owners (unionOwnersOf g n.sons)) := by
+      ∃ n, g.node? y = some n ∧ (∀ q ∈ n'.owners, q ∈ n.owners) ∧ (∀ p ∈ n'.parents, p ∈ n.parents) := by
     intro y n' h
-    obtain ⟨n, hn, hne, heq⟩ := SegReview.reviewNode_owners g hnd (·.sons) x y n' h
     obtain ⟨n0, hn0, hid0, hown0, hpar0⟩ := hpr.nodes_derived n' (List.mem_of_find?_eq_some h)
     have hy : n'.id = y := node?_id_eq _ y n' h
-    have hn0' : g.node? y = some n0 := by rw [← hy, hid0]; exact node?_of_mem hnd n0 hn0
-    rw [hn] at hn0'; cases hn0'
-    exact ⟨n, hn, hown0, hpar0, hne, heq⟩
+    exact ⟨n0, by rw [← hy, hid0]; exact node?_of_mem hnd n0 hn0, hown0, hpar0⟩
   intro sel lo hi hlo0 hlohi hhi hch' hpw' i hi0 hic hout
   rw [hpr.step_eq] at hhi hic
   have hsG : TopGoodUp.Seg g sel lo hi := by
@@ -175,7 +172,7 @@ theorem segGoodL_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g) (
       exact ⟨by rw [hn]; rfl, hjs⟩
     · obtain ⟨hs, _⟩ := hch'.1 (j + 1) (by omega) hj2
       obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs
-      obtain ⟨n, hn, _, hpar, _⟩ := lift _ m hm
+      obtain ⟨n, hn, _, hpar⟩ := lift _ m hm
       have hl := hch'.2 j hj1 hj2
       rw [hm] at hl
       rw [hn]
@@ -186,65 +183,47 @@ theorem segGoodL_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g) (
       obtain ⟨n, hn, hown, _⟩ := lift _ m hm
       rw [← Option.some.inj (hn.symm.trans hnb)]
       exact hown _ (hpw' a b ha1 hb1 ha2 hb2 hab m hm)
-  have keep : ∀ r, (∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners) →
-      (∀ j, lo ≤ j → j ≤ hi → sel j = x → ∀ nj, g.node? (sel j) = some nj →
-        ∃ p ∈ nj.sons, ∃ np, g.node? p = some np ∧ r ∈ np.owners) →
-      ∀ j, lo ≤ j → j ≤ hi → ∀ nj', (reviewNode g (·.sons) x).node? (sel j) = some nj' →
-        r ∈ nj'.owners := by
-    intro r hr hx j hj1 hj2 nj' hnj'
-    obtain ⟨n, hn, _, _, hne, heq⟩ := lift _ nj' hnj'
-    if hjx : sel j = x then
-      rw [heq hjx]
-      obtain ⟨p, hp, np, hnp, hrp⟩ := hx j hj1 hj2 hjx n hn
-      exact SegReview.mem_intersect_of_nb g n n.sons r (hr j hj1 hj2 n hn) p hp np hnp hrp
-    else
-      rw [hne hjx]; exact hr j hj1 hj2 n hn
-  obtain ⟨hhsome, hhs⟩ := hsG.1.1 hi hlohi (Int.le_refl _)
-  obtain ⟨nh, hnh⟩ := Option.isSome_iff_exists.mp hhsome
-  if hhx : sel hi = x then
-    have hhi2 : hi ≤ g.current_step - 2 := by rw [← hhs, hhx]; exact hxl
-    obtain ⟨r0, hr0s, hr0l, hr0all⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 (hi + 1) (by omega)
-      (by omega) (Or.inr (by omega))
-    have hr0son : r0 ∈ nh.sons :=
-      hI1s _ nh hnh r0 (hr0all hi hlohi (Int.le_refl _) nh hnh) hr0l (by rw [hr0s, hhs])
-    obtain ⟨nr0, hnr0⟩ := Option.isSome_iff_exists.mp (hslive _ nh hnh r0 hr0son)
-    have hback := hlsymU sel lo hi hlohi hsG r0 nr0 hnr0 hr0s hr0all
-    have hpar : sel hi ∈ nr0.parents :=
-      hI1 _ nr0 hnr0 _ (hback hi hlohi (Int.le_refl _)) hhsome (by rw [hhs, hr0s])
-    have hs' := SegReview.seg_extend_up g sel lo hi hlohi hsG r0 nr0 hnr0 hr0s hpar hr0all hback
-    have hxonly : ∀ j, lo ≤ j → j ≤ hi → sel j = x → j = hi := by
-      intro j hj1 hj2 hjx
-      have := (hsG.1.1 j hj1 hj2).2
-      rw [hjx, ← hhx, hhs] at this; omega
-    rcases int_eq_or_ne i (hi + 1) with hie | hie
-    · refine ⟨r0, by omega, live r0 hr0l, keep r0 hr0all (fun j hj1 hj2 hjx nj hnj => ?_)⟩
-      rw [hxonly j hj1 hj2 hjx] at hnj
-      rw [← Option.some.inj (hnh.symm.trans hnj)]
-      exact ⟨r0, hr0son, nr0, hnr0, hself _ nr0 hnr0⟩
-    · obtain ⟨r, hrs, hrl, hrall⟩ := hseg _ lo (hi + 1) hlo0 (by omega) (by omega) hs'.1 hs'.2 i
-        hi0 hic (by omega)
-      have hr : ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → r ∈ nj.owners := by
-        intro j hj1 hj2 nj hnj
-        have := hrall j hj1 (by omega) nj
-        rw [upd_other sel (hi + 1) r0 (by omega)] at this
-        exact this hnj
-      refine ⟨r, hrs, live r hrl, keep r hr (fun j hj1 hj2 hjx nj hnj => ?_)⟩
-      rw [hxonly j hj1 hj2 hjx] at hnj
-      rw [← Option.some.inj (hnh.symm.trans hnj)]
-      have hrr0 := hrall (hi + 1) (by omega) (Int.le_refl _) nr0
-      rw [upd_self] at hrr0
-      exact ⟨r0, hr0son, nr0, hnr0, hrr0 hnr0⟩
+  obtain ⟨Q, hQ, hQag⟩ := seg_full_L g hseg hI1 hI1s hplive hslive hlsym hlsymU sel lo hi hlo0 hlohi
+    hhi hsG
+  have hQnode : ∀ k, 0 ≤ k → k ≤ g.current_step - 1 → ∃ nk, g.node? (Q k) = some nk :=
+    fun k hk0 hk1 => Option.isSome_iff_exists.mp (hQ.1.1 k hk0 hk1).1
+  have hQown : ∀ a b, 0 ≤ a → 0 ≤ b → a ≤ g.current_step - 1 → b ≤ g.current_step - 1 →
+      ∀ nb, g.node? (Q b) = some nb → Q a ∈ nb.owners := by
+    intro a b ha hb ha' hb' nb hnb
+    rcases int_eq_or_ne a b with hab | hab
+    · subst hab; exact hself _ nb hnb
+    · exact hQ.2 a b ha hb ha' hb' hab nb hnb
+  have hQson : ∀ k, 0 ≤ k → k + 1 ≤ g.current_step - 1 → ∀ nk, g.node? (Q k) = some nk →
+      Q (k + 1) ∈ nk.sons := by
+    intro k hk0 hk1 nk hnk
+    have hks : (Q k).id.step = k := (hQ.1.1 k hk0 (by omega)).2
+    have hk1s : (Q (k + 1)).id.step = k + 1 := (hQ.1.1 (k + 1) (by omega) hk1).2
+    exact hI1s _ nk hnk _ (hQown (k + 1) k (by omega) hk0 hk1 (by omega) nk hnk)
+      (hQ.1.1 (k + 1) (by omega) hk1).1 (by rw [hk1s, hks])
+  refine ⟨Q i, (hQ.1.1 i hi0 hic).2, live (Q i) (hQ.1.1 i hi0 hic).1, fun j hj1 hj2 nj' hnj' => ?_⟩
+  obtain ⟨n, hn, hne, heq⟩ := SegReview.reviewNode_owners g hnd (·.sons) x (sel j) nj' hnj'
+  have hQj : Q j = sel j := hQag j hj1 hj2
+  have hjs : (sel j).id.step = j := (hsG.1.1 j hj1 hj2).2
+  have hnQ : g.node? (Q j) = some n := by rw [hQj]; exact hn
+  have hci : Q i ∈ n.owners := hQown i j hi0 (by omega) hic (by omega) n hnQ
+  if hjx : sel j = x then
+    rw [heq hjx]
+    have hj2' : j + 1 ≤ g.current_step - 1 := by rw [← hjs, hjx]; omega
+    obtain ⟨ns, hns⟩ := hQnode (j + 1) (by omega) hj2'
+    exact SegReview.mem_intersect_of_nb g n n.sons (Q i) hci (Q (j + 1)) (hQson j (by omega) hj2' n hnQ)
+      ns hns (hQown i (j + 1) hi0 (by omega) hic hj2' ns hns)
   else
-    obtain ⟨r, hrs, hrl, hrall⟩ := hseg sel lo hi hlo0 hlohi hhi hsG.1 hsG.2 i hi0 hic hout
-    refine ⟨r, hrs, live r hrl, keep r hrall (fun j hj1 hj2 hjx nj hnj => ?_)⟩
-    have hjhi : j ≠ hi := fun h => hhx (by rw [← h]; exact hjx)
-    obtain ⟨hss, hs1⟩ := hsG.1.1 (j + 1) (by omega) (by omega)
-    obtain ⟨ns, hns⟩ := Option.isSome_iff_exists.mp hss
-    have hjs := (hsG.1.1 j hj1 hj2).2
-    have hson : sel (j + 1) ∈ nj.sons :=
-      hI1s _ nj hnj _ (hsG.2 (j + 1) j (by omega) hj1 (by omega) hj2 (by omega) nj hnj) hss
-        (by rw [hs1, hjs])
-    exact ⟨sel (j + 1), hson, ns, hns, hrall (j + 1) (by omega) (by omega) ns hns⟩
+    obtain ⟨_, hkeep, hmk⟩ := hne hjx
+    if hcx : Q i = x then
+      rw [hmk (fun dx hdx hin => ?_)]
+      · exact hci
+      · have hdx' : g.node? (Q i) = some dx := by rw [hcx]; exact hdx
+        have hi2 : i + 1 ≤ g.current_step - 1 := by rw [← (hQ.1.1 i hi0 hic).2, hcx]; omega
+        obtain ⟨ns, hns⟩ := hQnode (i + 1) (by omega) hi2
+        exact SegReview.mem_intersect_of_nb g dx dx.sons (sel j) hin (Q (i + 1)) (hQson i hi0 hi2 dx hdx')
+          ns hns (by rw [← hQj]; exact hQown j (i + 1) (by omega) (by omega) (by omega) hi2 ns hns)
+    else
+      exact hkeep _ hci hcx
 
 /-- info: 'AbsSat.GraphPath.Model.PassSons.segGoodL_reviewNode_sons' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -285,7 +264,8 @@ theorem i1L_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL g) 
     else
       rw [if_neg hyx] at hny
       have hnid : n.id = y := node?_id_eq g y n hn
-      have hwn : w ∈ n.owners := by rw [hny, PinAliveChain.owners_unlinkMap] at hw; exact hw
+      have hwn : w ∈ n.owners := by
+        rw [hny, PinAliveChain.owners_unlinkMap] at hw; exact mirrorMap_owners_sub _ _ n w hw
       have hwp := hI1 y n hn w hwn hwlg hws
       if hwx : w = x then
         subst hwx
@@ -297,12 +277,13 @@ theorem i1L_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL g) 
         have hys : y ∈ d.sons := hI1s w d hd y hyd hyl (by omega)
         have hyT : y ∈ intersectOwners d.owners (unionOwnersOf g d.sons) :=
           SegReview.mem_intersect_of_nb g d d.sons y hyd y hys n hn (hself y n hn)
-        rw [PinAliveChain.unlinkMap_keeps _ _ _ (by rw [hnid]; exact hyx)
-          (by rw [hnid]; exact List.elem_iff.mpr hyT)] at hny
-        rw [hny]; exact hwp
+        rw [PinAliveChain.unlinkMap_keeps _ _ _ (by rw [mirrorMap_id, hnid]; exact hyx)
+          (by rw [mirrorMap_id, hnid]; exact List.elem_iff.mpr hyT)] at hny
+        rw [hny, mirrorMap_parents]; exact hwp
       else
         rw [hny]
-        exact PinAliveChain.parents_unlinkMap_keeps _ x n (by rw [hnid]; exact hyx) w hwp hwx
+        exact PinAliveChain.parents_unlinkMap_keeps _ x _ (by rw [mirrorMap_id, hnid]; exact hyx) w
+          (by rw [mirrorMap_parents]; exact hwp) hwx
 
 /-- **La pasada de hijos conserva `I1sL`.** Caso con contenido: `x` hijo de un `y` vivo que lo tiene
 en su tabla. `LocSymUp` en `[y]` pone a `y` en la tabla de `x`; el tramo `[y, x]` da un hijo vivo `s`
@@ -339,7 +320,8 @@ theorem i1sL_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL g)
     else
       rw [if_neg hyx] at hny
       have hnid : n.id = y := node?_id_eq g y n hn
-      have hwn : w ∈ n.owners := by rw [hny, PinAliveChain.owners_unlinkMap] at hw; exact hw
+      have hwn : w ∈ n.owners := by
+        rw [hny, PinAliveChain.owners_unlinkMap] at hw; exact mirrorMap_owners_sub _ _ n w hw
       have hws' := hI1s y n hn w hwn hwlg hws
       if hwx : w = x then
         subst hwx
@@ -371,12 +353,13 @@ theorem i1sL_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hsgl : SegGoodL g)
           rw [hsel_y] at this; exact this
         have hyT : y ∈ intersectOwners d.owners (unionOwnersOf g d.sons) :=
           SegReview.mem_intersect_of_nb g d d.sons y hyd sn hsnson nsn hnsn hysn
-        rw [PinAliveChain.unlinkMap_keeps _ _ _ (by rw [hnid]; exact hyx)
-          (by rw [hnid]; exact List.elem_iff.mpr hyT)] at hny
-        rw [hny]; exact hws'
+        rw [PinAliveChain.unlinkMap_keeps _ _ _ (by rw [mirrorMap_id, hnid]; exact hyx)
+          (by rw [mirrorMap_id, hnid]; exact List.elem_iff.mpr hyT)] at hny
+        rw [hny, mirrorMap_sons]; exact hws'
       else
         rw [hny]
-        exact PinAliveChain.sons_unlinkMap_keeps _ x n (by rw [hnid]; exact hyx) w hws' hwx
+        exact PinAliveChain.sons_unlinkMap_keeps _ x _ (by rw [mirrorMap_id, hnid]; exact hyx) w
+          (by rw [mirrorMap_sons]; exact hws') hwx
 
 -- ============================================================
 -- La pasada de hijos entera
@@ -394,8 +377,8 @@ theorem pstate_reviewNode_sons (hLS : LocSymStableS) (g : GPathM) (h : PState g)
   obtain ⟨hl, hlu⟩ := hLS g x h hx0 hxl
   exact
     { nd := List.Nodup.sublist (NodeIds.ids_reviewNode g (·.sons) x) h.nd
-      sgl := segGoodL_reviewNode_sons g h.nd h.i1 h.i1s h.slive h.self h.lsymU h.rootz h.sgl x hx0
-        hxl
+      sgl := segGoodL_reviewNode_sons g h.nd h.i1 h.i1s h.plive h.slive h.self h.lsym h.lsymU h.rootz
+        h.sgl x hx0 hxl
       i1 := i1L_reviewNode_sons g h.nd h.sgl h.i1 h.i1s h.self h.lsym h.lsymU h.rootz x hx0 hxl
       i1s := i1sL_reviewNode_sons g h.nd h.sgl h.i1 h.i1s h.self h.lsymU h.rootz h.snn x hx0 hxl
       plive := pLive_reviewNode g h.nd h.plive _ x

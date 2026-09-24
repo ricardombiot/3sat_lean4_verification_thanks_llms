@@ -628,4 +628,87 @@ theorem ChainSound_cleanInvalid₂ (g : GPathM) (sel : Int → PathNodeId) (h : 
     ChainSound (cleanInvalid₂ g) sel :=
   ChainSound_cutAll _ sel (ChainSound_purgeFuel sel _ g h)
 
+-- ============================================================
+-- The mirror (review simétrico, 2026-09-24)
+-- ============================================================
+
+/-- An owner survives the mirror unless it is `x` itself and the node is among the removed. -/
+theorem mem_mirrorMap_owners (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM)
+    (q : PathNodeId) (hq : q ∈ m.owners) (hx : q = x → rem.contains m.id = false) :
+    q ∈ (mirrorMap x rem m).owners := by
+  cases hb : q == x with
+  | false => exact mirrorMap_owners_keep x rem m q hq (fun he => by rw [he] at hb; simp at hb)
+  | true => rw [mirrorMap_of_not x rem m (hx (eq_of_beq hb))]; exact hq
+
+/-- **The mirror cannot break a sound chain**, provided that when `x` is a chain node no chain
+node is among the removed ids: the mirror only deletes the entry `x`, and only from the tables of
+removed nodes. -/
+theorem ChainSound_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (sel : Int → PathNodeId) (h : ChainSound g sel)
+    (hR : ∀ j, 0 ≤ j → j < g.current_step → sel j = x →
+      ∀ i, 0 ≤ i → i < g.current_step → rem.contains (sel i) = false) :
+    ChainSound (mirrorDrop g x rem) sel := by
+  obtain ⟨⟨hchain, howned, hgow⟩, hself, hson, hroot⟩ := h
+  have hstep : (mirrorDrop g x rem).current_step = g.current_step := rfl
+  have hgowners : (mirrorDrop g x rem).gowners = g.gowners := rfl
+  have hnode : ∀ pid n, g.node? pid = some n →
+      (mirrorDrop g x rem).node? pid = some (mirrorMap x rem n) :=
+    fun pid n hn => mirrorDrop_node? g x rem pid n hn
+  refine ⟨⟨⟨?_, ?_⟩, ?_, ?_⟩, ?_, ?_, ?_⟩
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    obtain ⟨hsome, hs⟩ := hchain.1 k hlo hhi
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+    exact ⟨by rw [hnode _ n hn]; rfl, hs⟩
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    have hlink := hchain.2 k hlo hhi
+    cases hn : g.node? (sel (k + 1)) with
+    | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
+    | some n =>
+      rw [hn] at hlink
+      rw [hnode _ n hn]
+      simpa [mirrorMap_parents] using hlink
+  · intro i j hi hj hi' hj' hne
+    rw [hstep] at hi' hj'
+    have hmem := howned i j hi hj hi' hj' hne
+    simp only [ownersAt, List.mem_filter, ownersOf] at hmem ⊢
+    obtain ⟨hown, hs⟩ := hmem
+    refine ⟨?_, hs⟩
+    cases hn : g.node? (sel j) with
+    | none => rw [hn] at hown; exact absurd hown List.not_mem_nil
+    | some n =>
+      rw [hn] at hown
+      rw [hnode _ n hn]
+      refine mem_mirrorMap_owners x rem n _ hown (fun hix => ?_)
+      rw [node?_id_eq g (sel j) n hn]
+      exact hR i hi hi' hix j hj hj'
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    rw [hgowners]
+    exact hgow k hlo hhi
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    have hs := hself k hlo hhi
+    simp only [ownersOf] at hs ⊢
+    cases hn : g.node? (sel k) with
+    | none => rw [hn] at hs; exact absurd hs List.not_mem_nil
+    | some n =>
+      rw [hn] at hs
+      rw [hnode _ n hn]
+      refine mem_mirrorMap_owners x rem n _ hs (fun hkx => ?_)
+      rw [node?_id_eq g (sel k) n hn]
+      exact hR k hlo hhi hkx k hlo hhi
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    have hs := hson k hlo hhi
+    simp only [sonsOf] at hs ⊢
+    cases hn : g.node? (sel k) with
+    | none => rw [hn] at hs; exact absurd hs List.not_mem_nil
+    | some n =>
+      rw [hn] at hs
+      rw [hnode _ n hn]
+      simpa [mirrorMap_sons] using hs
+  · exact ⟨hroot.1, fun k hk hk' => hroot.2 k hk (by rw [hstep] at hk'; exact hk')⟩
+
 end AbsSat.GraphPath.Model

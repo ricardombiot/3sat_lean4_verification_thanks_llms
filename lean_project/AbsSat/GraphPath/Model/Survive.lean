@@ -463,6 +463,65 @@ theorem Closed_cleanInvalidGo (S : PathNodeId → Prop) :
         intro hSid
         exact hbad (isValidNode_of_Closed g S h hsmp id d₀ hd hSid _ hstep₂)
 
+/-- **The mirror, covered.** It only deletes the entry `x`, from the tables of the removed ids; when
+`x` is a member, no member is among them, and when it is not, no member entry is `x`. -/
+theorem Closed_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (S : PathNodeId → Prop) (hR : S x → ∀ p, S p → rem.contains p = false)
+    (h : Closed g S) : Closed (mirrorDrop g x rem) S where
+  gow := h.gow
+  node := by
+    intro p hp
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [mirrorDrop_node? g x rem p n hn]
+    rfl
+  support := by
+    intro p n' hn' hp l hlo hhi
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [mirrorDrop_node? g x rem p n hn] at hn'
+    obtain ⟨v, hv, hSv, hvs⟩ := h.support p n hn hp l hlo hhi
+    refine ⟨v, ?_, hSv, hvs⟩
+    rw [← Option.some.inj hn']
+    refine mem_mirrorMap_owners x rem n v hv (fun hvx => ?_)
+    rw [node?_id_eq g p n hn]
+    exact hR (hvx ▸ hSv) p hp
+  parent := by
+    intro p n' hn' hp hroot
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [mirrorDrop_node? g x rem p n hn] at hn'
+    obtain ⟨c, hc, hSc⟩ := h.parent p n hn hp hroot
+    refine ⟨c, ?_, hSc⟩
+    rw [← Option.some.inj hn', mirrorMap_parents]
+    exact hc
+  son := by
+    intro p hp hlast
+    obtain ⟨c, m, hSc, hm, hpm⟩ := h.son p hp hlast
+    refine ⟨c, _, hSc, mirrorDrop_node? g x rem c m hm, ?_⟩
+    rw [mirrorMap_parents]; exact hpm
+  coown := by
+    intro p c n' m' hSp hSc hn' hm' hcp
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hSp)
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (h.node c hSc)
+    rw [mirrorDrop_node? g x rem p n hn] at hn'
+    rw [mirrorDrop_node? g x rem c m hm] at hm'
+    rw [← Option.some.inj hn', mirrorMap_parents] at hcp
+    obtain ⟨h1, h2⟩ := h.coown p c n m hSp hSc hn hm hcp
+    rw [← Option.some.inj hn', ← Option.some.inj hm']
+    constructor
+    · refine mem_mirrorMap_owners x rem n c h1 (fun hcx => ?_)
+      rw [node?_id_eq g p n hn]
+      exact hR (hcx ▸ hSc) p hSp
+    · refine mem_mirrorMap_owners x rem m p h2 (fun hpx => ?_)
+      rw [node?_id_eq g c m hm]
+      exact hR (hpx ▸ hSp) c hSc
+
+/-- In the review of `id`, a member `id` keeps every member: none is among the removed. -/
+theorem members_not_removed (g : GPathM) (S : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
+    (id : PathNodeId) (d : PNodeM) (hd : g.node? id = some d)
+    (hsh : ∀ d, g.node? id = some d → S id → ∀ v, S v → v ∈ unionOwnersOf g (nb d)) :
+    S id → ∀ p, S p → (cutRemoved d (unionOwnersOf g (nb d))).contains p = false :=
+  fun hSid p hp => not_mem_cutRemoved d _ p
+    (fun hq => mem_intersectOwners_of_mem _ _ _ hq (hsh d hd hSid p hp))
+
 /-- **The coherence sweeps, covered.** `reviewNode` is the same three
 operations as one `cleanInvalid` step — intersect, unlink, maybe remove — with
 the neighbour union in place of the global owners. So the only thing it asks
@@ -484,9 +543,10 @@ theorem Closed_reviewNode (g : GPathM) (S : PathNodeId → Prop)
     split
     · have h₁ : Closed (updateAt g id (fow (unionOwnersOf g (nb d)))) S :=
         Closed_updateAt_of g id S _ (fun hSid => hsh d hd hSid) h
-      have h₂ := Closed_unlink _ id S h₁
-      have hstep₂ : (unlinkIncompatible (updateAt g id (fow (unionOwnersOf g (nb d)))) id).current_step
-          = g.current_step := by rw [unlinkIncompatible_current]; rfl
+      have h₂ := Closed_unlink _ id S (Closed_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) S
+        (members_not_removed g S nb id d hd hsh) h₁)
+      have hstep₂ : (unlinkIncompatible (mirrorDrop (updateAt g id (fow (unionOwnersOf g (nb d))))
+          id (cutRemoved d (unionOwnersOf g (nb d)))) id).current_step = g.current_step := by rw [unlinkIncompatible_current]; rfl
       split
       · exact h₂
       · next hbad =>
@@ -687,6 +747,18 @@ theorem own_removeNode (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
   rw [← heq]
   exact hm p n hp hn v hv
 
+theorem own_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (S : PathNodeId → Prop) (hR : S x → ∀ p, S p → rem.contains p = false) (hc : Closed g S)
+    (hm : ∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners) :
+    ∀ p n, S p → (mirrorDrop g x rem).node? p = some n → ∀ v, S v → v ∈ n.owners := by
+  intro p n' hp hn' v hv
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hc.node p hp)
+  rw [mirrorDrop_node? g x rem p n hn] at hn'
+  rw [← Option.some.inj hn']
+  refine mem_mirrorMap_owners x rem n v (hm p n hp hn v hv) (fun hvx => ?_)
+  rw [node?_id_eq g p n hn]
+  exact hR (hvx ▸ hv) p hp
+
 /-- A woven set survives one coherence review of one node, given the `share`
 condition for that node. -/
 theorem Woven_reviewNode (g : GPathM) (S : PathNodeId → Prop) (nb : PNodeM → List PathNodeId)
@@ -704,8 +776,11 @@ theorem Woven_reviewNode (g : GPathM) (S : PathNodeId → Prop) (nb : PNodeM →
       have hc₁ : Closed (updateAt g id (fow (unionOwnersOf g (nb d)))) S :=
         Closed_updateAt_of g id S _ hb hw.closed
       have ho₁ := own_updateAt g id S _ hb hw.closed hw.own
-      have hc₂ := Closed_unlink _ id S hc₁
-      have ho₂ := own_unlink _ id S hc₁ ho₁
+      have hR := members_not_removed g S nb id d hd hsh
+      have hc₁' := Closed_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) S hR hc₁
+      have ho₁' := own_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) S hR hc₁ ho₁
+      have hc₂ := Closed_unlink _ id S hc₁'
+      have ho₂ := own_unlink _ id S hc₁' ho₁'
       split
       · exact ho₂
       · next hbad =>

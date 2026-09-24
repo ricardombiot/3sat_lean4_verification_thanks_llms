@@ -105,6 +105,12 @@ theorem ids_cleanInvalidGo (g : GPathM) :
 theorem ids_cleanInvalid (g : GPathM) : (Ids (cleanInvalid g)).Sublist (Ids g) :=
   ids_cleanInvalidGo g _
 
+theorem ids_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) :
+    Ids (mirrorDrop g x rem) = Ids g := by
+  unfold mirrorDrop Ids
+  simp only [List.map_map]
+  exact List.map_congr_left (fun m _ => mirrorMap_id x rem m)
+
 theorem ids_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) :
     (Ids (reviewNode g nb id)).Sublist (Ids g) := by
   unfold reviewNode
@@ -113,12 +119,14 @@ theorem ids_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : Path
   | some d =>
     simp only
     split
-    · have hup : Ids (updateAt g id
-          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }))
-          = Ids g := ids_updateAt g id _ (fun _ => rfl)
-      have hunl := ids_unlinkIncompatible
-        (updateAt g id
+    · have hup : Ids (mirrorDrop (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) id
+          (cutRemoved d (unionOwnersOf g (nb d))))
+          = Ids g := by rw [ids_mirrorDrop]; exact ids_updateAt g id _ (fun _ => rfl)
+      have hunl := ids_unlinkIncompatible
+        (mirrorDrop (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) id
+          (cutRemoved d (unionOwnersOf g (nb d)))) id
       split
       · rw [hunl, hup]; exact List.Sublist.refl _
       · exact List.Sublist.trans (ids_removeNode _ id)

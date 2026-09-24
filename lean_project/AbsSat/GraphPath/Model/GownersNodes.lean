@@ -146,6 +146,13 @@ theorem GN_cleanInvalidGo (ids : List PathNodeId) :
 theorem GN_cleanInvalid (g : GPathM) (h : GN g) : GN (cleanInvalid g) :=
   GN_cleanInvalidGo _ g h
 
+/-- The mirror keeps every node, with its id, and the global owners. -/
+theorem GN_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : GN g) :
+    GN (mirrorDrop g x rem) := by
+  intro q hq
+  obtain ⟨m, hm, hmid⟩ := h q hq
+  exact ⟨mirrorMap x rem m, List.mem_map_of_mem hm, by rw [mirrorMap_id]; exact hmid⟩
+
 theorem GN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
     (h : GN g) : GN (reviewNode g nb id) := by
   simp only [reviewNode]
@@ -156,7 +163,8 @@ theorem GN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : G
     · have h₁ : GN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         GN_updateAt g id _ (fun _ => rfl) h
-      have h₂ := GN_unlinkIncompatible _ id h₁
+      have h₂ := GN_unlinkIncompatible _ id
+        (GN_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
       split
       · exact h₂
       · exact GN_removeNode _ id h₂

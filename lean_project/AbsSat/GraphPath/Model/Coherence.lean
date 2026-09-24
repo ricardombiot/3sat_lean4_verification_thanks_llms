@@ -96,17 +96,29 @@ theorem ChainSound_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId)
       exact chain_mem_unionOwnersOf g sel h (nb d) w hw hw' hwm i hi hi'
     have hup : ChainSound (updateAt g id (uniMap (unionOwnersOf g (nb d)))) sel :=
       ChainSound_updateAt_gen g id _ sel h hB
+    have hR : ∀ j, 0 ≤ j → j < g.current_step → sel j = id →
+        ∀ i, 0 ≤ i → i < g.current_step →
+          (cutRemoved d (unionOwnersOf g (nb d))).contains (sel i) = false :=
+      fun j hj hj' hsel i hi hi' => not_mem_cutRemoved d _ (sel i)
+        (fun hq => mem_intersectOwners_of_mem _ _ _ hq (hB j hj hj' hsel i hi hi'))
+    have hmir : ChainSound (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+        (cutRemoved d (unionOwnersOf g (nb d)))) sel :=
+      ChainSound_mirrorDrop _ id _ sel hup hR
     have hunl : ChainSound
-        (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id) sel :=
-      ChainSound_unlinkIncompatible _ id sel hup
+        (unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+          (cutRemoved d (unionOwnersOf g (nb d)))) id) sel :=
+      ChainSound_unlinkIncompatible _ id sel hmir
     have hshape : reviewNode g nb id =
         if isValidNode g d then
           (if isValidNode
-                (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id)
+                (unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+                  (cutRemoved d (unionOwnersOf g (nb d)))) id)
                 (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d)
-            then unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+            then unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+                  (cutRemoved d (unionOwnersOf g (nb d)))) id
             else removeNode
-              (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id) id)
+              (unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+                (cutRemoved d (unionOwnersOf g (nb d)))) id) id)
         else removeNode g id := by
       simp only [reviewNode, hid]
       rfl
@@ -122,11 +134,22 @@ theorem ChainSound_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId)
             = some (uniMap (unionOwnersOf g (nb d)) d) := by
           rw [updateAt_node? g id _ (uniMap_id _) id d hid]
           rw [show (d.id == id) = true from beq_iff_eq.mpr hd_id]
-        have hnode : (unlinkIncompatible
-              (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id).node? (sel k)
+        have hnotin : (cutRemoved d (unionOwnersOf g (nb d))).contains
+            (uniMap (unionOwnersOf g (nb d)) d).id = false := by
+          show (cutRemoved d (unionOwnersOf g (nb d))).contains d.id = false
+          rw [hd_id, ← hk]
+          have hhi' : k < g.current_step := by rw [unlinkIncompatible_current] at hhi; exact hhi
+          exact hR k hlo hhi' hk k hlo hhi'
+        have hnode1 : (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+              (cutRemoved d (unionOwnersOf g (nb d)))).node? id
+            = some (uniMap (unionOwnersOf g (nb d)) d) := by
+          rw [mirrorDrop_node? _ id _ id _ hnode0, mirrorMap_of_not _ _ _ hnotin]
+        have hnode : (unlinkIncompatible (mirrorDrop
+              (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+              (cutRemoved d (unionOwnersOf g (nb d)))) id).node? (sel k)
             = some (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d) := by
           rw [hk]
-          rw [unlinkIncompatible_node? _ id _ hnode0 id _ hnode0]
+          rw [unlinkIncompatible_node? _ id _ hnode1 id _ hnode1]
           show some (unlinkMap (uniMap (unionOwnersOf g (nb d)) d) id
             (uniMap (unionOwnersOf g (nb d)) d)) = _
           unfold GPathM.unlinkMap

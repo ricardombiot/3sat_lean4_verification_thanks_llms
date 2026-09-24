@@ -170,38 +170,23 @@ theorem sep_of_drop_sons (g : GPathM) (hnd : NodupIds g) (hsym : Threaded.OwnSym
     (owners_after_sub g hnd _ x r nr hnr nr' hr' q hqr)
 
 -- ============================================================
--- `reviewNode x` solo toca la tabla de `x`
+-- `reviewNode x` en las demás tablas: solo el espejo
 -- ============================================================
 
-/-- **Solo cambia la tabla del nodo que se procesa**: tras `reviewNode x`, cualquier otro nodo que
-siga vivo tiene la misma tabla (el desenlace solo toca padres e hijos). Así, dentro de una pasada, una
-tabla solo pierde entradas en el `reviewNode` de su propio nodo, que es donde valen
-`lost_parents_nosym` y `lost_sons_nosym`. -/
-theorem owners_other_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (x y : PathNodeId)
-    (hne : y ≠ x) (ny : PNodeM) (hny : g.node? y = some ny) (ny' : PNodeM)
-    (hny' : (reviewNode g nb x).node? y = some ny') : ny'.owners = ny.owners := by
-  have hid : ny.id = y := node?_id_eq g y ny hny
-  have hbeq : (ny.id == x) = false := PassCtx.beq_false_of_ne' ny.id x (by rw [hid]; exact hne)
-  unfold reviewNode at hny'
-  cases hd : g.node? x with
-  | none => rw [hd] at hny'; rw [hny] at hny'; cases hny'; rfl
-  | some d =>
-    rw [hd] at hny'
-    have hdid : d.id = x := node?_id_eq g x d hd
-    let f := fun n : PNodeM => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }
-    have h1y : (updateAt g x f).node? y = some ny := by
-      rw [updateAt_node? g x f (fun _ => rfl) y ny hny, hbeq]
-    have h1x : (updateAt g x f).node? x = some (f d) := by
-      rw [updateAt_node? g x f (fun _ => rfl) x d hd, show (d.id == x) = true from beq_iff_eq.mpr hdid]
-    have h2y : (unlinkIncompatible (updateAt g x f) x).node? y = some (unlinkMap (f d) x ny) :=
-      unlinkIncompatible_node? _ x (f d) h1x y ny h1y
-    dsimp only at hny'
-    split at hny'
-    · split at hny'
-      · rw [h2y] at hny'; cases hny'; exact unlinkMap_owners _ _ _
-      · rw [removeNode_node? _ x y _ h2y hne] at hny'; cases hny'
-        exact unlinkMap_owners _ _ _
-    · rw [removeNode_node? g x y ny hny hne] at hny'; cases hny'; rfl
+/-- **Las demás tablas solo pierden a `x`** (review simétrico): tras `reviewNode x`, cualquier otro
+nodo que siga vivo tiene la tabla de antes salvo, quizá, la entrada `x`, y la tiene entera si el
+corte de `x` no lo dejó fuera. Así, dentro de una pasada, una tabla pierde entradas en el
+`reviewNode` de su propio nodo —donde valen `lost_parents_nosym` y `lost_sons_nosym`— o pierde el
+nodo procesado, cuando este la dejó fuera: la separación es entonces la del propio `x`. -/
+theorem owners_other_reviewNode (g : GPathM) (hnd : NodupIds g) (nb : PNodeM → List PathNodeId)
+    (x y : PathNodeId) (hne : y ≠ x) (ny : PNodeM) (hny : g.node? y = some ny) (ny' : PNodeM)
+    (hny' : (reviewNode g nb x).node? y = some ny') :
+    (∀ q ∈ ny'.owners, q ∈ ny.owners) ∧ (∀ q ∈ ny.owners, q ≠ x → q ∈ ny'.owners) ∧
+      (SegReview.MirrorKeeps g nb x y → ny'.owners = ny.owners) := by
+  obtain ⟨n, hn, hne', _⟩ := SegReview.reviewNode_owners g hnd nb x y ny' hny'
+  rw [hny] at hn
+  cases hn
+  exact hne' hne
 
 /-- info: 'AbsSat.GraphPath.Model.CompatLoss.owners_other_reviewNode' depends on axioms: [propext, Quot.sound]
 -/

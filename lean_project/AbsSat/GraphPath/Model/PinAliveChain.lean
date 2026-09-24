@@ -2459,6 +2459,53 @@ theorem nested_of_neighbour (g : GPathM) (P : PathNodeId → Prop)
   exact mem_intersectOwners_of_mem _ _ w hw
     (mem_unionOwnersOf g (nb nz) p np w hpm hnp (hsub w hPw hw))
 
+/-- **El invariante solo lee el nodo, la tabla global y el paso actual.** -/
+theorem Anchored_congr (g h : GPathM) (P : PathNodeId → Prop) (z : PathNodeId)
+    (hn : h.node? z = g.node? z) (hg : h.gowners = g.gowners)
+    (hc : h.current_step = g.current_step) (ha : Anchored g P z) : Anchored h P z := by
+  obtain ⟨nz, hnz, hcov, hpar, hson⟩ := ha
+  exact ⟨nz, by rw [hn]; exact hnz, by rw [hc, hg]; exact hcov, by rw [hg]; exact hpar,
+    by rw [hc, hg]; exact hson⟩
+
+/-- **El espejo (review simétrico) cuando quita a un NO protegido:** solo borra la entrada `x`, y
+ningún testigo ni anclaje es `x`. -/
+theorem Anchored_mirrorDrop_notP (g : GPathM) (P : PathNodeId → Prop) (z x : PathNodeId)
+    (rem : List PathNodeId) (hPx : ¬ P x) (h : Anchored g P z) :
+    Anchored (mirrorDrop g x rem) P z := by
+  obtain ⟨nz, hn, hcov, hpar, hson⟩ := h
+  have hne : ∀ w, P w → w ≠ x := fun w hw he => hPx (he ▸ hw)
+  refine ⟨mirrorMap x rem nz, mirrorDrop_node? g x rem z nz hn, ?_, ?_, ?_⟩
+  · intro k hk0 hk1
+    obtain ⟨w, hwm, hws, hwg, hwP⟩ := hcov k hk0 hk1
+    exact ⟨w, mirrorMap_owners_keep x rem nz w hwm (hne w hwP), hws, hwg, hwP⟩
+  · intro h1
+    obtain ⟨p, hpm, hpP, hpo, hpg⟩ := hpar h1
+    exact ⟨p, by rw [mirrorMap_parents]; exact hpm, hpP,
+      mirrorMap_owners_keep x rem nz p hpo (hne p hpP), hpg⟩
+  · intro h2
+    obtain ⟨t, htm, htP, hto, htg⟩ := hson h2
+    exact ⟨t, by rw [mirrorMap_sons]; exact htm, htP,
+      mirrorMap_owners_keep x rem nz t hto (hne t htP), htg⟩
+
+/-- **… y cuando el anclado no está entre los que pierden a `x`:** su nodo no se mueve. -/
+theorem mirrorDrop_node?_of_not (g : GPathM) (x z : PathNodeId) (rem : List PathNodeId)
+    (hz : rem.contains z = false) : (mirrorDrop g x rem).node? z = g.node? z := by
+  cases hn : g.node? z with
+  | none =>
+    cases hm : (mirrorDrop g x rem).node? z with
+    | none => rfl
+    | some m =>
+      obtain ⟨n, hn', _⟩ := mirrorDrop_node?_inv g x rem z m hm
+      rw [hn] at hn'; exact absurd hn' (by simp)
+  | some n =>
+    rw [mirrorDrop_node? g x rem z n hn,
+      mirrorMap_of_not x rem n (by rw [node?_id_eq g z n hn]; exact hz)]
+
+theorem Anchored_mirrorDrop_of_not (g : GPathM) (P : PathNodeId → Prop) (z x : PathNodeId)
+    (rem : List PathNodeId) (hz : rem.contains z = false) (h : Anchored g P z) :
+    Anchored (mirrorDrop g x rem) P z :=
+  Anchored_congr g _ P z (mirrorDrop_node?_of_not g x z rem hz) rfl rfl h
+
 /-- **El paso por vecinos, cuando mira a un nodo NO protegido: el invariante pasa intacto.**
 
 Y es el mismo argumento que en `cleanInvalid`, literalmente los mismos tres lemas: el corte solo
@@ -2474,9 +2521,10 @@ theorem Anchored_reviewNode_other (g : GPathM) (P : PathNodeId → Prop)
   · next d _ =>
     split
     · have h2 := Anchored_unlinkIncompatible _ P z id hne hPid
+        (Anchored_mirrorDrop_notP _ P z id (cutRemoved d (unionOwnersOf g (nb d))) hPid
         (Anchored_updateAt g P z id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })
-          (fun _ => rfl) hne h)
+          (fun _ => rfl) hne h))
       simp only []
       split
       · exact h2
@@ -2659,6 +2707,19 @@ theorem Sym_cut_nb (g : GPathM) (P : PathNodeId → Prop)
     exact hN r ny0 hPr hL (by rw [← hyr]; exact hny0) x hx hxy0
   | false => exact hxy0
 
+/-- **La simetría cruza el espejo** si, cuando el que pierde owners es protegido, ningún protegido
+está entre los que lo pierden a él; y si no es protegido, el espejo solo borra su entrada. -/
+theorem Sym_mirrorDrop (g : GPathM) (P : PathNodeId → Prop) (x : PathNodeId)
+    (rem : List PathNodeId) (hR : P x → ∀ y, P y → rem.contains y = false) (h : Sym g P) :
+    Sym (mirrorDrop g x rem) P := by
+  intro a b na nb' ha hb hna hnb hba
+  obtain ⟨na0, hna0, rfl⟩ := mirrorDrop_node?_inv g x rem a na hna
+  obtain ⟨nb0, hnb0, rfl⟩ := mirrorDrop_node?_inv g x rem b nb' hnb
+  have hab := h a b na0 nb0 ha hb hna0 hnb0 (mirrorMap_owners_sub x rem na0 b hba)
+  refine mem_mirrorMap_owners x rem nb0 a hab (fun hax => ?_)
+  rw [node?_id_eq g b nb0 hnb0]
+  exact hR (hax ▸ ha) b hb
+
 /-- info: 'AbsSat.GraphPath.Model.PinAliveChain.Sym_cut_nb' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms Sym_cut_nb
@@ -2670,11 +2731,13 @@ theorem Sym_cut_nb (g : GPathM) (P : PathNodeId → Prop)
 /-- El paso por vecinos, cuando ni el nodo era inválido ni el corte lo invalida. -/
 theorem reviewNode_keep (g : GPathM) (nb : PNodeM → List PathNodeId) (r : PathNodeId)
     (d : PNodeM) (hd : g.node? r = some d) (hv : isValidNode g d = true)
-    (hc : isValidNode (unlinkIncompatible (updateAt g r (fun n =>
-        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) r)
+    (hc : isValidNode (unlinkIncompatible (mirrorDrop (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) r
+        (cutRemoved d (unionOwnersOf g (nb d)))) r)
       (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d) = true) :
-    reviewNode g nb r = unlinkIncompatible (updateAt g r (fun n =>
-      { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) r := by
+    reviewNode g nb r = unlinkIncompatible (mirrorDrop (updateAt g r (fun n =>
+      { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) r
+      (cutRemoved d (unionOwnersOf g (nb d)))) r := by
   unfold reviewNode
   split
   · next hnone => simp [hnone] at hd
@@ -2711,11 +2774,21 @@ theorem Anchored_reviewNode_all (g : GPathM) (P : PathNodeId → Prop) [Decidabl
       rw [updateAt_node? g r
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })
           (fun _ => rfl) r nr2 hnr, show (nr2.id == r) = true from beq_iff_eq.mpr hid]
-    have hstep2 : (unlinkIncompatible (updateAt g r (fun n =>
-        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r).current_step
+    -- the mirror: no protected node is among the owners `r` lost (`Nested`)
+    have hrem : ∀ y, P y → (cutRemoved nr2 (unionOwnersOf g (nb nr2))).contains y = false :=
+      fun y hy => not_mem_cutRemoved _ _ y (fun hq => hN r nr2 hPr hL hnr y hy hq)
+    have hcutM : (mirrorDrop (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r
+        (cutRemoved nr2 (unionOwnersOf g (nb nr2)))).node? r
+        = some { nr2 with owners := intersectOwners nr2.owners (unionOwnersOf g (nb nr2)) } := by
+      rw [mirrorDrop_node?_of_not _ r r _ (hrem r hPr), hcut]
+    have hstep2 : (unlinkIncompatible (mirrorDrop (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r
+        (cutRemoved nr2 (unionOwnersOf g (nb nr2)))) r).current_step
         = g.current_step := current_step_unlinkIncompatible _ _
-    have hcond : isValidNode (unlinkIncompatible (updateAt g r (fun n =>
-        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r)
+    have hcond : isValidNode (unlinkIncompatible (mirrorDrop (updateAt g r (fun n =>
+        { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })) r
+        (cutRemoved nr2 (unionOwnersOf g (nb nr2)))) r)
         (relink (intersectOwners nr2.owners (unionOwnersOf g (nb nr2))) nr2) = true := by
       rw [isValidNode_congr_step g _ _ hstep2]
       exact isValidNode_relink_of_Anchored_nb g P nb L hN r hL nr2 hrz hPr (hrange r hPr).1
@@ -2723,12 +2796,17 @@ theorem Anchored_reviewNode_all (g : GPathM) (P : PathNodeId → Prop) [Decidabl
     rw [reviewNode_keep g nb r nr2 hnr hvalid0 hcond]
     by_cases hzr : z = r
     · subst hzr
-      exact Anchored_selfStep_nb g P nb L hN z hL nr2 hPz hnr (hall z hPz)
+      refine Anchored_congr _ _ P z ?_ ?_ ?_ (Anchored_selfStep_nb g P nb L hN z hL nr2 hPz hnr (hall z hPz))
+      · rw [unlinkIncompatible_node? _ z _ hcutM z _ hcutM, unlinkIncompatible_node? _ z _ hcut z _ hcut]
+      · rw [gowners_unlinkIncompatible, gowners_unlinkIncompatible]; rfl
+      · rw [current_step_unlinkIncompatible, current_step_unlinkIncompatible]; rfl
     · exact Anchored_unlinkIncompatible_protected _ P z r
-        (Sym_cut_nb g P nb L hN r hL nr2 hPr hnr hSym) hPz hPr hzr _ hcut
+        (Sym_mirrorDrop _ P r _ (fun _ => hrem) (Sym_cut_nb g P nb L hN r hL nr2 hPr hnr hSym))
+        hPz hPr hzr _ hcutM
+        (Anchored_mirrorDrop_of_not _ P z r _ (hrem z hPz)
         (Anchored_updateAt g P z r
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb nr2)) })
-          (fun _ => rfl) hzr (hall z hPz))
+          (fun _ => rfl) hzr (hall z hPz)))
   · exact Anchored_reviewNode_other g P nb z r
       (fun he => hPr (by rw [← he]; exact hPz)) hPr (hall z hPz)
 

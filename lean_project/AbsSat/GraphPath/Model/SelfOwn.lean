@@ -164,18 +164,8 @@ theorem OOS_cleanInvalid (g : GPathM) (h : OOS g) : OOS (cleanInvalid g) :=
   OOS_cleanInvalidGo _ g h
 
 theorem OOS_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
-    (h : OOS g) : OOS (reviewNode g nb id) := by
-  simp only [reviewNode]
-  split
-  · exact h
-  · next d _ =>
-    split
-    · have h₁ := OOS_updateAt g id (unionOwnersOf g (nb d)) h
-      have h₂ := OOS_unlinkIncompatible _ id h₁
-      split
-      · exact h₂
-      · exact OOS_removeNode _ id h₂
-    · exact OOS_removeNode g id h
+    (h : OOS g) : OOS (reviewNode g nb id) :=
+  OOS_of_pruned (pruned_reviewNode nb id g) h
 
 private theorem OOS_foldl {β : Type} (f : GPathM → β → GPathM)
     (hf : ∀ g b, OOS g → OOS (f g b)) :

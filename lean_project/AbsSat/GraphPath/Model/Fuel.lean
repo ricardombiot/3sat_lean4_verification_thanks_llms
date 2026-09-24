@@ -185,6 +185,20 @@ theorem measure_cleanInvalidGo_le (ids : List PathNodeId) :
 theorem measure_cleanInvalid_le (g : GPathM) : measure (cleanInvalid g) ≤ measure g :=
   measure_cleanInvalidGo_le _ g
 
+theorem weight_mirrorMap_le (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    PNodeM.weight (mirrorMap x rem m) ≤ PNodeM.weight m := by
+  unfold GPathM.mirrorMap; split
+  · simp only [PNodeM.weight]
+    have := List.length_filter_le (· != x) m.owners
+    omega
+  · exact Nat.le_refl _
+
+theorem measure_mirrorDrop_le (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) :
+    measure (mirrorDrop g x rem) ≤ measure g := by
+  simp only [measure, mirrorDrop]
+  rw [List.map_map]
+  exact Nat.add_le_add_left (sum_map_le _ _ _ (fun m _ => weight_mirrorMap_le x rem m)) _
+
 theorem measure_reviewNode_le (nb : PNodeM → List PathNodeId) (id : PathNodeId)
     (g : GPathM) : measure (reviewNode g nb id) ≤ measure g := by
   simp only [reviewNode]
@@ -197,7 +211,8 @@ theorem measure_reviewNode_le (nb : PNodeM → List PathNodeId) (id : PathNodeId
             (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) ≤
             measure g :=
         measure_updateAt_le g id _ (weight_intersect_le _)
-      have h₂ := Nat.le_trans (measure_unlinkIncompatible_le _ id) h₁
+      have h₂ := Nat.le_trans (measure_unlinkIncompatible_le _ id)
+        (Nat.le_trans (measure_mirrorDrop_le _ id (cutRemoved d (unionOwnersOf g (nb d)))) h₁)
       split
       · exact h₂
       · exact Nat.le_trans (measure_removeNode_le _ id) h₂
@@ -711,6 +726,100 @@ theorem cleanInvalid_eq_self (g : GPathM) (h : measure (cleanInvalid g) = measur
 -- F2.c, step 2: the coherence passes at the fixpoint
 -- ============================================================
 
+private theorem mirrorMap_eq_self_of_weight (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM)
+    (h : PNodeM.weight (mirrorMap x rem m) = PNodeM.weight m) : mirrorMap x rem m = m := by
+  unfold GPathM.mirrorMap at h ⊢
+  split at h
+  · next hc =>
+    rw [if_pos hc]
+    have hlen : (m.owners.filter (· != x)).length = m.owners.length := by
+      simp only [PNodeM.weight] at h
+      omega
+    rw [filter_eq_self_of_length _ _ hlen]
+  · next hc => rw [if_neg hc]
+
+/-- At the fixpoint the mirror is the identity: it only filters tables. -/
+theorem mirrorDrop_eq_self (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (h : measure (mirrorDrop g x rem) = measure g) : mirrorDrop g x rem = g := by
+  have hsum : (g.nodes.map (PNodeM.weight ∘ mirrorMap x rem)).sum
+      = (g.nodes.map PNodeM.weight).sum := by
+    simp only [measure, mirrorDrop] at h
+    rw [List.map_map] at h
+    omega
+  have hpt := sum_map_eq_pointwise g.nodes (PNodeM.weight ∘ mirrorMap x rem) PNodeM.weight
+    (fun m _ => weight_mirrorMap_le x rem m) hsum
+  have hmap : g.nodes.map (mirrorMap x rem) = g.nodes :=
+    map_eq_self_of _ _ (fun m hm => mirrorMap_eq_self_of_weight x rem m (hpt m hm))
+  simp only [mirrorDrop, hmap]
+
+/-- The tail of `reviewNode` (review simétrico): intersect the node's owners against `b`, mirror
+what it lost, unlink, then drop the node if that left it invalid. -/
+def intersectMirrorOrDrop (g : GPathM) (id : PathNodeId) (b : List PathNodeId) (d : PNodeM) : GPathM :=
+  if isValidNode
+      (unlinkIncompatible (mirrorDrop
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+        (cutRemoved d b)) id)
+      (relink (intersectOwners d.owners b) d) then
+    unlinkIncompatible (mirrorDrop
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id
+  else
+    removeNode (unlinkIncompatible (mirrorDrop
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id) id
+
+theorem intersectMirrorOrDrop_eq_self (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : measure (intersectMirrorOrDrop g id b d) = measure g) :
+    intersectMirrorOrDrop g id b d = g := by
+  have hle_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      ≤ PNodeM.weight n := weight_intersect_le b
+  have hid_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      = PNodeM.weight n → { n with owners := intersectOwners n.owners b } = n :=
+    fun n => intersect_eq_self_of_weight b n
+  have hupd_le : measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
+    measure_updateAt_le g id _ hle_f
+  have hmir_le := measure_mirrorDrop_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)
+  have hunl_le := measure_unlinkIncompatible_le
+    (mirrorDrop (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id
+  obtain ⟨n, hn, hn_id⟩ :
+      ∃ n ∈ (unlinkIncompatible (mirrorDrop (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)) id).nodes,
+        n.id = id := by
+    obtain ⟨n, hn, hn_id⟩ :=
+      exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+        (fun _ => rfl) d hd_mem
+    have hid' : n.id = id := by rw [hn_id]; exact hd_id
+    have hn2 : mirrorMap id (cutRemoved d b) n ∈ (mirrorDrop (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)).nodes :=
+      List.mem_map_of_mem hn
+    have hid2 : (mirrorMap id (cutRemoved d b) n).id = id := by rw [mirrorMap_id]; exact hid'
+    unfold GPathM.unlinkIncompatible
+    split
+    · exact ⟨_, hn2, hid2⟩
+    · next n₀ _ =>
+      exact ⟨unlinkMap n₀ id _, List.mem_map_of_mem hn2, by rw [unlinkMap_id]; exact hid2⟩
+  have hlt := measure_removeNode_lt _ id n hn hn_id
+  unfold intersectMirrorOrDrop at h ⊢
+  split at h
+  · next hv =>
+    rw [if_pos hv]
+    have h1 : measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = measure g := by omega
+    have h2 : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ hle_f hid_f h1
+    rw [h2] at h hmir_le hunl_le ⊢
+    have h3 : measure (mirrorDrop g id (cutRemoved d b)) = measure g := by omega
+    rw [mirrorDrop_eq_self g id _ h3] at h ⊢
+    exact unlinkIncompatible_eq_self g id h
+  · next hv =>
+    rw [if_neg hv]
+    exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt
+      (Nat.le_trans hunl_le (Nat.le_trans hmir_le hupd_le))))
+
 theorem reviewNode_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId)
     (h : measure (reviewNode g nb id) = measure g) : reviewNode g nb id = g := by
   cases hnode : g.node? id with
@@ -719,14 +828,14 @@ theorem reviewNode_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (id : 
     have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hnode
     have hd_id : d.id = id := node?_id_eq g id d hnode
     have hshape : reviewNode g nb id =
-        if isValidNode g d then intersectOrDrop g id (unionOwnersOf g (nb d)) d
+        if isValidNode g d then intersectMirrorOrDrop g id (unionOwnersOf g (nb d)) d
         else removeNode g id := by
-      simp [reviewNode, hnode, intersectOrDrop]
+      simp [reviewNode, hnode, intersectMirrorOrDrop]
     rw [hshape] at h ⊢
     split at h
     · next hvalid =>
       rw [if_pos hvalid]
-      exact intersectOrDrop_eq_self g id _ d hd_mem hd_id h
+      exact intersectMirrorOrDrop_eq_self g id _ d hd_mem hd_id h
     · next hvalid =>
       -- the node was already invalid, so it is dropped: strictly smaller
       rw [if_neg hvalid]
@@ -1182,6 +1291,64 @@ theorem cleanStep_owners_fixed (g : GPathM) (id : PathNodeId) (d : PNodeM)
     updateAt_pointwise g id _ hupd d hd_mem hd_id
   exact congrArg PNodeM.owners hfix
 
+/-- The valid branch of the mirrored tail, at the fixpoint: the update, the mirror and the unlink
+were all the identity. -/
+theorem intersectMirrorOrDrop_valid_branch (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : measure (intersectMirrorOrDrop g id b d) = measure g) :
+    updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g ∧
+      mirrorDrop g id (cutRemoved d b) = g ∧
+      unlinkIncompatible g id = g ∧
+      isValidNode g (relink (intersectOwners d.owners b) d) = true := by
+  have hle_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      ≤ PNodeM.weight n := weight_intersect_le b
+  have hid_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      = PNodeM.weight n → { n with owners := intersectOwners n.owners b } = n :=
+    fun n => intersect_eq_self_of_weight b n
+  have hupd_le : measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
+    measure_updateAt_le g id _ hle_f
+  have hmir_le := measure_mirrorDrop_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)
+  have hunl_le := measure_unlinkIncompatible_le
+    (mirrorDrop (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id
+  unfold intersectMirrorOrDrop at h
+  split at h
+  · next hv =>
+    have h1 : measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = measure g := by omega
+    have hupd : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ hle_f hid_f h1
+    rw [hupd] at h hmir_le hunl_le hv
+    have h3 : measure (mirrorDrop g id (cutRemoved d b)) = measure g := by omega
+    have hmir : mirrorDrop g id (cutRemoved d b) = g := mirrorDrop_eq_self g id _ h3
+    rw [hmir] at h hv
+    have hunl : unlinkIncompatible g id = g := unlinkIncompatible_eq_self g id h
+    rw [hunl] at hv
+    exact ⟨hupd, hmir, hunl, hv⟩
+  · next hv =>
+    obtain ⟨n, hn, hn_id⟩ :
+        ∃ n ∈ (unlinkIncompatible (mirrorDrop (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)) id).nodes,
+          n.id = id := by
+      obtain ⟨n, hn, hn_id⟩ :=
+        exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+          (fun _ => rfl) d hd_mem
+      have hid' : n.id = id := by rw [hn_id]; exact hd_id
+      have hn2 : mirrorMap id (cutRemoved d b) n ∈ (mirrorDrop (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)).nodes :=
+        List.mem_map_of_mem hn
+      have hid2 : (mirrorMap id (cutRemoved d b) n).id = id := by rw [mirrorMap_id]; exact hid'
+      unfold GPathM.unlinkIncompatible
+      split
+      · exact ⟨_, hn2, hid2⟩
+      · next n₀ _ =>
+        exact ⟨unlinkMap n₀ id _, List.mem_map_of_mem hn2, by rw [unlinkMap_id]; exact hid2⟩
+    have hlt := measure_removeNode_lt _ id n hn hn_id
+    exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt
+      (Nat.le_trans hunl_le (Nat.le_trans hmir_le hupd_le))))
+
 /-- At the fixpoint, a node reached by a coherence pass had its owners already
 consistent with the union of its neighbours' owners: the intersection against
 that union was the identity. -/
@@ -1192,14 +1359,14 @@ theorem reviewNode_owners_fixed (g : GPathM) (nb : PNodeM → List PathNodeId)
   have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
   have hd_id : d.id = id := node?_id_eq g id d hd
   have hshape : reviewNode g nb id =
-      if isValidNode g d then intersectOrDrop g id (unionOwnersOf g (nb d)) d
+      if isValidNode g d then intersectMirrorOrDrop g id (unionOwnersOf g (nb d)) d
       else removeNode g id := by
-    simp [reviewNode, hd, intersectOrDrop]
+    simp [reviewNode, hd, intersectMirrorOrDrop]
   rw [hshape] at h
   split at h
   · next hv =>
     obtain ⟨hupd, _⟩ :=
-      intersectOrDrop_valid_branch g id (unionOwnersOf g (nb d)) d hd_mem hd_id h
+      intersectMirrorOrDrop_valid_branch g id (unionOwnersOf g (nb d)) d hd_mem hd_id h
     have hfix : { d with owners := intersectOwners d.owners (unionOwnersOf g (nb d)) } = d :=
       updateAt_pointwise g id _ hupd d hd_mem hd_id
     exact congrArg PNodeM.owners hfix
