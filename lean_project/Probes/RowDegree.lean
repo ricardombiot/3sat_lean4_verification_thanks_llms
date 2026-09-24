@@ -6767,6 +6767,99 @@ def reportSM (name : String) (a : SMAcc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer mezclado: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`segstep`: las dos obligaciones de `SegExactFilter`, en cada filtro de un paso.** En cada envío,
+paso a paso (`T` → `R = reviewAgg (filterWeak T e)`), y en cada pin del lector: para cada tramo de `R`
+que no cubre el paso filtrado, ¿hay una entrada común admitida en ese paso (`CommonAtFilter`)? y para
+cada una, ¿están tramo y entrada en una cadena completa de `T` (`StepSegTriples`)? -/
+
+structure SSCell where
+  filters : Nat := 0
+  segs : Nat := 0
+  covering : Nat := 0
+  noCommon : Nat := 0
+  triples : Nat := 0
+  triplesBad : Nat := 0
+  cut : Nat := 0
+  firstC : String := ""
+  firstT : String := ""
+  deriving Repr
+
+structure SSAcc where
+  formulas : Nat := 0
+  sends : SSCell := {}
+  pins : SSCell := {}
+  deriving Repr
+
+def checkSS (lab : String) (T : GPathM) (e : Int × List NodeId) (c : SSCell) : SSCell := Id.run do
+  let R := AggressiveReview.reviewAgg (PureDriverImproves.filterWeak T e)
+  if !isValid R then return c
+  let mut c := { c with filters := c.filters + 1 }
+  for P in segsOf R do
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      c := { c with segs := c.segs + 1 }
+      if lo.id.step ≤ e.1 && e.1 ≤ hi.id.step then c := { c with covering := c.covering + 1 }
+      else
+        let cs := (commonAtRS R P e.1).filter (fun q => R.gowners.contains q)
+        if cs.isEmpty then
+          c := { c with noCommon := c.noCommon + 1 }
+          if c.firstC == "" then c := { c with firstC := s!"{lab}: tramo {lo.id.step}..{hi.id.step}, paso {e.1}" }
+        for q in cs do
+          c := { c with triples := c.triples + 1 }
+          let ok := fun x => T.gowners.contains x && (x.id.step != e.1 || x == q)
+          match (extendFullIn T ok P 5000).1 with
+          | some true => pure ()
+          | some false =>
+            c := { c with triplesBad := c.triplesBad + 1 }
+            if c.firstT == "" then c := { c with firstT := s!"{lab}: tramo {lo.id.step}..{hi.id.step}, c paso {e.1}" }
+          | none => c := { c with cut := c.cut + 1 }
+    | _, _ => pure ()
+  return c
+
+partial def walkSS (lab : String) (g : GPathM) (fuel : Nat) (c : SSCell) : SSCell :=
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := checkSS s!"{lab} pin" g (k, [q.id]) c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkSS lab (filterAllAgg g [q.id]) (fuel - 1) c
+
+def runFormulaSS (label : String) (φ : Cnf) (a : SSAcc) : SSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        for e in es do
+          if isValid T then
+            a := { a with sends := checkSS s!"{label} envio paso {step}" T e a.sends }
+            T := AggressiveReview.reviewAgg (PureDriverImproves.filterWeak T e)
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := { a with pins := walkSS s!"{label} lector" g (stepCount φ).toNat a.pins }
+  return a
+
+def reportSSCell (lbl : String) (c : SSCell) : IO Unit := do
+  IO.println s!"   {lbl}: filtros {c.filters}, tramos {c.segs} (cubren el paso {c.covering})"
+  IO.println s!"      CommonAtFilter: tramos sin comun admitida {c.noCommon}"
+  IO.println s!"      StepSegTriples: (tramo, c) {c.triples}, sin cadena en T {c.triplesBad}, presupuesto {c.cut}"
+  if c.firstC != "" then IO.println s!"      primer sin comun: {c.firstC}"
+  if c.firstT != "" then IO.println s!"      primer sin cadena: {c.firstT}"
+
+def reportSS (name : String) (a : SSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportSSCell "envios" a.sends
+  reportSSCell "pines " a.pins
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7275,6 +7368,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "segstep" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaSS path φ {})
+        let t1 ← IO.monoMsNow
+        reportSS path a (t1 - t0)
+  | "segstep" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : SSAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaSS s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportSS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "segmix" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
