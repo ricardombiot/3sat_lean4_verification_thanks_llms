@@ -131,9 +131,11 @@ end
 # Review simétrico (docs/plans/review_simetrico.md, A2). Cuando el review quita w de la tabla de x
 # afirma «ninguna solución pasa a la vez por x y por w»; la frase es simétrica, así que con :on se
 # borra también el espejo: x sale de la tabla de w si w sigue vivo.
-#   :off — (por defecto) la máquina de antes: el corte solo se escribe en la tabla de x.
-#   :on  — las pasadas de padres y de hijos escriben el espejo.
-const SYM_MODE = Ref(:off)
+#   :on  — (por defecto desde el 24-sept-2026) las pasadas de padres y de hijos escriben el espejo.
+#          compare_sym.jl: 80 instancias, mismos veredictos, estados finales y vueltas que :off,
+#          +0,2 % de tiempo; la rama «asymmetric» del filtro agresivo deja de dispararse.
+#   :off — la máquina de antes: el corte solo se escribe en la tabla de x.
+const SYM_MODE = Ref(:on)
 
 # Contadores (solo para medir; no cambian nada).
 const MIRROR_REMOVED = Ref(0)   # entradas espejo borradas
