@@ -7993,6 +7993,14 @@ structure TXAcc where
   wcSegEmpty : Nat := 0
   e1FailDom : List (Nat × Nat) := []
   exE1 : String := ""
+  witTot : Nat := 0
+  witDead : Nat := 0
+  witStripped : Nat := 0
+  witQ : Nat := 0
+  witQDead : Nat := 0
+  witQStripped : Nat := 0
+  segNoWitQ : Nat := 0
+  segWitQButNone : Nat := 0
   deriving Repr
 
 def txTab (g : GPathM) (z : PathNodeId) : List PathNodeId := (g.node? z).map (·.owners) |>.getD []
@@ -8000,7 +8008,7 @@ def txTab (g : GPathM) (z : PathNodeId) : List PathNodeId := (g.node? z).map (·
 def txSons (g : GPathM) (t : PathNodeId) : List PathNodeId :=
   (g.line (t.id.step + 1)).map (·.id) |>.filter (fun r => r.parent_id == some t.id && r.gparent_id == t.parent_id)
 
-def txState (g C : GPathM) (a : TXAcc) : TXAcc := Id.run do
+def txState (g C : GPathM) (qp : PathNodeId) (a : TXAcc) : TXAcc := Id.run do
   let mut a := a
   let mut seen : List (List PathNodeId) := []
   for x in C.nodes.take 40 do
@@ -8019,6 +8027,28 @@ def txState (g C : GPathM) (a : TXAcc) : TXAcc := Id.run do
         let wSg := cG.filter (fun r => S.all (fun u => (txTab g u).contains r))
         let wSc := cC.filter (fun r => S.all (fun u => (txTab C u).contains r))
         let wSgAlive := wSg.filter cC.contains
+        -- which witnesses survive, and the local criterion: a pinned node at the pin's step, alive,
+        -- in the witness's g-table and in every member's C-table
+        let kq := qp.id.step
+        let pinnedShared (r : PathNodeId) : Bool :=
+          (ownersAt (txTab g r) kq).any (fun p => (C.node? p).isSome && p.id == qp.id &&
+            S.all (fun u => (txTab C u).contains p))
+        let mut anyQ := false
+        let mut anyQOk := false
+        for r in wSg do
+          a := { a with witTot := a.witTot + 1 }
+          let alive := cC.contains r
+          let kept := alive && S.all (fun u => (txTab C u).contains r)
+          if !alive then a := { a with witDead := a.witDead + 1 }
+          else if !kept then a := { a with witStripped := a.witStripped + 1 }
+          if pinnedShared r then
+            anyQ := true
+            a := { a with witQ := a.witQ + 1 }
+            if !alive then a := { a with witQDead := a.witQDead + 1 }
+            else if !kept then a := { a with witQStripped := a.witQStripped + 1 }
+            else anyQOk := true
+        if !anyQ then a := { a with segNoWitQ := a.segNoWitQ + 1 }
+        else if !anyQOk then a := { a with segWitQButNone := a.segWitQButNone + 1 }
         if wSg.isEmpty then a := { a with wgSegEmpty := a.wgSegEmpty + 1 }
         if wSc.isEmpty then a := { a with wcSegEmpty := a.wcSegEmpty + 1 }
         if wSgAlive.isEmpty then
@@ -8077,7 +8107,7 @@ partial def walkTX (g : GPathM) (fuel : Nat) (a : TXAcc) : TXAcc :=
       for q in ownersAt g.gowners k do
         let C := cleanPair (filterWeak g (q.id.step, [q.id]))
         a := { a with pins := a.pins + 1 }
-        if isValid C then a := txState g C a
+        if isValid C then a := txState g C q a
       match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
       | none => return a
       | some q => return walkTX (filterAllAgg g [q.id]) (fuel - 1) a
@@ -8099,6 +8129,8 @@ def reportTX (name : String) (a : TXAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   dos hijos vivos {a.two}: B_a de un solo hijo {a.twoSingleA}; ambos de un solo hijo: el mismo {a.twoBothSingleSame}, distintos {a.twoBothSingleDiff}"
   IO.println s!"   tramos {a.segs}: sin testigo en g {a.wgSegEmpty}; E1 (ningun testigo de g sigue vivo) {a.e1Fail} (por hijos vivos {a.e1FailDom}); E2 (alguno vivo pero cleanPair se lo quita a un miembro) {a.e2Fail}; sin testigo en C {a.wcSegEmpty}"
   if a.exE1 != "" then IO.println s!"      E1: {a.exE1}"
+  IO.println s!"   testigos de g {a.witTot}: muertos por la purga {a.witDead}, vivos pero quitados por la regla a algun miembro {a.witStripped}"
+  IO.println s!"   criterio local (nodo pinchado vivo compartido): testigos que lo cumplen {a.witQ}, de ellos muertos {a.witQDead}, quitados {a.witQStripped}; tramos sin ninguno {a.segNoWitQ}; con alguno pero ninguno sobrevive {a.segWitQButNone}"
   IO.println s!"   hijo que falta en un B_a de un solo hijo: ya faltaba en g {a.singOld}, lo quito cleanPair {a.singNew}; parejas con el mismo hijo unico y el otro ausente ya en g en las dos tablas {a.sameCauseOld}"
   if a.exSmaller != "" then IO.println s!"      W_C menor: {a.exSmaller}"
   IO.println s!"   ({ms} ms)"
