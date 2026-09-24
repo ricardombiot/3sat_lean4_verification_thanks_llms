@@ -1293,4 +1293,146 @@ theorem keptOwnDown_of_segThroughPin (g : GPathM) (qid : NodeId)
 #guard_msgs in
 #print axioms keptOwnDown_of_segThroughPin
 
+-- ============================================================
+-- `KeptOwn` desde la exactitud por tríos
+-- ============================================================
+
+/-- **Exactitud por tríos**: tres nodos vivos que se poseen mutuamente están en una cadena sana común.
+Medido (`triexact`, 43 estados del lector, 76.926 tríos): sin fallos. -/
+def TriExact (g : GPathM) : Prop :=
+  ∀ a na b nb c nc, g.node? a = some na → g.node? b = some nb → g.node? c = some nc →
+    b ∈ na.owners → c ∈ na.owners → a ∈ nb.owners → c ∈ nb.owners → a ∈ nc.owners → b ∈ nc.owners →
+    ∃ sel, ChainSound g sel ∧ Fabric.Passes g sel a ∧ Fabric.Passes g sel b ∧ Fabric.Passes g sel c
+
+/-- **El testigo con nodos pinchados por miembro, arriba**: un testigo de `g` tal que, para cada
+miembro, hay un nodo vivo del nodo pinchado que poseen en `g` el miembro y el testigo (puede ser uno
+distinto para cada miembro). -/
+def WitPinUp (g C : GPathM) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi + 1 ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w nw, WitUp g sel lo hi w ∧ g.node? w = some nw ∧
+      ∀ j, lo ≤ j → j ≤ hi → ∃ p, p.id = qid ∧ (g.node? p).isSome = true ∧ p ∈ nw.owners ∧
+        ∀ nj, g.node? (sel j) = some nj → p ∈ nj.owners
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- Un miembro `u` que en `g` posee al testigo `w` y a un nodo pinchado `p` que `w` también posee sigue
+poseyendo `w` en `C`: la cadena de `g` por `u`, `w` y `p` (exactitud por tríos) pasa por el pin, así
+que sigue sana tras el pin y `cleanPair`. -/
+theorem owns_kept_of_tri (g : GPathM) (hT : TriExact g) (hsym : OwnSymmetric g) (qid : NodeId)
+    (u : PathNodeId) (nu : PNodeM) (hu : g.node? u = some nu)
+    (w : PathNodeId) (nw : PNodeM) (hw : g.node? w = some nw)
+    (p : PathNodeId) (np : PNodeM) (hp : g.node? p = some np) (hpid : p.id = qid)
+    (huw : w ∈ nu.owners) (hup : p ∈ nu.owners) (hwp : p ∈ nw.owners)
+    (nuC : PNodeM) (huC : (cleanPair (filterWeak g (qid.step, [qid]))).node? u = some nuC) :
+    w ∈ nuC.owners := by
+  obtain ⟨sel, hC, ⟨i, hi0, hi1, hiu⟩, ⟨j, hj0, hj1, hjw⟩, ⟨k, hk0, hk1, hkp⟩⟩ :=
+    hT u nu w nw p np hu hw hp huw hup (hsym u nu w nw hu hw huw) hwp
+      (hsym u nu p np hu hp hup) (hsym w nw p np hw hp hwp)
+  have hks : (sel k).id.step = k := (hC.chain.1.1 k hk0 hk1).2
+  have hkq : k = qid.step := by rw [← hks, hkp, hpid]
+  have hX := PairHelly.chainSound_filterWeak g qid.step qid sel hC (fun _ _ => by rw [← hkq, hkp, hpid])
+  have hCP := ChainSound_cleanPair _ sel hX
+  have hcs : (cleanPair (filterWeak g (qid.step, [qid]))).current_step = g.current_step :=
+    (pruned_cleanPair _).step_eq
+  rw [← hiu] at huC
+  have := AggressiveReview.chain_mem_owners _ sel hCP i hi0 (by rw [hcs]; exact hi1) nuC huC j hj0
+    (by rw [hcs]; exact hj1)
+  rw [hjw] at this
+  exact this
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **`KeptOwnUp` desde la exactitud por tríos y el testigo con nodos pinchados.** -/
+theorem keptOwnUp_of_tri (g : GPathM) (qid : NodeId) (hnd : NodupIds g) (hT : TriExact g)
+    (hsym : OwnSymmetric g)
+    (hW : WitPinUp g (cleanPair (filterWeak g (qid.step, [qid]))) qid) :
+    KeptOwnUp g (cleanPair (filterWeak g (qid.step, [qid]))) qid := by
+  intro sel lo hi hlo hlh hhi hS
+  obtain ⟨w, nw, hwit, hnw, hpins⟩ := hW sel lo hi hlo hlh hhi hS
+  obtain ⟨p0, hp0id, hp0l, hp0w, _⟩ := hpins hi hlh (Int.le_refl _)
+  refine ⟨w, nw, p0, hwit, hnw, hp0w, hp0l, hp0id, fun j hj0 hj1 => ?_⟩
+  obtain ⟨njC, hnjC⟩ := Option.isSome_iff_exists.mp (hS.1.1 j hj0 hj1).1
+  -- the member is a node of `g` too (`C` is a pruning of `g`)
+  have hpr : Pruned g (cleanPair (filterWeak g (qid.step, [qid]))) :=
+    Pruned.trans (ConservationCore.pruned_filterWeak g _) (pruned_cleanPair _)
+  obtain ⟨nj, hnj, _, _⟩ := SegExact.node_before g _ hpr hnd (sel j) njC hnjC
+  obtain ⟨p, hpid, hpl, hpw, hpj⟩ := hpins j hj0 hj1
+  obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp hpl
+  exact (ownsB_of _ (sel j) w njC hnjC).mpr
+    (owns_kept_of_tri g hT hsym qid (sel j) nj hnj w nw hnw p np hnp hpid
+      (hwit.2 j hj0 hj1 nj hnj) (hpj nj hnj) hpw njC hnjC)
+
+/-- **Y abajo.** -/
+def WitPinDown (g C : GPathM) (qid : NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 1 ≤ lo → lo ≤ hi → hi ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w nw, WitDown g sel lo hi w ∧ g.node? w = some nw ∧
+      ∀ j, lo ≤ j → j ≤ hi → ∃ p, p.id = qid ∧ (g.node? p).isSome = true ∧ p ∈ nw.owners ∧
+        ∀ nj, g.node? (sel j) = some nj → p ∈ nj.owners
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+theorem keptOwnDown_of_tri (g : GPathM) (qid : NodeId) (hnd : NodupIds g) (hT : TriExact g)
+    (hsym : OwnSymmetric g)
+    (hW : WitPinDown g (cleanPair (filterWeak g (qid.step, [qid]))) qid) :
+    KeptOwnDown g (cleanPair (filterWeak g (qid.step, [qid]))) qid := by
+  intro sel lo hi hlo hlh hhi hS
+  obtain ⟨w, nw, hwit, hnw, hpins⟩ := hW sel lo hi hlo hlh hhi hS
+  obtain ⟨p0, hp0id, hp0l, hp0w, _⟩ := hpins lo (Int.le_refl _) hlh
+  refine ⟨w, nw, p0, hwit, hnw, hp0w, hp0l, hp0id, fun j hj0 hj1 => ?_⟩
+  obtain ⟨njC, hnjC⟩ := Option.isSome_iff_exists.mp (hS.1.1 j hj0 hj1).1
+  have hpr : Pruned g (cleanPair (filterWeak g (qid.step, [qid]))) :=
+    Pruned.trans (ConservationCore.pruned_filterWeak g _) (pruned_cleanPair _)
+  obtain ⟨nj, hnj, _, _⟩ := SegExact.node_before g _ hpr hnd (sel j) njC hnjC
+  obtain ⟨p, hpid, hpl, hpw, hpj⟩ := hpins j hj0 hj1
+  obtain ⟨np, hnp⟩ := Option.isSome_iff_exists.mp hpl
+  exact (ownsB_of _ (sel j) w njC hnjC).mpr
+    (owns_kept_of_tri g hT hsym qid (sel j) nj hnj w nw hnw p np hnp hpid
+      (hwit.2 j hj0 hj1 nj hnj) (hpj nj hnj) hpw njC hnjC)
+
+open AbsSat.Cnf in
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **El lector sin retroceso decide 3-SAT**, con `hStart` y, en cada pin del lector: la exactitud por
+parejas y por tríos del estado del lector (`PairExact`, `TriExact`), **un testigo de `g` que comparte
+con cada miembro un nodo pinchado** (`WitPinUp`, `WitPinDown`), el resto de `PStateG` (`CleanRest`) y
+las vueltas siguientes listas (`LaterValid`). Que el testigo siga vivo, enlazado y poseído por todos en
+`C` está demostrado. -/
+theorem readerVerdictW_iff_of_witPin
+    (hStart : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (AggressiveReview.filterAllAgg kv.2 []) = true →
+        SegExact.SegExact (AggressiveReview.filterAllAgg kv.2 []))
+    (hPin : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (AggressiveReview.filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      PairExact g ∧ TriExact g ∧
+        WitPinUp g (cleanPair (filterWeak g (q.id.step, [q.id]))) q.id ∧
+        WitPinDown g (cleanPair (filterWeak g (q.id.step, [q.id]))) q.id ∧
+        PairHelly.CleanRest (filterWeak g (q.id.step, [q.id])) ∧
+        PinDoomed.LaterValid (filterWeak g (q.id.step, [q.id])))
+    (φ : Cnf) (hwf : WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine readerVerdictW_iff_of_keptOwn hStart ?_ φ hwf
+  intro φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hPE, hT, hU, hD, hC, hL⟩ := hPin φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (AggressiveReview.filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(AggressiveReview.pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+  have rc := ReaderAgg.RCtx_of_readableAgg g ctx.rd
+  have hsymg : Threaded.OwnSymmetric g :=
+    PinExactBoundary.ownSymmetric_of_aggOk g (by
+      obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+      rw [hg] at hv ⊢
+      exact AggFixpoint.aggOk_reviewAgg _ hv) rc.snn rc.below
+      (AdjacentOwners.adj_of_readable g ctx.rd hv ctx.pms ctx.sn).ctx.nodeval
+  exact ⟨hPE, keptOwnUp_of_tri g q.id rc.nodup hT hsymg hU,
+    keptOwnDown_of_tri g q.id rc.nodup hT hsymg hD, hC, hL⟩
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.readerVerdictW_iff_of_witPin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_witPin
+
 end AbsSat.GraphPath.Model.OneStep

@@ -8001,6 +8001,8 @@ structure TXAcc where
   witQStripped : Nat := 0
   segNoWitQ : Nat := 0
   segWitQButNone : Nat := 0
+  segNoWitPin : Nat := 0
+  exNoWitPin : String := ""
   deriving Repr
 
 def txTab (g : GPathM) (z : PathNodeId) : List PathNodeId := (g.node? z).map (·.owners) |>.getD []
@@ -8047,6 +8049,14 @@ def txState (g C : GPathM) (qp : PathNodeId) (a : TXAcc) : TXAcc := Id.run do
             if !alive then a := { a with witQDead := a.witQDead + 1 }
             else if !kept then a := { a with witQStripped := a.witQStripped + 1 }
             else anyQOk := true
+        -- WitPinUp: a g-witness such that every member shares with it some live pinned node (in g)
+        let pinOk (r : PathNodeId) : Bool := S.all (fun u =>
+          (ownersAt (txTab g r) kq).any (fun p => p.id == qp.id && (g.node? p).isSome &&
+            (txTab g u).contains p))
+        if !wSg.any pinOk then
+          a := { a with segNoWitPin := a.segNoWitPin + 1 }
+          if a.exNoWitPin == "" then
+            a := { a with exNoWitPin := s!"t {pidStr t}, tramo {S.map pidStr}, testigos {wSg.map pidStr}, pin {pidStr qp}" }
         if !anyQ then a := { a with segNoWitQ := a.segNoWitQ + 1 }
         else if !anyQOk then a := { a with segWitQButNone := a.segWitQButNone + 1 }
         if wSg.isEmpty then a := { a with wgSegEmpty := a.wgSegEmpty + 1 }
@@ -8131,6 +8141,8 @@ def reportTX (name : String) (a : TXAcc) (ms : Nat) : IO Unit := do
   if a.exE1 != "" then IO.println s!"      E1: {a.exE1}"
   IO.println s!"   testigos de g {a.witTot}: muertos por la purga {a.witDead}, vivos pero quitados por la regla a algun miembro {a.witStripped}"
   IO.println s!"   criterio local (nodo pinchado vivo compartido): testigos que lo cumplen {a.witQ}, de ellos muertos {a.witQDead}, quitados {a.witQStripped}; tramos sin ninguno {a.segNoWitQ}; con alguno pero ninguno sobrevive {a.segWitQButNone}"
+  IO.println s!"   WitPinUp: tramos sin testigo de g con nodo pinchado compartido con cada miembro {a.segNoWitPin}"
+  if a.exNoWitPin != "" then IO.println s!"      {a.exNoWitPin}"
   IO.println s!"   hijo que falta en un B_a de un solo hijo: ya faltaba en g {a.singOld}, lo quito cleanPair {a.singNew}; parejas con el mismo hijo unico y el otro ausente ya en g en las dos tablas {a.sameCauseOld}"
   if a.exSmaller != "" then IO.println s!"      W_C menor: {a.exSmaller}"
   IO.println s!"   ({ms} ms)"
@@ -8225,6 +8237,50 @@ def reportPE (name : String) (a : PEAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   parejas (nodo, entrada viva de otro paso) {a.pairs}: en una cadena completa comun {a.exact}; en ninguna {a.notExact}; presupuesto agotado {a.budget}"
   if a.ex != "" then IO.println s!"      primera sin cadena: {a.ex}"
   IO.println s!"   ({ms} ms)"
+
+
+/-! **`triexact`: ¿tres nodos que se poseen mutuamente están en una cadena completa común?** En cada
+estado del lector: para cada nodo `x` (hasta 25), entradas vivas `w` (hasta 12) y `p` (hasta 6) de pasos
+distintos que se poseen mutuamente con `x` y entre sí, búsqueda de una cadena completa por los tres. -/
+
+def teState (lab : String) (g : GPathM) (a : PEAcc) : PEAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for nx in g.nodes.take 25 do
+    let x := nx.id
+    let ws := (nx.owners.eraseDups.filter (fun w => w != x && (g.node? w).isSome &&
+      w.id.step != x.id.step && peOwns g w x)).take 12
+    for w in ws do
+      for p in (ws.filter (fun p => p != w && p.id.step != w.id.step && peOwns g w p && peOwns g p w)).take 6 do
+        a := { a with pairs := a.pairs + 1 }
+        let (r, _) := peSearch g [(x.id.step, x), (w.id.step, w), (p.id.step, p)] [] 0 5000
+        match r with
+        | some true => a := { a with exact := a.exact + 1 }
+        | some false =>
+          a := { a with notExact := a.notExact + 1 }
+          if a.ex == "" then a := { a with ex := s!"{lab}: {pidStr x}, {pidStr w}, {pidStr p}" }
+        | none => a := { a with budget := a.budget + 1 }
+  return a
+
+partial def walkTE (lab : String) (g : GPathM) (fuel : Nat) (a : PEAcc) : PEAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let a := teState lab g a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkTE lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaTE (lab : String) (φ : Cnf) (a : PEAcc) : PEAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkTE lab g (stepCount φ).toNat a
+  return a
 
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
@@ -9498,6 +9554,20 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "triexact" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : PEAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaTE s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      IO.println s!"── seed {seed} ({a.formulas} formulas, {a.states} estados del lector)"
+      IO.println s!"   trios que se poseen mutuamente {a.pairs}: en una cadena completa comun {a.exact}; en ninguna {a.notExact}; presupuesto agotado {a.budget}"
+      if a.ex != "" then IO.println s!"      primero sin cadena: {a.ex}"
+      IO.println s!"   ({t1 - t0} ms)"
       (← IO.getStdout).flush
   | "pairexact" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
