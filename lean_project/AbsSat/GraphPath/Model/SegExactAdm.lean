@@ -18,7 +18,13 @@ cadena por el tramo y un nodo admitido) se parte en:
 **(b) cuando `r` es vecina del tramo** (justo debajo o justo encima) está demostrada
 (`gapExact_below`, `gapExact_above`): en un estado del lector un owner un paso por debajo es padre (un
 paso por encima, hijo) —`AdjacentOwners`—, la simetría mete el tramo en la tabla de `r`, y el tramo más
-`r` es un tramo: `SegExact` da la cadena. Queda como hipótesis el caso con hueco (`GapExactFar`).
+`r` es un tramo: `SegExact` da la cadena. **Con hueco** (`gapExactFar_of_steps`), por inducción sobre la
+distancia: cada paso alarga el tramo con un nodo `u` del paso vecino, común a sus tablas y en la tabla de
+`r` (`GapStepBelow`, `GapStepAbove`), y `r` sigue siendo común por simetría.
+
+Así, `readerVerdictW_iff_of_helly`: el lector decide 3-SAT con `SegExact` en la línea final revisada y,
+en cada pin, **tres afirmaciones de un solo paso** sobre el estado de antes (`CommonAdm`,
+`GapStepBelow`, `GapStepAbove`).
 
 Medido (`row-degree nodeadm`, `dos_de_tres`): (a) 3.779 de 3.779; (b) 4.009 de 4.009.
 -/
@@ -218,6 +224,190 @@ theorem gapExact_of_far (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Threaded
 #print axioms nodeAdmToChain_of
 
 -- ============================================================
+-- (b) con hueco, por pasos: un Helly de un paso cada vez
+-- ============================================================
+
+/-- **Alargar un tramo un paso hacia abajo** con un nodo `u` común a sus tablas, en el paso de debajo:
+`u` es padre del nodo más bajo (`AdjacentOwners`) y la simetría mete el tramo en la tabla de `u`. -/
+theorem seg_extend_below (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Threaded.OwnSymmetric T)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlh : lo ≤ hi) (hlo1 : 1 ≤ lo) (hseg : Seg T sel lo hi)
+    (u : PathNodeId) (hug : u ∈ T.gowners) (hus : u.id.step = lo - 1)
+    (hu : ∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj → u ∈ nj.owners) :
+    Seg T (upd sel (lo - 1) u) (lo - 1) hi := by
+  obtain ⟨hpc, hpo⟩ := hseg
+  obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff T u).mp (a.ctx.gn u hug))
+  obtain ⟨hslo, hstlo⟩ := hpc.1 lo (Int.le_refl _) hlh
+  obtain ⟨nlo, hnlo⟩ := Option.isSome_iff_exists.mp hslo
+  have hupar : u ∈ nlo.parents :=
+    (AdjacentOwners.owners_below_iff_parents T a (sel lo) nlo hnlo (by rw [hstlo]; omega) u
+      (by rw [hus, hstlo])).mp (hu lo (Int.le_refl _) hlh nlo hnlo)
+  have hlt : ∀ j, lo ≤ j → upd sel (lo - 1) u j = sel j := fun j hj => upd_other sel _ u (by omega)
+  refine ⟨⟨fun i hi0 hi1 => ?_, fun i hi0 hi1 => ?_⟩, fun i j hi0 hj0 hi1 hj1 hij nj hnj => ?_⟩
+  · rcases Int.lt_or_le i lo with h | h
+    · have : i = lo - 1 := by omega
+      subst this
+      rw [upd_self, hnu]; exact ⟨rfl, hus⟩
+    · rw [hlt i h]; exact hpc.1 i h hi1
+  · rcases Int.lt_or_le i lo with h | h
+    · have : i = lo - 1 := by omega
+      subst this
+      rw [upd_self, upd_other sel _ u (by omega), show lo - 1 + 1 = lo by omega, hnlo]
+      exact hupar
+    · rw [hlt i h, hlt (i + 1) (by omega)]; exact hpc.2 i h hi1
+  · rcases Int.lt_or_le i lo with hi2 | hi2
+    · have : i = lo - 1 := by omega
+      subst this
+      have hj2 : lo ≤ j := by omega
+      rw [hlt j hj2] at hnj
+      rw [upd_self]; exact hu j hj2 hj1 nj hnj
+    · rcases Int.lt_or_le j lo with hj2 | hj2
+      · have : j = lo - 1 := by omega
+        subst this
+        rw [upd_self, hnu] at hnj
+        cases hnj
+        rw [hlt i hi2]
+        obtain ⟨hsi, _⟩ := hpc.1 i hi2 hi1
+        obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp hsi
+        exact hsym (sel i) ni u nu hni hnu (hu i hi2 hi1 ni hni)
+      · rw [hlt i hi2]; rw [hlt j hj2] at hnj
+        exact hpo i j hi2 hj2 hi1 hj1 hij nj hnj
+
+/-- **Alargar un tramo un paso hacia arriba**, con un nodo `u` común en el paso de encima. -/
+theorem seg_extend_above (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Threaded.OwnSymmetric T)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlh : lo ≤ hi) (hhi2 : hi ≤ T.current_step - 2)
+    (hseg : Seg T sel lo hi)
+    (u : PathNodeId) (hug : u ∈ T.gowners) (hus : u.id.step = hi + 1)
+    (hu : ∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj → u ∈ nj.owners) :
+    Seg T (upd sel (hi + 1) u) lo (hi + 1) := by
+  obtain ⟨hpc, hpo⟩ := hseg
+  obtain ⟨nu, hnu⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff T u).mp (a.ctx.gn u hug))
+  obtain ⟨hshi, hsthi⟩ := hpc.1 hi hlh (Int.le_refl _)
+  obtain ⟨nhi, hnhi⟩ := Option.isSome_iff_exists.mp hshi
+  have huson : u ∈ nhi.sons :=
+    (AdjacentOwners.owners_above_iff_sons T a (sel hi) nhi hnhi (by rw [hsthi]; omega) u
+      (by rw [hus, hsthi])).mp (hu hi hlh (Int.le_refl _) nhi hnhi)
+  have hhipar : sel hi ∈ nu.parents := by
+    have := a.pms nhi (List.mem_of_find?_eq_some hnhi) u huson nu (List.mem_of_find?_eq_some hnu)
+      (node?_id_eq T u nu hnu)
+    rwa [node?_id_eq T (sel hi) nhi hnhi] at this
+  have hlt : ∀ j, j ≤ hi → upd sel (hi + 1) u j = sel j := fun j hj => upd_other sel _ u (by omega)
+  refine ⟨⟨fun i hi0 hi1 => ?_, fun i hi0 hi1 => ?_⟩, fun i j hi0 hj0 hi1 hj1 hij nj hnj => ?_⟩
+  · rcases Int.lt_or_le hi i with h | h
+    · have : i = hi + 1 := by omega
+      subst this
+      rw [upd_self, hnu]; exact ⟨rfl, hus⟩
+    · rw [hlt i h]; exact hpc.1 i hi0 h
+  · rcases Int.lt_or_le i hi with h | h
+    · rw [hlt i (by omega), hlt (i + 1) (by omega)]; exact hpc.2 i hi0 (by omega)
+    · have : i = hi := by omega
+      subst this
+      rw [upd_self, upd_other sel _ u (by omega), hnu]
+      exact hhipar
+  · rcases Int.lt_or_le hi i with hi2 | hi2
+    · have : i = hi + 1 := by omega
+      subst this
+      have hj2 : j ≤ hi := by omega
+      rw [hlt j hj2] at hnj
+      rw [upd_self]; exact hu j hj0 hj2 nj hnj
+    · rcases Int.lt_or_le hi j with hj2 | hj2
+      · have : j = hi + 1 := by omega
+        subst this
+        rw [upd_self, hnu] at hnj
+        cases hnj
+        rw [hlt i hi2]
+        obtain ⟨hsi, _⟩ := hpc.1 i hi0 hi2
+        obtain ⟨ni, hni⟩ := Option.isSome_iff_exists.mp hsi
+        exact hsym (sel i) ni u nu hni hnu (hu i hi0 hi2 ni hni)
+      · rw [hlt i hi2]; rw [hlt j hj2] at hnj
+        exact hpo i j hi0 hj0 hi2 hj2 hij nj hnj
+
+/-- **Un paso hacia `r`, por debajo**: si `r` es común a un tramo y está a más de un paso por debajo,
+hay en el paso de justo debajo del tramo un nodo común a sus tablas que está en la tabla de `r`.
+Un Helly de un paso: el tramo y `r` juntos. -/
+def GapStepBelow (T : GPathM) : Prop :=
+  ∀ sel lo hi k r, GapCase T sel lo hi k r → k < lo - 1 →
+    ∃ u ∈ T.gowners, u.id.step = lo - 1 ∧
+      (∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj → u ∈ nj.owners) ∧
+      ∀ nr, T.node? r = some nr → u ∈ nr.owners
+
+/-- **Un paso hacia `r`, por encima.** -/
+def GapStepAbove (T : GPathM) : Prop :=
+  ∀ sel lo hi k r, GapCase T sel lo hi k r → hi + 1 < k →
+    ∃ u ∈ T.gowners, u.id.step = hi + 1 ∧
+      (∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj → u ∈ nj.owners) ∧
+      ∀ nr, T.node? r = some nr → u ∈ nr.owners
+
+/-- **(b) con hueco, desde los pasos**: por inducción sobre la distancia, cada paso alarga el tramo
+con un nodo común hacia `r` (que sigue siendo común por simetría), hasta que `r` es vecina. -/
+theorem gapExactFar_of_steps (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Threaded.OwnSymmetric T)
+    (hS : SegExact T) (hB : GapStepBelow T) (hA : GapStepAbove T) : GapExactFar T := by
+  have rnode : ∀ r, r ∈ T.gowners → ∃ nr, T.node? r = some nr := fun r hr =>
+    Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff T r).mp (a.ctx.gn r hr))
+  have below : ∀ n : Nat, ∀ sel lo hi k r, GapCase T sel lo hi k r → lo - k = (n : Int) + 1 →
+      GapChain T sel lo hi k r := by
+    intro n
+    induction n with
+    | zero =>
+      intro sel lo hi k r hc hd
+      have : k = lo - 1 := by omega
+      subst this
+      exact gapExact_below T a hsym hS sel lo hi r hc
+    | succ n ih =>
+      intro sel lo hi k r hc hd
+      obtain ⟨hlo, hlh, hhi, hseg, hk0, hk1, hrg, hrs, hrall⟩ := hc
+      obtain ⟨u, hug, hus, hu, hur⟩ :=
+        hB sel lo hi k r ⟨hlo, hlh, hhi, hseg, hk0, hk1, hrg, hrs, hrall⟩ (by omega)
+      have hseg' := seg_extend_below T a hsym sel lo hi hlh (by omega) hseg u hug hus hu
+      obtain ⟨nr, hnr⟩ := rnode r hrg
+      have hlt : ∀ j, lo ≤ j → upd sel (lo - 1) u j = sel j := fun j hj => upd_other sel _ u (by omega)
+      have hc' : GapCase T (upd sel (lo - 1) u) (lo - 1) hi k r := by
+        refine ⟨by omega, by omega, hhi, hseg', hk0, hk1, hrg, hrs, fun j hj0 hj1 nj hnj => ?_⟩
+        rcases Int.lt_or_le j lo with h | h
+        · have : j = lo - 1 := by omega
+          subst this
+          rw [upd_self] at hnj
+          exact hsym r nr u nj hnr hnj (hur nr hnr)
+        · rw [hlt j h] at hnj; exact hrall j h hj1 nj hnj
+      obtain ⟨s, hs, hsel, hsk⟩ := ih (upd sel (lo - 1) u) (lo - 1) hi k r hc' (by omega)
+      exact ⟨s, hs, fun j hj0 hj1 => by rw [hsel j (by omega) hj1, hlt j hj0], hsk⟩
+  have above : ∀ n : Nat, ∀ sel lo hi k r, GapCase T sel lo hi k r → k - hi = (n : Int) + 1 →
+      GapChain T sel lo hi k r := by
+    intro n
+    induction n with
+    | zero =>
+      intro sel lo hi k r hc hd
+      have : k = hi + 1 := by omega
+      subst this
+      exact gapExact_above T a hsym hS sel lo hi r hc
+    | succ n ih =>
+      intro sel lo hi k r hc hd
+      obtain ⟨hlo, hlh, hhi, hseg, hk0, hk1, hrg, hrs, hrall⟩ := hc
+      obtain ⟨u, hug, hus, hu, hur⟩ :=
+        hA sel lo hi k r ⟨hlo, hlh, hhi, hseg, hk0, hk1, hrg, hrs, hrall⟩ (by omega)
+      have hseg' := seg_extend_above T a hsym sel lo hi hlh (by omega) hseg u hug hus hu
+      obtain ⟨nr, hnr⟩ := rnode r hrg
+      have hlt : ∀ j, j ≤ hi → upd sel (hi + 1) u j = sel j := fun j hj => upd_other sel _ u (by omega)
+      have hc' : GapCase T (upd sel (hi + 1) u) lo (hi + 1) k r := by
+        refine ⟨hlo, by omega, by omega, hseg', hk0, hk1, hrg, hrs, fun j hj0 hj1 nj hnj => ?_⟩
+        rcases Int.lt_or_le hi j with h | h
+        · have : j = hi + 1 := by omega
+          subst this
+          rw [upd_self] at hnj
+          exact hsym r nr u nj hnr hnj (hur nr hnr)
+        · rw [hlt j h] at hnj; exact hrall j hj0 h nj hnj
+      obtain ⟨s, hs, hsel, hsk⟩ := ih (upd sel (hi + 1) u) lo (hi + 1) k r hc' (by omega)
+      exact ⟨s, hs, fun j hj0 hj1 => by rw [hsel j hj0 (by omega), hlt j hj1], hsk⟩
+  intro sel lo hi k r hc hout
+  rcases hout with h | h
+  · exact below (lo - k - 1).toNat sel lo hi k r hc (by omega)
+  · exact above (k - hi - 1).toNat sel lo hi k r hc (by omega)
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactAdm.gapExactFar_of_steps' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms gapExactFar_of_steps
+
+-- ============================================================
 -- La escalera, con (a) y (b) con hueco en cada pin
 -- ============================================================
 
@@ -272,6 +462,65 @@ theorem readerVerdictW_iff_of_commonAdm
     have hN := nodeAdmToChain_of g _ he0 he1 hA hG
     have hAdm := admittedExt_of_nodeAdm g _ c0 he0 he1 hv' hN
     exact segExact_stepFilter_adm g _ c0 hS he0 he1 hAdm hv'
+
+open AbsSat.GraphPath.Model.SegExactFilter in
+/-- **El lector sin retroceso decide 3-SAT, con Hellys de un paso**: `SegExact` en la línea final
+revisada, y en cada pin, tres afirmaciones de un solo paso sobre el estado de antes: `CommonAdm` (una
+entrada admitida común al tramo), `GapStepBelow` y `GapStepAbove` (un nodo común al tramo y a una
+entrada común lejana, en el paso vecino del tramo). -/
+theorem readerVerdictW_iff_of_helly
+    (hStart : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (filterAllAgg kv.2 []) = true → SegExact (filterAllAgg kv.2 []))
+    (hPin : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      CommonAdm g (q.id.step, [q.id]) ∧ GapStepBelow g ∧ GapStepAbove g)
+    (φ : AbsSat.Cnf.Cnf) (hwf : AbsSat.Cnf.WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ AbsSat.Cnf.Satisfiable φ := by
+  refine SegExact.readerVerdictW_iff_of_readerSegExact ?_ φ hwf
+  intro φ' hwf' kv hkv g hR hv
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  revert hv
+  induction hR with
+  | start => exact hStart φ' hwf' kv hkv
+  | pin g k q hR hv hk hq ih =>
+    intro hv'
+    have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+    have rc := ReaderAgg.RCtx_of_readableAgg g ctx.rd
+    have cG := Reader.Ctx_of_readable g (ReaderAgg.readable_of_readableAgg g ctx.rd) hv
+    have c0 : StepFilter.SCtx g := ⟨rc, ctx.smp, cG.self, ctx.pos⟩
+    have adj := AdjacentOwners.adj_of_readable g ctx.rd hv ctx.pms ctx.sn
+    have hok : AggFixpoint.AggOk g := by
+      obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+      rw [hg] at hv ⊢
+      exact AggFixpoint.aggOk_reviewAgg _ hv
+    have hsym := PinExactBoundary.ownSymmetric_of_aggOk g hok rc.snn rc.below adj.ctx.nodeval
+    have hS := ih hv
+    obtain ⟨hA, hBl, hAb⟩ := hPin φ' hwf' kv hkv g k q hR hv hk hq
+    have hF := gapExactFar_of_steps g adj hsym hS hBl hAb
+    have hqk : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+    have hkr : k ∈ intRange 0 (g.current_step - 1) := List.mem_of_find?_eq_some hk
+    have hk0 := mem_intRange_lower hkr
+    have hk1 := mem_intRange_upper hkr
+    have he0 : 0 ≤ (q.id.step, [q.id]).1 := by show 0 ≤ q.id.step; rw [hqk]; exact hk0
+    have he1 : (q.id.step, [q.id]).1 < g.current_step := by show q.id.step < _; rw [hqk]; omega
+    rw [filterAllAgg_pin] at hv' ⊢
+    have hG := gapExact_of_far g adj hsym hS hF
+    have hN := nodeAdmToChain_of g _ he0 he1 hA hG
+    have hAdm := admittedExt_of_nodeAdm g _ c0 he0 he1 hv' hN
+    exact segExact_stepFilter_adm g _ c0 hS he0 he1 hAdm hv'
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactAdm.readerVerdictW_iff_of_helly' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_helly
 
 /-- info: 'AbsSat.GraphPath.Model.SegExactAdm.readerVerdictW_iff_of_commonAdm' depends on axioms: [propext, Quot.sound]
 -/
