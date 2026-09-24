@@ -157,9 +157,19 @@ theorem PN_cleanInvalid₂ (g : GPathM) (h : PN g) : PN (cleanInvalid₂ g) := b
   subst hEq
   exact GownersNodes.hasNode_cutAll _ p (hp n hn p (List.mem_filter.mp hpar).1)
 
+theorem PN_pairSweep (g : GPathM) (h : PN g) : PN (pairSweep g) := by
+  intro n' hn' p hpar
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hid⟩ := h n hn p hpar
+  exact ⟨pairMap g m, List.mem_map_of_mem hm, hid⟩
+
+theorem PN_cleanPair (g : GPathM) (h : PN g) : PN (cleanPair g) :=
+  cleanPair_inv PN g (PN_cleanInvalid₂ g h) (fun x _ hx => PN_cleanInvalid₂ _ (PN_pairSweep x hx))
+
 theorem PN_reviewPass (g : GPathM) (h : PN g) : PN (reviewPass g) := by
   simp only [reviewPass]
-  exact PN_reviewSteps _ _ _ (PN_reviewSteps _ _ _ (PN_cleanInvalid₂ g h))
+  exact PN_reviewSteps _ _ _ (PN_reviewSteps _ _ _ (PN_cleanPair g h))
 
 theorem PN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), PN g → PN (reviewFuel fuel g) := by
   intro fuel

@@ -168,9 +168,16 @@ theorem ids_cleanInvalid₂ (g : GPathM) : (Ids (cleanInvalid₂ g)).Sublist (Id
     (fun _ => rfl)]
   exact hp
 
+theorem ids_pairSweep (g : GPathM) : Ids (pairSweep g) = Ids g :=
+  ids_map g (pairMap g) (fun _ => rfl)
+
+theorem ids_cleanPair (g : GPathM) : (Ids (cleanPair g)).Sublist (Ids g) :=
+  cleanPair_inv (fun x => (Ids x).Sublist (Ids g)) g (ids_cleanInvalid₂ g)
+    (fun x _ hx => List.Sublist.trans (ids_cleanInvalid₂ _) (by rw [ids_pairSweep]; exact hx))
+
 theorem ids_reviewPass (g : GPathM) : (Ids (reviewPass g)).Sublist (Ids g) :=
   List.Sublist.trans (ids_reviewSteps _ _ _)
-    (List.Sublist.trans (ids_reviewSteps _ _ _) (ids_cleanInvalid₂ g))
+    (List.Sublist.trans (ids_reviewSteps _ _ _) (ids_cleanPair g))
 
 theorem ids_reviewFuel : ∀ (fuel : Nat) (g : GPathM),
     (Ids (reviewFuel fuel g)).Sublist (Ids g) := by

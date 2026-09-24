@@ -381,19 +381,62 @@ not transfer. See `verificacion_inseguridad_autor_v48.md`. -/
 def reviewSons (g : GPathM) : GPathM :=
   reviewSteps g (·.sons) (intRange 0 (g.current_step - 2)).reverse
 
-/-- One full round of `make_review_owners!`, with the two-phase clean (report v181 §6; the
-sequential `cleanInvalid` above is kept for the record and for the probes). -/
-def reviewPass (g : GPathM) : GPathM :=
-  reviewSons (reviewParents (cleanInvalid₂ g))
-
--- ============================================================
--- Fuel-based review loop (termination lemmas live in Fuel.lean)
--- ============================================================
-
 /-- Everything any review sub-operation can shrink, so any change to the
 graph strictly decreases it. -/
 def measure (g : GPathM) : Nat :=
   g.gowners.length + (g.nodes.map PNodeM.weight).sum
+
+-- ============================================================
+-- The pair rule after the clean (plan `docs/plans/pair_mode.md`, report v185 §5)
+-- ============================================================
+
+/-- The two tables share an entry at every step (below `cs`) where **both** have entries — Julia
+`PathDocumentOwners.shares_every_step`, the test of `intersect!` + `is_valid` on the common steps.
+Symmetric by construction (unlike `AggressiveReview.sharesEveryStep`, which also fails when only
+the first table lacks a step). On valid nodes the two agree: Julia's empty-but-present step can
+only occur in a node the next purge removes. -/
+def pairShares (cs : Int) (xo wo : List PathNodeId) : Bool :=
+  (intRange 0 (cs - 1)).all (fun k =>
+    !hasStepEntry xo k || !hasStepEntry wo k || (ownersAt xo k).any (fun r => wo.contains r))
+
+/-- `w` is a bad pair of `n` in `g`: another live node whose table shares nothing with `n`'s at some
+common step. No solution goes through both. -/
+def pairBad (g : GPathM) (n : PNodeM) (w : PathNodeId) : Bool :=
+  w != n.id && match g.node? w with
+    | some nw => !pairShares g.current_step n.owners nw.owners
+    | none => false
+
+/-- **The pair rule, one phase** (Julia `pair_consistency_after_clean!`, both phases of one round):
+every node drops its bad pairs from its table, all against the same state `g`. Since `pairShares`
+is symmetric, `w` leaves `n`'s table exactly when `n` leaves `w`'s: the rule removes both
+directions, as Julia does. Only shrinks tables: ids, links, global owners and step are untouched. -/
+def pairSweep (g : GPathM) : GPathM :=
+  { g with nodes := g.nodes.map (fun n => { n with owners := n.owners.filter (fun w => !pairBad g n w) }) }
+
+/-- Pair rule and purge while the rule removes something (Julia: `while changed`; the purge only
+runs after a round that removed a pair). A round that continues lowers the measure. -/
+def pairFuel : Nat → GPathM → GPathM
+  | 0, g => g
+  | fuel + 1, g =>
+    if isValid g then
+      let g₁ := pairSweep g
+      if measure g₁ < measure g then pairFuel fuel (cleanInvalid₂ g₁) else g
+    else g
+
+/-- **The clean with pairs**: the two-phase clean, then the pair rule to its fixpoint. -/
+def cleanPair (g : GPathM) : GPathM :=
+  let g₀ := cleanInvalid₂ g
+  pairFuel (measure g₀ + 1) g₀
+
+/-- One full round of `make_review_owners!`, with the two-phase clean (report v181 §6; the
+sequential `cleanInvalid` above is kept for the record and for the probes) followed by the pair
+rule (`PAIR_MODE = :on`, plan `pair_mode`). -/
+def reviewPass (g : GPathM) : GPathM :=
+  reviewSons (reviewParents (cleanPair g))
+
+-- ============================================================
+-- Fuel-based review loop (termination lemmas live in Fuel.lean)
+-- ============================================================
 
 def reviewFuel : Nat → GPathM → GPathM
   | 0, g => g

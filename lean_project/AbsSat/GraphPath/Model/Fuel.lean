@@ -316,11 +316,54 @@ theorem measure_purgeFuel_le : ∀ (fuel : Nat) (g : GPathM), measure (purgeFuel
 theorem measure_cleanInvalid₂_le (g : GPathM) : measure (cleanInvalid₂ g) ≤ measure g :=
   Nat.le_trans (measure_cutAll_le _) (measure_purgeFuel_le _ g)
 
+theorem measure_pairSweep_le (g : GPathM) : measure (pairSweep g) ≤ measure g := by
+  simp only [GPathM.measure, pairSweep]
+  rw [List.map_map]
+  refine Nat.add_le_add_left (sum_map_le' g.nodes _ _ (fun n _ => ?_)) _
+  simp only [Function.comp, PNodeM.weight]
+  have := List.length_filter_le (fun w => !pairBad g n w) n.owners
+  omega
+
+theorem measure_pairFuel_le : ∀ (fuel : Nat) (g : GPathM), measure (pairFuel fuel g) ≤ measure g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Nat.le_refl _
+  | succ n ih =>
+    intro g
+    simp only [pairFuel]
+    split
+    · split
+      · exact Nat.le_trans (ih _) (Nat.le_trans (measure_cleanInvalid₂_le _) (measure_pairSweep_le g))
+      · exact Nat.le_refl _
+    · exact Nat.le_refl _
+
+theorem measure_cleanPair_le (g : GPathM) : measure (cleanPair g) ≤ measure g :=
+  Nat.le_trans (measure_pairFuel_le _ _) (measure_cleanInvalid₂_le g)
+
+/-- A measure-preserving pair loop did nothing: a round that continues lowers the measure. -/
+theorem pairFuel_eq_self : ∀ (fuel : Nat) (g : GPathM), measure (pairFuel fuel g) = measure g →
+    pairFuel fuel g = g := by
+  intro fuel
+  cases fuel with
+  | zero => intro g _; rfl
+  | succ n =>
+    intro g h
+    have hle := Nat.le_trans (measure_pairFuel_le n (cleanInvalid₂ (pairSweep g)))
+      (measure_cleanInvalid₂_le (pairSweep g))
+    by_cases hv : isValid g = true
+    · by_cases hlt : measure (pairSweep g) < measure g
+      · have he : pairFuel (n + 1) g = pairFuel n (cleanInvalid₂ (pairSweep g)) := by
+          simp only [pairFuel, hv, if_true, hlt]
+        rw [he] at h
+        exact absurd h (by omega)
+      · simp only [pairFuel, hv, if_true, hlt, if_false]
+    · simp only [pairFuel, hv, Bool.false_eq_true, if_false]
+
 /-- **F2.a** — one review pass never increases the measure. -/
 theorem measure_reviewPass_le (g : GPathM) : measure (reviewPass g) ≤ measure g := by
   simp only [reviewPass]
   exact Nat.le_trans (measure_reviewSons_le _)
-    (Nat.le_trans (measure_reviewParents_le _) (measure_cleanInvalid₂_le g))
+    (Nat.le_trans (measure_reviewParents_le _) (measure_cleanPair_le g))
 
 -- ============================================================
 -- F2.b — fuel sufficiency
@@ -1016,6 +1059,17 @@ theorem cleanInvalid₂_eq_self (g : GPathM)
   rw [purgeFuel_eq_self _ g hp] at h ⊢
   exact cutAll_eq_self g h
 
+/-- A measure-preserving clean with pairs is the identity, and so is its plain clean. -/
+theorem cleanPair_eq_self (g : GPathM) (h : measure (cleanPair g) = measure g) :
+    cleanInvalid₂ g = g ∧ cleanPair g = g := by
+  have h₁ := measure_cleanInvalid₂_le g
+  have h₂ := measure_pairFuel_le (measure (cleanInvalid₂ g) + 1) (cleanInvalid₂ g)
+  simp only [cleanPair] at h ⊢
+  have hc : cleanInvalid₂ g = g := cleanInvalid₂_eq_self g (by omega)
+  refine ⟨hc, ?_⟩
+  rw [hc] at h ⊢
+  exact pairFuel_eq_self _ g h
+
 /-- A purge pass that left the graph alone left it alone at every step. -/
 theorem foldl_purgeStep_fixed :
     ∀ (ids : List PathNodeId) (g : GPathM), ids.foldl purgeStep g = g →
@@ -1072,12 +1126,12 @@ every filter to have kept its whole input and every `removeNode` branch to be
 unreachable. -/
 theorem reviewPass_eq_self (g : GPathM) (h : measure (reviewPass g) = measure g) :
     reviewPass g = g := by
-  have h₁ := measure_cleanInvalid₂_le g
-  have h₂ := measure_reviewParents_le (cleanInvalid₂ g)
-  have h₃ := measure_reviewSons_le (reviewParents (cleanInvalid₂ g))
+  have h₁ := measure_cleanPair_le g
+  have h₂ := measure_reviewParents_le (cleanPair g)
+  have h₃ := measure_reviewSons_le (reviewParents (cleanPair g))
   simp only [reviewPass] at h ⊢
-  have hclean : measure (cleanInvalid₂ g) = measure g := by omega
-  rw [cleanInvalid₂_eq_self g hclean] at h ⊢
+  have hclean : measure (cleanPair g) = measure g := by omega
+  rw [(cleanPair_eq_self g hclean).2] at h ⊢
   have h₂' := measure_reviewParents_le g
   have h₃' := measure_reviewSons_le (reviewParents g)
   have hpar : measure (reviewParents g) = measure g := by omega
@@ -1377,12 +1431,13 @@ theorem reviewNode_owners_fixed (g : GPathM) (nb : PNodeM → List PathNodeId)
 /-- The three stages of a fixpoint pass are each the identity. -/
 theorem reviewPass_stages_eq_self (g : GPathM) (h : measure (reviewPass g) = measure g) :
     cleanInvalid₂ g = g ∧ reviewParents g = g ∧ reviewSons g = g := by
-  have h₁ := measure_cleanInvalid₂_le g
-  have h₂ := measure_reviewParents_le (cleanInvalid₂ g)
-  have h₃ := measure_reviewSons_le (reviewParents (cleanInvalid₂ g))
+  have h₁ := measure_cleanPair_le g
+  have h₂ := measure_reviewParents_le (cleanPair g)
+  have h₃ := measure_reviewSons_le (reviewParents (cleanPair g))
   simp only [reviewPass] at h
-  have hclean : cleanInvalid₂ g = g := cleanInvalid₂_eq_self g (by omega)
-  rw [hclean] at h h₂ h₃
+  have hcp := cleanPair_eq_self g (by omega)
+  have hclean : cleanInvalid₂ g = g := hcp.1
+  rw [hcp.2] at h h₂ h₃
   have h₃' := measure_reviewSons_le (reviewParents g)
   have hpar : reviewParents g = g := reviewParents_eq_self g (by omega)
   rw [hpar] at h

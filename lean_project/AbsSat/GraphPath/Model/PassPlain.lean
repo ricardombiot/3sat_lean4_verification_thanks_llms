@@ -274,12 +274,11 @@ theorem pstateG_reviewSons (hLS : LocSymStableS) (g : GPathM) (h : PStateG g) :
     (fun _ hk => ⟨mem_intRange_lower (List.mem_reverse.mp hk),
       mem_intRange_upper (List.mem_reverse.mp hk)⟩)
 
-/-- **Una vuelta del review, a partir de la salida de `cleanInvalid₂`**: si allí vale `PStateG`, las
-dos pasadas lo conservan y la vuelta entera (`reviewPass`) lo deja. Lo que falta para encadenar las
-vueltas es establecer `PStateG` a la salida de `cleanInvalid₂`; las tablas vivas ya salen de ella
-(`ownLive_cleanInvalid₂`). -/
+/-- **Una vuelta del review, a partir de la salida de la limpieza (con la regla de parejas,
+`cleanPair`)**: si allí vale `PStateG`, las dos pasadas lo conservan y la vuelta entera
+(`reviewPass`) lo deja. -/
 theorem pstateG_reviewPass (hLS : LocSymStable) (hLSs : LocSymStableS) (g : GPathM)
-    (h : PStateG (cleanInvalid₂ g)) : PStateG (reviewPass g) :=
+    (h : PStateG (cleanPair g)) : PStateG (reviewPass g) :=
   pstateG_reviewSons hLSs _ (pstateG_reviewParents hLS _ h)
 
 /-- info: 'AbsSat.GraphPath.Model.PassPlain.pstateG_reviewPass' depends on axioms: [propext, Quot.sound]

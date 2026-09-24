@@ -192,7 +192,7 @@ theorem OOS_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
 
 theorem OOS_reviewPass (g : GPathM) (h : OOS g) : OOS (reviewPass g) := by
   simp only [reviewPass]
-  exact OOS_reviewSteps _ _ _ (OOS_reviewSteps _ _ _ (OOS_of_pruned (pruned_cleanInvalid₂ g) h))
+  exact OOS_reviewSteps _ _ _ (OOS_reviewSteps _ _ _ (OOS_of_pruned (pruned_cleanPair g) h))
 
 theorem OOS_reviewFuel : ∀ (fuel : Nat) (g : GPathM), OOS g → OOS (reviewFuel fuel g) := by
   intro fuel

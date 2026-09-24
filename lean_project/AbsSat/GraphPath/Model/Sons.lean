@@ -219,9 +219,20 @@ theorem SMP_cutAll (g : GPathM) (h : SMP g) : SMP (cutAll g) := by
 theorem SMP_cleanInvalid₂ (g : GPathM) (h : SMP g) : SMP (cleanInvalid₂ g) :=
   SMP_cutAll _ (purgeFuel_inv SMP (fun g id h => SMP_removeNode g id h) _ g h)
 
+theorem SMP_pairSweep (g : GPathM) (h : SMP g) : SMP (pairSweep g) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  exact h n hn p hp m hm hmid
+
+theorem SMP_cleanPair (g : GPathM) (h : SMP g) : SMP (cleanPair g) :=
+  cleanPair_inv SMP g (SMP_cleanInvalid₂ g h) (fun x _ hx => SMP_cleanInvalid₂ _ (SMP_pairSweep x hx))
+
 theorem SMP_reviewPass (g : GPathM) (h : SMP g) : SMP (reviewPass g) := by
   simp only [reviewPass]
-  exact SMP_reviewSteps _ _ _ (SMP_reviewSteps _ _ _ (SMP_cleanInvalid₂ g h))
+  exact SMP_reviewSteps _ _ _ (SMP_reviewSteps _ _ _ (SMP_cleanPair g h))
 
 theorem SMP_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SMP g → SMP (reviewFuel fuel g) := by
   intro fuel
@@ -434,9 +445,20 @@ theorem PMS_cutAll (g : GPathM) (h : PMS g) : PMS (cutAll g) := by
 theorem PMS_cleanInvalid₂ (g : GPathM) (h : PMS g) : PMS (cleanInvalid₂ g) :=
   PMS_cutAll _ (purgeFuel_inv PMS (fun g id h => PMS_removeNode g id h) _ g h)
 
+theorem PMS_pairSweep (g : GPathM) (h : PMS g) : PMS (pairSweep g) := by
+  intro n' hn' s hs m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  exact h n hn s hs m hm hmid
+
+theorem PMS_cleanPair (g : GPathM) (h : PMS g) : PMS (cleanPair g) :=
+  cleanPair_inv PMS g (PMS_cleanInvalid₂ g h) (fun x _ hx => PMS_cleanInvalid₂ _ (PMS_pairSweep x hx))
+
 theorem PMS_reviewPass (g : GPathM) (h : PMS g) : PMS (reviewPass g) := by
   simp only [reviewPass]
-  exact PMS_reviewSteps _ _ _ (PMS_reviewSteps _ _ _ (PMS_cleanInvalid₂ g h))
+  exact PMS_reviewSteps _ _ _ (PMS_reviewSteps _ _ _ (PMS_cleanPair g h))
 
 theorem PMS_reviewFuel : ∀ (fuel : Nat) (g : GPathM), PMS g → PMS (reviewFuel fuel g) := by
   intro fuel
@@ -772,9 +794,19 @@ theorem SAbove_cleanInvalid₂ (g : GPathM) (h : SAbove g) : SAbove (cleanInvali
   SAbove_of_SonsSub (SonsSub_cutAll _)
     (purgeFuel_inv SAbove (fun g id h => SAbove_removeNode g id h) _ g h)
 
+theorem SAbove_pairSweep (g : GPathM) (h : SAbove g) : SAbove (pairSweep g) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact h n hn s hs
+
+theorem SAbove_cleanPair (g : GPathM) (h : SAbove g) : SAbove (cleanPair g) :=
+  cleanPair_inv SAbove g (SAbove_cleanInvalid₂ g h)
+    (fun x _ hx => SAbove_cleanInvalid₂ _ (SAbove_pairSweep x hx))
+
 theorem SAbove_reviewPass (g : GPathM) (h : SAbove g) : SAbove (reviewPass g) := by
   simp only [reviewPass]
-  exact SAbove_reviewSteps _ _ _ (SAbove_reviewSteps _ _ _ (SAbove_cleanInvalid₂ g h))
+  exact SAbove_reviewSteps _ _ _ (SAbove_reviewSteps _ _ _ (SAbove_cleanPair g h))
 
 theorem SAbove_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SAbove g → SAbove (reviewFuel fuel g) := by
   intro fuel
@@ -979,9 +1011,19 @@ theorem SN_cleanInvalid₂ (g : GPathM) (h : SN g) : SN (cleanInvalid₂ g) := b
   subst hEq
   exact GownersNodes.hasNode_cutAll _ s (hp n hn s (List.mem_filter.mp hs).1)
 
+theorem SN_pairSweep (g : GPathM) (h : SN g) : SN (pairSweep g) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hid⟩ := h n hn s hs
+  exact ⟨pairMap g m, List.mem_map_of_mem hm, hid⟩
+
+theorem SN_cleanPair (g : GPathM) (h : SN g) : SN (cleanPair g) :=
+  cleanPair_inv SN g (SN_cleanInvalid₂ g h) (fun x _ hx => SN_cleanInvalid₂ _ (SN_pairSweep x hx))
+
 theorem SN_reviewPass (g : GPathM) (h : SN g) : SN (reviewPass g) := by
   simp only [reviewPass]
-  exact SN_reviewSteps _ _ _ (SN_reviewSteps _ _ _ (SN_cleanInvalid₂ g h))
+  exact SN_reviewSteps _ _ _ (SN_reviewSteps _ _ _ (SN_cleanPair g h))
 
 theorem SN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SN g → SN (reviewFuel fuel g) := by
   intro fuel

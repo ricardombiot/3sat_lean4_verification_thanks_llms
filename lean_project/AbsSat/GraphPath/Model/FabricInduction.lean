@@ -74,6 +74,13 @@ theorem fabric_union {g : GPathM} {S₁ S₂ : PathNodeId → Prop}
     (fun ⟨hp, ht⟩ =>
       let ⟨c, m, hcm, hpm, hpc, hcv⟩ := h₂.down p hp htop v ht
       ⟨c, m, hcm, hpm, Or.inr ⟨hp, hpc⟩, Or.inr ⟨h₂.inS p c hp hpc, hcv⟩⟩)
+  agg := fun p v _ hT l hl0 hl => hT.elim
+    (fun ⟨hp, ht⟩ =>
+      let ⟨z, hpz, hvz, hzs⟩ := h₁.agg p v hp ht l hl0 hl
+      ⟨z, Or.inl ⟨hp, hpz⟩, Or.inl ⟨h₁.inS p v hp ht, hvz⟩, hzs⟩)
+    (fun ⟨hp, ht⟩ =>
+      let ⟨z, hpz, hvz, hzs⟩ := h₂.agg p v hp ht l hl0 hl
+      ⟨z, Or.inr ⟨hp, hpz⟩, Or.inr ⟨h₂.inS p v hp ht, hvz⟩, hzs⟩)
 
 -- ============================================================
 -- The three construction steps

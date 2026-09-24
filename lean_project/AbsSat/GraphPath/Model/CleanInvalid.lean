@@ -711,4 +711,120 @@ theorem ChainSound_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNode
       simpa [mirrorMap_sons] using hs
   · exact ⟨hroot.1, fun k hk hk' => hroot.2 k hk (by rw [hstep] at hk'; exact hk')⟩
 
+
+-- ============================================================
+-- The pair rule keeps sound chains (plan `pair_mode`, B1: the rule loses no solution)
+-- ============================================================
+
+/-- **Two nodes of one sound chain share an entry at every step**: the chain node of that step is in
+both tables. -/
+theorem pairShares_of_chain (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel)
+    (i j : Int) (hi0 : 0 ≤ i) (hi : i < g.current_step) (hj0 : 0 ≤ j) (hj : j < g.current_step)
+    (nx nw : PNodeM) (hx : g.node? (sel i) = some nx) (hw : g.node? (sel j) = some nw) :
+    pairShares g.current_step nx.owners nw.owners = true := by
+  have hmem : ∀ a, 0 ≤ a → a < g.current_step → ∀ n, g.node? (sel a) = some n →
+      ∀ k, 0 ≤ k → k < g.current_step → sel k ∈ n.owners := by
+    intro a ha0 ha n hn k hk0 hk
+    rcases int_eq_or_ne k a with hka | hka
+    · subst hka
+      have hs := h.self_owned k ha0 ha
+      simp only [ownersOf, hn] at hs
+      exact hs
+    · have ho := h.chain.2.1 k a hk0 ha0 hk ha hka
+      simp only [ownersOf, hn, ownersAt, List.mem_filter] at ho
+      exact ho.1
+  unfold pairShares
+  rw [List.all_eq_true]
+  intro k hk
+  have hk0 := mem_intRange_lower hk
+  have hk1 := mem_intRange_upper hk
+  have hkx := hmem i hi0 hi nx hx k hk0 (by omega)
+  have hkw := hmem j hj0 hj nw hw k hk0 (by omega)
+  have hstep := (h.chain.1.1 k hk0 (by omega)).2
+  have hany : (ownersAt nx.owners k).any (fun r => nw.owners.contains r) = true :=
+    List.any_eq_true.mpr ⟨sel k, List.mem_filter.mpr ⟨hkx, beq_iff_eq.mpr hstep⟩,
+      List.elem_eq_true_of_mem hkw⟩
+  rw [hany]; simp
+
+/-- **The pair rule cannot break a sound chain**: two chain nodes share every step, so neither is a
+bad pair of the other. This is the rule's soundness: it loses no solution. -/
+theorem ChainSound_pairSweep (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel) :
+    ChainSound (pairSweep g) sel := by
+  have hkeep : ∀ j, 0 ≤ j → j < g.current_step → ∀ n, g.node? (sel j) = some n →
+      ∀ i, 0 ≤ i → i < g.current_step → pairBad g n (sel i) = false := by
+    intro j hj0 hj n hn i hi0 hi
+    unfold pairBad
+    cases hw : g.node? (sel i) with
+    | none => simp
+    | some nw =>
+      simp only [pairShares_of_chain g sel h j i hj0 hj hi0 hi n nw hn hw]
+      simp
+  obtain ⟨⟨hchain, howned, hgow⟩, hself, hson, hroot⟩ := h
+  have hstep : (pairSweep g).current_step = g.current_step := rfl
+  have hgowners : (pairSweep g).gowners = g.gowners := rfl
+  have hnode : ∀ pid n, g.node? pid = some n → (pairSweep g).node? pid = some (pairMap g n) :=
+    fun pid n hn => pairSweep_node? g pid n hn
+  refine ⟨⟨⟨?_, ?_⟩, ?_, ?_⟩, ?_, ?_, ?_⟩
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    obtain ⟨hsome, hs⟩ := hchain.1 k hlo hhi
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+    exact ⟨by rw [hnode _ n hn]; rfl, hs⟩
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    have hlink := hchain.2 k hlo hhi
+    cases hn : g.node? (sel (k + 1)) with
+    | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
+    | some n =>
+      rw [hn] at hlink
+      rw [hnode _ n hn]
+      simpa [pairMap_parents] using hlink
+  · intro i j hi hj hi' hj' hne
+    rw [hstep] at hi' hj'
+    have hmem := howned i j hi hj hi' hj' hne
+    simp only [ownersAt, List.mem_filter, ownersOf] at hmem ⊢
+    obtain ⟨hown, hs⟩ := hmem
+    refine ⟨?_, hs⟩
+    cases hn : g.node? (sel j) with
+    | none => rw [hn] at hown; exact absurd hown List.not_mem_nil
+    | some n =>
+      rw [hn] at hown
+      rw [hnode _ n hn]
+      exact (mem_pairMap_owners g n _).mpr
+        ⟨hown, hkeep j hj hj' n hn i hi hi'⟩
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    rw [hgowners]
+    exact hgow k hlo hhi
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    have hs := hself k hlo hhi
+    simp only [ownersOf] at hs ⊢
+    cases hn : g.node? (sel k) with
+    | none => rw [hn] at hs; exact absurd hs List.not_mem_nil
+    | some n =>
+      rw [hn] at hs
+      rw [hnode _ n hn]
+      exact (mem_pairMap_owners g n _).mpr ⟨hs, hkeep k hlo hhi n hn k hlo hhi⟩
+  · intro k hlo hhi
+    rw [hstep] at hhi
+    have hs := hson k hlo hhi
+    simp only [sonsOf] at hs ⊢
+    cases hn : g.node? (sel k) with
+    | none => rw [hn] at hs; exact absurd hs List.not_mem_nil
+    | some n =>
+      rw [hn] at hs
+      rw [hnode _ n hn]
+      simpa [pairMap_sons] using hs
+  · exact ⟨hroot.1, fun k hk hk' => hroot.2 k hk (by rw [hstep] at hk'; exact hk')⟩
+
+theorem ChainSound_cleanPair (g : GPathM) (sel : Int → PathNodeId) (h : ChainSound g sel) :
+    ChainSound (cleanPair g) sel :=
+  cleanPair_inv (fun x => ChainSound x sel) g (ChainSound_cleanInvalid₂ g sel h)
+    (fun x _ hx => ChainSound_cleanInvalid₂ _ sel (ChainSound_pairSweep x sel hx))
+
+/-- info: 'AbsSat.GraphPath.Model.ChainSound_cleanPair' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms ChainSound_cleanPair
+
 end AbsSat.GraphPath.Model

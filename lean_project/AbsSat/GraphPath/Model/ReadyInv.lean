@@ -102,10 +102,26 @@ theorem nodesGow_cleanInvalid₂ (g : GPathM) (hnd : NodupIds g) (hsh : ShapeOk 
   simp only [Bool.not_true, Bool.false_or] at hin
   exact List.contains_iff_mem.mp hin
 
+/-- **`cleanPair` termina en una limpieza de un estado con ids sin repetir y forma buena.** -/
+theorem cleanPair_eq_clean_ok (g : GPathM) (hnd : NodupIds g) (hsh : ShapeOk g) :
+    ∃ h, cleanPair g = cleanInvalid₂ h ∧ NodupIds h ∧ ShapeOk h :=
+  cleanPair_inv (fun x => ∃ h, x = cleanInvalid₂ h ∧ NodupIds h ∧ ShapeOk h) g ⟨g, rfl, hnd, hsh⟩
+    (fun x _ ⟨h, hx, hndh, hshh⟩ =>
+      have hndx : NodupIds x := hx ▸ CleanTwoPhase.nodupIds_cleanInvalid₂ h hndh
+      have hshx : ShapeOk x := hx ▸ hshh.of_pruned (pruned_cleanInvalid₂ h)
+      ⟨pairSweep x, rfl, SymInvariant.nodupIds_pairSweep x hndx, hshx.of_pruned (pruned_pairSweep x)⟩)
+
+/-- **Tras una limpieza con parejas válida, todo nodo está en la global.** -/
+theorem nodesGow_cleanPair (g : GPathM) (hnd : NodupIds g) (hsh : ShapeOk g)
+    (hv : isValid (cleanPair g) = true) : NodesAreGowners (cleanPair g) := by
+  obtain ⟨h, he, hndh, hshh⟩ := cleanPair_eq_clean_ok g hnd hsh
+  rw [he] at hv ⊢
+  exact nodesGow_cleanInvalid₂ h hndh hshh hv
+
 /-- **Tras una vuelta con limpieza válida, todo nodo está en la global.** -/
 theorem nodesGow_reviewPass (g : GPathM) (hnd : NodupIds g) (hsh : ShapeOk g)
-    (hv : isValid (cleanInvalid₂ g) = true) : NodesAreGowners (reviewPass g) :=
-  nodesGow_reviewSteps _ _ _ (nodesGow_reviewSteps _ _ _ (nodesGow_cleanInvalid₂ g hnd hsh hv))
+    (hv : isValid (cleanPair g) = true) : NodesAreGowners (reviewPass g) :=
+  nodesGow_reviewSteps _ _ _ (nodesGow_reviewSteps _ _ _ (nodesGow_cleanPair g hnd hsh hv))
 
 /-- info: 'AbsSat.GraphPath.Model.ReadyInv.nodesGow_reviewPass' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -264,11 +280,15 @@ theorem links_reviewSteps (nb : PNodeM → List PathNodeId) :
     · exact h
 
 /-- **Tras una vuelta, todo enlace está dentro de la tabla.** -/
+theorem links_cleanPair (g : GPathM) : LinksInOwners (cleanPair g) := by
+  obtain ⟨h, he, _⟩ := cleanPair_eq_clean g
+  rw [he]; exact links_cleanInvalid₂ h
+
 theorem links_reviewPass (g : GPathM) (hnd : NodupIds g) : LinksInOwners (reviewPass g) := by
-  have h0 := CleanTwoPhase.nodupIds_cleanInvalid₂ g hnd
-  have h1 : NodupIds (reviewParents (cleanInvalid₂ g)) :=
+  have h0 : NodupIds (cleanPair g) := List.Nodup.sublist (NodeIds.ids_cleanPair g) hnd
+  have h1 : NodupIds (reviewParents (cleanPair g)) :=
     List.Nodup.sublist (NodeIds.ids_reviewSteps _ (·.parents) _) h0
-  exact links_reviewSteps _ _ _ h1 (links_reviewSteps _ _ _ h0 (links_cleanInvalid₂ g))
+  exact links_reviewSteps _ _ _ h1 (links_reviewSteps _ _ _ h0 (links_cleanPair g))
 
 /-- info: 'AbsSat.GraphPath.Model.ReadyInv.links_reviewPass' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

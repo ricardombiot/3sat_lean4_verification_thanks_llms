@@ -1057,14 +1057,70 @@ theorem WOk_cleanInvalid₂ (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S)
       · exact hg
   exact WOk_cutAll _ S (hfuel _ g h)
 
+/-- Two members of a woven set share an entry at every step: the member at that step (`support`)
+is owned by both (`own`). So the pair rule never separates them. -/
+theorem pairBad_woven (g : GPathM) (S : PathNodeId → Prop) (h : Woven g S) (p w : PathNodeId)
+    (hp : S p) (hw : S w) (n : PNodeM) (hn : g.node? p = some n) : pairBad g n w = false := by
+  unfold pairBad
+  cases hnw : g.node? w with
+  | none => simp
+  | some nw =>
+    have hsh : pairShares g.current_step n.owners nw.owners = true := by
+      unfold pairShares
+      rw [List.all_eq_true]
+      intro k hk
+      have hk0 := mem_intRange_lower hk
+      have hk1 := mem_intRange_upper hk
+      obtain ⟨v, hv, hSv, hvs⟩ := h.closed.support p n hn hp k hk0 (by omega)
+      have hvw := h.own w nw hw hnw v hSv
+      have hany : (ownersAt n.owners k).any (fun r => nw.owners.contains r) = true :=
+        List.any_eq_true.mpr ⟨v, List.mem_filter.mpr ⟨hv, beq_iff_eq.mpr hvs⟩,
+          List.elem_eq_true_of_mem hvw⟩
+      rw [hany]; simp
+    simp only [hsh]; simp
+
+theorem WOk_pairSweep (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) : WOk (pairSweep g) S := by
+  have hinv : ∀ p n', (pairSweep g).node? p = some n' → ∃ n, g.node? p = some n ∧ n' = pairMap g n :=
+    fun p n' hn' => pairSweep_node?_inv g p n' hn'
+  have hkeep : ∀ p n, S p → g.node? p = some n → ∀ v, S v → v ∈ n.owners → v ∈ (pairMap g n).owners :=
+    fun p n hp hn v hv hvn => (mem_pairMap_owners g n v).mpr ⟨hvn, pairBad_woven g S h.wov p v hp hv n hn⟩
+  have hc := h.wov.closed
+  refine ⟨⟨⟨hc.gow, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩, Sons.SMP_pairSweep g h.smp,
+    Parents.NotRoot_of_pruned (pruned_pairSweep g) h.nr⟩
+  · intro p hp
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hc.node p hp)
+    rw [pairSweep_node? g p n hn]; rfl
+  · intro p n' hn' hp l hl hl'
+    obtain ⟨n, hn, rfl⟩ := hinv p n' hn'
+    obtain ⟨v, hv, hSv, hvs⟩ := hc.support p n hn hp l hl hl'
+    exact ⟨v, hkeep p n hp hn v hSv hv, hSv, hvs⟩
+  · intro p n' hn' hp hroot
+    obtain ⟨n, hn, rfl⟩ := hinv p n' hn'
+    exact hc.parent p n hn hp hroot
+  · intro p hp hlast
+    obtain ⟨c, m, hSc, hm, hpm⟩ := hc.son p hp hlast
+    exact ⟨c, pairMap g m, hSc, pairSweep_node? g c m hm, hpm⟩
+  · intro p c n' m' hp hcS hn' hm' hcn
+    obtain ⟨n, hn, rfl⟩ := hinv p n' hn'
+    obtain ⟨m, hm, rfl⟩ := hinv c m' hm'
+    obtain ⟨h1, h2⟩ := hc.coown p c n m hp hcS hn hm hcn
+    exact ⟨hkeep p n hp hn c hcS h1, hkeep c m hcS hm p hp h2⟩
+  · intro p n' hp hn' v hv
+    obtain ⟨n, hn, rfl⟩ := hinv p n' hn'
+    exact hkeep p n hp hn v hv (h.wov.own p n hp hn v hv)
+
+theorem WOk_cleanPair (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) : WOk (cleanPair g) S :=
+  cleanPair_inv (fun x => WOk x S) g (WOk_cleanInvalid₂ g S h)
+    (fun x _ hx => WOk_cleanInvalid₂ _ S (WOk_pairSweep x S hx))
+
 theorem WOk_reviewPass (g : GPathM) (S : PathNodeId → Prop) (h : WOk g S) :
     WOk (reviewPass g) S ∧ (reviewPass g).current_step = g.current_step := by
   simp only [reviewPass]
-  have h1 := WOk_cleanInvalid₂ g S h
-  have hc1 : (cleanInvalid₂ g).current_step = g.current_step := (pruned_cleanInvalid₂ g).step_eq
+  have h1 := WOk_cleanPair g S h
+  have hc1 : (cleanPair g).current_step = g.current_step := (pruned_cleanPair g).step_eq
   have h2 := WOk_reviewParents _ S h1
-  have hc2 : (reviewParents (cleanInvalid₂ g)).current_step = g.current_step := by
-    rw [(pruned_reviewParents (cleanInvalid₂ g)).step_eq]; exact hc1
+  have hc2 : (reviewParents (cleanPair g)).current_step = g.current_step := by
+    rw [(pruned_reviewParents (cleanPair g)).step_eq]; exact hc1
   obtain ⟨h3, hc3⟩ := WOk_reviewSons _ S h2
   exact ⟨h3, by rw [hc3]; exact hc2⟩
 

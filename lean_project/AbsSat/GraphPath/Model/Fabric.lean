@@ -101,6 +101,9 @@ structure Fabric (g : GPathM) (S : PathNodeId → Prop)
   son's *parent* table, as `Survive.Closed.son`, so `Sons.SMP` turns it round. -/
   down : ∀ p, S p → p.id.step ≠ g.current_step - 1 →
     ∀ v, T p v → ∃ c m, g.node? c = some m ∧ p ∈ m.parents ∧ T p c ∧ T c v
+  /-- Two entries of one table share an entry at every step (plan `pair_mode`): what keeps a
+  fabric through the pair rule, which drops exactly the pairs that share nothing at some step. -/
+  agg : ∀ p v, S p → T p v → ∀ l, 0 ≤ l → l < g.current_step → ∃ z, T p z ∧ T v z ∧ z.id.step = l
 
 -- ============================================================
 -- Node transformers, seen through `node?`
@@ -135,7 +138,7 @@ theorem Fabric_updateAt (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
     intro p n' hp hn'
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     exact ⟨n, hn, Option.some.inj (hn'.symm.trans (hnode p n hn))⟩
-  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_⟩
+  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_, h.agg⟩
   · intro p hp
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     rw [hnode p n hn]; rfl
@@ -172,7 +175,8 @@ theorem Fabric_symmetrize (g : GPathM) (id : PathNodeId) (S : PathNodeId → Pro
       obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
       exact ⟨n, hn, Option.some.inj (hn'.symm.trans (hnode p n hn))⟩
     have hstep := symmetrize_current g id
-    refine ⟨?_, ?_, h.inS, h.symm, h.self, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, h.inS, h.symm, h.self, ?_, ?_, ?_, ?_,
+      fun p v hp hv l hl hl' => h.agg p v hp hv l hl (by rw [hstep] at hl'; exact hl')⟩
     · intro p hp; rw [symmetrize_gowners]; exact h.gow p hp
     · intro p hp
       obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
@@ -233,7 +237,8 @@ theorem Fabric_unlink (g : GPathM) (id : PathNodeId) (S : PathNodeId → Prop)
         rw [← this, node?_id_eq g p n hn]
         exact h.sub c m hm hSc p (h.symm p c hp hpc)
     have hstep := unlinkIncompatible_current g id
-    refine ⟨?_, ?_, h.inS, h.symm, h.self, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, h.inS, h.symm, h.self, ?_, ?_, ?_, ?_,
+      fun p v hp hv l hl hl' => h.agg p v hp hv l hl (by rw [hstep] at hl'; exact hl')⟩
     · intro p hp; rw [unlinkIncompatible_gowners]; exact h.gow p hp
     · intro p hp
       obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
@@ -272,7 +277,7 @@ theorem Fabric_removeNode (g : GPathM) (id : PathNodeId) (S : PathNodeId → Pro
     intro p n' hp hn'
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     exact ⟨n, hn, Option.some.inj (hn'.symm.trans (hnode p n hp hn))⟩
-  refine ⟨?_, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_⟩
+  refine ⟨?_, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_, h.agg⟩
   · intro p hp
     rw [removeNode_gowners]
     exact List.mem_filter.mpr ⟨h.gow p hp, bne_iff_ne.mpr (hne p hp)⟩
@@ -493,7 +498,7 @@ theorem Fabric_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
     intro p n' hp hn'
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     exact ⟨n, hn, Option.some.inj (hn'.symm.trans (hnode p n hn))⟩
-  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_⟩
+  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_, h.agg⟩
   · intro p hp
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
     rw [hnode p n hn]; rfl
@@ -719,7 +724,7 @@ private theorem admits_T (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId 
 
 theorem Fabric_cutAll (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
     (h : Fabric g S T) : Fabric (cutAll g) S T := by
-  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_⟩
+  refine ⟨h.gow, ?_, h.inS, h.symm, h.self, ?_, h.support, ?_, ?_, h.agg⟩
   · intro p hp
     rw [cutAll_node?F]
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (h.node p hp)
@@ -789,11 +794,61 @@ theorem FOk_cleanInvalid₂ (g : GPathM) (S : PathNodeId → Prop) (T : PathNode
       · exact hg
   exact FOk_cutAll _ S T (hfuel _ g h)
 
+/-- Two entries of a member's table share an entry at every step (`agg`), so the pair rule never
+drops one of them. -/
+theorem pairBad_fabric (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : Fabric g S T) (p v : PathNodeId) (hp : S p) (hv : T p v) (n : PNodeM)
+    (hn : g.node? p = some n) : pairBad g n v = false := by
+  unfold pairBad
+  cases hnv : g.node? v with
+  | none => simp
+  | some nv =>
+    have hSv := h.inS p v hp hv
+    have hsh : pairShares g.current_step n.owners nv.owners = true := by
+      unfold pairShares
+      rw [List.all_eq_true]
+      intro k hk
+      have hk0 := mem_intRange_lower hk
+      have hk1 := mem_intRange_upper hk
+      obtain ⟨z, hpz, hvz, hzs⟩ := h.agg p v hp hv k hk0 (by omega)
+      have hz1 := h.sub p n hn hp z hpz
+      have hz2 := h.sub v nv hnv hSv z hvz
+      have hany : (ownersAt n.owners k).any (fun r => nv.owners.contains r) = true :=
+        List.any_eq_true.mpr ⟨z, List.mem_filter.mpr ⟨hz1, beq_iff_eq.mpr hzs⟩,
+          List.elem_eq_true_of_mem hz2⟩
+      rw [hany]; simp
+    simp only [hsh]; simp
+
+theorem FOk_pairSweep (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : FOk g S T) : FOk (pairSweep g) S T := by
+  have hf := h.fab
+  have hback : ∀ p n', (pairSweep g).node? p = some n' → ∃ n, g.node? p = some n ∧ n' = pairMap g n :=
+    fun p n' hn' => pairSweep_node?_inv g p n' hn'
+  refine ⟨⟨hf.gow, ?_, hf.inS, hf.symm, hf.self, ?_, hf.support, ?_, ?_, hf.agg⟩,
+    Sons.SMP_pairSweep g h.smp, Parents.NotRoot_of_pruned (pruned_pairSweep g) h.nr⟩
+  · intro p hp
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hf.node p hp)
+    rw [pairSweep_node? g p n hn]; rfl
+  · intro p n' hn' hp v hv
+    obtain ⟨n, hn, rfl⟩ := hback p n' hn'
+    exact (mem_pairMap_owners g n v).mpr ⟨hf.sub p n hn hp v hv, pairBad_fabric g S T hf p v hp hv n hn⟩
+  · intro p n' hn' hp hroot v hv
+    obtain ⟨n, hn, rfl⟩ := hback p n' hn'
+    exact hf.up p n hn hp hroot v hv
+  · intro p hp hlast v hv
+    obtain ⟨c, m, hm, hpm, h1, h2⟩ := hf.down p hp hlast v hv
+    exact ⟨c, pairMap g m, pairSweep_node? g c m hm, hpm, h1, h2⟩
+
+theorem FOk_cleanPair (g : GPathM) (S : PathNodeId → Prop) (T : PathNodeId → PathNodeId → Prop)
+    (h : FOk g S T) : FOk (cleanPair g) S T :=
+  cleanPair_inv (fun x => FOk x S T) g (FOk_cleanInvalid₂ g S T h)
+    (fun x _ hx => FOk_cleanInvalid₂ _ S T (FOk_pairSweep x S T hx))
+
 theorem FOk_reviewPass (g : GPathM) (S : PathNodeId → Prop)
     (T : PathNodeId → PathNodeId → Prop) (h : FOk g S T) : FOk (reviewPass g) S T := by
   simp only [reviewPass]
-  have h1 : FOk (cleanInvalid₂ g) S T := FOk_cleanInvalid₂ g S T h
-  have h2 : FOk (reviewParents (cleanInvalid₂ g)) S T :=
+  have h1 : FOk (cleanPair g) S T := FOk_cleanPair g S T h
+  have h2 : FOk (reviewParents (cleanPair g)) S T :=
     FOk_reviewSteps_parents S T _ (fun _ hk => (PickInduction.intRange_bounds hk).1) _ h1
   exact (FOk_reviewSteps_sons S T _ _
     (fun k hk => by
@@ -837,7 +892,8 @@ theorem FOk_filterRequire (g : GPathM) (S : PathNodeId → Prop)
       sub := h.fab.sub
       support := h.fab.support
       up := h.fab.up
-      down := h.fab.down }
+      down := h.fab.down
+      agg := h.fab.agg }
   smp := Sons.SMP_filterRequire g req h.smp
   nr := Parents.NotRoot_of_pruned (pruned_filterRequire g req) h.nr
 
@@ -1046,7 +1102,8 @@ theorem FOk_pinOwners (g : GPathM) (S : PathNodeId → Prop)
           sub := h.fab.sub
           support := h.fab.support
           up := h.fab.up
-          down := h.fab.down }
+          down := h.fab.down
+          agg := h.fab.agg }
       smp := h.smp
       nr := h.nr }
 
@@ -1093,6 +1150,11 @@ theorem Fabric_of_Woven (g : GPathM) (S : PathNodeId → Prop) (hw : Survive.Wov
     intro p n hn hp hroot v hv
     obtain ⟨c, hc, hSc⟩ := hw.closed.parent p n hn hp hroot
     exact ⟨c, hc, hSc, hv⟩
+  agg := by
+    intro p v hp _ l hlo hhi
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp (hw.closed.node p hp)
+    obtain ⟨z, _, hSz, hzs⟩ := hw.closed.support p n hn hp l hlo hhi
+    exact ⟨z, hSz, hSz, hzs⟩
   down := by
     intro p hp hlast v hv
     obtain ⟨c, m, hSc, hm, hpm⟩ := hw.closed.son p hp hlast
@@ -1232,6 +1294,10 @@ theorem Fabric_sol (g : GPathM) (r : PathNodeId) : Fabric g (SolS g r) (SolT g r
     refine ⟨sel' (i' + 1), m, hm, hsel' ▸ hlink, ?_, ?_⟩
     · exact ⟨sel', h', hr', ⟨i', hi0', hi1', hsel'⟩, ⟨i' + 1, by omega, hlt, rfl⟩⟩
     · exact ⟨sel', h', hr', ⟨i' + 1, by omega, hlt, rfl⟩, hv'⟩
+  agg := by
+    rintro x v _ ⟨sel, h, hr, hx, hv⟩ l hlo hhi
+    exact ⟨sel l, ⟨sel, h, hr, hx, ⟨l, hlo, hhi, rfl⟩⟩, ⟨sel, h, hr, hv, ⟨l, hlo, hhi, rfl⟩⟩,
+      (h.chain.1.1 l hlo hhi).2⟩
 
 /-- **A node on a solution has a fabric under it.** So the reader's step is safe
 at any node on a solution — the fabric form of `isValid_pin_of_chain`, for the

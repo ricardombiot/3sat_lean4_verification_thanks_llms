@@ -74,7 +74,9 @@ lo necesita: en el punto fijo la vuelta entera es la identidad. Medido (`row-deg
 entrada de toda limpieza siguiente, 0 nodos inválidos; y ninguna vuelta siguiente progresa. -/
 def LaterValid (X : GPathM) : Prop :=
   ∀ j, 1 ≤ j → measure (reviewPass (iterPass j X)) < measure (iterPass j X) →
-    ∀ n ∈ (iterPass j X).nodes, isValidNode (iterPass j X) n = true
+    (∀ n ∈ (iterPass j X).nodes, isValidNode (iterPass j X) n = true) ∧
+    -- con la regla de parejas (plan `pair_mode`, B4): la regla tampoco quita nada al empezar
+    pairSweep (iterPass j X) = iterPass j X
 
 /-- **El barrido agresivo no quita nada tras el review base.** -/
 def AggInactive (X : GPathM) : Prop :=
@@ -181,6 +183,15 @@ theorem cleanInvalid₂_eq_self_of_ready (g : GPathM) (h : PStateG g) (hs : OwnS
     (List.map_congr_left (fun n hn => hcut n hn)).trans (List.map_id _)
   rw [hmap]
 
+/-- **Y la limpieza con parejas tampoco**, si además la regla no quita nada. -/
+theorem cleanPair_eq_self_of_ready (g : GPathM) (h : PStateG g) (hs : OwnSymmetric g)
+    (hgn : GownersNodes.GN g) (hr : Ready g) (hp : pairSweep g = g) : cleanPair g = g := by
+  have hc := cleanInvalid₂_eq_self_of_ready g h hs hgn hr
+  unfold cleanPair
+  simp only [hc]
+  simp only [pairFuel, hp, Nat.lt_irrefl, if_false]
+  split <;> rfl
+
 -- ============================================================
 -- `SegGood` llega al punto fijo
 -- ============================================================
@@ -208,9 +219,9 @@ theorem ready_iterPass (X : GPathM) (hr : RevOk X) (i : Nat)
     (hval : ∀ n ∈ (iterPass (i + 1) X).nodes, isValidNode (iterPass (i + 1) X) n = true) :
     Ready (iterPass (i + 1) X) := by
   obtain ⟨hnd, hsh⟩ := nodup_shape_iterPass X hr i
-  have hpr : Pruned (cleanInvalid₂ (iterPass i X)) (reviewPass (iterPass i X)) :=
+  have hpr : Pruned (cleanPair (iterPass i X)) (reviewPass (iterPass i X)) :=
     Pruned.trans (pruned_reviewParents _) (pruned_reviewSons _)
-  have hvc : isValid (cleanInvalid₂ (iterPass i X)) = true := Certifies.isValid_of_pruned hpr hv
+  have hvc : isValid (cleanPair (iterPass i X)) = true := Certifies.isValid_of_pruned hpr hv
   exact ⟨hval, ReadyInv.nodesGow_reviewPass _ hnd hsh hvc, ReadyInv.links_reviewPass _ hnd⟩
 
 /-- **Las vueltas siguientes conservan `PStateG` y la simetría**, con `LaterValid`: si la vuelta
@@ -232,8 +243,9 @@ theorem pstateG_reviewFuel (X : GPathM) (hr : RevOk X) (hL : LaterValid X) (hgn 
       · next hlt =>
         rw [if_pos hlt] at hv
         obtain ⟨i, rfl⟩ : ∃ i, j = i + 1 := ⟨j - 1, by omega⟩
-        have hrd := ready_iterPass X hr i hg (hL (i + 1) hj hlt)
-        have hce := cleanInvalid₂_eq_self_of_ready _ hP hS (gn_iterPass X hgn (i + 1)) hrd
+        have hLj := hL (i + 1) hj hlt
+        have hrd := ready_iterPass X hr i hg hLj.1
+        have hce := cleanPair_eq_self_of_ready _ hP hS (gn_iterPass X hgn (i + 1)) hrd hLj.2
         obtain ⟨hP1, hS1⟩ := pstateG_reviewPass' (iterPass (i + 1) X) (by rw [hce]; exact hP)
           (by rw [hce]; exact hS)
         exact ih (i + 1 + 1) (by omega) hP1 hS1 hv

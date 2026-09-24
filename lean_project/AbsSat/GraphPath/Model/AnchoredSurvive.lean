@@ -609,8 +609,57 @@ theorem AOk_cleanInvalid₂ (g : GPathM) (h : AOk g S R) : AOk (cleanInvalid₂ 
       · exact hg
   exact AOk_cutAll _ (hfuel _ g h)
 
+/-- Two related members share an entry at every step (`agg`), so the pair rule never separates them. -/
+theorem pairBad_sup (g : GPathM) (h : Sup g S R) (x v : PathNodeId) (hr : R x v) (d : PNodeM)
+    (hd : g.node? x = some d) : pairBad g d v = false := by
+  unfold pairBad
+  cases hnv : g.node? v with
+  | none => simp
+  | some nv =>
+    have hsh : pairShares g.current_step d.owners nv.owners = true := by
+      unfold pairShares
+      rw [List.all_eq_true]
+      intro k hk
+      have hk0 := mem_intRange_lower hk
+      have hk1 := mem_intRange_upper hk
+      obtain ⟨z, hxz, hvz, hzs⟩ := h.agg x v hr k hk0 (by omega)
+      have hz1 := h.own x z d hxz hd
+      have hz2 := h.own v z nv hvz hnv
+      have hany : (ownersAt d.owners k).any (fun r => nv.owners.contains r) = true :=
+        List.any_eq_true.mpr ⟨z, List.mem_filter.mpr ⟨hz1, beq_iff_eq.mpr hzs⟩,
+          List.elem_eq_true_of_mem hz2⟩
+      rw [hany]; simp
+    simp only [hsh]; simp
+
+theorem Sup_pairSweep (g : GPathM) (h : Sup g S R) : Sup (pairSweep g) S R := by
+  have hnode : ∀ p d', (pairSweep g).node? p = some d' → ∃ d, g.node? p = some d ∧ d' = pairMap g d :=
+    fun p d' hd' => pairSweep_node?_inv g p d' hd'
+  refine ⟨h.gow, ?_, h.step, h.dom, ?_, h.cov, ?_, ?_, h.agg, h.sym, ?_⟩
+  · intro p hp
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp (h.node p hp)
+    rw [pairSweep_node? g p d hd]; rfl
+  · intro x v n' hr hn'
+    obtain ⟨d, hd, rfl⟩ := hnode x n' hn'
+    exact (mem_pairMap_owners g d v).mpr ⟨h.own x v d hr hd, pairBad_sup g h x v hr d hd⟩
+  · intro x d' hS hd' hroot v hr
+    obtain ⟨d, hd, rfl⟩ := hnode x d' hd'
+    exact h.par x d hS hd hroot v hr
+  · intro x hS hlast v hr
+    obtain ⟨c, m, hm, hxm, h1, h2, h3⟩ := h.son x hS hlast v hr
+    exact ⟨c, pairMap g m, pairSweep_node? g c m hm, hxm, h1, h2, h3⟩
+  · intro x c d' hxc hcx hstep hd'
+    obtain ⟨d, hd, rfl⟩ := hnode x d' hd'
+    exact h.link x c d hxc hcx hstep hd
+
+theorem AOk_pairSweep (g : GPathM) (h : AOk g S R) : AOk (pairSweep g) S R :=
+  ⟨Sup_pairSweep g h.sup, Sons.SMP_pairSweep g h.smp, Parents.NotRoot_of_pruned (pruned_pairSweep g) h.nr⟩
+
+theorem AOk_cleanPair (g : GPathM) (h : AOk g S R) : AOk (cleanPair g) S R :=
+  cleanPair_inv (fun x => AOk x S R) g (AOk_cleanInvalid₂ g h)
+    (fun x _ hx => AOk_cleanInvalid₂ _ (AOk_pairSweep x hx))
+
 theorem AOk_reviewPass (g : GPathM) (h : AOk g S R) : AOk (reviewPass g) S R :=
-  AOk_reviewSons _ (AOk_reviewParents _ (AOk_cleanInvalid₂ g h))
+  AOk_reviewSons _ (AOk_reviewParents _ (AOk_cleanPair g h))
 
 theorem AOk_reviewFuel : ∀ (fuel : Nat) (g : GPathM), AOk g S R → AOk (reviewFuel fuel g) S R := by
   intro fuel

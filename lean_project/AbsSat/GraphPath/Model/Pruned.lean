@@ -311,9 +311,62 @@ theorem pruned_cutAll (g : GPathM) : Pruned g (cutAll g) where
 theorem pruned_cleanInvalid₂ (g : GPathM) : Pruned g (cleanInvalid₂ g) :=
   Pruned.trans (pruned_purgeFuel _ g) (pruned_cutAll _)
 
+-- ============================================================
+-- The pair rule (plan `pair_mode`, B1)
+-- ============================================================
+
+/-- What the pair rule does to one node: its table loses its bad pairs. -/
+def pairMap (g : GPathM) (n : PNodeM) : PNodeM :=
+  { n with owners := n.owners.filter (fun w => !pairBad g n w) }
+
+theorem pairSweep_eq (g : GPathM) : pairSweep g = { g with nodes := g.nodes.map (pairMap g) } := rfl
+
+theorem pruned_pairSweep (g : GPathM) : Pruned g (pairSweep g) where
+  step_eq := rfl
+  map_parent_eq := rfl
+  gowners_sub _ hq := hq
+  nodes_derived n' hn' := by
+    obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+    subst hEq
+    exact ⟨n, hn, rfl, fun q hq => (List.mem_filter.mp hq).1, fun _ hp => hp⟩
+
+/-- **Induction over the pair loop**: a property of the states it visits that one round (rule, then
+purge) keeps holds of its result. -/
+theorem pairFuel_inv (P : GPathM → Prop)
+    (hs : ∀ g, isValid g = true → P g → P (cleanInvalid₂ (pairSweep g))) :
+    ∀ (fuel : Nat) (g : GPathM), P g → P (pairFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [pairFuel]
+    split
+    · next hv =>
+      split
+      · exact ih _ (hs g hv h)
+      · exact h
+    · exact h
+
+/-- The same for the whole clean with pairs, from the plain clean. -/
+theorem cleanPair_inv (P : GPathM → Prop) (g : GPathM) (h0 : P (cleanInvalid₂ g))
+    (hs : ∀ g, isValid g = true → P g → P (cleanInvalid₂ (pairSweep g))) : P (cleanPair g) :=
+  pairFuel_inv P hs _ _ h0
+
+/-- **`cleanPair` always ends in a plain clean**, of a pruning of its input: whatever the clean
+*establishes* (tables cut against the global, links admitted, nodes in the global) holds of it. -/
+theorem cleanPair_eq_clean (g : GPathM) : ∃ h, cleanPair g = cleanInvalid₂ h ∧ Pruned g h :=
+  cleanPair_inv (fun x => ∃ h, x = cleanInvalid₂ h ∧ Pruned g h) g ⟨g, rfl, Pruned.refl g⟩
+    (fun x _ ⟨h, hx, hp⟩ => ⟨pairSweep x, rfl,
+      Pruned.trans hp (Pruned.trans (hx ▸ pruned_cleanInvalid₂ h) (pruned_pairSweep x))⟩)
+
+theorem pruned_cleanPair (g : GPathM) : Pruned g (cleanPair g) := by
+  obtain ⟨h, he, hp⟩ := cleanPair_eq_clean g
+  rw [he]; exact Pruned.trans hp (pruned_cleanInvalid₂ h)
+
 theorem pruned_reviewPass (g : GPathM) : Pruned g (reviewPass g) := by
   simp only [reviewPass]
-  exact Pruned.trans (pruned_cleanInvalid₂ g)
+  exact Pruned.trans (pruned_cleanPair g)
     (Pruned.trans (pruned_reviewParents _) (pruned_reviewSons _))
 
 theorem pruned_reviewFuel : ∀ (fuel : Nat) (g : GPathM), Pruned g (reviewFuel fuel g) := by
@@ -377,6 +430,42 @@ theorem mirrorDrop_node?_inv (g : GPathM) (x : PathNodeId) (rem : List PathNodeI
     rw [this] at hn'; exact absurd hn' (by simp)
   | some n =>
     rw [mirrorDrop_node? g x rem pid n hn] at hn'
+    exact ⟨n, rfl, (Option.some.inj hn').symm⟩
+
+theorem pairMap_id (g : GPathM) (n : PNodeM) : (pairMap g n).id = n.id := rfl
+theorem pairMap_parents (g : GPathM) (n : PNodeM) : (pairMap g n).parents = n.parents := rfl
+theorem pairMap_sons (g : GPathM) (n : PNodeM) : (pairMap g n).sons = n.sons := rfl
+theorem pairMap_title (g : GPathM) (n : PNodeM) : (pairMap g n).title = n.title := rfl
+
+theorem mem_pairMap_owners (g : GPathM) (n : PNodeM) (q : PathNodeId) :
+    q ∈ (pairMap g n).owners ↔ q ∈ n.owners ∧ pairBad g n q = false := by
+  simp only [pairMap, List.mem_filter, Bool.not_eq_true']
+
+/-- A node of `g` is found in `pairSweep g`, with its table filtered. -/
+theorem pairSweep_node? (g : GPathM) (pid : PathNodeId) (n : PNodeM) (hn : g.node? pid = some n) :
+    (pairSweep g).node? pid = some (pairMap g n) := by
+  have hp : (fun m : PNodeM => (pairMap g m).id == pid) = (fun m : PNodeM => m.id == pid) := by
+    funext m; rw [pairMap_id]
+  show List.find? _ (g.nodes.map (pairMap g)) = _
+  simp only [List.find?_map, Function.comp_def, hp]
+  rw [show g.nodes.find? (fun m : PNodeM => m.id == pid) = some n from hn]
+  rfl
+
+/-- ... and back. -/
+theorem pairSweep_node?_inv (g : GPathM) (pid : PathNodeId) (n' : PNodeM)
+    (hn' : (pairSweep g).node? pid = some n') : ∃ n, g.node? pid = some n ∧ n' = pairMap g n := by
+  cases hn : g.node? pid with
+  | none =>
+    have hp : (fun m : PNodeM => (pairMap g m).id == pid) = (fun m : PNodeM => m.id == pid) := by
+      funext m; rw [pairMap_id]
+    have : (pairSweep g).node? pid = none := by
+      show List.find? _ (g.nodes.map (pairMap g)) = _
+      simp only [List.find?_map, Function.comp_def, hp]
+      rw [show g.nodes.find? (fun m : PNodeM => m.id == pid) = none from hn]
+      rfl
+    rw [this] at hn'; exact absurd hn' (by simp)
+  | some n =>
+    rw [pairSweep_node? g pid n hn] at hn'
     exact ⟨n, rfl, (Option.some.inj hn').symm⟩
 
 /-- **What the cut removes**: an owner that is not in the cut. -/

@@ -194,9 +194,18 @@ theorem GN_cleanInvalid₂ (g : GPathM) (h : GN g) : GN (cleanInvalid₂ g) := b
   intro q hq
   exact hasNode_cutAll _ q (hp q hq)
 
+theorem GN_pairSweep (g : GPathM) (h : GN g) : GN (pairSweep g) := by
+  intro q hq
+  obtain ⟨n, hn, hid⟩ := h q hq
+  exact ⟨pairMap g n, List.mem_map_of_mem hn, hid⟩
+
+theorem GN_cleanPair (g : GPathM) (h : GN g) : GN (cleanPair g) :=
+  cleanPair_inv GN g (GN_cleanInvalid₂ g h)
+    (fun x _ hx => GN_cleanInvalid₂ _ (GN_pairSweep x hx))
+
 theorem GN_reviewPass (g : GPathM) (h : GN g) : GN (reviewPass g) := by
   simp only [reviewPass]
-  exact GN_reviewSteps _ _ _ (GN_reviewSteps _ _ _ (GN_cleanInvalid₂ g h))
+  exact GN_reviewSteps _ _ _ (GN_reviewSteps _ _ _ (GN_cleanPair g h))
 
 theorem GN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), GN g → GN (reviewFuel fuel g) := by
   intro fuel

@@ -306,7 +306,7 @@ theorem ChainSound_reviewPass (g : GPathM) (sel : Int → PathNodeId)
     (h : ChainSound g sel) : ChainSound (reviewPass g) sel := by
   simp only [reviewPass]
   exact ChainSound_reviewSons _ sel
-    (ChainSound_reviewParents _ sel (ChainSound_cleanInvalid₂ g sel h))
+    (ChainSound_reviewParents _ sel (ChainSound_cleanPair g sel h))
 
 private theorem ChainSound_reviewFuel :
     ∀ (fuel : Nat) (g : GPathM) (sel : Int → PathNodeId), ChainSound g sel →

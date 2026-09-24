@@ -180,9 +180,34 @@ theorem Fabric_addNode (title : String) (h : Fabric g S T)
       exact Or.inl (h.inS r v hSr hTv)
     · exact Or.inr hz
     · exact Or.inr hz
+  have hcs0 : (addNode g d title).current_step = g.current_step + 1 := rfl
+  -- a row node has an entry at every step: its own parent's, below; itself, at the top
+  have hrowsupp : ∀ z, z ∈ newRowIds g d → ∀ l, 0 ≤ l → l < g.current_step + 1 →
+      ∃ w, addT g d S T z w ∧ w.id.step = l := by
+    intro z hz l hl0 hl
+    if hltop : l = g.current_step then
+      exact ⟨z, addT_row_self hz, by rw [hrowstep z hz, hltop]⟩
+    else
+      obtain ⟨r, hr⟩ := exists_rowParent g d hpos hz
+      obtain ⟨hrn, _⟩ := rowParent_node g d hpos hr
+      have hSr : S r := hallNode r hrn
+      obtain ⟨v, hv, hvs⟩ := h.support r hSr l hl0 (by omega)
+      exact ⟨v, addT_row_left hz ⟨r, hr, hSr, hv⟩, hvs⟩
+  -- two old members related in one table meet, on the new row, at the shift of their top witness
+  have hold_top : ∀ p v, S p → T p v → ∃ z, addT g d S T p z ∧ addT g d S T v z ∧
+      z.id.step = g.current_step := by
+    intro p v hp hv
+    obtain ⟨w, hpw, hvw, hws⟩ := h.agg p v hp hv (g.current_step - 1) (by omega) (by omega)
+    have hSw : S w := h.inS p w hp hpw
+    have hSv : S v := h.inS p v hp hv
+    have hwmem : w ∈ newParents g := mem_newParents_of_S h hpos w hSw hws
+    have hz := mem_newRowIds_of_mem_newParents g d w hpos hwmem
+    have hwr := mem_rowParents_of_mem_newParents g d w hwmem
+    exact ⟨shiftPid w d, addT_row_right hz ⟨w, hwr, hSw, h.symm p w hp hpw⟩,
+      addT_row_right hz ⟨w, hwr, hSw, h.symm v w hSv hvw⟩, hd⟩
   refine
     { gow := ?_, node := hnode, inS := hinS, symm := ?_, self := ?_, sub := ?_,
-      support := ?_, up := ?_, down := ?_ }
+      support := ?_, up := ?_, down := ?_, agg := ?_ }
   · -- gow
     intro p hp
     rw [addNode_gowners]
@@ -341,6 +366,40 @@ theorem Fabric_addNode (title : String) (h : Fabric g S T)
           · exact absurd hp (hnew hz)
     · -- a row node sits at the top step, so the clause does not apply
       exact absurd (by rw [hcs]; exact hrowstep p hp) hptop
+  · -- agg
+    intro p v _ hT l hl0 hl
+    rw [hcs0] at hl
+    rcases hT with ⟨hSp, hTv⟩ | ⟨hz, hrel | rfl⟩ | ⟨hz, hrel | rfl⟩
+    · -- two old members
+      have hSv : S v := h.inS p v hSp hTv
+      if hltop : l = g.current_step then
+        obtain ⟨z, h1, h2, hzs⟩ := hold_top p v hSp hTv
+        exact ⟨z, h1, h2, by rw [hzs, hltop]⟩
+      else
+        obtain ⟨z, hpz, hvz, hzs⟩ := h.agg p v hSp hTv l hl0 (by omega)
+        exact ⟨z, Or.inl ⟨hSp, hpz⟩, Or.inl ⟨hSv, hvz⟩, hzs⟩
+    · -- a row node and what one of its parents carries
+      obtain ⟨r, hr, hSr, hTrv⟩ := hrel
+      have hSv : S v := h.inS r v hSr hTrv
+      if hltop : l = g.current_step then
+        exact ⟨p, addT_row_self hz, addT_row_right hz ⟨r, hr, hSr, hTrv⟩,
+          by rw [hrowstep p hz, hltop]⟩
+      else
+        obtain ⟨z, hrz, hvz, hzs⟩ := h.agg r v hSr hTrv l hl0 (by omega)
+        exact ⟨z, addT_row_left hz ⟨r, hr, hSr, hrz⟩, Or.inl ⟨hSv, hvz⟩, hzs⟩
+    · obtain ⟨w, hw, hws⟩ := hrowsupp v hz l hl0 hl
+      exact ⟨w, hw, hw, hws⟩
+    · -- the same, seen from the old side
+      obtain ⟨r, hr, hSr, hTrp⟩ := hrel
+      have hSp : S p := h.inS r p hSr hTrp
+      if hltop : l = g.current_step then
+        exact ⟨v, addT_row_right hz ⟨r, hr, hSr, hTrp⟩, addT_row_self hz,
+          by rw [hrowstep v hz, hltop]⟩
+      else
+        obtain ⟨z, hrz, hpz, hzs⟩ := h.agg r p hSr hTrp l hl0 (by omega)
+        exact ⟨z, Or.inl ⟨hSp, hpz⟩, addT_row_left hz ⟨r, hr, hSr, hrz⟩, hzs⟩
+    · obtain ⟨w, hw, hws⟩ := hrowsupp p hz l hl0 hl
+      exact ⟨w, hw, hw, hws⟩
 
 -- ============================================================
 -- The base case: the seed carries a fabric too
@@ -367,7 +426,7 @@ theorem Fabric_initSeed (d : NodeId) (title : String) (hd : d.step = 0) :
           [{ id := d, parent_id := none }]) := by
     simp only [node?, hnodes, List.find?_cons, beq_self_eq_true]
   refine { gow := ?_, node := ?_, inS := ?_, symm := ?_, self := ?_, sub := ?_,
-           support := ?_, up := ?_, down := ?_ }
+           support := ?_, up := ?_, down := ?_, agg := ?_ }
   · intro p hp; rw [hp, hgow]; exact List.mem_cons_self
   · intro p hp; rw [hp, hnode]; rfl
   · intro p v _ hT; exact hT.2
@@ -389,6 +448,9 @@ theorem Fabric_initSeed (d : NodeId) (title : String) (hd : d.step = 0) :
     rw [hp, hcur]
     show d.step = 1 - 1
     omega
+  · intro p v hp hT l hl0 hl
+    have hz : l = 0 := by rw [hcur] at hl; omega
+    exact ⟨{ id := d, parent_id := none }, ⟨hp, rfl⟩, ⟨hT.2, rfl⟩, by rw [hz]; exact hd⟩
 
 -- ============================================================
 -- What the route consumes: the new node carries a fabric of its own
@@ -435,7 +497,8 @@ theorem Fabric_of_grown {g g' : GPathM} (hgr : Grown g g')
   refine
     { gow := fun p hp => hgr.gowners_grown p (h.gow p hp),
       node := ?_, inS := h.inS, symm := h.symm, self := h.self,
-      sub := ?_, support := ?_, up := ?_, down := ?_ }
+      sub := ?_, support := ?_, up := ?_, down := ?_,
+      agg := fun p v hp hv l hl0 hl => h.agg p v hp hv l hl0 (by rw [hgr.step_eq] at hl; exact hl) }
   · intro p hp
     obtain ⟨_, _, _, hn', _, _⟩ := hgrow p hp
     rw [hn']; rfl
@@ -519,7 +582,7 @@ witnessed inside one component, so the union carries them all. -/
 theorem Fabric_core (g : GPathM) (P : PathNodeId → Prop) :
     Fabric g (CoreS g P) (CoreT g P) := by
   refine { gow := ?_, node := ?_, inS := ?_, symm := ?_, self := ?_, sub := ?_,
-           support := ?_, up := ?_, down := ?_ }
+           support := ?_, up := ?_, down := ?_, agg := ?_ }
   · rintro p ⟨S, T, hf, _, hSp⟩; exact hf.gow p hSp
   · rintro p ⟨S, T, hf, _, hSp⟩; exact hf.node p hSp
   · rintro p v _ ⟨S, T, hf, hP, hSp, hT⟩; exact ⟨S, T, hf, hP, hf.inS p v hSp hT⟩
@@ -538,6 +601,9 @@ theorem Fabric_core (g : GPathM) (P : PathNodeId → Prop) :
     obtain ⟨c, m, hcm, hpm, hpc, hcv⟩ := hf'.down p hSp' hptop v hT'
     exact ⟨c, m, hcm, hpm, ⟨S', T', hf', hP', hSp', hpc⟩,
       ⟨S', T', hf', hP', hf'.inS p c hSp' hpc, hcv⟩⟩
+  · rintro p v _ ⟨S, T, hf, hP, hSp, hT⟩ l hl0 hl
+    obtain ⟨z, hpz, hvz, hzs⟩ := hf.agg p v hSp hT l hl0 hl
+    exact ⟨z, ⟨S, T, hf, hP, hSp, hpz⟩, ⟨S, T, hf, hP, hf.inS p v hSp hT, hvz⟩, hzs⟩
 
 /-- **P3, reduced to one question.** With the core in hand, the fabric that
 survives a clause's pins is the greatest one whose members agree with them and
@@ -1205,10 +1271,12 @@ theorem Fabric_of_PreFabric (g : GPathM) (S : PathNodeId → Prop)
     (hup : ∀ p n, g.node? p = some n → S p → p.parent_id ≠ none →
       ∀ v, T p v → ∃ c ∈ n.parents, T p c ∧ T c v)
     (hdown : ∀ p, S p → p.id.step ≠ g.current_step - 1 →
-      ∀ v, T p v → ∃ c m, g.node? c = some m ∧ p ∈ m.parents ∧ T p c ∧ T c v) :
+      ∀ v, T p v → ∃ c m, g.node? c = some m ∧ p ∈ m.parents ∧ T p c ∧ T c v)
+    (hagg : ∀ p v, S p → T p v → ∀ l, 0 ≤ l → l < g.current_step →
+      ∃ z, T p z ∧ T v z ∧ z.id.step = l) :
     Fabric g S T :=
   { gow := h.gow, node := h.node, inS := h.inS, symm := h.symm, self := h.self,
-    sub := h.sub, support := h.support, up := hup, down := hdown }
+    sub := h.sub, support := h.support, up := hup, down := hdown, agg := hagg }
 
 /-- **The reader's candidate satisfies the seven.** Each one comes from an
 invariant the author's machine already maintains:
@@ -1265,11 +1333,13 @@ theorem PinNonEmpty_of_star (g : GPathM) (q : PathNodeId) (qn : PNodeM)
       ∀ v, StarT g qn p v → ∃ c ∈ n.parents, StarT g qn p c ∧ StarT g qn c v)
     (hdown : ∀ p, StarS g qn p → p.id.step ≠ g.current_step - 1 →
       ∀ v, StarT g qn p v → ∃ c m, g.node? c = some m ∧ p ∈ m.parents ∧
-        StarT g qn p c ∧ StarT g qn c v) :
+        StarT g qn p c ∧ StarT g qn c v)
+    (hagg : ∀ p v, StarS g qn p → StarT g qn p v → ∀ l, 0 ≤ l → l < g.current_step →
+      ∃ z, StarT g qn p z ∧ StarT g qn v z ∧ z.id.step = l) :
     PinNonEmpty g q := by
   have hpre := PreFabric_star g q qn hq hown hgn hoos hsym htri hnodeval
   have hfab : Fabric g (StarS g qn) (StarT g qn) :=
-    Fabric_of_PreFabric g _ _ hpre hup hdown
+    Fabric_of_PreFabric g _ _ hpre hup hdown hagg
   have hqs : StarS g qn q :=
     ⟨self_mem_owners g hoos q qn hq (hnodeval q qn hq) hl0 hl, hl0, hl⟩
   exact ⟨q, StarS g qn, StarT g qn, hfab, StarS_compat g q qn hq hoos, hqs⟩
@@ -1503,7 +1573,7 @@ theorem Fabric_whole (g : GPathM) (ctx : TableCtx g)
     intro p n hn v hv hl0 hl
     exact (GownersNodes.hasNode_iff g v).mp (hgn v (hown p n hn v hv hl0 hl))
   refine { gow := ?_, node := ?_, inS := ?_, symm := ?_, self := ?_, sub := ?_,
-           support := ?_, up := ?_, down := ?_ }
+           support := ?_, up := ?_, down := ?_, agg := ?_ }
   · rintro p ⟨hp, hl0, hl⟩
     obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hp
     exact hown p n hn p (ctx.selfown p n hn hl0 hl) hl0 hl
@@ -1552,6 +1622,13 @@ theorem Fabric_whole (g : GPathM) (ctx : TableCtx g)
     refine ⟨c, mc, hmc, hpar, ⟨⟨?_, by rw [hcs]; omega, by rw [hcs]; omega⟩, n, hn, hcn⟩,
       ⟨hv, mc, hmc, hvc⟩⟩
     exact hentnode p n hn c hcn (by rw [hcs]; omega) (by rw [hcs]; omega)
+  · -- the triangle: two nodes that own each other share an entry at every step
+    rintro p v _ ⟨hv, np, hnp, hvp⟩ l hl0 hl
+    obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp hv.1
+    obtain ⟨w, hwp, hwv, hws⟩ := ctx.tri p np v nv hnp hnv hvp l hl0 hl
+    have hwn := hentnode p np hnp w hwp (by rw [hws]; exact hl0) (by rw [hws]; exact hl)
+    have hwr : 0 ≤ w.id.step ∧ w.id.step < g.current_step := by rw [hws]; exact ⟨hl0, hl⟩
+    exact ⟨w, ⟨⟨hwn, hwr⟩, np, hnp, hwp⟩, ⟨⟨hwn, hwr⟩, nv, hnv, hwv⟩, hws⟩
 
 -- ============================================================
 -- Axiom guards

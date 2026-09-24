@@ -177,6 +177,72 @@ theorem OwnSymmetric_cleanInvalid₂ (g : GPathM) (hnd : NodupIds g) (hsh : Shap
 -- Una vuelta y el review base
 -- ============================================================
 
+-- ============================================================
+-- La regla de parejas (plan `pair_mode`)
+-- ============================================================
+
+/-- **El test de pareja es simétrico.** -/
+theorem pairShares_comm (cs : Int) (a b : List PathNodeId) : pairShares cs a b = pairShares cs b a := by
+  unfold pairShares
+  congr 1
+  funext k
+  have hab : (ownersAt a k).any (fun r => b.contains r) = (ownersAt b k).any (fun r => a.contains r) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [List.any_eq_true, ownersAt, List.mem_filter, List.elem_iff, beq_iff_eq]
+    constructor
+    · rintro ⟨r, ⟨hra, hrk⟩, hrb⟩; exact ⟨r, ⟨hrb, hrk⟩, hra⟩
+    · rintro ⟨r, ⟨hrb, hrk⟩, hra⟩; exact ⟨r, ⟨hra, hrk⟩, hrb⟩
+  rw [hab]
+  cases hasStepEntry a k <;> cases hasStepEntry b k <;> rfl
+
+theorem nodupIds_pairSweep (g : GPathM) (h : NodupIds g) : NodupIds (pairSweep g) := by
+  unfold NodupIds
+  show ((g.nodes.map (pairMap g)).map (·.id)).Nodup
+  rw [List.map_map]
+  exact h
+
+/-- **La regla de parejas conserva la simetría**: quita `w` de la tabla de `n` exactamente cuando
+quita `n` de la de `w`, porque el test es simétrico. -/
+theorem OwnSymmetric_pairSweep (g : GPathM) (h : OwnSymmetric g) : OwnSymmetric (pairSweep g) := by
+  intro p n' q m' hp hq hqn
+  obtain ⟨n, hn, rfl⟩ := pairSweep_node?_inv g p n' hp
+  obtain ⟨m, hm, rfl⟩ := pairSweep_node?_inv g q m' hq
+  obtain ⟨hqn0, hbad⟩ := (mem_pairMap_owners g n q).mp hqn
+  have hpm := h p n q m hn hm hqn0
+  refine (mem_pairMap_owners g m p).mpr ⟨hpm, ?_⟩
+  have hnid : n.id = p := node?_id_eq g p n hn
+  have hmid : m.id = q := node?_id_eq g q m hm
+  unfold pairBad at hbad ⊢
+  rw [hm] at hbad
+  rw [hn]
+  by_cases hpq : p = q
+  · subst hpq; rw [hmid]; simp
+  · have hsh : pairShares g.current_step n.owners m.owners = true := by
+      cases hs : pairShares g.current_step n.owners m.owners
+      · exfalso
+        simp only [hs, hnid, Bool.not_false, Bool.and_true, bne_eq_false_iff_eq] at hbad
+        exact hpq hbad.symm
+      · rfl
+    have hsh' : pairShares g.current_step m.owners n.owners = true := by
+      rw [pairShares_comm]; exact hsh
+    simp only [hsh', Bool.not_true, Bool.and_false]
+
+/-- **La limpieza con parejas conserva la simetría**, si su resultado es válido. -/
+theorem OwnSymmetric_cleanPair (g : GPathM) (hnd : NodupIds g) (hsh : ShapeOk g)
+    (h : OwnSymmetric g) (hv : isValid (cleanPair g) = true) :
+    NodupIds (cleanPair g) ∧ OwnSymmetric (cleanPair g) := by
+  have key := cleanPair_inv
+    (fun x => NodupIds x ∧ ShapeOk x ∧ Pruned g x ∧ (isValid x = true → OwnSymmetric x)) g
+    ⟨CleanTwoPhase.nodupIds_cleanInvalid₂ g hnd, hsh.of_pruned (pruned_cleanInvalid₂ g),
+      pruned_cleanInvalid₂ g, fun hv' => OwnSymmetric_cleanInvalid₂ g hnd hsh h hv'⟩
+    (fun x hvx ⟨hnx, hsx, hpx, hsymx⟩ =>
+      ⟨CleanTwoPhase.nodupIds_cleanInvalid₂ _ (nodupIds_pairSweep x hnx),
+        hsx.of_pruned (Pruned.trans (pruned_pairSweep x) (pruned_cleanInvalid₂ _)),
+        Pruned.trans hpx (Pruned.trans (pruned_pairSweep x) (pruned_cleanInvalid₂ _)),
+        fun hv' => OwnSymmetric_cleanInvalid₂ _ (nodupIds_pairSweep x hnx)
+          (hsx.of_pruned (pruned_pairSweep x)) (OwnSymmetric_pairSweep x (hsymx hvx)) hv'⟩)
+  exact ⟨key.1, key.2.2.2 hv⟩
+
 /-- Lo que el review arrastra para la simetría. -/
 structure RevOk (g : GPathM) : Prop where
   nd : NodupIds g
@@ -186,11 +252,12 @@ structure RevOk (g : GPathM) : Prop where
 /-- **Una vuelta conserva la simetría**, si su resultado es válido. -/
 theorem OwnSymmetric_reviewPass (g : GPathM) (h : RevOk g) (hv : isValid (reviewPass g) = true) :
     OwnSymmetric (reviewPass g) := by
-  have hpr : Pruned (cleanInvalid₂ g) (reviewPass g) :=
+  have hpr : Pruned (cleanPair g) (reviewPass g) :=
     Pruned.trans (pruned_reviewParents _) (pruned_reviewSons _)
-  have hv' : isValid (cleanInvalid₂ g) = true := Certifies.isValid_of_pruned hpr hv
-  have hc : SymOk (cleanInvalid₂ g) :=
-    ⟨CleanTwoPhase.nodupIds_cleanInvalid₂ g h.nd, OwnSymmetric_cleanInvalid₂ g h.nd h.sh h.sym hv'⟩
+  have hv' : isValid (cleanPair g) = true := Certifies.isValid_of_pruned hpr hv
+  have hc : SymOk (cleanPair g) := by
+    obtain ⟨h1, h2⟩ := OwnSymmetric_cleanPair g h.nd h.sh h.sym hv'
+    exact ⟨h1, h2⟩
   exact (symOk_reviewSons _ (symOk_reviewParents _ hc)).2
 
 theorem RevOk_reviewPass (g : GPathM) (h : RevOk g) (hv : isValid (reviewPass g) = true) :
@@ -596,18 +663,18 @@ theorem pstateGS_reviewSons (g : GPathM) (h : PStateG g) (hs : OwnSymmetric g) :
 
 /-- **Una vuelta del review conserva `PStateG`, sin `LocSymStable` ni `LocSymStableS`**: basta la
 simetría a la salida de `cleanInvalid₂`, que el review simétrico da (`OwnSymmetric_cleanInvalid₂`). -/
-theorem pstateG_reviewPass' (g : GPathM) (h : PStateG (cleanInvalid₂ g))
-    (hs : OwnSymmetric (cleanInvalid₂ g)) :
+theorem pstateG_reviewPass' (g : GPathM) (h : PStateG (cleanPair g))
+    (hs : OwnSymmetric (cleanPair g)) :
     PStateG (reviewPass g) ∧ OwnSymmetric (reviewPass g) := by
   obtain ⟨h1, hs1⟩ := pstateGS_reviewParents _ h hs
   exact pstateGS_reviewSons _ h1 hs1
 
 /-- **Y la simetría a la salida de `cleanInvalid₂` sale de la de la entrada**: la vuelta entera, con
 `PStateG` tras la limpieza y el contexto de la simetría a la entrada. -/
-theorem pstateG_reviewPass_of (g : GPathM) (hr : RevOk g) (h : PStateG (cleanInvalid₂ g))
-    (hv : isValid (cleanInvalid₂ g) = true) :
+theorem pstateG_reviewPass_of (g : GPathM) (hr : RevOk g) (h : PStateG (cleanPair g))
+    (hv : isValid (cleanPair g) = true) :
     PStateG (reviewPass g) ∧ OwnSymmetric (reviewPass g) :=
-  pstateG_reviewPass' g h (OwnSymmetric_cleanInvalid₂ g hr.nd hr.sh hr.sym hv)
+  pstateG_reviewPass' g h (OwnSymmetric_cleanPair g hr.nd hr.sh hr.sym hv).2
 
 /-- info: 'AbsSat.GraphPath.Model.SymInvariant.pstateG_reviewPass_of' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -857,8 +924,8 @@ theorem lost_reviewSons (g : GPathM) (h : PStateG g) (hs : OwnSymmetric g) :
 salida de `cleanInvalid₂` hasta el final de la vuelta, una entrada que sigue viva y sale de una tabla
 deja a su par separado en algún paso —en la tabla de uno o en la del otro—, sin más hipótesis que
 `PStateG` y la simetría a la salida de la limpieza. -/
-theorem commonLoss_round (g : GPathM) (h : PStateG (cleanInvalid₂ g))
-    (hs : OwnSymmetric (cleanInvalid₂ g)) : Lost (cleanInvalid₂ g) (reviewPass g) := by
+theorem commonLoss_round (g : GPathM) (h : PStateG (cleanPair g))
+    (hs : OwnSymmetric (cleanPair g)) : Lost (cleanPair g) (reviewPass g) := by
   obtain ⟨h1, hs1⟩ := pstateGS_reviewParents _ h hs
   exact Lost.trans (lost_reviewParents _ h hs) (lost_reviewSons _ h1 hs1) (pruned_reviewSons _) h1.nd
 
