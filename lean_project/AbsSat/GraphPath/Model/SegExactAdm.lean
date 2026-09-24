@@ -231,9 +231,10 @@ theorem gapExact_of_far (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Threaded
 entradas (de la global) en `k` de la tabla del nodo del tramo más cercano a `k` están en las tablas de
 todos los nodos del tramo.
 
-Medido (`row-degree nested`, `dos_de_tres`): se cumple en todos los envíos (8.256) y en todos los
-estados del lector **tras un pin** (5.138); falla solo en el primer estado del lector (84 de 1.164),
-que es la unión final: la compresión de la unión lo rompe y el primer corte lo recupera. -/
+**Medido FALSO en general** (`row-degree nested`, semilla 1): falla en 165.087 de 2.951.311 casos de
+los envíos y en 23.144 de 189.342 de los estados del lector tras un pin. En `dos_de_tres` parecía
+cumplirse fuera de la unión (0 fallos tras los pines), pero era una muestra pequeña. Los lemas de abajo
+son implicaciones correctas; la ruta por `Nested` no sirve para cerrar las hipótesis. -/
 def Nested (T : GPathM) : Prop :=
   (∀ (sel : Int → PathNodeId) (lo hi k : Int), 0 ≤ lo → lo ≤ hi → hi ≤ T.current_step - 1 →
     Seg T sel lo hi → k < lo →
@@ -637,8 +638,9 @@ theorem readerVerdictW_iff_of_helly
 /-- **El lector sin retroceso decide 3-SAT**, con:
 * en su primer estado (la línea final revisada, una unión): `SegExact`, y en sus pines, `CommonAdm` y los
   pasos hacia una entrada lejana —ahí `Nested` falla (84 de 1.164 en `dos_de_tres`) por la compresión—;
-* tras cada pin: `Nested` (la tabla del nodo más cercano es la más pequeña). Medido sin fallos en todos
-  los estados tras un pin y en los envíos. -/
+* tras cada pin: `Nested` (la tabla del nodo más cercano es la más pequeña). **`Nested` es falso en
+  general** (semilla 1: 23.144 fallos tras pines): este teorema es correcto pero su hipótesis no se
+  cumple; queda como registro de la ruta descartada. -/
 theorem readerVerdictW_iff_of_nested
     (hStart : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
       isValid (filterAllAgg kv.2 []) = true → SegExact (filterAllAgg kv.2 []))
