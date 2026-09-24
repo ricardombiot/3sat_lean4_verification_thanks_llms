@@ -7422,6 +7422,65 @@ def reportNE (name : String) (a : NEAcc) (ms : Nat) : IO Unit := do
   reportNECell "  de ellos, el primer estado" a.start
   IO.println s!"   ({ms} ms)"
 
+/-! **`nactrace`: cómo mueren los tramos con entrada admitida en todos sus nodos y sin cadena
+admitida.** En cada pin del lector: esos tramos, seguidos por el review del pin etapa a etapa
+(`traceMT`). Además: ¿la entrada admitida común sigue viva tras el pin? ¿sigue en todas las tablas? -/
+
+structure NTAcc where
+  formulas : Nat := 0
+  segs : Nat := 0
+  atStart : Nat := 0
+  commonDead : Nat := 0
+  commonLeftTable : Nat := 0
+  mt : MTAcc := {}
+  deriving Repr
+
+def ntFilter (lab : String) (T : GPathM) (e : Int × List NodeId) (a : NTAcc) : NTAcc := Id.run do
+  let mut a := a
+  let admIn := fun (x : PathNodeId) => T.gowners.contains x && x.id.step == e.1 && e.2.contains x.id
+  let tab := fun (g : GPathM) (p : PathNodeId) => ((g.node? p).map (·.owners)).getD []
+  for P in segsOf T do
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      if (e.1 < lo.id.step || hi.id.step < e.1) && P.all (fun p => (tab T p).any admIn) then
+        let okAdm := fun x => T.gowners.contains x && (x.id.step != e.1 || e.2.contains x.id)
+        match (extendFullIn T okAdm P 5000).1 with
+        | some false =>
+          a := { a with segs := a.segs + 1 }
+          if lab.endsWith "inicio" then a := { a with atStart := a.atStart + 1 }
+          -- the common admitted entries, after the first cleanInvalid₂ of the pin
+          let commons := ((tab T lo).filter (fun r => admIn r && P.all (fun p => (tab T p).contains r))).eraseDups
+          let c2 := cleanInvalid₂ (PureDriverImproves.filterWeak T e)
+          if commons.all (fun r => (c2.node? r).isNone) then a := { a with commonDead := a.commonDead + 1 }
+          else if commons.all (fun r => !P.all (fun p => (tab c2 p).contains r)) then
+            a := { a with commonLeftTable := a.commonLeftTable + 1 }
+          a := { a with mt := traceMT lab T P e a.mt }
+        | _ => pure ()
+    | _, _ => pure ()
+  return a
+
+partial def walkNT (lab : String) (g : GPathM) (fuel : Nat) (a : NTAcc) (first : Bool := true) : NTAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := ntFilter (if first then s!"{lab} pin inicio" else s!"{lab} pin") g (k, [q.id]) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkNT lab (filterAllAgg g [q.id]) (fuel - 1) a false
+
+def reportNT (name : String) (a : NTAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   tramos con entrada admitida en todos sus nodos y sin cadena admitida: {a.segs} (en el primer estado {a.atStart})"
+  IO.println s!"   tras el primer cleanInvalid₂ del pin: todas sus comunes admitidas muertas {a.commonDead}; vivas pero fuera de alguna tabla del tramo {a.commonLeftTable}"
+  IO.println s!"   etapa en que se rompe: {a.mt.stage.reverse}"
+  IO.println s!"   por que: {(a.mt.reason.reverse).take 14}"
+  if a.mt.firstStory != "" then IO.println s!"   ejemplo: {a.mt.firstStory}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7958,6 +8017,19 @@ def main (args : List String) : IO Unit := do
         let a ← IO.lazyPure (fun _ => runFormulaNA path φ {})
         let t1 ← IO.monoMsNow
         reportNA path a (t1 - t0)
+  | "nactrace" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NTAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        for kv in pureRunW φ do
+          let g := filterAllAgg kv.2 []
+          if isValid g then a := walkNT s!"seed {seed} #{idx} lector" g (stepCount φ).toNat a
+        a := { a with formulas := a.formulas + 1 }
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportNT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "nodeadm-pins" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
