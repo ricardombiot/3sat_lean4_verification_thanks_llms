@@ -143,6 +143,21 @@ module PathDocumentOwners
     # El mismo corte que intersect!(owners_a, owners_b), devolviendo los ids que quita (review
     # simétrico, docs/plans/review_simetrico.md A1). Se recogen antes de borrar: no se borra de un
     # conjunto mientras se recorre.
+    # ¿Comparten las dos tablas al menos una entrada en cada paso que tienen las dos?
+    # Simétrica y sin copias: la misma semántica que intersect! + is_valid sobre los pasos comunes
+    # (regla de parejas, plan pair_mode A1).
+    function shares_every_step(owners_a :: PathDocOwners, owners_b :: PathDocOwners) :: Bool
+        #! [for] $ O(S) $
+        for (step, set_a) in owners_a.table
+            set_b = get(owners_b, step)
+            set_b === nothing && continue
+            short, long = length(set_a) <= length(set_b) ? (set_a, set_b) : (set_b, set_a)
+            #! [fixed] $ O(7) $
+            any(id -> id in long, short) || return false
+        end
+        return true
+    end
+
     function intersect_removed!(owners_a :: PathDocOwners, owners_b :: PathDocOwners) :: Vector{PathNodeId}
         removed = PathNodeId[]
         if owners_b.max_step > owners_a.max_step

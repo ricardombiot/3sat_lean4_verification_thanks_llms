@@ -17,6 +17,9 @@ function make_review_owners!(gpath :: GPath)
         #println("make Review_owners")
         gpath.review_owners = false
         clean_invalid_nodes!(gpath)
+        if PAIR_MODE[] == :on
+            pair_consistency_after_clean!(gpath)
+        end
         #review_owners_parents_sons!(gpath)
         review_owners_coherence_with_its_parents_sons!(gpath)
         

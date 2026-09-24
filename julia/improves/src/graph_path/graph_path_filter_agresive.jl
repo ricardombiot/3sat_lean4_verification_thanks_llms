@@ -3,6 +3,8 @@
 
 # Veces que se dispara la rama «asymmetric» (solo para medir; con SYM_MODE :on debería quedar en 0).
 const AGG_ASYM = Ref(0)
+# Veces que se dispara la rama «inconsistente» (la que adelanta la regla de parejas; plan pair_mode A0).
+const AGG_INCONS = Ref(0)
 
 function agressive_consistence_filter!(gpath :: GPath)
     if gpath.is_valid 
@@ -36,6 +38,7 @@ function agressive_consistence_filter!(gpath :: GPath)
                                         # No existe ningun camino en donde ambos sean compatibles, entonces dejan de ser owners.
                                         PathDocumentNode.remove_owner!(node_x, node_id_w)
                                         PathDocumentNode.remove_owner!(node_w, node_x.id)
+                                        AGG_INCONS[] += 1
                                         is_valid_x = is_valid_node(gpath, node_x)
                                         is_valid_w = is_valid_node(gpath, node_w)
                                         #println("Apply Agressive [Consistence] Step_x $(step) Step_w $(step_w) <-- ")
