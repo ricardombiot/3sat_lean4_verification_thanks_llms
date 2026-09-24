@@ -1219,4 +1219,78 @@ theorem readerVerdictW_iff_of_keptOwn
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_keptOwn
 
+-- ============================================================
+-- El orden de las hipótesis: `SegThroughPin` da `KeptOwn`
+-- ============================================================
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **`SegThroughPin` ⟹ `KeptOwnUp`.** La cadena de `g` que pasa por el tramo y por el nodo pinchado
+da el testigo (su nodo del paso siguiente) y el nodo pinchado que posee (su nodo del paso del pin); y
+como sigue sana tras el pin y `cleanPair`, los miembros siguen poseyendo el testigo en `C`. -/
+theorem keptOwnUp_of_segThroughPin (g : GPathM) (qid : NodeId)
+    (hq0 : 0 ≤ qid.step) (hq1 : qid.step < g.current_step)
+    (h : PairHelly.SegThroughPin g qid.step qid) :
+    KeptOwnUp g (cleanPair (filterWeak g (qid.step, [qid]))) qid := by
+  intro sel lo hi hlo hlh hhi hS
+  have hcs : (cleanPair (filterWeak g (qid.step, [qid]))).current_step = g.current_step :=
+    (pruned_cleanPair _).step_eq
+  obtain ⟨s, hs, hk, hagree⟩ := h sel lo hi hlo hlh (by omega) hS.1 hS.2
+  have hsC : ChainSound (cleanPair (filterWeak g (qid.step, [qid]))) s :=
+    ChainSound_cleanPair _ s (PairHelly.chainSound_filterWeak g qid.step qid s hs hk)
+  obtain ⟨hsn, hss⟩ := hs.chain.1.1 (hi + 1) (by omega) (by omega)
+  obtain ⟨nw, hnw⟩ := Option.isSome_iff_exists.mp hsn
+  have hk0 : 0 ≤ qid.step ∧ qid.step < g.current_step := ⟨hq0, hq1⟩
+  refine ⟨s (hi + 1), nw, s qid.step, ⟨⟨hsn, hss, ?_⟩, ?_⟩, hnw, ?_, ?_, hk hk0.1 hk0.2, ?_⟩
+  · have := hs.chain.1.2 hi (by omega) (by omega)
+    rw [hagree hi hlh (Int.le_refl _)] at this
+    exact this
+  · intro j hj0 hj1 nj hnj
+    rw [← hagree j hj0 hj1] at hnj
+    exact AggressiveReview.chain_mem_owners g s hs j (by omega) (by omega) nj hnj (hi + 1) (by omega) (by omega)
+  · exact AggressiveReview.chain_mem_owners g s hs (hi + 1) (by omega) (by omega) nw hnw qid.step hk0.1 hk0.2
+  · exact (hs.chain.1.1 qid.step hk0.1 hk0.2).1
+  · intro j hj0 hj1
+    obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (hS.1.1 j hj0 hj1).1
+    have hnj' := hnj
+    rw [← hagree j hj0 hj1] at hnj'
+    exact (ownsB_of _ (sel j) (s (hi + 1)) nj hnj).mpr
+      (AggressiveReview.chain_mem_owners _ s hsC j (by omega) (by rw [hcs]; omega) nj hnj' (hi + 1) (by omega)
+        (by rw [hcs]; omega))
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **`SegThroughPin` ⟹ `KeptOwnDown`.** -/
+theorem keptOwnDown_of_segThroughPin (g : GPathM) (qid : NodeId)
+    (hq0 : 0 ≤ qid.step) (hq1 : qid.step < g.current_step)
+    (h : PairHelly.SegThroughPin g qid.step qid) :
+    KeptOwnDown g (cleanPair (filterWeak g (qid.step, [qid]))) qid := by
+  intro sel lo hi hlo hlh hhi hS
+  have hcs : (cleanPair (filterWeak g (qid.step, [qid]))).current_step = g.current_step :=
+    (pruned_cleanPair _).step_eq
+  obtain ⟨s, hs, hk, hagree⟩ := h sel lo hi (by omega) hlh hhi hS.1 hS.2
+  have hsC : ChainSound (cleanPair (filterWeak g (qid.step, [qid]))) s :=
+    ChainSound_cleanPair _ s (PairHelly.chainSound_filterWeak g qid.step qid s hs hk)
+  obtain ⟨hsn, hss⟩ := hs.chain.1.1 (lo - 1) (by omega) (by omega)
+  obtain ⟨nw, hnw⟩ := Option.isSome_iff_exists.mp hsn
+  refine ⟨s (lo - 1), nw, s qid.step, ⟨⟨hsn, hss, ?_⟩, ?_⟩, hnw, ?_, ?_, hk hq0 hq1, ?_⟩
+  · have := hs.chain.1.2 (lo - 1) (by omega) (by omega)
+    rw [show lo - 1 + 1 = lo by omega, hagree lo (Int.le_refl _) hlh] at this
+    exact this
+  · intro j hj0 hj1 nj hnj
+    rw [← hagree j hj0 hj1] at hnj
+    exact AggressiveReview.chain_mem_owners g s hs j (by omega) (by omega) nj hnj (lo - 1) (by omega)
+      (by omega)
+  · exact AggressiveReview.chain_mem_owners g s hs (lo - 1) (by omega) (by omega) nw hnw qid.step hq0 hq1
+  · exact (hs.chain.1.1 qid.step hq0 hq1).1
+  · intro j hj0 hj1
+    obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (hS.1.1 j hj0 hj1).1
+    have hnj' := hnj
+    rw [← hagree j hj0 hj1] at hnj'
+    exact (ownsB_of _ (sel j) (s (lo - 1)) nj hnj).mpr
+      (AggressiveReview.chain_mem_owners _ s hsC j (by omega) (by rw [hcs]; omega) nj hnj' (lo - 1)
+        (by omega) (by rw [hcs]; omega))
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.keptOwnDown_of_segThroughPin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms keptOwnDown_of_segThroughPin
+
 end AbsSat.GraphPath.Model.OneStep
