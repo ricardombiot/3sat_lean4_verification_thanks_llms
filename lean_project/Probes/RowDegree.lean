@@ -7754,6 +7754,150 @@ def reportMJ (name : String) (a : MJAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   ({ms} ms)"
 
 
+
+/-! **`onestep`: Helly de un paso, relativo al mapa.** Tras `cleanPair` de cada pin del lector
+(`filterWeak`), para cada tramo y cada extremo: los candidatos a alargarlo un paso son los hijos del
+extremo superior (varía el nodo del mapa `d` del paso siguiente) o los padres del inferior (varía la
+componente más antigua de la ventana). `B_u` = candidatos en la tabla del miembro `u`. Se mide: tipo
+de paso del componente que varía, tamaño del dominio, si los `B_u` se cortan dos a dos, fallos de
+Helly; y en pasos de cláusula, si cada `B_u` es una caja (filas con ciertos literales fijados) y, si
+las cajas fallan, si su intersección cae en la fila 000 o en filas sin candidato. -/
+
+structure OSAcc where
+  formulas : Nat := 0
+  pins : Nat := 0
+  exts : Nat := 0
+  byKind : List (String × Nat) := []
+  domHist : List (Nat × Nat) := []
+  pairFail : Nat := 0
+  pairFailViaT : Nat := 0
+  helly : Nat := 0
+  noExt : Nat := 0
+  claExts : Nat := 0
+  notBox : Nat := 0
+  boxHole : Nat := 0
+  boxMissing : Nat := 0
+  exHelly : String := ""
+  exPair : String := ""
+  exNotBox : String := ""
+  deriving Repr
+
+def osBumpS (l : List (String × Nat)) (k : String) : List (String × Nat) :=
+  (k, ((l.lookup k).getD 0) + 1) :: l.filter (·.1 != k)
+def osBumpN (l : List (Nat × Nat)) (k : Nat) : List (Nat × Nat) :=
+  (k, ((l.lookup k).getD 0) + 1) :: l.filter (·.1 != k)
+
+def rowBits (r : Int) : List Int := [r / 4 % 2, r / 2 % 2, r % 2]
+
+/-- Is `B` a box inside `D`: the rows of `D` agreeing with `B`'s constant coordinates? Returns the
+fixed coordinates too. -/
+def boxOf (D B : List Int) : Bool × List (Nat × Int) :=
+  match B.head? with
+  | none => (true, [])
+  | some b0 =>
+    let fixed := (List.range 3).filterMap (fun i =>
+      let v := (rowBits b0)[i]!
+      if B.all (fun b => (rowBits b)[i]! == v) then some (i, v) else none)
+    let box := D.filter (fun d => fixed.all (fun (i, v) => (rowBits d)[i]! == v))
+    (box.all B.contains && B.all box.contains, fixed)
+
+def osExt (φ : Cnf) (C : GPathM) (S : List PathNodeId) (cands : List PathNodeId)
+    (key : PathNodeId → Option NodeId) (kstep : Int) (lab : String) (a : OSAcc) : OSAcc := Id.run do
+  let mut a := { a with exts := a.exts + 1 }
+  let kd := kindOf φ kstep
+  a := { a with byKind := osBumpS a.byKind kd }
+  let D := (cands.filterMap key).map (·.index) |>.eraseDups
+  a := { a with domHist := osBumpN a.domHist D.length }
+  let tab (z : PathNodeId) : List PathNodeId := (C.node? z).map (·.owners) |>.getD []
+  let Bof (u : PathNodeId) : List Int :=
+    (cands.filter (fun r => (tab u).contains r)).filterMap key |>.map (·.index) |>.eraseDups
+  let Bs := S.map (fun u => (u, Bof u))
+  let pairOk := Bs.all (fun (_, b1) => Bs.all (fun (_, b2) => b1.any b2.contains))
+  let common := D.filter (fun d => Bs.all (fun (_, b) => b.contains d))
+  if !pairOk then
+    a := { a with pairFail := a.pairFail + 1 }
+    if a.exPair == "" then
+      a := { a with exPair := s!"{lab} ({kd} paso {kstep}): D {D}, B {Bs.map (fun (u, b) => (pidStr u, b))}" }
+  if common.isEmpty then
+    a := { a with noExt := a.noExt + 1 }
+    if pairOk then
+      a := { a with helly := a.helly + 1 }
+      if a.exHelly == "" then
+        a := { a with exHelly := s!"{lab} ({kd} paso {kstep}): D {D}, B {Bs.map (fun (u, b) => (pidStr u, b))}" }
+  if kd == "cla" then
+    a := { a with claExts := a.claExts + 1 }
+    let boxes := Bs.map (fun (_, b) => boxOf D b)
+    if !boxes.all (·.1) then
+      a := { a with notBox := a.notBox + 1 }
+      if a.exNotBox == "" then
+        a := { a with exNotBox := s!"{lab} (paso {kstep}): D {D}, B {Bs.map (fun (u, b) => (pidStr u, b))}" }
+    else if pairOk && common.isEmpty then
+      -- joint box in the full cube
+      let fx := boxes.flatMap (·.2)
+      let cube := (List.range 8).map Int.ofNat |>.filter (fun r => fx.all (fun (i, v) => (rowBits r)[i]! == v))
+      if cube == [0] then a := { a with boxHole := a.boxHole + 1 }
+      else a := { a with boxMissing := a.boxMissing + 1 }
+  return a
+
+def osState (φ : Cnf) (lab : String) (C : GPathM) (a : OSAcc) : OSAcc := Id.run do
+  let mut a := a
+  let mut seen : List (List PathNodeId) := []
+  for x in C.nodes.take 40 do
+    let (segs, _) := collectDown C [x.id] ([], 30)
+    for S in segs do
+      if seen.contains S then continue
+      seen := S :: seen
+      match S.head?, S.getLast? with
+      | some b, some t =>
+        -- up: sons of t, varying map node at t's step + 1
+        if t.id.step + 1 ≤ C.current_step - 1 then
+          let cands := (C.line (t.id.step + 1)).map (·.id) |>.filter (fun r =>
+            r.parent_id == some t.id && r.gparent_id == t.parent_id)
+          a := osExt φ C S cands (fun r => some r.id) (t.id.step + 1) s!"{lab} arriba" a
+        -- down: parents of b, varying the oldest window component
+        if b.id.step ≥ 1 then
+          let cands := (C.line (b.id.step - 1)).map (·.id) |>.filter (fun p =>
+            some p.id == b.parent_id && p.parent_id == b.gparent_id)
+          if b.id.step ≥ 3 then
+            a := osExt φ C S cands (fun p => p.gparent_id) (b.id.step - 3) s!"{lab} abajo" a
+      | _, _ => pure ()
+  return a
+
+partial def walkOS (φ : Cnf) (g : GPathM) (fuel : Nat) (a : OSAcc) : OSAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        let C := cleanPair (filterWeak g (q.id.step, [q.id]))
+        a := { a with pins := a.pins + 1 }
+        if isValid C then a := osState φ s!"pin {pidStr q}" C a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkOS φ (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaOS (φ : Cnf) (a : OSAcc) : OSAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkOS φ g (stepCount φ).toNat a
+  return a
+
+def reportOS (name : String) (a : OSAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
+  IO.println s!"   extensiones {a.exts}; por tipo del componente que varia {a.byKind}; tamano del dominio {a.domHist}"
+  IO.println s!"   B_u no se cortan dos a dos {a.pairFail}; sin extension {a.noExt}; fallos de Helly (dos a dos si, todos no) {a.helly}"
+  IO.println s!"   pasos de clausula {a.claExts}: algun B_u no es caja {a.notBox}; cajas que fallan en 000 {a.boxHole}, en filas sin candidato {a.boxMissing}"
+  if a.exHelly != "" then IO.println s!"      Helly: {a.exHelly}"
+  if a.exPair != "" then IO.println s!"      dos a dos: {a.exPair}"
+  if a.exNotBox != "" then IO.println s!"      no caja: {a.exNotBox}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
 mezclados, ¿están aun así en una cadena completa del estado unido? -/
@@ -9025,6 +9169,15 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "onestep" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : OSAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaOS φ a
+      let t1 ← IO.monoMsNow
+      reportOS s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
       (← IO.getStdout).flush
   | "majority" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
