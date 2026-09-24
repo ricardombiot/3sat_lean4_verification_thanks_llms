@@ -462,4 +462,223 @@ theorem smallOrHellyUp_of_boxes (C : GPathM) (hsym : OwnSymmetric C) (hT : TriTo
   · exact Or.inl hab
   · exact Or.inr (extUp_of_boxes C hsym sel lo hi hlh h hbox (hT.1 sel lo hi hlo hlh hhi h))
 
+-- ============================================================
+-- Pieza 4: el triángulo con el extremo, cuando el extremo es de la pareja
+-- ============================================================
+
+/-- Una entrada común de dos tablas en el paso `k`, en un estado donde la regla no quita nada y los
+nodos son válidos. -/
+theorem shared_at (C : GPathM) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true)
+    (x : PathNodeId) (nx : PNodeM) (hx : C.node? x = some nx)
+    (w : PathNodeId) (nw : PNodeM) (hw : C.node? w = some nw) (hxw : w ∈ nx.owners) (hne : w ≠ x)
+    (k : Int) (h0 : 0 ≤ k) (h1 : k < C.current_step) :
+    ∃ q ∈ nx.owners, q.id.step = k ∧ q ∈ nw.owners := by
+  have hsh := PairHelly.pairOk_of_fixed C hP x nx w hx hxw hne nw hw
+  unfold pairShares at hsh
+  have hk : k ∈ intRange 0 (C.current_step - 1) := mem_intRange h0 (by omega)
+  have hkk := List.all_eq_true.mp hsh k hk
+  have hvx := owners_ok_of_isValidNode C nx (hval nx (List.mem_of_find?_eq_some hx))
+  have hvw := owners_ok_of_isValidNode C nw (hval nw (List.mem_of_find?_eq_some hw))
+  rw [List.all_eq_true.mp hvx k hk, List.all_eq_true.mp hvw k hk] at hkk
+  simp only [Bool.not_true, Bool.false_or] at hkk
+  obtain ⟨q, hq, hqw⟩ := List.any_eq_true.mp hkk
+  have hq' := List.mem_filter.mp hq
+  exact ⟨q, hq'.1, eq_of_beq hq'.2, List.contains_iff_mem.mp hqw⟩
+
+/-- Una entrada propia en el paso `k` (nodo válido). -/
+theorem own_at (C : GPathM) (hval : ∀ n ∈ C.nodes, isValidNode C n = true)
+    (x : PathNodeId) (nx : PNodeM) (hx : C.node? x = some nx)
+    (k : Int) (h0 : 0 ≤ k) (h1 : k < C.current_step) : ∃ q ∈ nx.owners, q.id.step = k := by
+  have hvx := owners_ok_of_isValidNode C nx (hval nx (List.mem_of_find?_eq_some hx))
+  have hk : k ∈ intRange 0 (C.current_step - 1) := mem_intRange h0 (by omega)
+  obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (List.all_eq_true.mp hvx k hk)
+  exact ⟨q, hq, eq_of_beq hqs⟩
+
+/-- Una entrada del extremo `t` en el paso siguiente es un candidato (I1-hijos, hijos vivos, SMP
+invertido por `PMS`). -/
+theorem candUp_of_top_entry (C : GPathM) (hi1s : PassPlain.I1s C) (hsl : PassCtx.SLive C)
+    (hpms : Sons.PMS C) (sel : Int → PathNodeId) (hi : Int) (nt : PNodeM)
+    (ht : C.node? (sel hi) = some nt) (hts : (sel hi).id.step = hi)
+    (q : PathNodeId) (hq : q ∈ nt.owners) (hqs : q.id.step = hi + 1) (hq0 : 0 ≤ hi + 1)
+    (hq1 : hi + 1 ≤ C.current_step - 1) : IsCandUp C sel hi q := by
+  have hson : q ∈ nt.sons := hi1s (sel hi) nt ht q hq (by omega) (by omega) (by omega)
+  obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (hsl (sel hi) nt ht q hson)
+  have hpar := hpms nt (List.mem_of_find?_eq_some ht) q hson nq (List.mem_of_find?_eq_some hnq)
+    (node?_id_eq C q nq hnq)
+  rw [node?_id_eq C (sel hi) nt ht] at hpar
+  refine ⟨by rw [hnq]; rfl, hqs, ?_⟩
+  rw [hnq]; exact hpar
+
+/-- Y una del extremo inferior en el paso anterior, un candidato de abajo (I1, padres vivos). -/
+theorem candDown_of_bottom_entry (C : GPathM) (hi1 : PassPlain.I1 C) (hpl : PassCtx.PLive C)
+    (sel : Int → PathNodeId) (lo : Int) (nb : PNodeM)
+    (hb : C.node? (sel lo) = some nb) (hbs : (sel lo).id.step = lo)
+    (q : PathNodeId) (hq : q ∈ nb.owners) (hqs : q.id.step = lo - 1) (hq0 : 0 ≤ lo - 1)
+    (hq1 : lo - 1 ≤ C.current_step - 1) : IsCandDown C sel lo q := by
+  have hpar : q ∈ nb.parents := hi1 (sel lo) nb hb q hq (by omega) (by omega) (by omega)
+  refine ⟨hpl (sel lo) nb hb q hpar, hqs, ?_⟩
+  rw [hb]; exact hpar
+
+/-- **El triángulo con el extremo, cuando el extremo está en la pareja** (hacia arriba). La regla de
+parejas da una entrada común del extremo y del otro miembro en el paso siguiente, y las entradas del
+extremo allí son sus hijos. Así `TriTopUp` se reduce a las parejas de **miembros interiores**. -/
+theorem triTopUp_of_inner (C : GPathM) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true) (hi1s : PassPlain.I1s C)
+    (hsl : PassCtx.SLive C) (hpms : Sons.PMS C)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlo : 0 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi + 1 ≤ C.current_step - 1) (h : Seg C sel lo hi)
+    (hin : ∀ j, lo ≤ j → j < hi → ∀ k, lo ≤ k → k < hi →
+      ∃ r, IsCandUp C sel hi r ∧ ownsB C (sel j) r = true ∧ ownsB C (sel k) r = true) :
+    TriTopUp C sel lo hi := by
+  obtain ⟨nt, ht⟩ := Option.isSome_iff_exists.mp (h.1.1 hi hlh (Int.le_refl _)).1
+  have hts := (h.1.1 hi hlh (Int.le_refl _)).2
+  -- the pair (top, member j): a son of the top owned by both
+  have htop : ∀ j, lo ≤ j → j ≤ hi →
+      ∃ r, IsCandUp C sel hi r ∧ ownsB C (sel hi) r = true ∧ ownsB C (sel j) r = true := by
+    intro j hj0 hj1
+    obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (h.1.1 j hj0 hj1).1
+    by_cases hjt : j = hi
+    · subst hjt
+      obtain ⟨q, hq, hqs⟩ := own_at C hval (sel j) nt ht (j + 1) (by omega) (by omega)
+      have hc := candUp_of_top_entry C hi1s hsl hpms sel j nt ht hts q hq hqs (by omega) hhi
+      have ho : ownsB C (sel j) q = true := (ownsB_of C (sel j) q nt ht).mpr hq
+      exact ⟨q, hc, ho, ho⟩
+    · have hjne : sel j ≠ sel hi := by
+        intro he
+        have := (h.1.1 j hj0 hj1).2
+        rw [he, hts] at this; omega
+      have hjt' : sel j ∈ nt.owners := h.2 j hi hj0 hlh hj1 (Int.le_refl _) hjt nt ht
+      obtain ⟨q, hq, hqs, hqj⟩ := shared_at C hP hval (sel hi) nt ht (sel j) nj hnj hjt' hjne
+        (hi + 1) (by omega) (by omega)
+      exact ⟨q, candUp_of_top_entry C hi1s hsl hpms sel hi nt ht hts q hq hqs (by omega) hhi,
+        (ownsB_of C (sel hi) q nt ht).mpr hq, (ownsB_of C (sel j) q nj hnj).mpr hqj⟩
+  intro j hj0 hj1 k hk0 hk1
+  by_cases hjt : j = hi
+  · subst hjt; exact htop k hk0 hk1
+  · by_cases hkt : k = hi
+    · subst hkt
+      obtain ⟨r, hr, h1, h2⟩ := htop j hj0 hj1
+      exact ⟨r, hr, h2, h1⟩
+    · exact hin j hj0 (by omega) k hk0 (by omega)
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.triTopUp_of_inner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms triTopUp_of_inner
+
+/-- **Lo mismo hacia abajo**: `TriTopDown` se reduce a las parejas de miembros por encima del extremo
+inferior. -/
+theorem triTopDown_of_inner (C : GPathM) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true) (hi1 : PassPlain.I1 C) (hpl : PassCtx.PLive C)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlo : 1 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi ≤ C.current_step - 1) (h : Seg C sel lo hi)
+    (hin : ∀ j, lo < j → j ≤ hi → ∀ k, lo < k → k ≤ hi →
+      ∃ p, IsCandDown C sel lo p ∧ ownsB C (sel j) p = true ∧ ownsB C (sel k) p = true) :
+    TriTopDown C sel lo hi := by
+  obtain ⟨nb, hb⟩ := Option.isSome_iff_exists.mp (h.1.1 lo (Int.le_refl _) hlh).1
+  have hbs := (h.1.1 lo (Int.le_refl _) hlh).2
+  have hbot : ∀ j, lo ≤ j → j ≤ hi →
+      ∃ p, IsCandDown C sel lo p ∧ ownsB C (sel lo) p = true ∧ ownsB C (sel j) p = true := by
+    intro j hj0 hj1
+    obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (h.1.1 j hj0 hj1).1
+    by_cases hjb : j = lo
+    · subst hjb
+      obtain ⟨q, hq, hqs⟩ := own_at C hval (sel j) nb hb (j - 1) (by omega) (by omega)
+      have hc := candDown_of_bottom_entry C hi1 hpl sel j nb hb hbs q hq hqs (by omega) (by omega)
+      have ho : ownsB C (sel j) q = true := (ownsB_of C (sel j) q nb hb).mpr hq
+      exact ⟨q, hc, ho, ho⟩
+    · have hjne : sel j ≠ sel lo := by
+        intro he
+        have := (h.1.1 j hj0 hj1).2
+        rw [he, hbs] at this; omega
+      have hjb' : sel j ∈ nb.owners := h.2 j lo hj0 (Int.le_refl _) hj1 hlh hjb nb hb
+      obtain ⟨q, hq, hqs, hqj⟩ := shared_at C hP hval (sel lo) nb hb (sel j) nj hnj hjb' hjne
+        (lo - 1) (by omega) (by omega)
+      exact ⟨q, candDown_of_bottom_entry C hi1 hpl sel lo nb hb hbs q hq hqs (by omega) (by omega),
+        (ownsB_of C (sel lo) q nb hb).mpr hq, (ownsB_of C (sel j) q nj hnj).mpr hqj⟩
+  intro j hj0 hj1 k hk0 hk1
+  by_cases hjb : j = lo
+  · subst hjb; exact hbot k hk0 hk1
+  · by_cases hkb : k = lo
+    · subst hkb
+      obtain ⟨p, hp, h1, h2⟩ := hbot j hj0 hj1
+      exact ⟨p, hp, h2, h1⟩
+    · exact hin j (by omega) hj1 k (by omega) hk1
+
+/-- **Helly de tres**: tres nodos que se poseen mutuamente comparten una entrada en cada paso. -/
+def Tri3 (C : GPathM) : Prop :=
+  ∀ a na b nb c nc, C.node? a = some na → C.node? b = some nb → C.node? c = some nc →
+    b ∈ na.owners → c ∈ na.owners → c ∈ nb.owners →
+    ∀ k, 0 ≤ k → k < C.current_step → ∃ q ∈ na.owners, q.id.step = k ∧ q ∈ nb.owners ∧ q ∈ nc.owners
+
+/-- **Pieza 4 desde `Tri3`, hacia arriba**: dos miembros interiores y el extremo se poseen mutuamente;
+su entrada común en el paso siguiente es una entrada del extremo, luego un candidato. -/
+theorem triTopUp_of_tri3 (C : GPathM) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true) (hi1s : PassPlain.I1s C)
+    (hsl : PassCtx.SLive C) (hpms : Sons.PMS C) (h3 : Tri3 C)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlo : 0 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi + 1 ≤ C.current_step - 1) (h : Seg C sel lo hi) : TriTopUp C sel lo hi := by
+  obtain ⟨nt, ht⟩ := Option.isSome_iff_exists.mp (h.1.1 hi hlh (Int.le_refl _)).1
+  have hts := (h.1.1 hi hlh (Int.le_refl _)).2
+  refine triTopUp_of_inner C hP hval hi1s hsl hpms sel lo hi hlo hlh hhi h ?_
+  intro j hj0 hj1 k hk0 hk1
+  obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (h.1.1 j hj0 (by omega)).1
+  obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp (h.1.1 k hk0 (by omega)).1
+  have htj : sel hi ∈ nj.owners := h.2 hi j hlh hj0 (Int.le_refl _) (by omega) (by omega) nj hnj
+  have htk : sel hi ∈ nk.owners := h.2 hi k hlh hk0 (Int.le_refl _) (by omega) (by omega) nk hnk
+  by_cases hjk : j = k
+  · subst hjk
+    have hjt : sel j ∈ nt.owners := h.2 j hi hj0 hlh (by omega) (Int.le_refl _) (by omega) nt ht
+    have hne : sel j ≠ sel hi := by
+      intro he; have := (h.1.1 j hj0 (by omega)).2; rw [he, hts] at this; omega
+    obtain ⟨q, hq, hqs, hqj⟩ := shared_at C hP hval (sel hi) nt ht (sel j) nj hnj hjt hne
+      (hi + 1) (by omega) (by omega)
+    have ho : ownsB C (sel j) q = true := (ownsB_of C (sel j) q nj hnj).mpr hqj
+    exact ⟨q, candUp_of_top_entry C hi1s hsl hpms sel hi nt ht hts q hq hqs (by omega) hhi, ho, ho⟩
+  · have hkj : sel k ∈ nj.owners := h.2 k j hk0 hj0 (by omega) (by omega) (Ne.symm hjk) nj hnj
+    obtain ⟨q, hqj, hqs, hqk, hqt⟩ := h3 (sel j) nj (sel k) nk (sel hi) nt hnj hnk ht hkj htj htk
+      (hi + 1) (by omega) (by omega)
+    exact ⟨q, candUp_of_top_entry C hi1s hsl hpms sel hi nt ht hts q hqt hqs (by omega) hhi,
+      (ownsB_of C (sel j) q nj hnj).mpr hqj, (ownsB_of C (sel k) q nk hnk).mpr hqk⟩
+
+/-- **Y hacia abajo.** -/
+theorem triTopDown_of_tri3 (C : GPathM) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true) (hi1 : PassPlain.I1 C) (hpl : PassCtx.PLive C)
+    (h3 : Tri3 C) (sel : Int → PathNodeId) (lo hi : Int) (hlo : 1 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi ≤ C.current_step - 1) (h : Seg C sel lo hi) : TriTopDown C sel lo hi := by
+  obtain ⟨nb, hb⟩ := Option.isSome_iff_exists.mp (h.1.1 lo (Int.le_refl _) hlh).1
+  have hbs := (h.1.1 lo (Int.le_refl _) hlh).2
+  refine triTopDown_of_inner C hP hval hi1 hpl sel lo hi hlo hlh hhi h ?_
+  intro j hj0 hj1 k hk0 hk1
+  obtain ⟨nj, hnj⟩ := Option.isSome_iff_exists.mp (h.1.1 j (by omega) hj1).1
+  obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp (h.1.1 k (by omega) hk1).1
+  have hbj : sel lo ∈ nj.owners := h.2 lo j (Int.le_refl _) (by omega) hlh hj1 (by omega) nj hnj
+  have hbk : sel lo ∈ nk.owners := h.2 lo k (Int.le_refl _) (by omega) hlh hk1 (by omega) nk hnk
+  by_cases hjk : j = k
+  · subst hjk
+    have hjb : sel j ∈ nb.owners := h.2 j lo (by omega) (Int.le_refl _) hj1 hlh (by omega) nb hb
+    have hne : sel j ≠ sel lo := by
+      intro he; have := (h.1.1 j (by omega) hj1).2; rw [he, hbs] at this; omega
+    obtain ⟨q, hq, hqs, hqj⟩ := shared_at C hP hval (sel lo) nb hb (sel j) nj hnj hjb hne
+      (lo - 1) (by omega) (by omega)
+    have ho : ownsB C (sel j) q = true := (ownsB_of C (sel j) q nj hnj).mpr hqj
+    exact ⟨q, candDown_of_bottom_entry C hi1 hpl sel lo nb hb hbs q hq hqs (by omega) (by omega),
+      ho, ho⟩
+  · have hkj : sel k ∈ nj.owners := h.2 k j (by omega) (by omega) hk1 hj1 (Ne.symm hjk) nj hnj
+    obtain ⟨q, hqj, hqs, hqk, hqb⟩ := h3 (sel j) nj (sel k) nk (sel lo) nb hnj hnk hb hkj hbj hbk
+      (lo - 1) (by omega) (by omega)
+    exact ⟨q, candDown_of_bottom_entry C hi1 hpl sel lo nb hb hbs q hqb hqs (by omega) (by omega),
+      (ownsB_of C (sel j) q nj hnj).mpr hqj, (ownsB_of C (sel k) q nk hnk).mpr hqk⟩
+
+/-- **`TriTop` desde `Tri3`.** -/
+theorem triTop_of_tri3 (C : GPathM) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true) (hi1 : PassPlain.I1 C) (hi1s : PassPlain.I1s C)
+    (hpl : PassCtx.PLive C) (hsl : PassCtx.SLive C) (hpms : Sons.PMS C) (h3 : Tri3 C) : TriTop C :=
+  ⟨fun sel lo hi hlo hlh hhi h => triTopUp_of_tri3 C hP hval hi1s hsl hpms h3 sel lo hi hlo hlh hhi h,
+   fun sel lo hi hlo hlh hhi h => triTopDown_of_tri3 C hP hval hi1 hpl h3 sel lo hi hlo hlh hhi h⟩
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.triTop_of_tri3' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms triTop_of_tri3
+
 end AbsSat.GraphPath.Model.OneStep
