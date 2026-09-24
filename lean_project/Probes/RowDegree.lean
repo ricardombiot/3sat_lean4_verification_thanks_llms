@@ -5717,6 +5717,12 @@ separando la PRIMERA limpieza tras el pin de las SIGUIENTES; y a la salida de ca
 structure CPinAcc where
   formulas : Nat := 0
   pins : Nat := 0
+  laterCleans : Nat := 0
+  laterChanged : Nat := 0
+  laterRemoved : Nat := 0
+  laterInvalidIn : Nat := 0
+  laterNotGow : Nat := 0
+  laterLinkNotOwner : Nat := 0
   in1 : PHCell := {}
   out1 : PHCell := {}
   inN : PHCell := {}
@@ -5744,6 +5750,19 @@ def reviewCPin (F : GPathM) (a : CPinAcc) : CPinAcc := Id.run do
         else
           a := { a with inN := checkPH g a.inN }
           if isValid h then a := { a with outN := checkPH h a.outN }
+          -- what a later clean does
+          let changed := GPathM.measure h != GPathM.measure g
+          let removed := g.nodes.length - h.nodes.length
+          let invalidIn := g.nodes.any (fun n => !isValidNode g n)
+          let notGow := g.nodes.any (fun n => !g.gowners.contains n.id)
+          let linkBad := g.nodes.any (fun n => n.parents.any (fun p => !n.owners.contains p) ||
+            n.sons.any (fun q => !n.owners.contains q))
+          a := { a with laterCleans := a.laterCleans + 1 }
+          a := { a with laterChanged := a.laterChanged + (if changed then 1 else 0) }
+          a := { a with laterRemoved := a.laterRemoved + removed }
+          a := { a with laterInvalidIn := a.laterInvalidIn + (if invalidIn then 1 else 0) }
+          a := { a with laterNotGow := a.laterNotGow + (if notGow then 1 else 0) }
+          a := { a with laterLinkNotOwner := a.laterLinkNotOwner + (if linkBad then 1 else 0) }
         first := false
         g := reviewSons (reviewParents h)
         if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
@@ -5786,6 +5805,7 @@ def reportCPin (name : String) (a : CPinAcc) (ms : Nat) : IO Unit := do
   reportPHCell "siguientes, entrada          " a.inN
   reportPHCell "siguientes, salida           " a.outN
   reportPHCell "tras barrido agresivo        " a.agg
+  IO.println s!"   limpiezas siguientes {a.laterCleans}: cambian algo {a.laterChanged}, nodos eliminados {a.laterRemoved}; a la entrada: con nodo invalido {a.laterInvalidIn}, con nodo fuera de la global {a.laterNotGow}, con enlace fuera de la tabla {a.laterLinkNotOwner}"
   IO.println s!"   ({ms} ms)"
 
 /-! **`doomed`: los tramos que `cleanInvalid` deja sin entrada común viva, ¿mueren?** En los pines del
