@@ -594,7 +594,7 @@ theorem segGoodL_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g
     exact SegReview.mem_intersect_of_parent g n (Q i) hci (Q (j - 1)) (hQpar j hj1' (by omega) n hnQ)
       np hnp (hQown i (j - 1) hi0 (by omega) hic (by omega) np hnp)
   else
-    obtain ⟨_, hkeep, hmk⟩ := hne hjx
+    obtain ⟨_, hkeep, hmk, _⟩ := hne hjx
     if hcx : Q i = x then
       rw [hmk (fun dx hdx hin => ?_)]
       · exact hci

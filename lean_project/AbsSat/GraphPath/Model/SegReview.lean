@@ -106,13 +106,15 @@ theorem reviewNode_owners (g : GPathM) (hnd : NodupIds g) (nb : PNodeM → List 
     (x y : PathNodeId) (n' : PNodeM) (h : (reviewNode g nb x).node? y = some n') :
     ∃ n, g.node? y = some n ∧
       (y ≠ x → (∀ q ∈ n'.owners, q ∈ n.owners) ∧ (∀ q ∈ n.owners, q ≠ x → q ∈ n'.owners) ∧
-        (MirrorKeeps g nb x y → n'.owners = n.owners)) ∧
+        (MirrorKeeps g nb x y → n'.owners = n.owners) ∧
+        (x ∈ n'.owners → ((reviewNode g nb x).node? x).isSome = true → MirrorKeeps g nb x y)) ∧
       (y = x → n'.owners = intersectOwners n.owners (unionOwnersOf g (nb n))) := by
   unfold reviewNode at h
   cases hd : g.node? x with
   | none =>
     rw [hd] at h
-    refine ⟨n', h, fun _ => ⟨fun _ hq => hq, fun _ hq _ => hq, fun _ => rfl⟩, fun hyx => ?_⟩
+    refine ⟨n', h, fun _ => ⟨fun _ hq => hq, fun _ hq _ => hq, fun _ => rfl,
+      fun _ _ dx hdx => by rw [hd] at hdx; cases hdx⟩, fun hyx => ?_⟩
     rw [hyx, hd] at h; cases h
   | some d =>
     rw [hd] at h
@@ -127,14 +129,32 @@ theorem reviewNode_owners (g : GPathM) (hnd : NodupIds g) (nb : PNodeM → List 
     have props : ∀ n n2 : PNodeM, g.node? y = some n →
         n2.owners = (mirrorMap x (cutRemoved d (unionOwnersOf g (nb d))) n).owners →
         (∀ q ∈ n2.owners, q ∈ n.owners) ∧ (∀ q ∈ n.owners, q ≠ x → q ∈ n2.owners) ∧
-          (MirrorKeeps g nb x y → n2.owners = n.owners) := by
+          (MirrorKeeps g nb x y → n2.owners = n.owners) ∧ (x ∈ n2.owners → MirrorKeeps g nb x y) := by
       intro n n2 hn ho
       refine ⟨fun q hq => by rw [ho] at hq; exact mirrorMap_owners_sub _ _ n q hq,
-        fun q hq hqx => by rw [ho]; exact mirrorMap_owners_keep _ _ n q hq hqx, fun hmk => ?_⟩
-      have hnot : (cutRemoved d (unionOwnersOf g (nb d))).contains n.id = false := by
-        rw [node?_id_eq g y n hn]
-        exact not_mem_cutRemoved d _ y (fun hq => hmk d hd hq)
-      rw [ho, mirrorMap_of_not _ _ n hnot]
+        fun q hq hqx => by rw [ho]; exact mirrorMap_owners_keep _ _ n q hq hqx, fun hmk => ?_,
+        fun hx dx hdx hin => ?_⟩
+      · have hnot : (cutRemoved d (unionOwnersOf g (nb d))).contains n.id = false := by
+          rw [node?_id_eq g y n hn]
+          exact not_mem_cutRemoved d _ y (fun hq => hmk d hd hq)
+        rw [ho, mirrorMap_of_not _ _ n hnot]
+      · rw [hd] at hdx
+        cases hdx
+        cases hc : (cutRemoved d (unionOwnersOf g (nb d))).contains y with
+        | true =>
+          rw [ho] at hx
+          unfold GPathM.mirrorMap at hx
+          rw [if_pos (by rw [node?_id_eq g y n hn]; exact hc)] at hx
+          have := (List.mem_filter.mp hx).2
+          simp at this
+        | false =>
+          cases hcut : (intersectOwners d.owners (unionOwnersOf g (nb d))).contains y with
+          | true => exact List.contains_iff_mem.mp hcut
+          | false =>
+            have hmem : y ∈ cutRemoved d (unionOwnersOf g (nb d)) :=
+              List.mem_filter.mpr ⟨hin, by rw [hcut]; rfl⟩
+            rw [List.contains_iff_mem.mpr hmem] at hc
+            exact absurd hc (by simp)
     have fromG2 : ∀ n2, (unlinkIncompatible (mirrorDrop (updateAt g x (fun n =>
           { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) x
           (cutRemoved d (unionOwnersOf g (nb d)))) x).node? y = some n2 →
@@ -155,18 +175,35 @@ theorem reviewNode_owners (g : GPathM) (hnd : NodupIds g) (nb : PNodeM → List 
         dsimp only
         rw [← hdn]
         exact mirrorMap_self_cut x d _ (node?_id_eq g x d hd)
+    have hgone : ∀ G : GPathM, ((removeNode G x).node? x).isSome = false := by
+      intro G
+      cases hG : (removeNode G x).node? x with
+      | none => rfl
+      | some m => exact absurd rfl (removeNode_ne _ x x m hG)
     split at h
-    · split at h
+    · next hv1 =>
+      split at h
       · obtain ⟨n, hn, hne, heq⟩ := fromG2 n' h
-        exact ⟨n, hn, fun hyx => props n n' hn (hne hyx), heq⟩
-      · have hne := removeNode_ne _ x y n' h
+        exact ⟨n, hn, fun hyx => by
+          obtain ⟨a, b, c, e⟩ := props n n' hn (hne hyx)
+          exact ⟨a, b, c, fun hx _ => e hx⟩, heq⟩
+      · next hv2 =>
+        have hne := removeNode_ne _ x y n' h
         obtain ⟨n2, hn2, ho2⟩ := removeNode_node?_inv _ hnd2 x y n' h
         obtain ⟨n, hn, hne', _⟩ := fromG2 n2 hn2
-        exact ⟨n, hn, fun _ => props n n' hn (by rw [ho2]; exact hne' hne), fun hyx => absurd hyx hne⟩
-    · have hne := removeNode_ne _ x y n' h
+        refine ⟨n, hn, fun _ => ?_, fun hyx => absurd hyx hne⟩
+        obtain ⟨a, b, c, _⟩ := props n n' hn (by rw [ho2]; exact hne' hne)
+        refine ⟨a, b, c, fun _ hk => absurd hk ?_⟩
+        simp only [reviewNode, hd, hv1, hv2, Bool.false_eq_true, ↓reduceIte, hgone]
+        exact id
+    · next hv1 =>
+      have hne := removeNode_ne _ x y n' h
       obtain ⟨n0, hn0, ho0⟩ := removeNode_node?_inv _ hnd x y n' h
-      exact ⟨n0, hn0, fun _ => ⟨fun q hq => by rw [ho0] at hq; exact hq,
-        fun q hq _ => by rw [ho0]; exact hq, fun _ => ho0⟩, fun hyx => absurd hyx hne⟩
+      refine ⟨n0, hn0, fun _ => ⟨fun q hq => by rw [ho0] at hq; exact hq,
+        fun q hq _ => by rw [ho0]; exact hq, fun _ => ho0, fun _ hk => absurd hk ?_⟩,
+        fun hyx => absurd hyx hne⟩
+      simp only [reviewNode, hd, hv1, Bool.false_eq_true, ↓reduceIte, hgone]
+      exact id
 
 /-- info: 'AbsSat.GraphPath.Model.SegReview.reviewNode_owners' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -465,7 +502,7 @@ theorem segGood_reviewNode_parents (g : GPathM) (hnd : NodupIds g) (ec : ExtCtx 
     exact mem_intersect_of_parent g n (Q i) hci (Q (j - 1)) (hQpar j hj1' (by omega) n hnQ) np hnp
       (hQown i (j - 1) hi0 (by omega) hic (by omega) np hnp)
   else
-    obtain ⟨_, hkeep, hmk⟩ := hne hjx
+    obtain ⟨_, hkeep, hmk, _⟩ := hne hjx
     if hcx : Q i = x then
       rw [hmk (fun dx hdx hin => ?_)]
       · exact hci
@@ -541,7 +578,7 @@ theorem segGood_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (ec : ExtCtx g)
     exact mem_intersect_of_nb g n n.sons (Q i) hci (Q (j + 1)) (hQson j (by omega) hj2' n hnQ) ns hns
       (hQown i (j + 1) hi0 (by omega) hic hj2' ns hns)
   else
-    obtain ⟨_, hkeep, hmk⟩ := hne hjx
+    obtain ⟨_, hkeep, hmk, _⟩ := hne hjx
     if hcx : Q i = x then
       rw [hmk (fun dx hdx hin => ?_)]
       · exact hci

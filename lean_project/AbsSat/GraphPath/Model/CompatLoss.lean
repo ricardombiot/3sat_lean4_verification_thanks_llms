@@ -186,7 +186,8 @@ theorem owners_other_reviewNode (g : GPathM) (hnd : NodupIds g) (nb : PNodeM →
   obtain ⟨n, hn, hne', _⟩ := SegReview.reviewNode_owners g hnd nb x y ny' hny'
   rw [hny] at hn
   cases hn
-  exact hne' hne
+  obtain ⟨h1, h2, h3, _⟩ := hne' hne
+  exact ⟨h1, h2, h3⟩
 
 /-- info: 'AbsSat.GraphPath.Model.CompatLoss.owners_other_reviewNode' depends on axioms: [propext, Quot.sound]
 -/

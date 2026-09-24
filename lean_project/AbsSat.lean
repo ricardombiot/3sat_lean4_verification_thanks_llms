@@ -238,6 +238,7 @@ import AbsSat.GraphPath.Model.SegExact
 import AbsSat.GraphPath.Model.SegExactUp
 import AbsSat.GraphPath.Model.SegExactFilter
 import AbsSat.GraphPath.Model.SegExactAdm
+import AbsSat.GraphPath.Model.SymInvariant
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid

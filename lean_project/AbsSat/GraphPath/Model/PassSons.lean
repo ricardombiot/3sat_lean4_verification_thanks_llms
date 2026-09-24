@@ -213,7 +213,7 @@ theorem segGoodL_reviewNode_sons (g : GPathM) (hnd : NodupIds g) (hI1 : I1L g) (
     exact SegReview.mem_intersect_of_nb g n n.sons (Q i) hci (Q (j + 1)) (hQson j (by omega) hj2' n hnQ)
       ns hns (hQown i (j + 1) hi0 (by omega) hic hj2' ns hns)
   else
-    obtain ⟨_, hkeep, hmk⟩ := hne hjx
+    obtain ⟨_, hkeep, hmk, _⟩ := hne hjx
     if hcx : Q i = x then
       rw [hmk (fun dx hdx hin => ?_)]
       · exact hci
