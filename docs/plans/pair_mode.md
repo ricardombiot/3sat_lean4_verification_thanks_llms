@@ -372,3 +372,37 @@ el modelo con y sin regla, mismos estados en los envíos y los pines.
    con contenido), después **B5–B6**.
 4. **C2–C3**.
 5. Informe cuando lo pidas.
+
+---
+
+## Resultados de la fase A (24-sept-2026)
+
+* **A1** (`test/graph_path/test_pair_mode.jl`): `shares_every_step` es simétrica y coincide con
+  `intersect!` + `is_valid` en las 2.809 parejas de `v5_c20_i1` con el mismo `max_step`, 882 de ellas
+  sin entrada común en algún paso. Los casos a mano también pasan.
+* **A2** (`src/graph_path/graph_path_filter_pair.jl`, commit `e2cf8ba`).
+* **A3** (en `runtests`, testset `PairMode`, 17 tests): en 126 estados pinchados (3 instancias) la regla
+  actúa en 77. Tras la regla: 0 parejas malas, 0 asimétricas, 0 con `max_step` distinto; y con el
+  review completo, **mismos veredictos y mismos estados finales** que con `:off`.
+* **A0 + A4** (`test_3sat/compare_pair.jl`, 80 instancias; una más saltada porque no es 3-SAT, y el
+  importador la rechaza en los dos modos):
+
+  | | `:off` | `:on` |
+  |---|---|---|
+  | mismo veredicto / acierta la verdad del exhaustivo | 80 / 80 | 80 / 80 |
+  | estados finales de la máquina | — | 80 iguales |
+  | lector sin retroceso: asignación y estado tras cada pin | — | 80 iguales |
+  | lector exponencial: conjunto de soluciones | — | 80 iguales; checker sin fallos |
+  | vueltas del review de la máquina | 23.904 | 23.904 |
+  | tiempo máquina / lectores | 474,6 / 49,5 s | 502,3 / 52,1 s (+6 %) |
+  | rama «inconsistente» del agresivo, máquina (**A0**) | 19.238 | **0** |
+  | rama «inconsistente» del agresivo, lectores (**A0**) | 180 | **0** |
+  | regla: entradas quitadas máquina / lectores | — | 235.116 / 1.180 |
+  | regla: `max_step` distinto | — | 0 |
+
+  La regla hace todo el trabajo de la rama «inconsistente» del agresivo, que baja a 0, sin cambiar
+  ni veredictos, ni estados, ni vueltas. Actúa en la máquina en 23 instancias y en los lectores en 8
+  (3 de ellas solo en los lectores); en 54 no quita nada. Coste: +6 %.
+
+Pendiente: **A5** (adoptar `:on` por defecto) y **C1** (sonda `pairhelly`, la condición 4 de la
+decisión).
