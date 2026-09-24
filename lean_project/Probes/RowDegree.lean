@@ -7785,6 +7785,13 @@ structure OSAcc where
   extOutside : Nat := 0
   pairOnlyOutside : Nat := 0
   exOutside : String := ""
+  clsBig : Nat := 0
+  boxSubFail : Nat := 0
+  boxSupFail : Nat := 0
+  vEmptyCoord : Nat := 0
+  vNoCand : Nat := 0
+  vHoleOnly : Nat := 0
+  exSup : String := ""
   deriving Repr
 
 def osBumpS (l : List (String × Nat)) (k : String) : List (String × Nat) :=
@@ -7850,6 +7857,31 @@ def osExt (φ : Cnf) (C : GPathM) (S : List PathNodeId) (cands : List PathNodeId
       a := { a with helly := a.helly + 1 }
       if a.exHelly == "" then
         a := { a with exHelly := s!"{lab} ({kd} paso {kstep}): D {D}, B {Bs.map (fun (u, b) => (pidStr u, b))}" }
+  if kd == "cla" && D.length ≥ 3 then
+    -- boxes from the tables at the literal steps (piece 3)
+    match clauseAt φ kstep with
+    | none => pure ()
+    | some c =>
+      a := { a with clsBig := a.clsBig + 1 }
+      let lits := [c.l1, c.l2, c.l3]
+      let lstep (p : Nat) : Int := if p == 0 then c.l1.step else if p == 1 then c.l2.step else c.l3.step
+      let V (u : PathNodeId) (p : Nat) : List Int :=
+        ((ownersAt (tab u) (lstep p)).map (·.id.index)).eraseDups
+      let inBox (vs : Nat → List Int) (d : Int) : Bool :=
+        (List.range 3).all (fun p => (vs p).contains (rowBits d)[p]!)
+      for (u, b) in Bs do
+        let box := D.filter (inBox (V u))
+        if !b.all box.contains then a := { a with boxSubFail := a.boxSubFail + 1 }
+        if !box.all b.contains then
+          a := { a with boxSupFail := a.boxSupFail + 1 }
+          if a.exSup == "" then
+            a := { a with exSup := s!"{lab} (paso {kstep}, clausula {lits.map (fun l => (l.v, l.pos))}): miembro {pidStr u}, B {b}, caja {box}, V {(List.range 3).map (V u)}, D {D}" }
+      let Vall (p : Nat) : List Int := [0, 1].filter (fun v => S.all (fun u => (V u p).contains v))
+      if (List.range 3).any (fun p => (Vall p).isEmpty) then a := { a with vEmptyCoord := a.vEmptyCoord + 1 }
+      else if (D.filter (inBox Vall)).isEmpty then
+        a := { a with vNoCand := a.vNoCand + 1 }
+        let cube := ((List.range 8).map Int.ofNat).filter (inBox Vall)
+        if cube == [0] then a := { a with vHoleOnly := a.vHoleOnly + 1 }
   if kd == "cla" then
     a := { a with claExts := a.claExts + 1 }
     let boxes := Bs.map (fun (_, b) => boxOf D b)
@@ -7921,6 +7953,8 @@ def reportOS (name : String) (a : OSAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   pasos de clausula {a.claExts}: algun B_u no es caja {a.notBox}; cajas que fallan en 000 {a.boxHole}, en filas sin candidato {a.boxMissing}"
   IO.println s!"   miembros revisados {a.memChecked}: con alguna entrada en el paso de los candidatos que no es candidato {a.memOutside} (en {a.extOutside} extensiones); parejas cuyas entradas comunes alli son todas no candidatas {a.pairOnlyOutside}"
   if a.exOutside != "" then IO.println s!"      fuera: {a.exOutside}"
+  IO.println s!"   pieza 3 (clausula, 3+ candidatos) {a.clsBig}: B_u fuera de su caja {a.boxSubFail}, caja con candidatos que B_u no tiene {a.boxSupFail}; V vacio en algun literal {a.vEmptyCoord}; V sin candidato vivo {a.vNoCand} (solo el 000 {a.vHoleOnly})"
+  if a.exSup != "" then IO.println s!"      caja mayor: {a.exSup}"
   if a.exHelly != "" then IO.println s!"      Helly: {a.exHelly}"
   if a.exPair != "" then IO.println s!"      dos a dos: {a.exPair}"
   if a.exNotBox != "" then IO.println s!"      no caja: {a.exNotBox}"

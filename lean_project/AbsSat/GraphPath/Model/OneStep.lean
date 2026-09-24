@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/OneStep.lean
 import AbsSat.GraphPath.Model.PairHelly
+import AbsSat.GraphPath.Model.OwnersInvariants
 
 /-!
 # `PairHelly` paso a paso (informe v187, piezas 1 y 2)
@@ -346,5 +347,119 @@ theorem pairHelly_of_triTop (C : GPathM) (hsym : OwnSymmetric C) (hT : TriTop C)
 /-- info: 'AbsSat.GraphPath.Model.OneStep.pairHelly_of_triTop' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pairHelly_of_triTop
+
+-- ============================================================
+-- Pieza 3: los pasos de cláusula, por cajas
+-- ============================================================
+
+/-- **Helly por cajas.** Cada miembro `j` admite un candidato `x` exactamente cuando los tres bits de
+`x` (`co x p`) caen en sus valores permitidos (`W j p`): una caja. Si se cortan dos a dos, cada
+coordenada es un Helly de dos elementos, así que hay un valor común por literal; si además algún
+candidato vivo cae en esa intersección (`hlive`, lo que excluye el hueco 000 y las filas muertas), ese
+candidato es común a todos. -/
+theorem helly_box {ι α : Type} (J : List ι) (j0 : ι) (hj0 : j0 ∈ J) (P : ι → α → Bool)
+    (Q : α → Prop) (co : α → Nat → Bool) (W : ι → Nat → Bool → Bool)
+    (hbox : ∀ j ∈ J, ∀ x, Q x → (P j x = true ↔ ∀ p, p < 3 → W j p (co x p) = true))
+    (hpair : ∀ j ∈ J, ∀ k ∈ J, ∃ x, Q x ∧ P j x = true ∧ P k x = true)
+    (hlive : (∀ p, p < 3 → ∃ v, ∀ j ∈ J, W j p v = true) →
+      ∃ x, Q x ∧ ∀ p, p < 3 → ∀ j ∈ J, W j p (co x p) = true) :
+    ∃ x, Q x ∧ ∀ j ∈ J, P j x = true := by
+  have hcoord : ∀ p, p < 3 → ∃ v, ∀ j ∈ J, W j p v = true := by
+    intro p hp
+    obtain ⟨v, _, hv⟩ := helly_two J (fun j v => W j p v) (fun _ => True) false true
+      (fun v _ => by cases v <;> simp) j0 hj0
+      (fun j hj k hk => by
+        obtain ⟨x, hQx, h1, h2⟩ := hpair j hj k hk
+        exact ⟨co x p, trivial, ((hbox j hj x hQx).mp h1) p hp, ((hbox k hk x hQx).mp h2) p hp⟩)
+    exact ⟨v, hv⟩
+  obtain ⟨x, hQx, hx⟩ := hlive hcoord
+  exact ⟨x, hQx, fun j hj => (hbox j hj x hQx).mpr (fun p hp => hx p hp j hj)⟩
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.helly_box' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms helly_box
+
+/-- El bit `p` (0, 1, 2 = literales 1, 2, 3) de una fila de cláusula. -/
+def rowBit (r : Int) (p : Nat) : Bool :=
+  (if p == 0 then r / 4 % 2 else if p == 1 then r / 2 % 2 else r % 2) == 1
+
+/-- **Cajas de un paso de cláusula, hacia arriba, sin hueco.** Hay, para cada miembro `j` y cada literal
+`p`, un conjunto de valores permitidos `W j p` tal que el miembro posee un candidato exactamente
+cuando los bits de su fila caen en ellos (su `B_u` es una caja), y si todos admiten algún valor en cada
+literal, algún candidato vivo cae en la intersección (sin hueco 000 ni filas muertas).
+
+Las cajas **no** son las que se leen de la tabla literal a literal (medido: 30 de 463 casos de la
+semilla 7 tienen una caja así mayor que `B_u`, por exclusiones exactas a través de otras variables);
+son las de las coordenadas que el propio `B_u` fija (medido: 0 fallos). Por eso `W` es existencial. -/
+def BoxHellyUp (C : GPathM) (sel : Int → PathNodeId) (lo hi : Int) : Prop :=
+  ∃ W : Int → Nat → Bool → Bool,
+    (∀ j, lo ≤ j → j ≤ hi → ∀ r, IsCandUp C sel hi r →
+      (ownsB C (sel j) r = true ↔ ∀ p, p < 3 → W j p (rowBit r.id.index p) = true)) ∧
+    ((∀ p, p < 3 → ∃ v, ∀ j ∈ intRange lo hi, W j p v = true) →
+      ∃ r, IsCandUp C sel hi r ∧ ∀ p, p < 3 → ∀ j ∈ intRange lo hi, W j p (rowBit r.id.index p) = true)
+
+/-- **Pieza 3, hacia arriba**: con cajas sin hueco, el triángulo con el extremo y la simetría, el tramo
+se alarga un paso. -/
+theorem extUp_of_boxes (C : GPathM) (hsym : OwnSymmetric C) (sel : Int → PathNodeId) (lo hi : Int)
+    (hlh : lo ≤ hi) (h : Seg C sel lo hi) (hB : BoxHellyUp C sel lo hi) (hT : TriTopUp C sel lo hi) :
+    ∃ r, ExtUp C sel lo hi r := by
+  have hJ : ∀ j, j ∈ intRange lo hi ↔ lo ≤ j ∧ j ≤ hi := fun j =>
+    ⟨fun hj => ⟨mem_intRange_lower hj, mem_intRange_upper hj⟩, fun ⟨h1, h2⟩ => mem_intRange h1 h2⟩
+  obtain ⟨W, hbox, hlive⟩ := hB
+  obtain ⟨x, ⟨hxn, hxs, hxp⟩, hall⟩ := helly_box (intRange lo hi) lo ((hJ lo).mpr ⟨Int.le_refl _, hlh⟩)
+    (fun j r => ownsB C (sel j) r) (IsCandUp C sel hi) (fun r p => rowBit r.id.index p) W
+    (fun j hj x hx => hbox j ((hJ j).mp hj).1 ((hJ j).mp hj).2 x hx)
+    (fun j hj k hk => hT j ((hJ j).mp hj).1 ((hJ j).mp hj).2 k ((hJ k).mp hk).1 ((hJ k).mp hk).2)
+    hlive
+  obtain ⟨h1, h2⟩ := ext_of_common C hsym sel lo hi h x (fun j hj1 hj2 => hall j ((hJ j).mpr ⟨hj1, hj2⟩))
+  exact ⟨x, hxn, hxs, hxp, h1, h2⟩
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.extUp_of_boxes' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms extUp_of_boxes
+
+/-- **La mitad «⊆» de las cajas, en general**: en un estado donde la regla de parejas no quita nada,
+con los nodos válidos y las tablas filtradas por los requisitos (`ReqFiltered`, invariante de la
+máquina), si `u` posee a `r`, la tabla de `u` contiene cada nodo que `r` requiere. Los dos comparten
+entrada en el paso del requisito, y en la tabla de `r` esa entrada solo puede ser la requerida. -/
+theorem req_shared (reqOf : NodeId → List NodeId) (C : GPathM)
+    (hRF : ReqFiltered reqOf C) (hP : PairHelly.PairFixed C)
+    (hval : ∀ n ∈ C.nodes, isValidNode C n = true)
+    (u : PathNodeId) (nu : PNodeM) (hu : C.node? u = some nu)
+    (r : PathNodeId) (nr : PNodeM) (hr : C.node? r = some nr) (hur : r ∈ nu.owners) (hne : r ≠ u)
+    (req : NodeId) (hreq : req ∈ reqOf r.id) (h0 : 0 ≤ req.step) (h1 : req.step < C.current_step) :
+    ∃ q ∈ nu.owners, q.id = req := by
+  have hsh := PairHelly.pairOk_of_fixed C hP u nu r hu hur hne nr hr
+  unfold pairShares at hsh
+  have hk : req.step ∈ intRange 0 (C.current_step - 1) := mem_intRange h0 (by omega)
+  have hkk := List.all_eq_true.mp hsh req.step hk
+  have hvu := owners_ok_of_isValidNode C nu (hval nu (List.mem_of_find?_eq_some hu))
+  have hvr := owners_ok_of_isValidNode C nr (hval nr (List.mem_of_find?_eq_some hr))
+  rw [List.all_eq_true.mp hvu req.step hk, List.all_eq_true.mp hvr req.step hk] at hkk
+  simp only [Bool.not_true, Bool.false_or] at hkk
+  obtain ⟨q, hq, hqr⟩ := List.any_eq_true.mp hkk
+  have hq' := List.mem_filter.mp hq
+  have hqr' : q ∈ nr.owners := List.contains_iff_mem.mp hqr
+  have hrid : nr.id = r := node?_id_eq C r nr hr
+  have hreq' : req ∈ reqOf nr.id.id := by rw [hrid]; exact hreq
+  refine ⟨q, hq'.1, hRF nr (List.mem_of_find?_eq_some hr) req hreq' q hqr' ?_⟩
+  exact eq_of_beq hq'.2
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.req_shared' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms req_shared
+
+/-- **La pieza 3 da el paso grande**: si en todo tramo el paso siguiente tiene como mucho dos
+candidatos o sus `B_u` son cajas sin hueco, y vale el triángulo con el extremo, vale
+`SmallOrHellyUp`. -/
+theorem smallOrHellyUp_of_boxes (C : GPathM) (hsym : OwnSymmetric C) (hT : TriTop C)
+    (hSB : ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi + 1 ≤ C.current_step - 1 →
+      Seg C sel lo hi →
+      (∃ a b, ∀ r, IsCandUp C sel hi r → r = a ∨ r = b) ∨ BoxHellyUp C sel lo hi) :
+    SmallOrHellyUp C := by
+  intro sel lo hi hlo hlh hhi h
+  rcases hSB sel lo hi hlo hlh hhi h with hab | hbox
+  · exact Or.inl hab
+  · exact Or.inr (extUp_of_boxes C hsym sel lo hi hlh h hbox (hT.1 sel lo hi hlo hlh hhi h))
 
 end AbsSat.GraphPath.Model.OneStep
