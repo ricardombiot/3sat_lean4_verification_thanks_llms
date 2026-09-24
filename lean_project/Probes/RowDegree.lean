@@ -7213,6 +7213,114 @@ def reportAT (name : String) (a : ATAcc) (ms : Nat) : IO Unit := do
   if a.mt.firstStory != "" then IO.println s!"   ejemplo: {a.mt.firstStory}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`nodeadm`: `NodeAdmToChain` partido en dos.** Antes de cada filtro de un paso (envíos paso a paso
+y pines del lector), para cada tramo `P` que no cubre el paso filtrado y cuyos nodos tienen TODOS una
+entrada admitida (de la global) en ese paso:
+
+* la conclusión: ¿cadena completa por `P` y un nodo admitido? (`NodeAdmToChain`);
+* (a) Helly en un paso: ¿hay UNA entrada admitida común a todas las tablas de `P`?
+* (b) de la común a la cadena: para cada entrada común `r` (admitida o no), ¿cadena completa por `P` y
+  `r`? -/
+
+structure NACell where
+  cases : Nat := 0
+  chain : Nat := 0
+  noChain : Nat := 0
+  commonAdm : Nat := 0
+  noCommonAdm : Nat := 0
+  noCommonButChain : Nat := 0
+  bCommon : Nat := 0
+  bChain : Nat := 0
+  bNoChain : Nat := 0
+  cut : Nat := 0
+  firstA : String := ""
+  firstB : String := ""
+  deriving Repr
+
+structure NAAcc where
+  formulas : Nat := 0
+  sends : NACell := {}
+  pins : NACell := {}
+  deriving Repr
+
+def naFilter (lab : String) (T : GPathM) (e : Int × List NodeId) (c : NACell) : NACell := Id.run do
+  let mut c := c
+  let admIn := fun (x : PathNodeId) => T.gowners.contains x && x.id.step == e.1 && e.2.contains x.id
+  let tab := fun (p : PathNodeId) => ((T.node? p).map (·.owners)).getD []
+  for P in segsOf T do
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      if (e.1 < lo.id.step || hi.id.step < e.1) && P.all (fun p => (tab p).any admIn) then
+        c := { c with cases := c.cases + 1 }
+        let okAdm := fun x => T.gowners.contains x && (x.id.step != e.1 || e.2.contains x.id)
+        let hasChain := match (extendFullIn T okAdm P 5000).1 with
+          | some true => some true | some false => some false | none => none
+        match hasChain with
+        | some true => c := { c with chain := c.chain + 1 }
+        | some false => c := { c with noChain := c.noChain + 1 }
+        | none => c := { c with cut := c.cut + 1 }
+        let commons := (tab (P.headD lo)).filter (fun r => r.id.step == e.1 && P.all (fun p => (tab p).contains r)) |>.eraseDups
+        if commons.any admIn then c := { c with commonAdm := c.commonAdm + 1 }
+        else
+          c := { c with noCommonAdm := c.noCommonAdm + 1 }
+          if hasChain == some true then c := { c with noCommonButChain := c.noCommonButChain + 1 }
+          if c.firstA == "" then c := { c with firstA := s!"{lab} filtro paso {e.1}, tramo {lo.id.step}..{hi.id.step}, comunes {commons.length}, cadena {hasChain}" }
+        for r in commons do
+          c := { c with bCommon := c.bCommon + 1 }
+          let okR := fun x => T.gowners.contains x && (x.id.step != e.1 || x == r)
+          match (extendFullIn T okR P 5000).1 with
+          | some true => c := { c with bChain := c.bChain + 1 }
+          | some false =>
+            c := { c with bNoChain := c.bNoChain + 1 }
+            if c.firstB == "" then c := { c with firstB := s!"{lab} filtro paso {e.1}, tramo {lo.id.step}..{hi.id.step}, r admitida {admIn r}" }
+          | none => c := { c with cut := c.cut + 1 }
+    | _, _ => pure ()
+  return c
+
+partial def walkNA (lab : String) (g : GPathM) (fuel : Nat) (c : NACell) : NACell :=
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := naFilter s!"{lab} pin" g (k, [q.id]) c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkNA lab (filterAllAgg g [q.id]) (fuel - 1) c
+
+def runFormulaNA (label : String) (φ : Cnf) (a : NAAcc) : NAAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        let mut T := AggressiveReview.reviewAgg kv.2
+        for e in es do
+          if isValid T then
+            a := { a with sends := naFilter s!"{label} envio paso {step}" T e a.sends }
+            T := AggressiveReview.reviewAgg (PureDriverImproves.filterWeak T e)
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := { a with pins := walkNA s!"{label} lector" g (stepCount φ).toNat a.pins }
+  return a
+
+def reportNACell (lbl : String) (c : NACell) : IO Unit := do
+  IO.println s!"   {lbl}: tramos con TODOS los nodos con entrada admitida {c.cases}; con cadena admitida {c.chain}, SIN {c.noChain}, presupuesto {c.cut}"
+  IO.println s!"      (a) hay entrada admitida COMUN: {c.commonAdm}; no la hay: {c.noCommonAdm} (de esos, con cadena igualmente: {c.noCommonButChain})"
+  IO.println s!"      (b) entradas comunes r (cualquiera): {c.bCommon}; con cadena por P y r {c.bChain}, SIN {c.bNoChain}"
+  if c.firstA != "" then IO.println s!"      primero sin comun admitida: {c.firstA}"
+  if c.firstB != "" then IO.println s!"      primera comun sin cadena: {c.firstB}"
+
+def reportNA (name : String) (a : NAAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportNACell "envios" a.sends
+  reportNACell "pines " a.pins
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7721,6 +7829,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "nodeadm" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaNA path φ {})
+        let t1 ← IO.monoMsNow
+        reportNA path a (t1 - t0)
+  | "nodeadm" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NAAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaNA s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportNA s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "admtrace" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
