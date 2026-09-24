@@ -7420,6 +7420,8 @@ structure REAcc where
   clean : SECell := {}
   round1 : SECell := {}
   cleanP : SECell := {}
+  reader : SECell := {}
+  final : SECell := {}
   u2cFails : Nat := 0
   detail : List String := []
   doomed : Nat := 0
@@ -7579,8 +7581,11 @@ partial def walkRE (lab : String) (g : GPathM) (fuel : Nat) (a : REAcc) : REAcc 
     | none => a
     | some k => Id.run do
       let mut a := hellyState g a
+      a := { a with reader := checkSE s!"{lab} lector (paso {k})" g 300 a.reader }
       for q in ownersAt g.gowners k do
         a := pinRE lab ([q.id].foldl filterRequire g) a
+        let F := filterAllAgg g [q.id]
+        if isValid F then a := { a with final := checkSE s!"{lab} fin del pin {pidStr q}" F 300 a.final }
       match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
       | none => return a
       | some q => return walkRE lab (filterAllAgg g [q.id]) (fuel - 1) a
@@ -7600,6 +7605,8 @@ def reportRE (name : String) (a : REAcc) (ms : Nat) : IO Unit := do
   reportSECell "salida de la limpieza del pin" a.clean
   reportSECell "salida de la 1ª vuelta       " a.round1
   reportSECell "salida de limpieza+parejas  " a.cleanP
+  reportSECell "estados del lector          " a.reader
+  reportSECell "punto fijo de cada pin      " a.final
   IO.println s!"   condenados {a.doomed}: conflicto de pareja en algun paso sin comun {a.pairConf} (pareja contigua {a.badPairAdj}); conflicto solo colectivo {a.hellyConf}"
   if a.hellyDetail != "" then IO.println s!"      primer conflicto colectivo: {a.hellyDetail}"
   IO.println s!"   Helly: {a.hStates} estados; parejas mutuas {a.hPairs}, no anidadas ni disjuntas {a.hNonLam}; trios (dos a dos con comun) {a.hTriples}, sin comun {a.hTripleFail}"
@@ -8003,6 +8010,9 @@ structure TXAcc where
   segWitQButNone : Nat := 0
   segNoWitPin : Nat := 0
   exNoWitPin : String := ""
+  segsDown : Nat := 0
+  segNoWitPinDown : Nat := 0
+  exNoWitPinDown : String := ""
   deriving Repr
 
 def txTab (g : GPathM) (z : PathNodeId) : List PathNodeId := (g.node? z).map (·.owners) |>.getD []
@@ -8018,6 +8028,23 @@ def txState (g C : GPathM) (qp : PathNodeId) (a : TXAcc) : TXAcc := Id.run do
     for S in segs do
       if seen.contains S then continue
       seen := S :: seen
+      -- WitPinDown: parents of the bottom, owned by every member in g, sharing a pinned node with each
+      match S.head? with
+      | some b =>
+        if b.id.step ≥ 1 then
+          a := { a with segsDown := a.segsDown + 1 }
+          let kq := qp.id.step
+          let parsG := (g.line (b.id.step - 1)).map (·.id) |>.filter (fun p =>
+            (g.node? b).any (fun nb => nb.parents.contains p))
+          let wD := parsG.filter (fun r => S.all (fun u => (txTab g u).contains r))
+          let pinOkD (r : PathNodeId) : Bool := S.all (fun u =>
+            (ownersAt (txTab g r) kq).any (fun p => p.id == qp.id && (g.node? p).isSome &&
+              (txTab g u).contains p))
+          if !wD.any pinOkD then
+            a := { a with segNoWitPinDown := a.segNoWitPinDown + 1 }
+            if a.exNoWitPinDown == "" then
+              a := { a with exNoWitPinDown := s!"b {pidStr b}, tramo {S.map pidStr}, testigos {wD.map pidStr}" }
+      | none => pure ()
       match S.getLast? with
       | none => pure ()
       | some t =>
@@ -8143,6 +8170,8 @@ def reportTX (name : String) (a : TXAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   criterio local (nodo pinchado vivo compartido): testigos que lo cumplen {a.witQ}, de ellos muertos {a.witQDead}, quitados {a.witQStripped}; tramos sin ninguno {a.segNoWitQ}; con alguno pero ninguno sobrevive {a.segWitQButNone}"
   IO.println s!"   WitPinUp: tramos sin testigo de g con nodo pinchado compartido con cada miembro {a.segNoWitPin}"
   if a.exNoWitPin != "" then IO.println s!"      {a.exNoWitPin}"
+  IO.println s!"   WitPinDown: tramos con paso anterior {a.segsDown}; sin testigo de g con nodo pinchado compartido con cada miembro {a.segNoWitPinDown}"
+  if a.exNoWitPinDown != "" then IO.println s!"      {a.exNoWitPinDown}"
   IO.println s!"   hijo que falta en un B_a de un solo hijo: ya faltaba en g {a.singOld}, lo quito cleanPair {a.singNew}; parejas con el mismo hijo unico y el otro ausente ya en g en las dos tablas {a.sameCauseOld}"
   if a.exSmaller != "" then IO.println s!"      W_C menor: {a.exSmaller}"
   IO.println s!"   ({ms} ms)"
@@ -8280,6 +8309,48 @@ def runFormulaTE (lab : String) (φ : Cnf) (a : PEAcc) : PEAcc := Id.run do
   for kv in line do
     let g := filterAllAgg kv.2 []
     if isValid g then a := walkTE lab g (stepCount φ).toNat a
+  return a
+
+
+/-! **`exactpins`: ¿la exactitud por parejas y por tríos se conserva al pinchar?** Para cada estado del
+lector `g` y **cada** pin válido `q` del paso que el lector lee, se mide `PairExact` y `TriExact` en
+`filterAllAgg g [q]` (el estado del lector siguiente si se eligiera `q`). -/
+
+structure EPAcc where
+  formulas : Nat := 0
+  parents : Nat := 0
+  children : Nat := 0
+  pair : PEAcc := {}
+  tri : PEAcc := {}
+  deriving Repr
+
+partial def walkEP (lab : String) (g : GPathM) (fuel : Nat) (a : EPAcc) : EPAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := { a with parents := a.parents + 1 }
+      for q in ownersAt g.gowners k do
+        let g' := filterAllAgg g [q.id]
+        if isValid g' then
+          a := { a with children := a.children + 1,
+                        pair := peState s!"{lab} pin {pidStr q}" g' a.pair,
+                        tri := teState s!"{lab} pin {pidStr q}" g' a.tri }
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkEP lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaEP (lab : String) (φ : Cnf) (a : EPAcc) : EPAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with pair := peState lab g a.pair, tri := teState lab g a.tri }
+      a := walkEP lab g (stepCount φ).toNat a
   return a
 
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
@@ -9554,6 +9625,55 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "dump" :: "random" :: cases :: nvMin :: seed :: idx :: _ =>
+    match (randomCnfs cases.toNat! nvMin.toNat! seed.toNat!)[idx.toNat!]? with
+    | none => IO.println "no such formula"
+    | some φ =>
+      IO.println s!"p cnf {φ.nVars} {φ.clauses.length}"
+      for c in φ.clauses do
+        let lit (l : Lit) : String := if l.pos then s!"{l.v + 1}" else s!"-{l.v + 1}"
+        IO.println s!"{lit c.l1} {lit c.l2} {lit c.l3} 0"
+  | "verdict" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        let nv := φ.nVars
+        let sat := (List.range (2 ^ nv)).any (fun bits =>
+          let val (v : Nat) : Bool := (bits / 2 ^ v) % 2 == 1
+          let lit (l : Lit) : Bool := val l.v == l.pos
+          φ.clauses.all (fun c => lit c.l1 || lit c.l2 || lit c.l3))
+        let rv := ReaderExec.readerVerdictW φ
+        -- the start states: SegExact / SegGood
+        let mut line : PureLine := pureInit φ
+        for _ in [0:(stepCount φ - 1).toNat] do
+          line := pureAdvanceW φ line
+        let mut segNoChain := 0
+        let mut segBad := 0
+        for kv in line do
+          let g := filterAllAgg kv.2 []
+          if isValid g then
+            let c := checkSE "" g 300 {}
+            segNoChain := segNoChain + c.bad
+            if !inputSegGood g then segBad := segBad + 1
+        IO.println s!"seed {seed} #{idx}: vars {nv}, clausulas {φ.clauses.length}, SAT {sat}, lector {rv}{if sat != rv then "  <-- DISTINTO" else ""}; inicio: tramos sin cadena {segNoChain}, estados sin SegGood {segBad}"
+        idx := idx + 1
+      (← IO.getStdout).flush
+  | "exactpins" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : EPAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaEP s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      IO.println s!"── seed {seed} ({a.formulas} formulas; estados del lector recorridos {a.parents}, hijos por todos los pines {a.children})"
+      IO.println s!"   PairExact: {a.pair.states} estados, parejas {a.pair.pairs}: en cadena comun {a.pair.exact}, en ninguna {a.pair.notExact}, presupuesto {a.pair.budget}"
+      IO.println s!"   TriExact:  {a.tri.states} estados, trios {a.tri.pairs}: en cadena comun {a.tri.exact}, en ninguna {a.tri.notExact}, presupuesto {a.tri.budget}"
+      if a.pair.ex != "" then IO.println s!"      pareja sin cadena: {a.pair.ex}"
+      if a.tri.ex != "" then IO.println s!"      trio sin cadena: {a.tri.ex}"
+      IO.println s!"   ({t1 - t0} ms)"
       (← IO.getStdout).flush
   | "triexact" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
