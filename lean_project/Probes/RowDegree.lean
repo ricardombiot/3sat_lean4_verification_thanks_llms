@@ -7780,6 +7780,11 @@ structure OSAcc where
   exHelly : String := ""
   exPair : String := ""
   exNotBox : String := ""
+  memChecked : Nat := 0
+  memOutside : Nat := 0
+  extOutside : Nat := 0
+  pairOnlyOutside : Nat := 0
+  exOutside : String := ""
   deriving Repr
 
 def osBumpS (l : List (String × Nat)) (k : String) : List (String × Nat) :=
@@ -7802,8 +7807,29 @@ def boxOf (D B : List Int) : Bool × List (Nat × Int) :=
     (box.all B.contains && B.all box.contains, fixed)
 
 def osExt (φ : Cnf) (C : GPathM) (S : List PathNodeId) (cands : List PathNodeId)
-    (key : PathNodeId → Option NodeId) (kstep : Int) (lab : String) (a : OSAcc) : OSAcc := Id.run do
+    (key : PathNodeId → Option NodeId) (kstep : Int) (lab : String) (cstep : Int) (a : OSAcc) :
+    OSAcc := Id.run do
   let mut a := { a with exts := a.exts + 1 }
+  -- are all entries of every member at the candidates' step candidates?
+  let tab0 (z : PathNodeId) : List PathNodeId := (C.node? z).map (·.owners) |>.getD []
+  let mut anyOut := false
+  for u in S do
+    let es := (ownersAt (tab0 u) cstep).eraseDups
+    a := { a with memChecked := a.memChecked + 1 }
+    let out := es.filter (fun r => !cands.contains r)
+    if !out.isEmpty then
+      anyOut := true
+      a := { a with memOutside := a.memOutside + 1 }
+      if a.exOutside == "" then
+        a := { a with exOutside := s!"{lab}: miembro {pidStr u}, fuera {out.map pidStr}, candidatos {cands.map pidStr}" }
+  if anyOut then a := { a with extOutside := a.extOutside + 1 }
+  -- pairs whose common entries at that step are all outside the candidates
+  for u in S do
+    for v in S do
+      if u != v then
+        let cm := (ownersAt (tab0 u) cstep).filter (fun r => (tab0 v).contains r)
+        if !cm.isEmpty && cm.all (fun r => !cands.contains r) then
+          a := { a with pairOnlyOutside := a.pairOnlyOutside + 1 }
   let kd := kindOf φ kstep
   a := { a with byKind := osBumpS a.byKind kd }
   let D := (cands.filterMap key).map (·.index) |>.eraseDups
@@ -7853,13 +7879,13 @@ def osState (φ : Cnf) (lab : String) (C : GPathM) (a : OSAcc) : OSAcc := Id.run
         if t.id.step + 1 ≤ C.current_step - 1 then
           let cands := (C.line (t.id.step + 1)).map (·.id) |>.filter (fun r =>
             r.parent_id == some t.id && r.gparent_id == t.parent_id)
-          a := osExt φ C S cands (fun r => some r.id) (t.id.step + 1) s!"{lab} arriba" a
+          a := osExt φ C S cands (fun r => some r.id) (t.id.step + 1) s!"{lab} arriba" (t.id.step + 1) a
         -- down: parents of b, varying the oldest window component
         if b.id.step ≥ 1 then
           let cands := (C.line (b.id.step - 1)).map (·.id) |>.filter (fun p =>
             some p.id == b.parent_id && p.parent_id == b.gparent_id)
           if b.id.step ≥ 3 then
-            a := osExt φ C S cands (fun p => p.gparent_id) (b.id.step - 3) s!"{lab} abajo" a
+            a := osExt φ C S cands (fun p => p.gparent_id) (b.id.step - 3) s!"{lab} abajo" (b.id.step - 1) a
       | _, _ => pure ()
   return a
 
@@ -7893,6 +7919,8 @@ def reportOS (name : String) (a : OSAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   extensiones {a.exts}; por tipo del componente que varia {a.byKind}; tamano del dominio {a.domHist}"
   IO.println s!"   B_u no se cortan dos a dos {a.pairFail}; sin extension {a.noExt}; fallos de Helly (dos a dos si, todos no) {a.helly}"
   IO.println s!"   pasos de clausula {a.claExts}: algun B_u no es caja {a.notBox}; cajas que fallan en 000 {a.boxHole}, en filas sin candidato {a.boxMissing}"
+  IO.println s!"   miembros revisados {a.memChecked}: con alguna entrada en el paso de los candidatos que no es candidato {a.memOutside} (en {a.extOutside} extensiones); parejas cuyas entradas comunes alli son todas no candidatas {a.pairOnlyOutside}"
+  if a.exOutside != "" then IO.println s!"      fuera: {a.exOutside}"
   if a.exHelly != "" then IO.println s!"      Helly: {a.exHelly}"
   if a.exPair != "" then IO.println s!"      dos a dos: {a.exPair}"
   if a.exNotBox != "" then IO.println s!"      no caja: {a.exNotBox}"
