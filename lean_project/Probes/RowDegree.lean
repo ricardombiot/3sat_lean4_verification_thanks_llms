@@ -6889,6 +6889,91 @@ def reportSS (name : String) (a : SSAcc) (ms : Nat) : IO Unit := do
   reportSSCell "pines " a.pins
   IO.println s!"   ({ms} ms)"
 
+/-! **`baddie`: ¿dónde mueren los tramos sin cadena?** En cada estado de la línea, revisado
+(`T0 = reviewAgg kv.2`): los tramos sin cadena completa. Para cada envío del paso siguiente, se siguen
+filtro a filtro (`T ← reviewAgg (filterWeak T e)`) y tras el `up` final del envío: ¿en qué filtro dejan
+de ser tramo? ¿sobreviven al envío entero? ¿y en el lector (la línea final revisada y sus pines)? -/
+
+structure BDAcc where
+  formulas : Nat := 0
+  lineStates : Nat := 0
+  badStates : Nat := 0
+  bads : Nat := 0
+  badMixedLike : Nat := 0
+  tracks : Nat := 0
+  dieAt : List (Nat × Nat) := []
+  sendInvalid : Nat := 0
+  surviveSend : Nat := 0
+  surviveStillBad : Nat := 0
+  readerBad : Nat := 0
+  first : String := ""
+  firstSurv : String := ""
+  deriving Repr
+
+def bumpDie (h : List (Nat × Nat)) (k : Nat) : List (Nat × Nat) :=
+  match h.find? (fun p => p.1 == k) with
+  | some _ => h.map (fun p => if p.1 == k then (p.1, p.2 + 1) else p)
+  | none => (k, 1) :: h
+
+def noChain (g : GPathM) (P : List PathNodeId) : Bool :=
+  match (extendFullIn g (fun x => g.gowners.contains x) P 5000).1 with
+  | some false => true
+  | _ => false
+
+def runFormulaBD (label : String) (φ : Cnf) (a : BDAcc) : BDAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      let T0 := AggressiveReview.reviewAgg kv.2
+      if !isValid T0 then continue
+      a := { a with lineStates := a.lineStates + 1 }
+      let bads := (segsOf T0).filter (fun P => noChain T0 P)
+      if bads.isEmpty then continue
+      a := { a with badStates := a.badStates + 1, bads := a.bads + bads.length }
+      if a.first == "" then a := { a with first := s!"{label} paso {step}: {bads.length} tramos sin cadena" }
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        for P in bads do
+          a := { a with tracks := a.tracks + 1 }
+          let mut T := T0
+          let mut dead := false
+          let mut idx := 0
+          for e in es do
+            if !dead then
+              idx := idx + 1
+              T := AggressiveReview.reviewAgg (PureDriverImproves.filterWeak T e)
+              if !isValid T then
+                a := { a with sendInvalid := a.sendInvalid + 1 }
+                dead := true
+              else if !isSegment T P then
+                a := { a with dieAt := bumpDie a.dieAt idx }
+                dead := true
+          if !dead then
+            let h := upFilteringWeak kv.2 (weakReqOfCnf φ d) (reqOfCnf φ d) d ""
+            if isValid h && isSegment h P then
+              a := { a with surviveSend := a.surviveSend + 1 }
+              if noChain h P then a := { a with surviveStillBad := a.surviveStillBad + 1 }
+              if a.firstSurv == "" then
+                a := { a with firstSurv := s!"{label} paso {step} → ⟨{d.step},{d.index}⟩, {es.length} filtros" }
+            else a := { a with dieAt := bumpDie a.dieAt 99 }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with readerBad := a.readerBad + ((segsOf g).filter (fun P => noChain g P)).length }
+  return a
+
+def reportBD (name : String) (a : BDAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   estados de la linea revisados {a.lineStates}; con tramos sin cadena {a.badStates} ({a.bads} tramos)"
+  IO.println s!"   seguimientos (tramo × envio) {a.tracks}: muere en el filtro n (99 = en el up) {a.dieAt.reverse}; envio invalido {a.sendInvalid}"
+  IO.println s!"   SOBREVIVE al envio entero {a.surviveSend} (y sigue sin cadena {a.surviveStillBad})"
+  IO.println s!"   lector (linea final revisada): tramos sin cadena {a.readerBad}"
+  if a.first != "" then IO.println s!"   primero: {a.first}"
+  if a.firstSurv != "" then IO.println s!"   primer superviviente: {a.firstSurv}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7397,6 +7482,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "baddie" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaBD path φ {})
+        let t1 ← IO.monoMsNow
+        reportBD path a (t1 - t0)
+  | "baddie" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : BDAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaBD s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportBD s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "segstep" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
