@@ -121,3 +121,7 @@ root = "Probes.Helly"
 [[lean_exe]]
 name = "row-degree"
 root = "Probes.RowDegree"
+
+[[lean_exe]]
+name = "exec-diff"
+root = "Probes.ExecDiff"
