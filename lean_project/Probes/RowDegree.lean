@@ -8135,6 +8135,97 @@ def reportTX (name : String) (a : TXAcc) (ms : Nat) : IO Unit := do
   if a.exSmaller != "" then IO.println s!"      W_C menor: {a.exSmaller}"
   IO.println s!"   ({ms} ms)"
 
+
+/-! **`pairexact`: ¿cada entrada de una tabla está en una cadena completa con su dueño?** En cada estado
+del lector `g` (válido, punto fijo del review agresivo), para cada nodo `x` (hasta 40) y cada entrada
+viva `w ≠ x` de su tabla: búsqueda en profundidad de una cadena completa de `g` —un nodo por paso,
+enlazado con el anterior, poseído mutuamente con todos los anteriores, en la global— que pase por `x` y
+por `w`. Con presupuesto de nodos visitados; los agotados se cuentan aparte. -/
+
+structure PEAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  pairs : Nat := 0
+  exact : Nat := 0
+  notExact : Nat := 0
+  budget : Nat := 0
+  ex : String := ""
+  deriving Repr
+
+def peOwns (g : GPathM) (a b : PathNodeId) : Bool := (txTab g a).contains b
+
+/-- Depth-first search of a full chain through the fixed nodes `fix` (step ↦ node). Returns
+`some true` (found), `some false` (none), `none` (budget exhausted). -/
+partial def peSearch (g : GPathM) (fix : List (Int × PathNodeId)) (chain : List PathNodeId)
+    (step : Int) (budget : Nat) : Option Bool × Nat := Id.run do
+  if budget == 0 then return (none, 0)
+  if step ≥ g.current_step then return (some true, budget)
+  let cands : List PathNodeId :=
+    match chain.head? with
+    | none => (g.line step).map (·.id)
+    | some prev => ((g.node? prev).map (·.sons) |>.getD []).filter (fun z => z.id.step == step)
+  let cands := match fix.lookup step with
+    | some f => cands.filter (· == f)
+    | none => cands
+  let mut b := budget
+  for z in cands do
+    if !g.gowners.contains z then continue
+    if !chain.all (fun c => peOwns g c z && peOwns g z c) then continue
+    -- the fixed nodes still to come must be compatible with z
+    if !fix.all (fun (k, f) => k ≤ step || (peOwns g z f && peOwns g f z)) then continue
+    let (r, b') := peSearch g fix (z :: chain) (step + 1) (b - 1)
+    b := b'
+    match r with
+    | some true => return (some true, b)
+    | none => return (none, 0)
+    | some false => pure ()
+    if b == 0 then return (none, 0)
+  return (some false, b)
+
+def peState (lab : String) (g : GPathM) (a : PEAcc) : PEAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for nx in g.nodes.take 40 do
+    let x := nx.id
+    for w in nx.owners.eraseDups do
+      if w == x || (g.node? w).isNone then continue
+      if w.id.step == x.id.step then continue
+      a := { a with pairs := a.pairs + 1 }
+      let (r, _) := peSearch g [(x.id.step, x), (w.id.step, w)] [] 0 5000
+      match r with
+      | some true => a := { a with exact := a.exact + 1 }
+      | some false =>
+        a := { a with notExact := a.notExact + 1 }
+        if a.ex == "" then a := { a with ex := s!"{lab}: x {pidStr x}, w {pidStr w}" }
+      | none => a := { a with budget := a.budget + 1 }
+  return a
+
+partial def walkPE (lab : String) (g : GPathM) (fuel : Nat) (a : PEAcc) : PEAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let a := peState lab g a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkPE lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaPE (lab : String) (φ : Cnf) (a : PEAcc) : PEAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkPE lab g (stepCount φ).toNat a
+  return a
+
+def reportPE (name : String) (a : PEAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.states} estados del lector)"
+  IO.println s!"   parejas (nodo, entrada viva de otro paso) {a.pairs}: en una cadena completa comun {a.exact}; en ninguna {a.notExact}; presupuesto agotado {a.budget}"
+  if a.ex != "" then IO.println s!"      primera sin cadena: {a.ex}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
 mezclados, ¿están aun así en una cadena completa del estado unido? -/
@@ -8933,6 +9024,7 @@ def randomCnfs (cases nvMin seed : Nat) : List Cnf := Id.run do
 
 end Probes.RowDegree
 
+set_option maxHeartbeats 1000000 in
 open Probes.RowDegree in
 def main (args : List String) : IO Unit := do
   match args with
@@ -9406,6 +9498,17 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "pairexact" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : PEAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaPE s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportPE s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
       (← IO.getStdout).flush
   | "tri3x" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
