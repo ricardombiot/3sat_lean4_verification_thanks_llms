@@ -7591,6 +7591,124 @@ def reportRE (name : String) (a : REAcc) (ms : Nat) : IO Unit := do
   for d in a.detail do IO.println s!"      {d}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`majority`: ¿las tablas son cerradas por mayoría en coordenadas de variables?** Cada ventana
+`(gparent, parent, id)` se traduce a la asignación parcial que fija (paso `2v`: `v = i`; paso `2v+1`,
+`"!v=i"`: `v = 1-i`; fila `r` de una cláusula: cada literal con su bit). En un paso `b`, todas las
+ventanas fijan las mismas variables; la tabla de un nodo en `b` es entonces un conjunto de
+asignaciones, y se mide si la mayoría bit a bit de tres de ellas vuelve a estar en el conjunto. -/
+
+structure MJAcc where
+  formulas : Nat := 0
+  states : Nat := 0
+  sets : Nat := 0
+  inconsistent : Nat := 0
+  notInjective : Nat := 0
+  varMismatch : Nat := 0
+  notMaj : Nat := 0
+  notMajLive : Nat := 0
+  notMajNoNode : Nat := 0
+  notMajByKind : List (String × Nat) := []
+  exLive : String := ""
+  exNoNode : String := ""
+  deriving Repr
+
+def decodeNode (φ : Cnf) (d : NodeId) : List (Nat × Int) :=
+  if d.step < 0 then []
+  else if d.step < litBlock φ then
+    let v := (d.step / 2).toNat
+    if d.step % 2 == 0 then [(v, d.index)] else [(v, 1 - d.index)]
+  else if d.step ≤ litBlock φ then []
+  else if fusionTop φ ≤ d.step then []
+  else match clauseAt φ d.step with
+    | none => []
+    | some c =>
+      let lv (l : Lit) (b : Int) : Nat × Int := (l.v, if l.pos then b else 1 - b)
+      [lv c.l1 (b1 d.index), lv c.l2 (b2 d.index), lv c.l3 (b3 d.index)]
+
+/-- La asignación de una ventana, ordenada por variable; `none` si fija una variable a dos valores. -/
+def decodeWin (φ : Cnf) (p : PathNodeId) : Option (List (Nat × Int)) :=
+  let raw := (decodeNode φ p.id ++ (p.parent_id.map (decodeNode φ)).getD []
+    ++ (p.gparent_id.map (decodeNode φ)).getD []).eraseDups
+  let vars := (raw.map (·.1)).eraseDups
+  if vars.length != raw.length then none
+  else some (raw.mergeSort (fun x y => x.1 ≤ y.1))
+
+def kindOf (φ : Cnf) (k : Int) : String :=
+  if k < litBlock φ then (if k % 2 == 0 then "var" else "neg")
+  else if k ≤ litBlock φ || fusionTop φ ≤ k then "fus" else "cla"
+
+def majAsg (x y z : List (Nat × Int)) : List (Nat × Int) :=
+  List.zipWith (fun a (bc : (Nat × Int) × (Nat × Int)) =>
+    (a.1, if a.2 == bc.1.2 || a.2 == bc.2.2 then a.2 else bc.1.2)) x (List.zip y z)
+
+def mjState (φ : Cnf) (g : GPathM) (a : MJAcc) : MJAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for b in intRange 0 (g.current_step - 1) do
+    let U0 := (ownersAt g.gowners b).eraseDups
+    let Ud := U0.filterMap (decodeWin φ)
+    if Ud.length != U0.length then
+      a := { a with inconsistent := a.inconsistent + 1 }
+      continue
+    if Ud.eraseDups.length != Ud.length then a := { a with notInjective := a.notInjective + 1 }
+    let vs := (Ud.map (·.map (·.1))).eraseDups
+    if vs.length > 1 then
+      a := { a with varMismatch := a.varMismatch + 1 }
+      continue
+    for n in g.nodes do
+      if n.id.id.step == b then continue
+      let A := ((ownersAt n.owners b).eraseDups.filterMap (decodeWin φ)).eraseDups
+      a := { a with sets := a.sets + 1 }
+      let ms := A.flatMap (fun x => A.flatMap (fun y => A.map (fun z => majAsg x y z)))
+      let bad := ms.filter (fun m => !A.contains m)
+      if !bad.isEmpty then
+        a := { a with notMaj := a.notMaj + 1 }
+        let kd := kindOf φ b ++ "/" ++ kindOf φ (b - 1) ++ "/" ++ kindOf φ (b - 2)
+        let cur := (a.notMajByKind.lookup kd).getD 0
+        a := { a with notMajByKind := (kd, cur + 1) :: a.notMajByKind.filter (·.1 != kd) }
+        if bad.any (fun m => Ud.contains m) then
+          a := { a with notMajLive := a.notMajLive + 1 }
+          if a.exLive == "" then
+            a := { a with exLive := s!"paso {b} ({kd}): tabla {A} ; mayoria viva fuera {(bad.filter Ud.contains).headD []}" }
+        else
+          a := { a with notMajNoNode := a.notMajNoNode + 1 }
+          if a.exNoNode == "" then
+            a := { a with exNoNode := s!"paso {b} ({kd}): tabla {A} ; mayoria sin nodo {bad.headD []}" }
+  return a
+
+partial def walkMJ (φ : Cnf) (g : GPathM) (fuel : Nat) (a : MJAcc) : MJAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := mjState φ g a
+      for q in ownersAt g.gowners k do
+        let C := cleanInvalid₂ ([q.id].foldl filterRequire g)
+        if isValid C then a := mjState φ C a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkMJ φ (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaMJ (φ : Cnf) (a : MJAcc) : MJAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkMJ φ g (stepCount φ).toNat a
+  return a
+
+def reportMJ (name : String) (a : MJAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.states} estados)"
+  IO.println s!"   pasos con ventana incoherente {a.inconsistent}, con variables distintas {a.varMismatch}, no inyectivos {a.notInjective}"
+  IO.println s!"   tablas {a.sets}: no cerradas por mayoria {a.notMaj} (mayoria viva fuera {a.notMajLive}; mayoria sin nodo {a.notMajNoNode})"
+  IO.println s!"   por tipo de paso (b/b-1/b-2): {a.notMajByKind}"
+  if a.exLive != "" then IO.println s!"      {a.exLive}"
+  if a.exNoNode != "" then IO.println s!"      {a.exNoNode}"
+  IO.println s!"   ({ms} ms)"
+
+
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
 mezclados, ¿están aun así en una cadena completa del estado unido? -/
@@ -8862,6 +8980,15 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
+  | "majority" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : MJAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaMJ φ a
+      let t1 ← IO.monoMsNow
+      reportMJ s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
       (← IO.getStdout).flush
   | "roundexact" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
