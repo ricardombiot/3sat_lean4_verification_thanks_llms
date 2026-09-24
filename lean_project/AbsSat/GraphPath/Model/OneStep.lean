@@ -1,5 +1,6 @@
 -- lean_project/AbsSat/GraphPath/Model/OneStep.lean
 import AbsSat.GraphPath.Model.PairHelly
+import AbsSat.GraphPath.Model.SegExact
 import AbsSat.GraphPath.Model.OwnersInvariants
 
 /-!
@@ -683,5 +684,170 @@ theorem triTop_of_tri3 (C : GPathM) (hP : PairHelly.PairFixed C)
 /-- info: 'AbsSat.GraphPath.Model.OneStep.triTop_of_tri3' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms triTop_of_tri3
+
+-- ============================================================
+-- Por la historia: el testigo del estado del lector (v188)
+-- ============================================================
+
+/-- **Testigo de `g` hacia arriba** para un tramo: un hijo del extremo en `g` que todos los miembros
+poseen en `g`. -/
+def WitUp (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) (w : PathNodeId) : Prop :=
+  IsCandUp g sel hi w ∧ ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → w ∈ nj.owners
+
+/-- **Y hacia abajo**: un padre del extremo inferior en `g` que todos poseen en `g`. -/
+def WitDown (g : GPathM) (sel : Int → PathNodeId) (lo hi : Int) (w : PathNodeId) : Prop :=
+  IsCandDown g sel lo w ∧ ∀ j, lo ≤ j → j ≤ hi → ∀ nj, g.node? (sel j) = some nj → w ∈ nj.owners
+
+/-- **Parte 1: el testigo existe en `g`.** Un tramo de un estado `C` podado de `g` es tramo de `g`
+(`seg_before`); con `SegExact g` se extiende a una cadena completa de `g`, y su nodo del paso siguiente
+es hijo del extremo y lo poseen todos los miembros. Sin Helly. -/
+theorem witUp_of_segExact (g C : GPathM) (hpr : Pruned g C) (hnd : NodupIds g)
+    (hE : SegExact.SegExact g) (sel : Int → PathNodeId) (lo hi : Int) (hlo : 0 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi + 1 ≤ C.current_step - 1) (h : Seg C sel lo hi) : ∃ w, WitUp g sel lo hi w := by
+  obtain ⟨hpc, hpo⟩ := SegExact.seg_before g C hpr hnd sel lo hi h.1 h.2
+  have hcs : C.current_step = g.current_step := hpr.step_eq
+  obtain ⟨s, hs, hagree⟩ := hE sel lo hi hlo hlh (by omega) hpc hpo
+  obtain ⟨⟨⟨hnode, hlink⟩, hown⟩, _⟩ := hs
+  refine ⟨s (hi + 1), ⟨(hnode (hi + 1) (by omega) (by omega)).1,
+    (hnode (hi + 1) (by omega) (by omega)).2, ?_⟩, ?_⟩
+  · have := hlink hi (by omega) (by omega)
+    rw [hagree hi hlh (Int.le_refl _)] at this
+    exact this
+  · intro j hj0 hj1 nj hnj
+    rw [← hagree j hj0 hj1] at hnj
+    exact hown (hi + 1) j (by omega) (by omega) (by omega) (by omega) (by omega) nj hnj
+
+theorem witDown_of_segExact (g C : GPathM) (hpr : Pruned g C) (hnd : NodupIds g)
+    (hE : SegExact.SegExact g) (sel : Int → PathNodeId) (lo hi : Int) (hlo : 1 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi ≤ C.current_step - 1) (h : Seg C sel lo hi) : ∃ w, WitDown g sel lo hi w := by
+  obtain ⟨hpc, hpo⟩ := SegExact.seg_before g C hpr hnd sel lo hi h.1 h.2
+  have hcs : C.current_step = g.current_step := hpr.step_eq
+  obtain ⟨s, hs, hagree⟩ := hE sel lo hi (by omega) hlh (by omega) hpc hpo
+  obtain ⟨⟨⟨hnode, hlink⟩, hown⟩, _⟩ := hs
+  refine ⟨s (lo - 1), ⟨(hnode (lo - 1) (by omega) (by omega)).1,
+    (hnode (lo - 1) (by omega) (by omega)).2, ?_⟩, ?_⟩
+  · have := hlink (lo - 1) (by omega) (by omega)
+    rw [show lo - 1 + 1 = lo by omega, hagree lo (Int.le_refl _) hlh] at this
+    exact this
+  · intro j hj0 hj1 nj hnj
+    rw [← hagree j hj0 hj1] at hnj
+    exact hown (lo - 1) j (by omega) (by omega) (by omega) (by omega) (by omega) nj hnj
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.witUp_of_segExact' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms witUp_of_segExact
+
+/-- **Parte 2, la hipótesis de supervivencia (arriba)**: de los testigos que `g` da (parte 1), alguno
+sigue en `C`: vivo, hijo del extremo y en la tabla de todo miembro. Medido (`tri3x`, 33.403 tramos):
+el pin nunca mata todos los testigos de `g` de un tramo que sobrevive, y aunque la regla le quite
+alguno a un miembro (58 tramos), siempre queda otro. Sustituye a las piezas 3 y 4. -/
+def SurvivesUp (g C : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi → hi + 1 ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w, WitUp g sel lo hi w ∧ IsCandUp C sel hi w ∧ ∀ j, lo ≤ j → j ≤ hi → ownsB C (sel j) w = true
+
+/-- **Y abajo.** -/
+def SurvivesDown (g C : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 1 ≤ lo → lo ≤ hi → hi ≤ C.current_step - 1 →
+    Seg C sel lo hi →
+    ∃ w, WitDown g sel lo hi w ∧ IsCandDown C sel lo w ∧ ∀ j, lo ≤ j → j ≤ hi → ownsB C (sel j) w = true
+
+theorem oneStepUp_of_survives (g C : GPathM) (hsym : OwnSymmetric C) (hS : SurvivesUp g C) :
+    OneStepUp C := by
+  intro sel lo hi hlo hlh hhi h
+  obtain ⟨w, _, ⟨hwn, hws, hwp⟩, hall⟩ := hS sel lo hi hlo hlh hhi h
+  obtain ⟨h1, h2⟩ := ext_of_common C hsym sel lo hi h w hall
+  exact ⟨w, hwn, hws, hwp, h1, h2⟩
+
+theorem oneStepDown_of_survives (g C : GPathM) (hsym : OwnSymmetric C) (hS : SurvivesDown g C) :
+    OneStepDown C := by
+  intro sel lo hi hlo hlh hhi h
+  obtain ⟨w, _, ⟨hwn, hws, hwp⟩, hall⟩ := hS sel lo hi hlo hlh hhi h
+  obtain ⟨h1, h2⟩ := ext_of_common C hsym sel lo hi h w hall
+  exact ⟨w, hwn, hws, hwp, h1, h2⟩
+
+/-- **`PairHelly` por la historia**: con tablas simétricas, si algún testigo del estado del lector
+sobrevive en cada tramo, en las dos direcciones, vale `PairHelly`. Sin cajas, sin hueco, sin `Tri3`. -/
+theorem pairHelly_of_survives (g C : GPathM) (hsym : OwnSymmetric C) (hU : SurvivesUp g C)
+    (hD : SurvivesDown g C) : PairHelly C :=
+  pairHelly_of_oneStep C (oneStepUp_of_survives g C hsym hU) (oneStepDown_of_survives g C hsym hD)
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.pairHelly_of_survives' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairHelly_of_survives
+
+/-- **Parte 1 con `SegGood`** (lo que la escalera da del estado del lector): la entrada común del paso
+siguiente está en la tabla del extremo, así que es un hijo suyo. -/
+theorem witUp_of_segGood (g C : GPathM) (hpr : Pruned g C) (hnd : NodupIds g) (hG : SegGood g)
+    (hi1s : PassPlain.I1s g) (hsl : PassCtx.SLive g) (hpms : Sons.PMS g)
+    (sel : Int → PathNodeId) (lo hi : Int) (hlo : 0 ≤ lo) (hlh : lo ≤ hi)
+    (hhi : hi + 1 ≤ C.current_step - 1) (h : Seg C sel lo hi) : ∃ w, WitUp g sel lo hi w := by
+  obtain ⟨hpc, hpo⟩ := SegExact.seg_before g C hpr hnd sel lo hi h.1 h.2
+  have hcs : C.current_step = g.current_step := hpr.step_eq
+  obtain ⟨r, hrs, hall⟩ := hG sel lo hi hlo hlh (by omega) hpc hpo (hi + 1) (by omega) (by omega)
+    (Or.inr (by omega))
+  obtain ⟨nt, ht⟩ := Option.isSome_iff_exists.mp (hpc.1 hi hlh (Int.le_refl _)).1
+  have hts := (hpc.1 hi hlh (Int.le_refl _)).2
+  exact ⟨r, candUp_of_top_entry g hi1s hsl hpms sel hi nt ht hts r (hall hi hlh (Int.le_refl _) nt ht)
+    hrs (by omega) (by omega), hall⟩
+
+/-- **`PairHelly` tras la limpieza con parejas, por la historia**: con la simetría de `cleanPair`
+(`OwnSymmetric_cleanPair`) y la supervivencia de un testigo del estado del lector. -/
+theorem pairHelly_cleanPair_of_survives (g X : GPathM) (hr : SymInvariant.RevOk X)
+    (hU : SurvivesUp g (cleanPair X)) (hD : SurvivesDown g (cleanPair X)) :
+    PairHelly (cleanPair X) := fun hv _ =>
+  let hsym := (SymInvariant.OwnSymmetric_cleanPair X hr.nd hr.sh hr.sym hv).2
+  segGood_of_oneStep _ (oneStepUp_of_survives g _ hsym hU) (oneStepDown_of_survives g _ hsym hD)
+
+open AbsSat.Cnf in
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **El lector sin retroceso decide 3-SAT**, con `hStart` y, en cada pin del lector (estado `g`,
+estado pinchado `X`): **un testigo de `g` sobrevive en cada tramo** tras `cleanPair X`, hacia arriba y
+hacia abajo (`SurvivesUp`, `SurvivesDown`); el resto de `PStateG` tras la limpieza (`CleanRest`); y las
+vueltas siguientes listas (`LaterValid`). Sin cajas, sin hueco, sin `Tri3`. -/
+theorem readerVerdictW_iff_of_survives
+    (hStart : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (AggressiveReview.filterAllAgg kv.2 []) = true →
+        SegExact.SegExact (AggressiveReview.filterAllAgg kv.2 []))
+    (hPin : ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (AggressiveReview.filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      SurvivesUp g (cleanPair (filterWeak g (q.id.step, [q.id]))) ∧
+        SurvivesDown g (cleanPair (filterWeak g (q.id.step, [q.id]))) ∧
+        PairHelly.CleanRest (filterWeak g (q.id.step, [q.id])) ∧
+        PinDoomed.LaterValid (filterWeak g (q.id.step, [q.id])))
+    (φ : Cnf) (hwf : WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine PairHelly.readerVerdictW_iff_of_pairHelly hStart ?_ φ hwf
+  intro φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hU, hD, hC, hL⟩ := hPin φ' hwf' kv hkv g k q hR hv hk hq
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  refine ⟨?_, hC, hL⟩
+  intro hvC hfix
+  -- the symmetry of the pinned state, from the reader state's fixpoint
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (AggressiveReview.filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(AggressiveReview.pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+  have hsymX : Threaded.OwnSymmetric (filterWeak g (q.id.step, [q.id])) :=
+    PinDoomed.ownSymmetric_filterWeak g _ (PinExactBoundary.ownSymmetric_of_aggOk g (by
+      obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+      rw [hg] at hv ⊢
+      exact AggFixpoint.aggOk_reviewAgg _ hv) (ReaderAgg.RCtx_of_readableAgg g ctx.rd).snn
+      (ReaderAgg.RCtx_of_readableAgg g ctx.rd).below
+      (AdjacentOwners.adj_of_readable g ctx.rd hv ctx.pms ctx.sn).ctx.nodeval)
+  have hrX : SymInvariant.RevOk (filterWeak g (q.id.step, [q.id])) :=
+    ⟨(ReaderAgg.RCtx_of_readableAgg g ctx.rd).nodup,
+     ⟨(ReaderAgg.RCtx_of_readableAgg g ctx.rd).oos, (ReaderAgg.RCtx_of_readableAgg g ctx.rd).snn,
+      (ReaderAgg.RCtx_of_readableAgg g ctx.rd).below⟩, hsymX⟩
+  exact pairHelly_cleanPair_of_survives g _ hrX hU hD hvC hfix
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.readerVerdictW_iff_of_survives' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_survives
 
 end AbsSat.GraphPath.Model.OneStep
