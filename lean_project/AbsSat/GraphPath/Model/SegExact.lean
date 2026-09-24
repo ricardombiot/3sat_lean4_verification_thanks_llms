@@ -141,4 +141,67 @@ theorem readerVerdictW_iff_of_readerSegExact (h : ReaderSegExact) (φ : Cnf) (hw
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_readerSegExact
 
+-- ============================================================
+-- El primer estado del lector no pide nada
+-- ============================================================
+
+/-! La escalera solo consume, de cada estado que el lector visita, **una** cadena sana
+(`PinAliveChain.readerVerdictW_of_chainsR`). En el primer estado ya la hay: la de la asignación que
+satisface (`hsel0`). Así que la hipótesis solo hace falta **tras un pin**, y un pin es un filtro de un
+solo id: justo donde `SegExactFilter.segExact_stepFilter_cut` da `SegExact`. El primer estado —la línea
+final revisada, que es una unión y puede tener tramos mezclados sin cadena— queda fuera. -/
+
+/-- **La hipótesis, solo en los estados tras un pin.** -/
+def ReaderPinnedSegExact : Prop :=
+  ∀ φ : Cnf, WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+    PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+    ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+    isValid (filterAllAgg g [q.id]) = true → SegExact (filterAllAgg g [q.id])
+
+/-- **El lector sin retroceso decide 3-SAT, con `SegExact` solo en los estados tras un pin.** -/
+theorem readerVerdictW_iff_of_readerPinnedSegExact (h : ReaderPinnedSegExact) (φ : Cnf)
+    (hwf : WF φ) : ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine ⟨fun h' => ReaderExec.readerVerdictW_sound φ hwf h', fun hsat => ?_⟩
+  obtain ⟨a, hsa⟩ := hsat
+  obtain ⟨g, hmem, hcs, _, sel, hsel⟩ := ConservationImproves.pureRunW_full_chain φ a hwf hsa
+  have hm := (ReaderAggRun.pureRunW_state φ hwf _ hmem).1
+  have hsel0 : ChainSound (filterAllAgg g []) sel :=
+    ChainSound_filterAllAgg g [] sel hsel (fun _ hreq => absurd hreq List.not_mem_nil)
+  have hpos : 0 < g.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg g []) :=
+    { rd := ⟨g, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg g [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg g [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg g hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg g []).step_eq]; exact hpos }
+  refine PinAliveChain.readerVerdictW_of_chainsR φ _ hmem
+    (PickInduction.isValid_of_ChainG _ sel hsel0.chain) (fun g' hR hv' => ?_)
+  cases hR with
+  | start => exact ⟨sel, hsel0⟩
+  | pin g₁ k q hR₁ hv₁ hk hq =>
+    have hS := h φ hwf _ hmem g₁ k q hR₁ hv₁ hk hq hv'
+    have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ _ (PinAliveChain.ReadFromR.pin g₁ k q hR₁ hv₁ hk hq)
+    have rc := ReaderAgg.RCtx_of_readableAgg _ ctx.rd
+    have cR := Reader.Ctx_of_readable _ (ReaderAgg.readable_of_readableAgg _ ctx.rd) hv'
+    -- an entry of the global at step 0, as a one-node segment
+    have hent := hasStepEntry_of_isValid _ hv' 0 (Int.le_refl 0) ctx.pos
+    simp only [hasStepEntry, List.any_eq_true] at hent
+    obtain ⟨q0, hq0, hq0s⟩ := hent
+    have hq0s' : q0.id.step = 0 := eq_of_beq hq0s
+    obtain ⟨n0, hn0⟩ := Option.isSome_iff_exists.mp
+      ((GownersNodes.hasNode_iff _ q0).mp (cR.gn q0 hq0))
+    have hseg : Extendable.PartialChain (filterAllAgg g₁ [q.id]) (fun _ => q0) 0 0 :=
+      ⟨fun i hi1 hi2 => by
+          have : i = 0 := by omega
+          subst this; exact ⟨by rw [hn0]; rfl, hq0s'⟩,
+        fun i hi1 hi2 => by omega⟩
+    obtain ⟨s, hs, _⟩ := hS (fun _ => q0) 0 0 (Int.le_refl 0) (Int.le_refl 0)
+      (by have := ctx.pos; omega) hseg (fun i j hi hj hi' hj' hne => absurd (by omega) hne)
+    exact ⟨s, chainSound_of_fullChain _ cR.self ctx.smp rc.rootz rc.shape.notroot ctx.pos s hs⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SegExact.readerVerdictW_iff_of_readerPinnedSegExact' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_readerPinnedSegExact
+
 end AbsSat.GraphPath.Model.SegExact

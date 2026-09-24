@@ -170,4 +170,93 @@ theorem segExact_stepFilter_cut (T : GPathM) (e : Int × List NodeId) (c0 : SCtx
 #guard_msgs in
 #print axioms segExact_stepFilter
 
+-- ============================================================
+-- El lector: sus pines cortan siempre
+-- ============================================================
+
+/-- **Un pin del lector corta**: `firstChoice` solo elige un paso con dos owners de ids de mapa
+distintos, así que fijar uno quita de la global al otro. -/
+theorem pin_cuts (g : GPathM) (k : Int) (q : PathNodeId) (hk : ReaderExec.firstChoice g = some k)
+    (hq : q ∈ ownersAt g.gowners k) :
+    ∃ w ∈ g.gowners, w ∉ (filterWeak g (q.id.step, [q.id])).gowners := by
+  have hch : PickInduction.choiceAt g k = true := List.find?_some hk
+  have hqk : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+  unfold PickInduction.choiceAt at hch
+  obtain ⟨q1, hq1, hr⟩ := List.any_eq_true.mp hch
+  obtain ⟨r1, hr1, hne⟩ := List.any_eq_true.mp hr
+  have hne' : q1.id ≠ r1.id := bne_iff_ne.mp hne
+  have notIn : ∀ w ∈ ownersAt g.gowners k, w.id ≠ q.id →
+      w ∈ g.gowners ∧ w ∉ (filterWeak g (q.id.step, [q.id])).gowners := by
+    intro w hw hwq
+    refine ⟨(List.mem_filter.mp hw).1, fun hmem => ?_⟩
+    have hws : w.id.step = k := eq_of_beq (List.mem_filter.mp hw).2
+    have := ((mem_filterWeak g _ w).mp hmem).2 (by rw [hws, hqk])
+    exact hwq (List.mem_singleton.mp this)
+  rcases decEq q1.id q.id with h1 | h1
+  · obtain ⟨hw, hn⟩ := notIn q1 hq1 h1
+    exact ⟨q1, hw, hn⟩
+  · have hr1q : r1.id ≠ q.id := by rw [← h1]; exact fun e => hne' e.symm
+    obtain ⟨hw, hn⟩ := notIn r1 hr1 hr1q
+    exact ⟨r1, hw, hn⟩
+
+theorem filterAllAgg_pin (g : GPathM) (q : PathNodeId) :
+    filterAllAgg g [q.id] = reviewAgg (filterWeak g (q.id.step, [q.id])) := by
+  unfold filterAllAgg
+  simp only [List.foldl_cons, List.foldl_nil]
+  rw [TablesExact.filterRequire_eq_filterWeak]
+
+/-- **La hipótesis del lector, desde las tres obligaciones del paso fijado.** En cada pin del lector:
+`CutKillsMix`, `CommonAtFilter` y `StepSegTriples` del filtro `(paso de q, [q])`. El pin corta siempre
+(`pin_cuts`), así que no hace falta nada sobre el estado de antes. -/
+theorem readerPinnedSegExact_of_obligations
+    (hObl : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      CutKillsMix g (q.id.step, [q.id]) ∧ CommonAtFilter g (q.id.step, [q.id]) ∧
+        StepSegTriples g (q.id.step, [q.id])) :
+    SegExact.ReaderPinnedSegExact := by
+  intro φ hwf kv hkv g k q hR hv hk hq hv'
+  obtain ⟨hK, hC, hT⟩ := hObl φ hwf kv hkv g k q hR hv hk hq
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ hwf kv hkv
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+  have cG := Reader.Ctx_of_readable g (ReaderAgg.readable_of_readableAgg g ctx.rd) hv
+  have c0 : SCtx g := ⟨ReaderAgg.RCtx_of_readableAgg g ctx.rd, ctx.smp, cG.self, ctx.pos⟩
+  have hqk : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+  have hkr : k ∈ intRange 0 (g.current_step - 1) := List.mem_of_find?_eq_some hk
+  have hk0 := mem_intRange_lower hkr
+  have hk1 := mem_intRange_upper hkr
+  rw [filterAllAgg_pin] at hv' ⊢
+  exact segExact_stepFilter_cut g _ c0 (by rw [hqk]; exact hk0) (by rw [hqk]; omega)
+    (pin_cuts g k q hk hq) hK hC hT hv'
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactFilter.readerPinnedSegExact_of_obligations' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerPinnedSegExact_of_obligations
+
+/-- **El lector sin retroceso decide 3-SAT, con tres obligaciones locales en cada pin**: el pin deshace
+la mezcla (`CutKillsMix`), deja una entrada común admitida para los tramos que no lo cubren
+(`CommonAtFilter`), y tramo y entrada están en una cadena del estado de antes (`StepSegTriples`). -/
+theorem readerVerdictW_iff_of_pinObligations
+    (hObl : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      CutKillsMix g (q.id.step, [q.id]) ∧ CommonAtFilter g (q.id.step, [q.id]) ∧
+        StepSegTriples g (q.id.step, [q.id]))
+    (φ : AbsSat.Cnf.Cnf) (hwf : AbsSat.Cnf.WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ AbsSat.Cnf.Satisfiable φ :=
+  SegExact.readerVerdictW_iff_of_readerPinnedSegExact (readerPinnedSegExact_of_obligations hObl) φ hwf
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactFilter.readerVerdictW_iff_of_pinObligations' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_pinObligations
+
 end AbsSat.GraphPath.Model.SegExactFilter
