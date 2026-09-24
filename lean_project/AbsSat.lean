@@ -243,6 +243,7 @@ import AbsSat.GraphPath.Model.ReadyInv
 import AbsSat.GraphPath.Model.PassProp
 import AbsSat.GraphPath.Model.PinDoomed
 import AbsSat.GraphPath.Model.RoundExact
+import AbsSat.GraphPath.Model.PairHelly
 import AbsSat.GraphPath.Model.PinAliveChain
 import AbsSat.GraphPath.Model.ReaderExec
 import AbsSat.GraphPath.Model.HereditaryValid

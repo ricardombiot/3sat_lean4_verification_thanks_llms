@@ -997,6 +997,28 @@ theorem cutAll_eq_self (g : GPathM) (h : GPathM.measure (cutAll g) = GPathM.meas
     map_eq_self_pt _ _ (fun n hn => cutNode_eq_self_of_weight _ _ n (hpt n hn))
   simp only [cutAll, hmap]
 
+/-- **A measure-preserving pair rule removed nothing.** -/
+theorem pairSweep_eq_self (g : GPathM) (h : GPathM.measure (pairSweep g) = GPathM.measure g) :
+    pairSweep g = g := by
+  simp only [GPathM.measure, pairSweep] at h
+  rw [List.map_map] at h
+  have hsum := Nat.add_left_cancel h
+  have hle : ∀ n ∈ g.nodes, (PNodeM.weight ∘ pairMap g) n ≤ PNodeM.weight n := by
+    intro n _
+    simp only [Function.comp, PNodeM.weight, pairMap]
+    have := List.length_filter_le (fun w => !pairBad g n w) n.owners
+    omega
+  have hpt := sum_map_eq_pt g.nodes _ PNodeM.weight hle hsum
+  have hmap : g.nodes.map (pairMap g) = g.nodes := by
+    refine map_eq_self_pt _ _ (fun n hn => ?_)
+    have hw := hpt n hn
+    simp only [Function.comp, PNodeM.weight, pairMap] at hw
+    have hf : n.owners.filter (fun w => !pairBad g n w) = n.owners :=
+      List.filter_eq_self.mpr (List.length_filter_eq_length_iff.mp (by omega))
+    simp only [pairMap, hf]
+  show { g with nodes := g.nodes.map (pairMap g) } = g
+  rw [hmap]
+
 theorem purgeStep_eq_self (g : GPathM) (id : PathNodeId)
     (h : GPathM.measure (purgeStep g id) = GPathM.measure g) : purgeStep g id = g := by
   unfold purgeStep at h ⊢
