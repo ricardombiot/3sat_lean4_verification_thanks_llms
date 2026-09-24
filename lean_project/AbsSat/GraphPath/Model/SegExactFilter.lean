@@ -259,4 +259,68 @@ theorem readerVerdictW_iff_of_pinObligations
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_pinObligations
 
+-- ============================================================
+-- La escalera sin `CutKillsMix`: `SegExact` en el primer estado, y los pines lo conservan
+-- ============================================================
+
+/-! `CutKillsMix` («cualquier filtro que corte deshace la mezcla») es probablemente demasiado fuerte:
+la medición (`row-degree mixtrace`) muestra que los tramos mezclados caen por un **colapso masivo** —
+un filtro real de envío lleva la medida de 4.692 a 2.303 en el primer `cleanInvalid₂`—, no por un
+argumento local; un corte mínimo podría dejarlos vivos. La escalera no lo necesita: si el primer
+estado del lector —la línea final revisada— no tiene tramos sin cadena (medido: 0 en las semillas 1 y
+7), cada pin conserva `SegExact` con `segExact_stepFilter`. -/
+
+/-- **Todo estado del lector cumple `SegExact`**, si el primero lo cumple y cada pin tiene sus dos
+obligaciones del paso fijado. Por inducción sobre la lectura. -/
+theorem segExact_readFromR (g₀ : GPathM) (ctx₀ : PinAliveChain.DCtx g₀)
+    (h0 : isValid g₀ = true → SegExact g₀)
+    (hPin : ∀ g k q, PinAliveChain.ReadFromR g₀ g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      CommonAtFilter g (q.id.step, [q.id]) ∧ StepSegTriples g (q.id.step, [q.id])) :
+    ∀ g, PinAliveChain.ReadFromR g₀ g → isValid g = true → SegExact g := by
+  intro g hR
+  induction hR with
+  | start => exact h0
+  | pin g k q hR hv hk hq ih =>
+    intro hv'
+    have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ g hR
+    have cG := Reader.Ctx_of_readable g (ReaderAgg.readable_of_readableAgg g ctx.rd) hv
+    have c0 : SCtx g := ⟨ReaderAgg.RCtx_of_readableAgg g ctx.rd, ctx.smp, cG.self, ctx.pos⟩
+    obtain ⟨hC, hT⟩ := hPin g k q hR hv hk hq
+    have hqk : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
+    have hkr : k ∈ intRange 0 (g.current_step - 1) := List.mem_of_find?_eq_some hk
+    have hk0 := mem_intRange_lower hkr
+    have hk1 := mem_intRange_upper hkr
+    rw [filterAllAgg_pin] at hv' ⊢
+    exact segExact_stepFilter g _ c0 (ih hv) (by rw [hqk]; exact hk0) (by rw [hqk]; omega)
+      hC hT hv'
+
+/-- **El lector sin retroceso decide 3-SAT**, con: `SegExact` en la línea final revisada (su primer
+estado), y en cada pin, `CommonAtFilter` y `StepSegTriples` del paso fijado. -/
+theorem readerVerdictW_iff_of_startSegExact
+    (hStart : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (filterAllAgg kv.2 []) = true → SegExact (filterAllAgg kv.2 []))
+    (hPin : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      CommonAtFilter g (q.id.step, [q.id]) ∧ StepSegTriples g (q.id.step, [q.id]))
+    (φ : AbsSat.Cnf.Cnf) (hwf : AbsSat.Cnf.WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ AbsSat.Cnf.Satisfiable φ := by
+  refine SegExact.readerVerdictW_iff_of_readerSegExact ?_ φ hwf
+  intro φ' hwf' kv hkv g hR hv
+  obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+  have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+  have ctx₀ : PinAliveChain.DCtx (filterAllAgg kv.2 []) :=
+    { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+      pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+      sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+      smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+      pos := by rw [(pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+  exact segExact_readFromR _ ctx₀ (hStart φ' hwf' kv hkv) (hPin φ' hwf' kv hkv) g hR hv
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactFilter.readerVerdictW_iff_of_startSegExact' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_startSegExact
+
 end AbsSat.GraphPath.Model.SegExactFilter

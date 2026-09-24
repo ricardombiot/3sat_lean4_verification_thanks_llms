@@ -7013,6 +7013,110 @@ def reportBD (name : String) (a : BDAcc) (ms : Nat) : IO Unit := do
   if a.firstSurv != "" then IO.println s!"   primer superviviente: {a.firstSurv}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`mixtrace`: por qué un corte lejano mata un tramo mezclado.** Para cada tramo sin cadena de una
+unión revisada `T0` y cada filtro que corta, se rehace el review agresivo a mano, etapa a etapa
+(`cleanInvalid₂`, padres, hijos, barrido agresivo) y se anota la primera etapa en que el tramo deja de
+serlo, y por qué: un nodo eliminado, un enlace perdido, o una posesión mutua perdida. -/
+
+structure MTAcc where
+  formulas : Nat := 0
+  cases : Nat := 0
+  stage : List (String × Nat) := []
+  reason : List (String × Nat) := []
+  firstStory : String := ""
+  deriving Repr
+
+def bumpS (h : List (String × Nat)) (k : String) : List (String × Nat) :=
+  match h.find? (fun p => p.1 == k) with
+  | some _ => h.map (fun p => if p.1 == k then (p.1, p.2 + 1) else p)
+  | none => (k, 1) :: h
+
+/-- Why `P` stopped being a segment in `h` (it was one in `g`). -/
+def whyBroken (g h : GPathM) (P : List PathNodeId) : String :=
+  if P.any (fun p => (h.node? p).isNone) then
+    let dead := P.filter (fun p => (h.node? p).isNone)
+    s!"nodo eliminado (pasos {dead.map (·.id.step)})"
+  else if !(List.range (P.length - 1)).all (fun k =>
+      match P[k + 1]?, P[k]? with
+      | some hi, some lo => (match h.node? hi with | some n => n.parents.contains lo | none => false)
+      | _, _ => false) then "enlace de padre perdido"
+  else
+    let pairs := P.flatMap (fun p => P.filterMap (fun q =>
+      if p != q && mutuallyOwn g p q && !mutuallyOwn h p q then some (p.id.step, q.id.step) else none))
+    s!"posesion mutua perdida {pairs.take 3}"
+
+def traceMT (lab : String) (T0 : GPathM) (P : List PathNodeId) (e : Int × List NodeId) (a : MTAcc) :
+    MTAcc := Id.run do
+  let F := PureDriverImproves.filterWeak T0 e
+  if F.gowners.length == T0.gowners.length then return a
+  let mut a := { a with cases := a.cases + 1 }
+  let mut g := F
+  let mut story : List String := []
+  let mut done := false
+  let mut outer := GPathM.measure g + 1
+  while outer > 0 && !done do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 && !done do
+      fuel := fuel - 1
+      if !isValid g then
+        a := { a with stage := bumpS a.stage "invalido", reason := bumpS a.reason "grafo invalido" }
+        done := true
+      else
+        let g0 := g
+        let stages : List (String × (GPathM → GPathM)) :=
+          [("cleanInvalid₂", cleanInvalid₂), ("padres", reviewParents), ("hijos", reviewSons)]
+        for (nm, f) in stages do
+          if !done then
+            let h := f g
+            story := story ++ [s!"{nm}: medida {GPathM.measure g}→{GPathM.measure h}"]
+            if !isSegment h P then
+              let why := whyBroken g h P
+              a := { a with stage := bumpS a.stage nm, reason := bumpS a.reason why }
+              if a.firstStory == "" then
+                a := { a with firstStory := s!"{lab} filtro paso {e.1}: {story} → roto en {nm}: {why}" }
+              done := true
+            g := h
+        if !done && !(GPathM.measure g < GPathM.measure g0) then fuel := 0
+    if !done then
+      if !isValid g then outer := 0
+      else
+        let h := AggressiveReview.aggSweep g
+        if !isSegment h P then
+          let why := whyBroken g h P
+          a := { a with stage := bumpS a.stage "aggSweep", reason := bumpS a.reason why }
+          if a.firstStory == "" then
+            a := { a with firstStory := s!"{lab} filtro paso {e.1}: {story} → roto en aggSweep: {why}" }
+          done := true
+        else if GPathM.measure h < GPathM.measure g then g := h else outer := 0
+  if !done then a := { a with stage := bumpS a.stage "sobrevive" }
+  return a
+
+def runFormulaMT (label : String) (φ : Cnf) (a : MTAcc) : MTAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      let T0 := AggressiveReview.reviewAgg kv.2
+      if !isValid T0 then continue
+      let bads := (segsOf T0).filter (fun P => noChain T0 P)
+      if bads.isEmpty then continue
+      for d in mapSons φ kv.1.step kv.1.index do
+        let es := weakReqOfCnf φ d ++ (reqOfCnf φ d).map (fun r => (r.step, [r]))
+        for P in bads.take 3 do
+          for e in es do
+            a := traceMT s!"{label} paso {step}" T0 P e a
+    line := pureAdvanceW φ line
+  return a
+
+def reportMT (name : String) (a : MTAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   casos (tramo sin cadena × filtro que corta): {a.cases}"
+  IO.println s!"   etapa en que se rompe: {a.stage.reverse}"
+  IO.println s!"   por que: {a.reason.reverse}"
+  if a.firstStory != "" then IO.println s!"   ejemplo: {a.firstStory}"
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7521,6 +7625,16 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "mixtrace" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : MTAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaMT s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportMT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "baddie" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
