@@ -5808,6 +5808,138 @@ def reportCPin (name : String) (a : CPinAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   limpiezas siguientes {a.laterCleans}: cambian algo {a.laterChanged}, nodos eliminados {a.laterRemoved}; a la entrada: con nodo invalido {a.laterInvalidIn}, con nodo fuera de la global {a.laterNotGow}, con enlace fuera de la tabla {a.laterLinkNotOwner}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`doomtrace`: cómo mueren, nodo a nodo, los tramos condenados de la primera vuelta de un pin**
+(review simétrico). En cada pin del lector: `C = cleanInvalid₂` del estado pinchado, sus tramos sin
+entrada común viva en algún paso (`badSegs`). Se recorren las dos pasadas de esa vuelta `reviewNode` a
+`reviewNode`; cuando un tramo deja de serlo se clasifica: muere un miembro, se pierde la posesión de
+una pareja del tramo (¿es el procesado `x` uno de los dos?) o un enlace de padre (¿toca a `x`?); y la
+posición de `x` respecto al tramo: dentro, justo debajo, justo encima, en el paso sin entrada común,
+otro. -/
+
+structure DTAcc where
+  formulas : Nat := 0
+  pins : Nat := 0
+  doomed : Nat := 0
+  survive : Nat := 0
+  inPar : Nat := 0
+  inSons : Nat := 0
+  byRemove : Nat := 0
+  byOwnX : Nat := 0
+  byOwnOther : Nat := 0
+  byLinkX : Nat := 0
+  byLinkOther : Nat := 0
+  posIn : Nat := 0
+  posBelow : Nat := 0
+  posAbove : Nat := 0
+  posBad : Nat := 0
+  posOther : Nat := 0
+  first : String := ""
+  deriving Repr
+
+/-- The steps outside `P` where `P` has no live common entry. -/
+def badSteps (g : GPathM) (P : List PathNodeId) : List Int :=
+  match P.head?, P.getLast? with
+  | some lo, some hi =>
+    let tabs := P.filterMap (fun y => (g.node? y).map (·.owners))
+    (intRange 0 (g.current_step - 1)).filter (fun i =>
+      (i < lo.id.step || hi.id.step < i) &&
+      !((ownersAt (tabs.headD []) i).filter (fun r => tabs.all (fun t => t.contains r))).any
+        (fun r => (g.node? r).isSome))
+  | _, _ => []
+
+def classifyDeath (g g' : GPathM) (x : PathNodeId) (P : List PathNodeId) (bad : List Int)
+    (parents : Bool) (a : DTAcc) : DTAcc := Id.run do
+  let mut a := if parents then { a with inPar := a.inPar + 1 } else { a with inSons := a.inSons + 1 }
+  if P.any (fun y => (g'.node? y).isNone) then
+    a := { a with byRemove := a.byRemove + 1 }
+  else if P.any (fun y => P.any (fun z => y != z && !mutuallyOwn g' y z)) then
+    let lost := P.any (fun y => P.any (fun z => y != z && mutuallyOwn g y z && !mutuallyOwn g' y z &&
+      (y == x || z == x)))
+    if lost then a := { a with byOwnX := a.byOwnX + 1 } else a := { a with byOwnOther := a.byOwnOther + 1 }
+  else
+    -- a parent link between consecutive members
+    let touch := P.contains x
+    if touch then a := { a with byLinkX := a.byLinkX + 1 } else a := { a with byLinkOther := a.byLinkOther + 1 }
+  match P.head?, P.getLast? with
+  | some lo, some hi =>
+    let k := x.id.step
+    if P.contains x then a := { a with posIn := a.posIn + 1 }
+    else if bad.contains k then a := { a with posBad := a.posBad + 1 }
+    else if k + 1 == lo.id.step then a := { a with posBelow := a.posBelow + 1 }
+    else if k == hi.id.step + 1 then a := { a with posAbove := a.posAbove + 1 }
+    else a := { a with posOther := a.posOther + 1 }
+  | _, _ => pure ()
+  return a
+
+def dtSteps (lab : String) (g : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int)
+    (parents : Bool) (alive : List (List PathNodeId × List Int)) (a : DTAcc) :
+    DTAcc × GPathM × List (List PathNodeId × List Int) := Id.run do
+  let mut a := a
+  let mut g := g
+  let mut alive := alive
+  for k in ks do
+    if !isValid g then break
+    for id in (g.line k).map (·.id) do
+      let g' := reviewNode g nb id
+      let mut keep := []
+      for (P, bad) in alive do
+        if isSegment g' P then keep := (P, bad) :: keep
+        else
+          a := classifyDeath g g' id P bad parents a
+          if a.first == "" then
+            a := { a with first := s!"{lab}: tramo {P.map (fun y => y.id.step)}, sin comun en {bad}, muere en {if parents then "padres" else "hijos"} con x={id.id.step}/{id.id.index}" }
+      alive := keep
+      g := g'
+  return (a, g, alive)
+
+def pinDT (lab : String) (X : GPathM) (a : DTAcc) : DTAcc := Id.run do
+  let mut a := { a with pins := a.pins + 1 }
+  let C := cleanInvalid₂ X
+  if !isValid C then return a
+  let segs := (Id.run do
+    let mut out : List (List PathNodeId) := []
+    for y in C.nodes.take 20 do
+      let (ss, _) := collectDown C [y.id] ([], 30)
+      out := ss ++ out
+    return out).filter (fun P => !(badSteps C P).isEmpty)
+  let alive := segs.map (fun P => (P, badSteps C P))
+  a := { a with doomed := a.doomed + alive.length }
+  let (a1, p, alive1) := dtSteps lab C (·.parents) (intRange 1 (C.current_step - 1)) true alive a
+  let (a2, _, alive2) := dtSteps lab p (·.sons) (intRange 0 (p.current_step - 2)).reverse false alive1 a1
+  return { a2 with survive := a2.survive + alive2.length }
+
+partial def walkDT (lab : String) (g : GPathM) (fuel : Nat) (a : DTAcc) : DTAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := pinDT lab ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkDT lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaDT (lab : String) (φ : Cnf) (a : DTAcc) : DTAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkDT lab g (stepCount φ).toNat a
+  return a
+
+def reportDT (name : String) (a : DTAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
+  IO.println s!"   tramos condenados tras la 1ª limpieza {a.doomed}; sobreviven a la vuelta {a.survive}"
+  IO.println s!"   mueren en padres {a.inPar}, en hijos {a.inSons}"
+  IO.println s!"   causa: miembro eliminado {a.byRemove}; posesion perdida con x {a.byOwnX}, sin x {a.byOwnOther}; enlace perdido tocando x {a.byLinkX}, sin x {a.byLinkOther}"
+  IO.println s!"   x respecto al tramo: dentro {a.posIn}, justo debajo {a.posBelow}, justo encima {a.posAbove}, en el paso sin comun {a.posBad}, otro {a.posOther}"
+  if a.first != "" then IO.println s!"   primero: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`doomed`: los tramos que `cleanInvalid` deja sin entrada común viva, ¿mueren?** En los pines del
 lector (y en los envíos), tras cada `cleanInvalid` de cada vuelta: para cada tramo que viola
 `SegGoodL` (algún paso fuera sin entrada común viva), ¿sigue siendo tramo tras el review completo
@@ -8369,6 +8501,17 @@ def main (args : List String) : IO Unit := do
         a := runFormulaPH φ a
       let t1 ← IO.monoMsNow
       reportPH s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "doomtrace" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : DTAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaDT s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
   | "cleanpin" :: "random" :: cases :: nvMin :: seeds =>
     for seed in seeds.map String.toNat! do
       let t0 ← IO.monoMsNow
