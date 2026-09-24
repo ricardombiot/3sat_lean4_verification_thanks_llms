@@ -5723,6 +5723,10 @@ structure CPinAcc where
   laterInvalidIn : Nat := 0
   laterNotGow : Nat := 0
   laterLinkNotOwner : Nat := 0
+  laterPairActs : Nat := 0
+  laterProgress : Nat := 0
+  firstPairActs : Nat := 0
+  outP1 : PHCell := {}
   in1 : PHCell := {}
   out1 : PHCell := {}
   inN : PHCell := {}
@@ -5743,11 +5747,20 @@ def reviewCPin (F : GPathM) (a : CPinAcc) : CPinAcc := Id.run do
       if !isValid g then fuel := 0
       else
         let g0 := g
-        let h := cleanInvalid₂ g
+        -- the machine now: the clean with pairs (plan pair_mode)
+        let h := cleanPair g
         if first then
           a := { a with in1 := checkPH g a.in1 }
-          if isValid h then a := { a with out1 := checkPH h a.out1 }
+          let hc := cleanInvalid₂ g
+          if isValid hc then a := { a with out1 := checkPH hc a.out1 }
+          if isValid h then a := { a with outP1 := checkPH h a.outP1 }
+          if GPathM.measure h < GPathM.measure hc then a := { a with firstPairActs := a.firstPairActs + 1 }
         else
+          -- LaterValid, new half: does the rule remove something at the start of a later round?
+          if GPathM.measure (pairSweep g) < GPathM.measure g then
+            a := { a with laterPairActs := a.laterPairActs + 1 }
+          if GPathM.measure (reviewPass g) < GPathM.measure g then
+            a := { a with laterProgress := a.laterProgress + 1 }
           a := { a with inN := checkPH g a.inN }
           if isValid h then a := { a with outN := checkPH h a.outN }
           -- what a later clean does
@@ -5801,7 +5814,9 @@ def runFormulaCPin (φ : Cnf) (a : CPinAcc) : CPinAcc := Id.run do
 def reportCPin (name : String) (a : CPinAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
   reportPHCell "1ª limpieza, entrada (el pin)" a.in1
-  reportPHCell "1ª limpieza, salida          " a.out1
+  reportPHCell "1ª limpieza, salida (sin regla)" a.out1
+  reportPHCell "1ª limpieza+parejas, salida  " a.outP1
+  IO.println s!"   la regla actua en la 1ª limpieza de {a.firstPairActs} pines; vueltas siguientes que progresan {a.laterProgress}; en las que la regla quita algo al empezar {a.laterPairActs}"
   reportPHCell "siguientes, entrada          " a.inN
   reportPHCell "siguientes, salida           " a.outN
   reportPHCell "tras barrido agresivo        " a.agg
