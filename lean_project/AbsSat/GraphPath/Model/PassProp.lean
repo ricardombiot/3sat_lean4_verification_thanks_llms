@@ -380,10 +380,17 @@ theorem desc_of_owner (P : GPathM) (h : AfterPar P) :
 -- El hueco, con nombre: de la unión a un padre común
 -- ============================================================
 
-/-- **De la unión a un padre común** (la parte de tipo Helly, como hipótesis): si cada miembro de un
-tramo por encima de su miembro más bajo está en la tabla de **algún** padre de ese miembro, **un solo**
-padre los tiene a todos. Medido (`doomtrace`): en los tramos condenados la unión nunca cubre (0 de 86),
-así que esta implicación no se contradice en ellos; es lo que falta para bajar un tramo paso a paso. -/
+/-- **De la unión a un padre común** (la parte de tipo Helly): si cada miembro de un tramo por encima
+de su miembro más bajo está en la tabla de **algún** padre de ese miembro, **un solo** padre los tiene
+a todos.
+
+**FALSA en general** (medido con `row-degree doomtrace`, tras la pasada de padres de la primera vuelta
+de los pines del lector): 1 fallo en 14.579 tramos (semilla 1, #0: tramo de los pasos 6–13). Es un tramo
+**condenado** —sin entrada común en los pasos 2–5 y 14–18— que **sobrevive a la pasada de padres**
+porque cada miembro está en la tabla de algún padre del extremo, sin que ninguno los tenga a todos, y
+que muere después, en la pasada de hijos. Así que la muerte de los condenados no se puede atribuir a
+la pasada de padres sola: el argumento tiene que combinar las dos pasadas. Queda como registro de la
+ruta, con su consecuencia local (`seg_down_of_common`). -/
 def UnionToCommon (P : GPathM) : Prop :=
   ∀ (sel : Int → PathNodeId) (lo hi : Int), lo ≤ hi → TopGoodUp.Seg P sel lo hi →
     ∀ nl, P.node? (sel lo) = some nl →

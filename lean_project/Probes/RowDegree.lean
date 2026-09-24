@@ -5854,6 +5854,11 @@ structure DTAcc where
   afterPar : Nat := 0
   afterParInvalid : Nat := 0
   afterParI1 : Nat := 0
+  u2cSegs : Nat := 0
+  u2cUnion : Nat := 0
+  u2cCommon : Nat := 0
+  u2cFail : Nat := 0
+  u2cFirst : String := ""
   first : String := ""
   deriving Repr
 
@@ -5982,7 +5987,30 @@ def pinDT (lab : String) (kpin : Int) (X : GPathM) (a : DTAcc) : DTAcc := Id.run
       w.id.step + 1 == n.id.id.step && !n.parents.contains w))
     let b1 := { a1 with afterPar := a1.afterPar + 1 }
     let b2 := { b1 with afterParInvalid := b1.afterParInvalid + (if inv then 1 else 0) }
-    { b2 with afterParI1 := b2.afterParI1 + (if i1 then 1 else 0) }
+    let b3 := { b2 with afterParI1 := b2.afterParI1 + (if i1 then 1 else 0) }
+    -- UnionToCommon on the segments of `p` (sample)
+    Id.run do
+      let mut b := b3
+      for y in p.nodes.take 20 do
+        let (segs, _) := collectDown p [y.id] ([], 30)
+        for P in segs do
+          match P.head?, p.node? (P.headD y.id) with
+          | some lo, some nl =>
+            if lo.id.step ≥ 1 && P.length ≥ 2 then
+              b := { b with u2cSegs := b.u2cSegs + 1 }
+              let rest := P.filter (· != lo)
+              let owns (q z : PathNodeId) : Bool := match p.node? q with
+                | some nq => nq.owners.contains z | none => false
+              if rest.all (fun z => nl.parents.any (fun q => owns q z)) then
+                b := { b with u2cUnion := b.u2cUnion + 1 }
+                if nl.parents.any (fun q => rest.all (fun z => owns q z)) then
+                  b := { b with u2cCommon := b.u2cCommon + 1 }
+                else
+                  b := { b with u2cFail := b.u2cFail + 1 }
+                  if b.u2cFirst == "" then
+                    b := { b with u2cFirst := s!"{lab}: tramo {P.map (fun z => z.id.step)}, pasos sin comun en p {badSteps p P}, condenado vivo tras padres {alive1.any (fun (Q, _) => Q == P)}" }
+          | _, _ => pure ()
+      return b
   else a1
   let (a2, _, alive2) := dtSteps X C kpin lab p (·.sons) (intRange 0 (p.current_step - 2)).reverse false alive1 a1
   return { a2 with survive := a2.survive + alive2.length }
@@ -6022,6 +6050,8 @@ def reportDT (name : String) (a : DTAcc) (ms : Nat) : IO Unit := do
   IO.println s!"   el paso fijado es un paso sin comun del tramo: {a.kBad}; distancia paso(x) - paso fijado: {a.distHist}"
   IO.println s!"   en el estado pinchado X, la union de vecinos de x cubria al resto: {a.coverX}"
   IO.println s!"   tras la pasada de padres de la 1ª vuelta ({a.afterPar} estados validos): con algun nodo invalido {a.afterParInvalid}, violan I1 (vivos) {a.afterParI1}"
+  IO.println s!"   UnionToCommon ahi: tramos {a.u2cSegs}; la union de padres del extremo cubre {a.u2cUnion}; con padre comun {a.u2cCommon}; FALLA {a.u2cFail}"
+  if a.u2cFirst != "" then IO.println s!"   primer fallo: {a.u2cFirst}"
   IO.println s!"   miembros que faltan: todos sus cubridores de X muertos tras la limpieza {a.missDead} (en el paso fijado {a.deadAtK}, en otro {a.deadElse}); con algun cubridor vivo {a.missAlive}"
   if a.first != "" then IO.println s!"   primero: {a.first}"
   IO.println s!"   ({ms} ms)"
