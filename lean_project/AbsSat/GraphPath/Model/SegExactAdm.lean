@@ -224,6 +224,45 @@ theorem gapExact_of_far (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Threaded
 #print axioms nodeAdmToChain_of
 
 -- ============================================================
+-- (a) desde `Nested`: la tabla del nodo más cercano es la más pequeña
+-- ============================================================
+
+/-- **La tabla del nodo más cercano es la más pequeña**: para un tramo y un paso `k` fuera de él, las
+entradas (de la global) en `k` de la tabla del nodo del tramo más cercano a `k` están en las tablas de
+todos los nodos del tramo.
+
+Medido (`row-degree nested`, `dos_de_tres`): se cumple en todos los envíos (8.256) y en todos los
+estados del lector **tras un pin** (5.138); falla solo en el primer estado del lector (84 de 1.164),
+que es la unión final: la compresión de la unión lo rompe y el primer corte lo recupera. -/
+def Nested (T : GPathM) : Prop :=
+  (∀ (sel : Int → PathNodeId) (lo hi k : Int), 0 ≤ lo → lo ≤ hi → hi ≤ T.current_step - 1 →
+    Seg T sel lo hi → k < lo →
+    ∀ nn, T.node? (sel lo) = some nn → ∀ r ∈ nn.owners, r ∈ T.gowners → r.id.step = k →
+      ∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj → r ∈ nj.owners) ∧
+  (∀ (sel : Int → PathNodeId) (lo hi k : Int), 0 ≤ lo → lo ≤ hi → hi ≤ T.current_step - 1 →
+    Seg T sel lo hi → hi < k →
+    ∀ nn, T.node? (sel hi) = some nn → ∀ r ∈ nn.owners, r ∈ T.gowners → r.id.step = k →
+      ∀ j, lo ≤ j → j ≤ hi → ∀ nj, T.node? (sel j) = some nj → r ∈ nj.owners)
+
+/-- **`Nested` da `CommonAdm`**: la entrada admitida del nodo más cercano es común a todo el tramo. -/
+theorem commonAdm_of_nested (T : GPathM) (e : Int × List NodeId) (hN : Nested T) : CommonAdm T e := by
+  intro sel lo hi hlo hlh hhi hseg hout hadm
+  rcases hout with h | h
+  · obtain ⟨hs, _⟩ := hseg.1.1 lo (Int.le_refl _) hlh
+    obtain ⟨nn, hnn⟩ := Option.isSome_iff_exists.mp hs
+    obtain ⟨r, hr, hrg, hrs, hrid⟩ := hadm lo (Int.le_refl _) hlh nn hnn
+    exact ⟨r, hrg, hrs, hrid, hN.1 sel lo hi e.1 hlo hlh hhi hseg h nn hnn r hr hrg hrs⟩
+  · obtain ⟨hs, _⟩ := hseg.1.1 hi hlh (Int.le_refl _)
+    obtain ⟨nn, hnn⟩ := Option.isSome_iff_exists.mp hs
+    obtain ⟨r, hr, hrg, hrs, hrid⟩ := hadm hi hlh (Int.le_refl _) nn hnn
+    exact ⟨r, hrg, hrs, hrid, hN.2 sel lo hi e.1 hlo hlh hhi hseg h nn hnn r hr hrg hrs⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactAdm.commonAdm_of_nested' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms commonAdm_of_nested
+
+-- ============================================================
 -- (b) con hueco, por pasos: un Helly de un paso cada vez
 -- ============================================================
 
@@ -408,6 +447,70 @@ theorem gapExactFar_of_steps (T : GPathM) (a : AdjacentOwners.Adj T) (hsym : Thr
 #print axioms gapExactFar_of_steps
 
 -- ============================================================
+-- Los pasos hacia una entrada lejana, desde `Nested` y `AggOk`
+-- ============================================================
+
+/-- The pairwise test of the aggressive review, read at one step: two nodes that own each other
+share an entry of that step. -/
+private theorem shared_at (T : GPathM) (hok : AggFixpoint.AggOk T) (cT : Pinned.Ctx T)
+    (x : PathNodeId) (nx : PNodeM) (hnx : T.node? x = some nx) (w : PathNodeId) (nw : PNodeM)
+    (hnw : T.node? w = some nw) (hx0 : 0 ≤ x.id.step) (hx1 : x.id.step < T.current_step)
+    (hw0 : 0 ≤ w.id.step) (hw1 : w.id.step < T.current_step) (hwx : w ∈ nx.owners)
+    (m : Int) (hm0 : 0 ≤ m) (hm1 : m < T.current_step) :
+    ∃ u ∈ nx.owners, u.id.step = m ∧ u ∈ nw.owners := by
+  have hagg := hok x nx w nw hnx hnw hx0 hx1 hw0 hw1 hwx (cT.nodeval x nx hnx) (cT.nodeval w nw hnw)
+  have hsh := List.all_eq_true.mp hagg.2 m (mem_intRange hm0 (by omega))
+  have hent : hasStepEntry nw.owners m = true :=
+    List.all_eq_true.mp (owners_ok_of_isValidNode T nw (cT.nodeval w nw hnw)) m
+      (mem_intRange hm0 (by omega))
+  rw [hent] at hsh
+  simp only [Bool.not_true, Bool.false_or] at hsh
+  obtain ⟨u, hu, huw⟩ := List.any_eq_true.mp hsh
+  exact ⟨u, (List.mem_filter.mp hu).1, eq_of_beq (List.mem_filter.mp hu).2, List.elem_iff.mp huw⟩
+
+/-- **`Nested` y `AggOk` dan el paso hacia abajo**: el nodo más bajo del tramo y `r` comparten una
+entrada `u` en el paso de justo debajo (`AggOk`), y `Nested` la pone en la tabla de todo el tramo. -/
+theorem gapStepBelow_of_nested (T : GPathM) (hN : Nested T) (hok : AggFixpoint.AggOk T)
+    (cT : Pinned.Ctx T) : GapStepBelow T := by
+  intro sel lo hi k r hc hk
+  obtain ⟨hlo, hlh, hhi, hseg, hk0, _, hrg, hrs, hrall⟩ := hc
+  obtain ⟨hs, hst⟩ := hseg.1.1 lo (Int.le_refl _) hlh
+  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp hs
+  obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff T r).mp (cT.gn r hrg))
+  obtain ⟨u, hu, hus, hur⟩ := shared_at T hok cT (sel lo) nx hnx r nr hnr (by rw [hst]; omega)
+    (by rw [hst]; omega) (by rw [hrs]; omega) (by rw [hrs]; omega)
+    (hrall lo (Int.le_refl _) hlh nx hnx) (lo - 1) (by omega) (by omega)
+  have hug : u ∈ T.gowners := cT.ownGow _ nx hnx u hu (by rw [hus]; omega) (by rw [hus]; omega)
+  refine ⟨u, hug, hus, hN.1 sel lo hi (lo - 1) hlo hlh hhi hseg (by omega) nx hnx u hu hug hus, ?_⟩
+  intro nr' hnr'
+  rw [hnr] at hnr'
+  cases hnr'
+  exact hur
+
+/-- **Y hacia arriba.** -/
+theorem gapStepAbove_of_nested (T : GPathM) (hN : Nested T) (hok : AggFixpoint.AggOk T)
+    (cT : Pinned.Ctx T) : GapStepAbove T := by
+  intro sel lo hi k r hc hk
+  obtain ⟨hlo, hlh, hhi, hseg, _, hk1, hrg, hrs, hrall⟩ := hc
+  obtain ⟨hs, hst⟩ := hseg.1.1 hi hlh (Int.le_refl _)
+  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp hs
+  obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp ((GownersNodes.hasNode_iff T r).mp (cT.gn r hrg))
+  obtain ⟨u, hu, hus, hur⟩ := shared_at T hok cT (sel hi) nx hnx r nr hnr (by rw [hst]; omega)
+    (by rw [hst]; omega) (by rw [hrs]; omega) (by rw [hrs]; omega)
+    (hrall hi hlh (Int.le_refl _) nx hnx) (hi + 1) (by omega) (by omega)
+  have hug : u ∈ T.gowners := cT.ownGow _ nx hnx u hu (by rw [hus]; omega) (by rw [hus]; omega)
+  refine ⟨u, hug, hus, hN.2 sel lo hi (hi + 1) hlo hlh hhi hseg (by omega) nx hnx u hu hug hus, ?_⟩
+  intro nr' hnr'
+  rw [hnr] at hnr'
+  cases hnr'
+  exact hur
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactAdm.gapStepBelow_of_nested' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms gapStepBelow_of_nested
+
+-- ============================================================
 -- La escalera, con (a) y (b) con hueco en cada pin
 -- ============================================================
 
@@ -526,5 +629,59 @@ theorem readerVerdictW_iff_of_helly
 -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_commonAdm
+
+-- ============================================================
+-- La escalera con `Nested`: la unión aparte
+-- ============================================================
+
+/-- **El lector sin retroceso decide 3-SAT**, con:
+* en su primer estado (la línea final revisada, una unión): `SegExact`, y en sus pines, `CommonAdm` y los
+  pasos hacia una entrada lejana —ahí `Nested` falla (84 de 1.164 en `dos_de_tres`) por la compresión—;
+* tras cada pin: `Nested` (la tabla del nodo más cercano es la más pequeña). Medido sin fallos en todos
+  los estados tras un pin y en los envíos. -/
+theorem readerVerdictW_iff_of_nested
+    (hStart : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ,
+      isValid (filterAllAgg kv.2 []) = true → SegExact (filterAllAgg kv.2 []))
+    (hStart0 : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ k q,
+      isValid (filterAllAgg kv.2 []) = true →
+      ReaderExec.firstChoice (filterAllAgg kv.2 []) = some k →
+      q ∈ ownersAt (filterAllAgg kv.2 []).gowners k →
+      CommonAdm (filterAllAgg kv.2 []) (q.id.step, [q.id]) ∧
+        GapStepBelow (filterAllAgg kv.2 []) ∧ GapStepAbove (filterAllAgg kv.2 []))
+    (hNested : ∀ φ : AbsSat.Cnf.Cnf, AbsSat.Cnf.WF φ → ∀ kv ∈ PureDriverImproves.pureRunW φ, ∀ g k q,
+      PinAliveChain.ReadFromR (filterAllAgg kv.2 []) g → isValid g = true →
+      ReaderExec.firstChoice g = some k → q ∈ ownersAt g.gowners k →
+      isValid (filterAllAgg g [q.id]) = true → Nested (filterAllAgg g [q.id]))
+    (φ : AbsSat.Cnf.Cnf) (hwf : AbsSat.Cnf.WF φ) :
+    ReaderExec.readerVerdictW φ = true ↔ AbsSat.Cnf.Satisfiable φ := by
+  refine readerVerdictW_iff_of_helly hStart ?_ φ hwf
+  intro φ' hwf' kv hkv g k q hR hv hk hq
+  cases hR with
+  | start => exact hStart0 φ' hwf' kv hkv k q hv hk hq
+  | pin g₁ k₁ q₁ hR₁ hv₁ hk₁ hq₁ =>
+    have hN := hNested φ' hwf' kv hkv g₁ k₁ q₁ hR₁ hv₁ hk₁ hq₁ hv
+    obtain ⟨hm, hcs, _⟩ := ReaderAggRun.pureRunW_state φ' hwf' kv hkv
+    have hpos : 0 < kv.2.current_step := by rw [hcs]; exact ConservationCore.stepCount_pos φ'
+    have ctx₀ : PinAliveChain.DCtx (filterAllAgg kv.2 []) :=
+      { rd := ⟨kv.2, [], hm.rctx, rfl⟩
+        pms := AggInvariants.PMS_filterAllAgg kv.2 [] hm.pms
+        sn := AggInvariants.SN_filterAllAgg kv.2 [] hm.sn
+        smp := AnchoredSurvive.SMP_filterAllAgg kv.2 hm.smp hm.rctx.shape.notroot []
+        pos := by rw [(pruned_filterAllAgg kv.2 []).step_eq]; exact hpos }
+    have ctx := TopGoodLadder.dctx_of_readFromR _ ctx₀ _
+      (PinAliveChain.ReadFromR.pin g₁ k₁ q₁ hR₁ hv₁ hk₁ hq₁)
+    have cG := Reader.Ctx_of_readable _ (ReaderAgg.readable_of_readableAgg _ ctx.rd) hv
+    have hok : AggFixpoint.AggOk (filterAllAgg g₁ [q₁.id]) := by
+      have hv2 := hv
+      obtain ⟨g₀, reqs, _, hg⟩ := ctx.rd
+      rw [hg] at hv2 ⊢
+      exact AggFixpoint.aggOk_reviewAgg _ hv2
+    exact ⟨commonAdm_of_nested _ _ hN, gapStepBelow_of_nested _ hN hok cG,
+      gapStepAbove_of_nested _ hN hok cG⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactAdm.readerVerdictW_iff_of_nested' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_nested
 
 end AbsSat.GraphPath.Model.SegExactAdm

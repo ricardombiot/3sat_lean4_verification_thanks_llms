@@ -7321,6 +7321,91 @@ def reportNA (name : String) (a : NAAcc) (ms : Nat) : IO Unit := do
   reportNACell "pines " a.pins
   IO.println s!"   ({ms} ms)"
 
+/-! **`nested`: la tabla del nodo más cercano es la más pequeña.** En cada estado del lector (inicio y
+pines, hermanos incluidos) y en los envíos revisados: para cada tramo y cada paso `k` fuera de él, ¿las
+entradas en `k` de la tabla del nodo del tramo más cercano a `k` están en las tablas de todos los demás
+nodos del tramo? Si sí, `CommonAdm` es inmediata. -/
+
+structure NECell where
+  states : Nat := 0
+  cases : Nat := 0
+  nestedOk : Nat := 0
+  nestedFail : Nat := 0
+  failEntries : Nat := 0
+  totalEntries : Nat := 0
+  first : String := ""
+  deriving Repr
+
+structure NEAcc where
+  formulas : Nat := 0
+  sends : NECell := {}
+  reader : NECell := {}
+  start : NECell := {}
+  deriving Repr
+
+def checkNE (lab : String) (g : GPathM) (c : NECell) : NECell := Id.run do
+  if !isValid g then return c
+  let mut c := { c with states := c.states + 1 }
+  let tab := fun (p : PathNodeId) => ((g.node? p).map (·.owners)).getD []
+  for P in segsOf g do
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      for k in intRange 0 (g.current_step - 1) do
+        if k < lo.id.step || hi.id.step < k then
+          let near := if k < lo.id.step then lo else hi
+          let entries := ((tab near).filter (fun r => r.id.step == k && g.gowners.contains r)).eraseDups
+          let bad := entries.filter (fun r => !P.all (fun p => (tab p).contains r))
+          c := { c with cases := c.cases + 1, totalEntries := c.totalEntries + entries.length,
+                        failEntries := c.failEntries + bad.length }
+          if bad.isEmpty then c := { c with nestedOk := c.nestedOk + 1 }
+          else
+            c := { c with nestedFail := c.nestedFail + 1 }
+            if c.first == "" then
+              c := { c with first := s!"{lab}: tramo {lo.id.step}..{hi.id.step}, paso {k}, entradas del cercano {entries.length}, no comunes {bad.length}" }
+    | _, _ => pure ()
+  return c
+
+partial def walkNE (lab : String) (g : GPathM) (fuel : Nat) (c : NECell) : NECell :=
+  let c := checkNE lab g c
+  if fuel == 0 then c
+  else
+    match ReaderExec.firstChoice g with
+    | none => c
+    | some k => Id.run do
+      let mut c := c
+      for q in ownersAt g.gowners k do
+        c := checkNE s!"{lab} pin" (filterAllAgg g [q.id]) c
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return c
+      | some q => return walkNE lab (filterAllAgg g [q.id]) (fuel - 1) c
+
+def runFormulaNE (label : String) (φ : Cnf) (a : NEAcc) : NEAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for step in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := { a with sends := checkNE s!"{label} envio paso {step}" (AggressiveReview.reviewAgg F) a.sends }
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then
+      a := { a with start := checkNE s!"{label} inicio" g a.start }
+      a := { a with reader := walkNE s!"{label} lector" g (stepCount φ).toNat a.reader }
+  return a
+
+def reportNECell (lbl : String) (c : NECell) : IO Unit := do
+  IO.println s!"   {lbl}: estados {c.states}, (tramo, paso fuera) {c.cases}: anidado {c.nestedOk}, NO {c.nestedFail} (entradas del cercano no comunes {c.failEntries} de {c.totalEntries})"
+  if c.first != "" then IO.println s!"      primero: {c.first}"
+
+def reportNE (name : String) (a : NEAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  reportNECell "envios" a.sends
+  reportNECell "lector" a.reader
+  reportNECell "  de ellos, el primer estado" a.start
+  IO.println s!"   ({ms} ms)"
+
 def loadCnf (path : String) : IO (Option Cnf) := do
   let txt ← IO.FS.readFile path
   match AbsSat.Cnf.Dimacs.parse (txt.splitOn "\n") with
@@ -7829,6 +7914,25 @@ def main (args : List String) : IO Unit := do
         a := runFormulaCP φ a
       let t1 ← IO.monoMsNow
       reportCP s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "nested" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaNE path φ {})
+        let t1 ← IO.monoMsNow
+        reportNE path a (t1 - t0)
+  | "nested" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : NEAcc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaNE s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportNE s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "nodeadm" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
