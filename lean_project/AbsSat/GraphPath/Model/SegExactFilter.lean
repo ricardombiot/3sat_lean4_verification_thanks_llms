@@ -18,6 +18,11 @@ tramo de `R`:
     generalización por tramos de `StepTriples` (ternas), que se midió sin fallos.
 
 `segExact_stepFilter`: con esas dos, `SegExact` pasa el filtro.
+
+**La unión.** Una unión comprime mezclando historias, y deja tramos mezclados sin cadena que el review
+no toca (son estables). No hace falta ningún invariante sobre ella: `CutKillsMix` —un filtro que corta
+algo deja solo tramos con cadena en el estado de antes— basta para que, tras el primer requisito que
+corta, `SegExact` valga (`segExact_stepFilter_cut`), venga de donde venga el estado.
 -/
 
 namespace AbsSat.GraphPath.Model.SegExactFilter
@@ -54,11 +59,21 @@ def StepSegTriples (T : GPathM) (e : Int × List NodeId) : Prop :=
       c ∈ nj.owners) →
     ∃ s, FullChainG T s ∧ (∀ j, lo ≤ j → j ≤ hi → s j = sel j) ∧ s e.1 = c
 
-/-- **Un filtro de un paso y su review conservan `SegExact`**, dadas las dos obligaciones del paso
-filtrado. Los tramos que cubren ese paso no piden nada. -/
-theorem segExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
-    (hS : SegExact T) (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
-    (hCommon : CommonAtFilter T e) (hTri : StepSegTriples T e)
+/-- **Los supervivientes que cubren el paso filtrado tienen cadena antes**: todo tramo de `R` que cubre
+el paso filtrado está en una cadena completa del estado de antes del filtro. Es lo único que el caso
+«cubre» pide del estado de antes; lo da `SegExact T` o, sin nada sobre `T`, `CutKillsMix`. -/
+def CoverChained (T : GPathM) (e : Int × List NodeId) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi →
+    hi ≤ (reviewAgg (filterWeak T e)).current_step - 1 →
+    Seg (reviewAgg (filterWeak T e)) sel lo hi → lo ≤ e.1 → e.1 ≤ hi →
+    ∃ s, FullChainG T s ∧ ∀ j, lo ≤ j → j ≤ hi → s j = sel j
+
+/-- **Un filtro de un paso y su review dan `SegExact`**, desde lo que piden sus tres casos: los tramos
+que cubren el paso filtrado tenían cadena antes (`CoverChained`), y los que no lo cubren, una entrada
+común admitida (`CommonAtFilter`) y una cadena con ella (`StepSegTriples`). -/
+theorem segExact_stepFilter_gen (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
+    (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
+    (hCov : CoverChained T e) (hCommon : CommonAtFilter T e) (hTri : StepSegTriples T e)
     (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
     SegExact (reviewAgg (filterWeak T e)) := by
   let R := reviewAgg (filterWeak T e)
@@ -73,8 +88,6 @@ theorem segExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
   have clean : ∀ y ∈ R.gowners, y.id.step = e.1 → y.id ∈ e.2 :=
     fun y hy hys => ((mem_filterWeak T e y).mp (hprX.gowners_sub y hy)).2 hys
   intro sel lo hi hlo hlh hhi hpc hpo
-  obtain ⟨hpc0, hpo0⟩ := seg_before T R hprR c0.rc.nodup sel lo hi hpc hpo
-  have hhiT : hi ≤ T.current_step - 1 := by rw [← hcsR]; exact hhi
   have outside : e.1 < lo ∨ hi < e.1 →
       ∃ s, FullChainG R s ∧ ∀ j, lo ≤ j → j ≤ hi → s j = sel j := by
     -- the common admitted entry of the filtered step, and the chain through both
@@ -89,7 +102,7 @@ theorem segExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
   rcases Int.lt_or_le hi e.1 with hgt | hle2
   · exact outside (Or.inr hgt)
   -- the segment covers the filtered step: its node there was admitted
-  obtain ⟨s, hs, hsel⟩ := hS sel lo hi hlo hlh hhiT hpc0 hpo0
+  obtain ⟨s, hs, hsel⟩ := hCov sel lo hi hlo hlh hhi ⟨hpc, hpo⟩ hle hle2
   obtain ⟨hsome, hstep⟩ := hpc.1 e.1 hle hle2
   obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
   have hmem : sel e.1 ∈ R.gowners :=
@@ -98,6 +111,59 @@ theorem segExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
   refine ⟨s, keep s hs ?_, hsel⟩
   rw [hsel e.1 hle hle2]
   exact clean _ hmem hstep
+
+/-- `SegExact` antes del filtro da `CoverChained`: el superviviente era tramo antes. -/
+theorem coverChained_of_segExact (T : GPathM) (e : Int × List NodeId) (hnd : NodupIds T)
+    (hS : SegExact T) : CoverChained T e := by
+  have hprR : Pruned T (reviewAgg (filterWeak T e)) :=
+    Pruned.trans (ConservationCore.pruned_filterWeak T e) (pruned_reviewAgg _)
+  intro sel lo hi hlo hlh hhi hseg _ _
+  obtain ⟨hpc0, hpo0⟩ := seg_before T _ hprR hnd sel lo hi hseg.1 hseg.2
+  exact hS sel lo hi hlo hlh (by rw [← hprR.step_eq]; exact hhi) hpc0 hpo0
+
+/-- **Un filtro de un paso y su review conservan `SegExact`**, dadas las dos obligaciones del paso
+filtrado. Los tramos que cubren ese paso no piden nada. -/
+theorem segExact_stepFilter (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
+    (hS : SegExact T) (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
+    (hCommon : CommonAtFilter T e) (hTri : StepSegTriples T e)
+    (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
+    SegExact (reviewAgg (filterWeak T e)) :=
+  segExact_stepFilter_gen T e c0 he0 he1 (coverChained_of_segExact T e c0.rc.nodup hS) hCommon hTri hv'
+
+-- ============================================================
+-- La compresión de la unión: un corte la deshace
+-- ============================================================
+
+/-- **Un filtro que corta deshace la mezcla** (postulado del autor: «las cadenas solo se forman si han
+pasado por los envíos correctos»). Si el filtro quita al menos una entrada de la global, todo tramo que
+sobrevive a él y a su review estaba en una cadena completa del estado de antes — aunque ese estado,
+recién salido de una unión, tuviera tramos mezclados sin cadena.
+
+Medido (`row-degree baddie`, semilla 1): los 1.260 filtros que cortan algo matan los 24 tramos sin
+cadena de la unión; los 252 que no cortan nada, no. La unión revisada es punto fijo de todas las
+etapas del review con esos tramos dentro: la mezcla es estable mientras nadie exija nada. -/
+def CutKillsMix (T : GPathM) (e : Int × List NodeId) : Prop :=
+  (∃ q ∈ T.gowners, q ∉ (filterWeak T e).gowners) →
+    ∀ (sel : Int → PathNodeId) (lo hi : Int), 0 ≤ lo → lo ≤ hi →
+      hi ≤ (reviewAgg (filterWeak T e)).current_step - 1 →
+      Seg (reviewAgg (filterWeak T e)) sel lo hi →
+      ∃ s, FullChainG T s ∧ ∀ j, lo ≤ j → j ≤ hi → s j = sel j
+
+/-- **Tras un filtro que corta, `SegExact` sin nada sobre el estado de antes**: ni `SegExact T` ni que
+no venga de una unión. El primer requisito de cada envío corta siempre (`baddie`: 168 de 168). -/
+theorem segExact_stepFilter_cut (T : GPathM) (e : Int × List NodeId) (c0 : SCtx T)
+    (he0 : 0 ≤ e.1) (he1 : e.1 < T.current_step)
+    (hcut : ∃ q ∈ T.gowners, q ∉ (filterWeak T e).gowners) (hK : CutKillsMix T e)
+    (hCommon : CommonAtFilter T e) (hTri : StepSegTriples T e)
+    (hv' : isValid (reviewAgg (filterWeak T e)) = true) :
+    SegExact (reviewAgg (filterWeak T e)) :=
+  segExact_stepFilter_gen T e c0 he0 he1
+    (fun sel lo hi hlo hlh hhi hseg _ _ => hK hcut sel lo hi hlo hlh hhi hseg) hCommon hTri hv'
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactFilter.segExact_stepFilter_cut' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms segExact_stepFilter_cut
 
 /-- info: 'AbsSat.GraphPath.Model.SegExactFilter.segExact_stepFilter' depends on axioms: [propext, Quot.sound]
 -/
