@@ -7406,6 +7406,11 @@ structure REAcc where
   round1 : SECell := {}
   u2cFails : Nat := 0
   detail : List String := []
+  doomed : Nat := 0
+  pairConf : Nat := 0
+  hellyConf : Nat := 0
+  hellyDetail : String := ""
+  badPairAdj : Nat := 0
   deriving Repr
 
 def pidStr (p : PathNodeId) : String :=
@@ -7422,6 +7427,27 @@ def pinRE (lab : String) (X : GPathM) (a : REAcc) : REAcc := Id.run do
   let R1 := reviewPass X
   a := { a with round1 := checkSE s!"{lab} vuelta1" R1 300 a.round1 }
   if !isValid C then return a
+  -- the doomed segments of `C`: pair conflict or collective conflict at their bad steps
+  for y in C.nodes.take 20 do
+    let (segs, _) := collectDown C [y.id] ([], 30)
+    for S in segs do
+      let bad := badSteps C S
+      if !bad.isEmpty then
+        a := { a with doomed := a.doomed + 1 }
+        let tab (z : PathNodeId) : List PathNodeId := (C.node? z).map (·.owners) |>.getD []
+        let pairAt (b : Int) : Bool := S.any (fun u => S.any (fun v => u != v &&
+          !(ownersAt (tab u) b).any (fun r => (tab v).contains r)))
+        if bad.any pairAt then
+          a := { a with pairConf := a.pairConf + 1 }
+          -- is the conflicting pair adjacent in the segment?
+          if bad.any (fun b => (List.range (S.length - 1)).any (fun i =>
+              match S[i]?, S[i+1]? with
+              | some u, some v => !(ownersAt (tab u) b).any (fun r => (tab v).contains r)
+              | _, _ => false)) then a := { a with badPairAdj := a.badPairAdj + 1 }
+        else
+          a := { a with hellyConf := a.hellyConf + 1 }
+          if a.hellyDetail == "" then
+            a := { a with hellyDetail := s!"{lab}: tramo {S.map pidStr}, pasos sin comun {bad}, entradas en {bad.headD 0}: {S.map (fun z => (ownersAt (tab z) (bad.headD 0)).map pidStr)}" }
   let P := reviewParents C
   if !isValid P then return a
   for y in P.nodes.take 20 do
@@ -7474,6 +7500,8 @@ def reportRE (name : String) (a : REAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
   reportSECell "salida de la limpieza del pin" a.clean
   reportSECell "salida de la 1ª vuelta       " a.round1
+  IO.println s!"   condenados {a.doomed}: conflicto de pareja en algun paso sin comun {a.pairConf} (pareja contigua {a.badPairAdj}); conflicto solo colectivo {a.hellyConf}"
+  if a.hellyDetail != "" then IO.println s!"      primer conflicto colectivo: {a.hellyDetail}"
   IO.println s!"   tras la pasada de padres: union de padres del extremo que cubre sin padre comun {a.u2cFails}"
   for d in a.detail do IO.println s!"      {d}"
   IO.println s!"   ({ms} ms)"
