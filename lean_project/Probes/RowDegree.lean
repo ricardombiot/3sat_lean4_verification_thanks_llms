@@ -5708,6 +5708,86 @@ def reportCP (name : String) (a : CPAcc) (ms : Nat) : IO Unit := do
   reportPHCell "PINES salida de cleanInvalid " a.routput
   IO.println s!"   ({ms} ms)"
 
+/-! **`cleanpin`: `cleanInvalid₂` en los pines del lector** (la pieza abierta de la ruta
+«`PStateG ∧ OwnSymmetric` hasta el punto fijo»). En cada vuelta de la review agresiva completa de cada
+pin del lector (con el review simétrico): las condiciones de `PStateG` —I1 e I1-hijos vivos, padres e
+hijos vivos, autoposesión, `SegGood` con entrada viva— a la entrada y a la salida de `cleanInvalid₂`,
+separando la PRIMERA limpieza tras el pin de las SIGUIENTES; y a la salida de cada barrido agresivo. -/
+
+structure CPinAcc where
+  formulas : Nat := 0
+  pins : Nat := 0
+  in1 : PHCell := {}
+  out1 : PHCell := {}
+  inN : PHCell := {}
+  outN : PHCell := {}
+  agg : PHCell := {}
+  deriving Repr
+
+def reviewCPin (F : GPathM) (a : CPinAcc) : CPinAcc := Id.run do
+  let mut a := { a with pins := a.pins + 1 }
+  let mut g := F
+  let mut first := true
+  let mut outer := GPathM.measure g + 1
+  while outer > 0 do
+    outer := outer - 1
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        let h := cleanInvalid₂ g
+        if first then
+          a := { a with in1 := checkPH g a.in1 }
+          if isValid h then a := { a with out1 := checkPH h a.out1 }
+        else
+          a := { a with inN := checkPH g a.inN }
+          if isValid h then a := { a with outN := checkPH h a.outN }
+        first := false
+        g := reviewSons (reviewParents h)
+        if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      let g₂ := AggressiveReview.aggSweep g
+      if GPathM.measure g₂ < GPathM.measure g then
+        a := { a with agg := checkPH g₂ a.agg }
+        g := g₂
+      else outer := 0
+  return a
+
+partial def walkCPin (g : GPathM) (fuel : Nat) (a : CPinAcc) : CPinAcc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := reviewCPin ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkCPin (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaCPin (φ : Cnf) (a : CPinAcc) : CPinAcc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkCPin g (stepCount φ).toNat a
+  return a
+
+def reportCPin (name : String) (a : CPinAcc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas, {a.pins} pines)"
+  reportPHCell "1ª limpieza, entrada (el pin)" a.in1
+  reportPHCell "1ª limpieza, salida          " a.out1
+  reportPHCell "siguientes, entrada          " a.inN
+  reportPHCell "siguientes, salida           " a.outN
+  reportPHCell "tras barrido agresivo        " a.agg
+  IO.println s!"   ({ms} ms)"
+
 /-! **`doomed`: los tramos que `cleanInvalid` deja sin entrada común viva, ¿mueren?** En los pines del
 lector (y en los envíos), tras cada `cleanInvalid` de cada vuelta: para cada tramo que viola
 `SegGoodL` (algún paso fuera sin entrada común viva), ¿sigue siendo tramo tras el review completo
@@ -8269,6 +8349,15 @@ def main (args : List String) : IO Unit := do
         a := runFormulaPH φ a
       let t1 ← IO.monoMsNow
       reportPH s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "cleanpin" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : CPinAcc := {}
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaCPin φ a
+      let t1 ← IO.monoMsNow
+      reportCPin s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+      (← IO.getStdout).flush
   | "cleanpass" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
