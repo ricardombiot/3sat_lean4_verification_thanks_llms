@@ -850,4 +850,39 @@ theorem readerVerdictW_iff_of_survives
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_survives
 
+-- ============================================================
+-- (W2) El criterio salva de la purga
+-- ============================================================
+
+/-- **Exactitud de las tablas por parejas**: cada entrada viva de una tabla está en una cadena sana con
+su dueño. Medido (`pairexact`, 43 estados del lector, 50.517 parejas): sin fallos. -/
+def PairExact (g : GPathM) : Prop :=
+  ∀ x nx w, g.node? x = some nx → w ∈ nx.owners → (g.node? w).isSome = true →
+    ∃ sel, ChainSound g sel ∧ Fabric.Passes g sel x ∧ Fabric.Passes g sel w
+
+open AbsSat.GraphPath.Model.PureDriverImproves (filterWeak) in
+/-- **(W2): un nodo que posee un nodo pinchado sobrevive al pin y a la limpieza con parejas.** Por la
+exactitud por parejas, el nodo `r` y el nodo `p` que posee están en una cadena sana de `g`; esa cadena
+pasa por el nodo del mapa pinchado (el de `p`), así que sigue sana tras el pin débil
+(`chainSound_filterWeak`) y tras `cleanPair` (`ChainSound_cleanPair`), y con ella `r`. -/
+theorem survives_of_pinned_owner (g : GPathM) (hPE : PairExact g) (qid : NodeId)
+    (r : PathNodeId) (nr : PNodeM) (hr : g.node? r = some nr)
+    (p : PathNodeId) (hp : p ∈ nr.owners) (hpl : (g.node? p).isSome = true) (hpid : p.id = qid) :
+    ((cleanPair (filterWeak g (p.id.step, [qid]))).node? r).isSome = true := by
+  obtain ⟨sel, hC, ⟨i, hi0, hi1, hir⟩, ⟨j, hj0, hj1, hjp⟩⟩ := hPE r nr p hr hp hpl
+  have hjs : (sel j).id.step = j := (hC.chain.1.1 j hj0 hj1).2
+  have hjk : j = p.id.step := by rw [← hjs, hjp]
+  have hX : ChainSound (filterWeak g (p.id.step, [qid])) sel :=
+    PairHelly.chainSound_filterWeak g p.id.step qid sel hC (fun _ _ => by rw [← hjk, hjp, hpid])
+  have hCP := ChainSound_cleanPair _ sel hX
+  have hstep : (cleanPair (filterWeak g (p.id.step, [qid]))).current_step = g.current_step :=
+    (pruned_cleanPair _).step_eq
+  have := (hCP.chain.1.1 i hi0 (by rw [hstep]; exact hi1)).1
+  rw [hir] at this
+  exact this
+
+/-- info: 'AbsSat.GraphPath.Model.OneStep.survives_of_pinned_owner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms survives_of_pinned_owner
+
 end AbsSat.GraphPath.Model.OneStep
