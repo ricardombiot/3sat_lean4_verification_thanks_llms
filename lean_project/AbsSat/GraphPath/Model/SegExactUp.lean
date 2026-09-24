@@ -172,8 +172,8 @@ theorem segExact_addNode (P : GPathM) (d : NodeId) (t : String) (hd : d.step = P
 -- ============================================================
 
 /-- **La unión no mezcla tramos**: todo tramo del estado unido es tramo, con sus propias tablas y
-padres, de uno de los dos lados. Es la versión por tramos de `TopGoodUp.NoMix`, que se midió sin
-ninguna cadena mezclada en las uniones reales; aquí queda como hipótesis (a medir por tramos). -/
+padres, de uno de los dos lados. Versión por tramos de `TopGoodUp.NoMix`. **Medido falso** en general
+(`segmix`, semilla 1: 24 tramos mezclados); la hipótesis buena es `MixDies`, tras el review. -/
 def SegNoMix (J A B : GPathM) : Prop :=
   ∀ (sel : Int → PathNodeId) (lo hi : Int), Seg J sel lo hi → Seg A sel lo hi ∨ Seg B sel lo hi
 
@@ -198,5 +198,41 @@ theorem segExact_doJoin (A B : GPathM) (hA : SegExact A) (hB : SegExact B)
 -/
 #guard_msgs in
 #print axioms segExact_doJoin
+
+/-- **Los tramos mezclados no sobreviven al review de la unión**: todo tramo del revisado de la unión
+es tramo de uno de los dos lados. `SegNoMix` (sin review) es **falso** en general — medido
+(`row-degree segmix`, semilla 1, fórmula 6): 24 tramos mezclados de 142.778, ninguno en una cadena
+completa —, pero el review que sigue los elimina (`segexact`: 0 fallos en los envíos y el lector). -/
+def MixDies (A B : GPathM) : Prop :=
+  ∀ (sel : Int → PathNodeId) (lo hi : Int), Seg (AggressiveReview.reviewAgg (join A B)) sel lo hi →
+    Seg A sel lo hi ∨ Seg B sel lo hi
+
+/-- **La unión revisada conserva `SegExact`**, si los tramos mezclados no sobreviven a su review: el
+tramo es de un lado, su cadena crece a la unión, es sana allí y sobrevive al review. -/
+theorem segExact_reviewAgg_join (A B : GPathM) (hok : okJoin A B = true)
+    (hA : SegExact A) (hB : SegExact B)
+    (hself : ∀ pid n, (join A B).node? pid = some n → pid ∈ n.owners)
+    (hsmp : Sons.SMP (join A B)) (hroot : Sons.RootAtZero (join A B))
+    (hnr : Parents.NotRoot (join A B)) (hpos : 0 < (join A B).current_step)
+    (hdie : MixDies A B) : SegExact (AggressiveReview.reviewAgg (join A B)) := by
+  have G₁ := grown_join_left A B
+  have G₂ := grown_join_right A B hok
+  have hpr := AggressiveReview.pruned_reviewAgg (join A B)
+  have survive : ∀ s, FullChainG (join A B) s →
+      FullChainG (AggressiveReview.reviewAgg (join A B)) s := fun s hs =>
+    fullChain_of_chainSound _ s (AggressiveReview.ChainSound_reviewAgg _ s
+      (chainSound_of_fullChain _ hself hsmp hroot hnr hpos s hs))
+  intro sel lo hi hlo hlh hhi hpc hpo
+  have hhiJ : hi ≤ (join A B).current_step - 1 := by rw [← hpr.step_eq]; exact hhi
+  rcases hdie sel lo hi ⟨hpc, hpo⟩ with hs | hs
+  · obtain ⟨s, hfs, hsel⟩ := hA sel lo hi hlo hlh (by rw [← G₁.step_eq]; exact hhiJ) hs.1 hs.2
+    exact ⟨s, survive s (FullExt1.fullChain_of_grown G₁ s hfs), hsel⟩
+  · obtain ⟨s, hfs, hsel⟩ := hB sel lo hi hlo hlh (by rw [← G₂.step_eq]; exact hhiJ) hs.1 hs.2
+    exact ⟨s, survive s (FullExt1.fullChain_of_grown G₂ s hfs), hsel⟩
+
+/-- info: 'AbsSat.GraphPath.Model.SegExactUp.segExact_reviewAgg_join' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms segExact_reviewAgg_join
 
 end AbsSat.GraphPath.Model.SegExactUp

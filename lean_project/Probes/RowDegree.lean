@@ -6724,6 +6724,11 @@ structure SMAcc where
   mixed : Nat := 0
   mixedInChain : Nat := 0
   mixedNoChain : Nat := 0
+  revSegs : Nat := 0
+  revMixed : Nat := 0
+  revMixedSegGoodFail : Nat := 0
+  detail : String := ""
+  firstRev : String := ""
   first : String := ""
   deriving Repr
 
@@ -6742,6 +6747,26 @@ def measureSM (lab : String) (A B : GPathM) (a : SMAcc) : SMAcc := Id.run do
       | _ => a := { a with mixedNoChain := a.mixedNoChain + 1 }
       if a.first == "" then
         a := { a with first := s!"{lab}: tramo {(P.head?.map (·.id.step)).getD 0}..{(P.getLast?.map (·.id.step)).getD 0}" }
+  -- MixDies: the segments of the reviewed join
+  let R := AggressiveReview.reviewAgg J
+  if isValid R then
+    for P in segsOf R do
+      a := { a with revSegs := a.revSegs + 1 }
+      if !isSegment A P && !isSegment B P then
+        a := { a with revMixed := a.revMixed + 1 }
+        match P.head?, P.getLast? with
+        | some lo, some hi =>
+          let badSteps := (intRange 0 (R.current_step - 1)).filter (fun i =>
+            (i < lo.id.step || hi.id.step < i) && (commonAtRS R P i).isEmpty)
+          if !badSteps.isEmpty then a := { a with revMixedSegGoodFail := a.revMixedSegGoodFail + 1 }
+          if a.detail == "" then
+            -- which side each node comes from, and which pairs own each other only in the join
+            let side := P.map (fun p => (if (A.node? p).isSome then "A" else "") ++ (if (B.node? p).isSome then "B" else ""))
+            let onlyJ := (P.filter (fun p => P.any (fun q => p != q && mutuallyOwn R p q && !mutuallyOwn A p q && !mutuallyOwn B p q))).length
+            a := { a with detail := s!"cs {R.current_step}, lados {side}, pasos sin comun {badSteps}, nodos con par solo-en-la-union {onlyJ}" }
+        | _, _ => pure ()
+        if a.firstRev == "" then
+          a := { a with firstRev := s!"{lab}: tramo {(P.head?.map (·.id.step)).getD 0}..{(P.getLast?.map (·.id.step)).getD 0}" }
   return a
 
 def runFormulaSM (label : String) (φ : Cnf) (a : SMAcc) : SMAcc := Id.run do
@@ -6764,6 +6789,10 @@ def runFormulaSM (label : String) (φ : Cnf) (a : SMAcc) : SMAcc := Id.run do
 def reportSM (name : String) (a : SMAcc) (ms : Nat) : IO Unit := do
   IO.println s!"── {name}  ({a.formulas} formulas)"
   IO.println s!"   uniones {a.joins}, tramos {a.segs}: de A {a.inA}, de B {a.inB}, MEZCLADOS {a.mixed} (en cadena completa {a.mixedInChain}, sin cadena {a.mixedNoChain})"
+  IO.println s!"   MixDies: tramos del revisado de la union {a.revSegs}, mezclados (de ningun lado) {a.revMixed}"
+  if a.firstRev != "" then IO.println s!"   primer mezclado que sobrevive: {a.firstRev}"
+  IO.println s!"   de los mezclados que sobreviven, sin SegGood (algun paso sin comun): {a.revMixedSegGoodFail}"
+  if a.detail != "" then IO.println s!"   detalle: {a.detail}"
   if a.first != "" then IO.println s!"   primer mezclado: {a.first}"
   IO.println s!"   ({ms} ms)"
 
