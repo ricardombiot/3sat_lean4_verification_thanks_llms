@@ -8290,6 +8290,28 @@ def teState (lab : String) (g : GPathM) (a : PEAcc) : PEAcc := Id.run do
         | none => a := { a with budget := a.budget + 1 }
   return a
 
+
+/-- `TriExact` sin muestreo (para instancias pequeñas). -/
+def teStateFull (lab : String) (g : GPathM) (a : PEAcc) : PEAcc := Id.run do
+  let mut a := { a with states := a.states + 1 }
+  for nx in g.nodes do
+    let x := nx.id
+    let ws := nx.owners.eraseDups.filter (fun w => w != x && (g.node? w).isSome &&
+      w.id.step != x.id.step && peOwns g w x)
+    for w in ws do
+      if !(lexLt (keyOld x) (keyOld w)) then continue
+      for p in ws.filter (fun p => p != w && p.id.step != w.id.step && peOwns g w p && peOwns g p w &&
+          lexLt (keyOld w) (keyOld p)) do
+        a := { a with pairs := a.pairs + 1 }
+        let (r, _) := peSearch g [(x.id.step, x), (w.id.step, w), (p.id.step, p)] [] 0 20000
+        match r with
+        | some true => a := { a with exact := a.exact + 1 }
+        | some false =>
+          a := { a with notExact := a.notExact + 1 }
+          if a.ex == "" then a := { a with ex := s!"{lab}: {pidStr x}, {pidStr w}, {pidStr p}" }
+        | none => a := { a with budget := a.budget + 1 }
+  return a
+
 partial def walkTE (lab : String) (g : GPathM) (fuel : Nat) (a : PEAcc) : PEAcc :=
   if fuel == 0 then a
   else
@@ -8352,6 +8374,46 @@ def runFormulaEP (lab : String) (φ : Cnf) (a : EPAcc) : EPAcc := Id.run do
       a := { a with pair := peState lab g a.pair, tri := teState lab g a.tri }
       a := walkEP lab g (stepCount φ).toNat a
   return a
+
+
+/-- En un estado: tramos (muestra de `segsOf`) sin entrada común en algún paso fuera de ellos, y de ellos
+los que empiezan en el paso 0. -/
+def segBadPrefix (g : GPathM) : Nat × Nat × Nat := Id.run do
+  let mut n := 0
+  let mut bad := 0
+  let mut badPre := 0
+  for P in segsOf g do
+    match P.head?, P.getLast? with
+    | some lo, some hi =>
+      n := n + 1
+      let isBad := (intRange 0 (g.current_step - 1)).any (fun i =>
+        (i < lo.id.step || hi.id.step < i) && (commonAtRS g P i).isEmpty)
+      if isBad then
+        bad := bad + 1
+        if lo.id.step == 0 then badPre := badPre + 1
+    | _, _ => pure ()
+  return (n, bad, badPre)
+
+partial def walkPrefix (g : GPathM) (fuel : Nat) (acc : Nat × Nat × Nat × Nat) : Nat × Nat × Nat × Nat :=
+  let (st, n, b, bp) := acc
+  let (n', b', bp') := segBadPrefix g
+  let acc := (st + 1, n + n', b + b', bp + bp')
+  if fuel == 0 then acc
+  else
+    match ReaderExec.firstChoice g with
+    | none => acc
+    | some k => Id.run do
+      let mut acc := acc
+      -- every pin's reader state
+      for q in ownersAt g.gowners k do
+        let g' := filterAllAgg g [q.id]
+        if isValid g' then
+          let (st, n, b, bp) := acc
+          let (n', b', bp') := segBadPrefix g'
+          acc := (st + 1, n + n', b + b', bp + bp')
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return acc
+      | some q => return walkPrefix (filterAllAgg g [q.id]) (fuel - 1) acc
 
 /-! **`segmix`: ¿la unión mezcla tramos?** (`SegExactUp.SegNoMix`). En cada `doJoin` real de la
 línea: para cada tramo del estado unido, ¿es tramo de `A`, de `B`, o de ninguno (mezclado)? Y los
@@ -9626,6 +9688,67 @@ def main (args : List String) : IO Unit := do
       let t1 ← IO.monoMsNow
       reportDT s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
       (← IO.getStdout).flush
+  | "prefix" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let mut tot : Nat × Nat × Nat × Nat := (0, 0, 0, 0)
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        let mut line : PureLine := pureInit φ
+        for _ in [0:(stepCount φ - 1).toNat] do
+          line := pureAdvanceW φ line
+        for kv in line do
+          let g := filterAllAgg kv.2 []
+          if isValid g then tot := walkPrefix g (stepCount φ).toNat tot
+      let (st, n, b, bp) := tot
+      IO.println s!"seed {seed}: estados del lector {st}, tramos {n}: sin entrada comun en algun paso {b}; de ellos empiezan en el paso 0 {bp}"
+      (← IO.getStdout).flush
+  | "triexactfile" :: path :: _ =>
+    match ← loadCnf path with
+    | none => IO.println "bad cnf"
+    | some φ =>
+      let mut line : PureLine := pureInit φ
+      for _ in [0:(stepCount φ - 1).toNat] do
+        line := pureAdvanceW φ line
+      let mut a : PEAcc := {}
+      for kv in line do
+        let g := filterAllAgg kv.2 []
+        if isValid g then
+          a := teStateFull "inicio" g a
+          let mut pa : PEAcc := {}
+          for nx in g.nodes do
+            for w in nx.owners.eraseDups do
+              if w == nx.id || (g.node? w).isNone || w.id.step == nx.id.id.step then continue
+              pa := { pa with pairs := pa.pairs + 1 }
+              let (r, _) := peSearch g [(nx.id.id.step, nx.id), (w.id.step, w)] [] 0 20000
+              match r with
+              | some true => pa := { pa with exact := pa.exact + 1 }
+              | some false => pa := { pa with notExact := pa.notExact + 1 }
+              | none => pa := { pa with budget := pa.budget + 1 }
+          IO.println s!"estado inicial: parejas {pa.pairs}: en cadena comun {pa.exact}, en ninguna {pa.notExact}, presupuesto {pa.budget}"
+      IO.println s!"estado inicial: trios {a.pairs}: en cadena comun {a.exact}, en ninguna {a.notExact}, presupuesto {a.budget}"
+      if a.ex != "" then IO.println s!"   primero sin cadena: {a.ex}"
+  | "segdetail" :: path :: _ =>
+    match ← loadCnf path with
+    | none => IO.println "bad cnf"
+    | some φ =>
+      let mut line : PureLine := pureInit φ
+      for _ in [0:(stepCount φ - 1).toNat] do
+        line := pureAdvanceW φ line
+      for kv in line do
+        let g := filterAllAgg kv.2 []
+        if !isValid g then continue
+        IO.println s!"estado inicial: paso {g.current_step}, nodos {g.nodes.length}"
+        let mut shown := 0
+        for P in segsOf g do
+          match P.head?, P.getLast? with
+          | some lo, some hi =>
+            let bad := (intRange 0 (g.current_step - 1)).filter (fun i =>
+              (i < lo.id.step || hi.id.step < i) && (commonAtRS g P i).isEmpty)
+            if !bad.isEmpty && shown < 6 then
+              shown := shown + 1
+              IO.println s!"  tramo {P.map pidStr}: pasos sin entrada comun {bad}"
+              for i in bad.take 1 do
+                IO.println s!"    entradas en {i}: {P.map (fun z => ((ownersAt (txTab g z) i).map pidStr))}"
+          | _, _ => pure ()
   | "dump" :: "random" :: cases :: nvMin :: seed :: idx :: _ =>
     match (randomCnfs cases.toNat! nvMin.toNat! seed.toNat!)[idx.toNat!]? with
     | none => IO.println "no such formula"
