@@ -6055,6 +6055,193 @@ def reportC2 (name : String) (a : C2Acc) (ms : Nat) : IO Unit := do
   if a.first != "" then IO.println s!"   primer distinto: {a.first}"
   IO.println s!"   ({ms} ms)"
 
+/-! **`sym2`: el review simétrico en el modelo** (plan `docs/plans/review_simetrico.md`, B0). Copia
+local de `reviewNode` con espejo: cortar la tabla de `x`; cada nodo vivo que `x` dejó fuera pierde a `x`
+(`mirrorDropP`); después `unlinkIncompatible` y la validez de `x`, como ahora. En cada envío y en cada
+pin del lector: ¿deja `reviewAggM` el mismo estado que `reviewAgg` (la máquina)? Y, en cada vuelta de
+`reviewM`: parejas vivas asimétricas tras `cleanInvalid₂`, tras cada pasada y a la entrada del barrido
+agresivo; nodos eliminados en las pasadas; entradas espejo borradas. -/
+
+/-- Parejas vivas asimétricas (`asymCount` de `midsym`, que está más abajo). -/
+def asymCountS2 (g : GPathM) : Nat :=
+  (g.nodes.map (fun nr => (nr.owners.filter (fun q =>
+    match g.node? q with | some m => !m.owners.contains nr.id | none => false)).length)).sum
+
+/-- `x` perdió los owners `removed`: cada nodo de esa lista pierde a `x` (los que no están, nada). -/
+def mirrorDropP (g : GPathM) (x : PathNodeId) (removed : List PathNodeId) : GPathM :=
+  { g with nodes := g.nodes.map (fun m =>
+      if removed.contains m.id then { m with owners := m.owners.filter (· != x) } else m) }
+
+def reviewNodeM (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) : GPathM :=
+  match g.node? id with
+  | none => g
+  | some d =>
+    if isValidNode g d then
+      let uni := unionOwnersOf g (nb d)
+      let cut := intersectOwners d.owners uni
+      let removed := d.owners.filter (fun q => !cut.contains q)
+      let d := relink cut d
+      let g := unlinkIncompatible
+        (mirrorDropP (updateAt g id (fun n => { n with owners := intersectOwners n.owners uni })) id removed) id
+      if isValidNode g d then g else removeNode g id
+    else
+      removeNode g id
+
+def reviewLineM (g : GPathM) (nb : PNodeM → List PathNodeId) (k : Int) : GPathM :=
+  ((g.line k).map (·.id)).foldl (fun g id => reviewNodeM g nb id) g
+
+def reviewStepsM (g : GPathM) (nb : PNodeM → List PathNodeId) : List Int → GPathM
+  | [] => g
+  | k :: ks => if isValid g then reviewStepsM (reviewLineM g nb k) nb ks else g
+
+def reviewParentsM (g : GPathM) : GPathM :=
+  reviewStepsM g (·.parents) (intRange 1 (g.current_step - 1))
+
+def reviewSonsM (g : GPathM) : GPathM :=
+  reviewStepsM g (·.sons) (intRange 0 (g.current_step - 2)).reverse
+
+def reviewPassM (g : GPathM) : GPathM := reviewSonsM (reviewParentsM (cleanInvalid₂ g))
+
+def reviewFuelM : Nat → GPathM → GPathM
+  | 0, g => g
+  | fuel + 1, g =>
+    if isValid g then
+      let g' := reviewPassM g
+      if GPathM.measure g' < GPathM.measure g then reviewFuelM fuel g' else g'
+    else g
+
+def reviewM (g : GPathM) : GPathM := reviewFuelM (GPathM.measure g + 1) g
+
+def reviewAggFuelM : Nat → GPathM → GPathM
+  | 0, g => reviewM g
+  | fuel + 1, g =>
+    let g₁ := reviewM g
+    if isValid g₁ then
+      let g₂ := AggressiveReview.aggSweep g₁
+      if GPathM.measure g₂ < GPathM.measure g₁ then reviewAggFuelM fuel g₂ else g₁
+    else g₁
+
+def reviewAggM (g : GPathM) : GPathM := reviewAggFuelM (GPathM.measure g + 1) g
+
+structure S2Acc where
+  formulas : Nat := 0
+  sends : Nat := 0
+  sendsDiff : Nat := 0
+  pins : Nat := 0
+  pinsDiff : Nat := 0
+  validDiff : Nat := 0
+  inAsym : Nat := 0          -- entradas (F) con alguna asimetría
+  outAsymOff : Nat := 0      -- salidas de la máquina con asimetría
+  outAsymOn : Nat := 0       -- salidas con espejo con asimetría
+  rounds : Nat := 0
+  asymClean : Nat := 0       -- vueltas (con espejo) con asimetría tras cleanInvalid₂
+  asymParents : Nat := 0
+  asymSons : Nat := 0
+  asymAgg : Nat := 0         -- a la entrada del barrido agresivo (punto fijo de reviewM)
+  removedPass : Nat := 0     -- nodos eliminados en las pasadas (con espejo)
+  roundsRemoved : Nat := 0
+  mirrorDrops : Nat := 0     -- entradas espejo borradas
+  first : String := ""
+  deriving Repr
+
+/-- Entradas `x` en tablas de nodos vivos que un `reviewNodeM` borra y que `reviewNode` no borraría. -/
+def ownerEntries (g : GPathM) : Nat := (g.nodes.map (fun n => n.owners.length)).sum
+
+/-- La pasada con espejo instrumentada: cuenta las entradas que borra el espejo. -/
+def stepsCount (g : GPathM) (nb : PNodeM → List PathNodeId) (ks : List Int) (acc : Nat) : GPathM × Nat :=
+  ks.foldl (fun (g, acc) k =>
+    if isValid g then
+      ((g.line k).map (·.id)).foldl (fun (g, acc) id =>
+        let a := reviewNode g nb id
+        let b := reviewNodeM g nb id
+        -- mismas tablas en `id` y mismos nodos: la diferencia de entradas es el espejo
+        (b, acc + (ownerEntries a - ownerEntries b))) (g, acc)
+    else (g, acc)) (g, acc)
+
+/-- `reviewAggM` instrumentada (mismas decisiones que `reviewAggFuelM`). -/
+def reviewAggMPost (F : GPathM) (a : S2Acc) : S2Acc := Id.run do
+  let mut a := a
+  let mut g := F
+  let mut outer := GPathM.measure g + 1
+  while outer > 0 do
+    outer := outer - 1
+    -- reviewM g, instrumentada
+    let mut fuel := GPathM.measure g + 1
+    while fuel > 0 do
+      fuel := fuel - 1
+      if !isValid g then fuel := 0
+      else
+        let g0 := g
+        a := { a with rounds := a.rounds + 1 }
+        let h := cleanInvalid₂ g
+        if isValid h && asymCountS2 h > 0 then a := { a with asymClean := a.asymClean + 1 }
+        let (p, m1) := stepsCount h (·.parents) (intRange 1 (h.current_step - 1)) 0
+        if isValid p && asymCountS2 p > 0 then a := { a with asymParents := a.asymParents + 1 }
+        let (s, m2) := stepsCount p (·.sons) (intRange 0 (p.current_step - 2)).reverse 0
+        if isValid s && asymCountS2 s > 0 then a := { a with asymSons := a.asymSons + 1 }
+        let rem := h.nodes.length - s.nodes.length
+        a := { a with mirrorDrops := a.mirrorDrops + m1 + m2, removedPass := a.removedPass + rem,
+                      roundsRemoved := a.roundsRemoved + (if rem > 0 && isValid s then 1 else 0) }
+        g := s
+        if !(GPathM.measure g < GPathM.measure g0) then fuel := 0
+    if !isValid g then outer := 0
+    else
+      if asymCountS2 g > 0 then a := { a with asymAgg := a.asymAgg + 1 }
+      let g₂ := AggressiveReview.aggSweep g
+      if GPathM.measure g₂ < GPathM.measure g then g := g₂ else outer := 0
+  return a
+
+def compareS2 (lab : String) (pin : Bool) (F : GPathM) (a : S2Acc) : S2Acc := Id.run do
+  let R := AggressiveReview.reviewAgg F
+  let Rm := reviewAggM F
+  let same := sameState2 R Rm
+  let mut a := reviewAggMPost F a
+  if isValid F && asymCountS2 F > 0 then a := { a with inAsym := a.inAsym + 1 }
+  if isValid R && asymCountS2 R > 0 then a := { a with outAsymOff := a.outAsymOff + 1 }
+  if isValid Rm && asymCountS2 Rm > 0 then a := { a with outAsymOn := a.outAsymOn + 1 }
+  if pin then a := { a with pins := a.pins + 1, pinsDiff := a.pinsDiff + (if same then 0 else 1) }
+  else a := { a with sends := a.sends + 1, sendsDiff := a.sendsDiff + (if same then 0 else 1) }
+  if isValid R != isValid Rm then a := { a with validDiff := a.validDiff + 1 }
+  if !same && a.first == "" then
+    a := { a with first := s!"{lab} ({if pin then "pin" else "envio"}): valido {isValid R}/{isValid Rm}, nodos {R.nodes.length}/{Rm.nodes.length}, global {R.gowners.length}/{Rm.gowners.length}, medida {GPathM.measure R}/{GPathM.measure Rm}" }
+  return a
+
+partial def walkS2 (lab : String) (g : GPathM) (fuel : Nat) (a : S2Acc) : S2Acc :=
+  if fuel == 0 then a
+  else
+    match ReaderExec.firstChoice g with
+    | none => a
+    | some k => Id.run do
+      let mut a := a
+      for q in ownersAt g.gowners k do
+        a := compareS2 lab true ([q.id].foldl filterRequire g) a
+      match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
+      | none => return a
+      | some q => return walkS2 lab (filterAllAgg g [q.id]) (fuel - 1) a
+
+def runFormulaS2 (lab : String) (φ : Cnf) (a : S2Acc) : S2Acc := Id.run do
+  let mut a := { a with formulas := a.formulas + 1 }
+  let mut line : PureLine := pureInit φ
+  for _ in [0:(stepCount φ - 1).toNat] do
+    for kv in line do
+      for d in mapSons φ kv.1.step kv.1.index do
+        let F := (reqOfCnf φ d).foldl filterRequire (filterWeakAll kv.2 (weakReqOfCnf φ d))
+        a := compareS2 lab false F a
+    line := pureAdvanceW φ line
+  for kv in line do
+    let g := filterAllAgg kv.2 []
+    if isValid g then a := walkS2 lab g (stepCount φ).toNat a
+  return a
+
+def reportS2 (name : String) (a : S2Acc) (ms : Nat) : IO Unit := do
+  IO.println s!"── {name}  ({a.formulas} formulas)"
+  IO.println s!"   reviewAgg (maquina) vs con espejo: envios {a.sends} (distintos {a.sendsDiff}), pines {a.pins} (distintos {a.pinsDiff}), validez distinta {a.validDiff}"
+  IO.println s!"   asimetria: entradas {a.inAsym}; salidas maquina {a.outAsymOff}, con espejo {a.outAsymOn}"
+  IO.println s!"   con espejo, {a.rounds} vueltas: asimetricas tras cleanInvalid₂ {a.asymClean}, tras padres {a.asymParents}, tras hijos {a.asymSons}, a la entrada del barrido {a.asymAgg}"
+  IO.println s!"   nodos eliminados en las pasadas {a.removedPass} (vueltas validas con alguno {a.roundsRemoved}); entradas espejo borradas {a.mirrorDrops}"
+  if a.first != "" then IO.println s!"   primer distinto: {a.first}"
+  IO.println s!"   ({ms} ms)"
+
 /-! **`minnode`: ¿es la tabla del nodo con menos owners un punto fijo?** (idea del autor, 2026-09-23:
 `ReaderMinOwner`). En cada estado que visita el lector (la línea final tras `reviewAgg`, y cada pin,
 hermanos incluidos) se toma `m`, el nodo con menos owners, y su tabla `T`:
@@ -8235,6 +8422,25 @@ def main (args : List String) : IO Unit := do
         idx := idx + 1
       let t1 ← IO.monoMsNow
       reportMN s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
+  | "sym2" :: "file" :: paths =>
+    for path in paths do
+      match ← loadCnf path with
+      | none => IO.println s!"{path}: bad cnf"
+      | some φ =>
+        let t0 ← IO.monoMsNow
+        let a ← IO.lazyPure (fun _ => runFormulaS2 path φ {})
+        let t1 ← IO.monoMsNow
+        reportS2 path a (t1 - t0)
+  | "sym2" :: "random" :: cases :: nvMin :: seeds =>
+    for seed in seeds.map String.toNat! do
+      let t0 ← IO.monoMsNow
+      let mut a : S2Acc := {}
+      let mut idx := 0
+      for φ in randomCnfs cases.toNat! nvMin.toNat! seed do
+        a := runFormulaS2 s!"seed {seed} #{idx}" φ a
+        idx := idx + 1
+      let t1 ← IO.monoMsNow
+      reportS2 s!"seed {seed} ({cases} formulas, {nvMin}+ vars)" a (t1 - t0)
   | "clean2" :: "file" :: paths =>
     for path in paths do
       match ← loadCnf path with
