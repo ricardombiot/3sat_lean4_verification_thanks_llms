@@ -7411,6 +7411,18 @@ structure REAcc where
   hellyConf : Nat := 0
   hellyDetail : String := ""
   badPairAdj : Nat := 0
+  hStates : Nat := 0
+  hPairs : Nat := 0
+  hNonLam : Nat := 0
+  hTriples : Nat := 0
+  hTripleFail : Nat := 0
+  hTripleEx : String := ""
+  hSets : Nat := 0
+  hNotIntOld : Nat := 0
+  hNotIntNew : Nat := 0
+  hNotSubOld : Nat := 0
+  hNotSubNew : Nat := 0
+  hNonLamEx : String := ""
   deriving Repr
 
 def pidStr (p : PathNodeId) : String :=
@@ -7420,6 +7432,74 @@ def pidStr (p : PathNodeId) : String :=
     | some q => s!"<{q.step}/{q.index}"
     | none => "<-")
 
+/-- Clave de un nodo de la ventana, en orden de tiempo: la elección más antigua primero (`old`) o la
+más reciente primero (`new`). -/
+def keyOld (p : PathNodeId) : List Int :=
+  [(p.gparent_id.map (·.index)).getD (-1), (p.parent_id.map (·.index)).getD (-1), p.id.index]
+def keyNew (p : PathNodeId) : List Int := (keyOld p).reverse
+
+def lexLt : List Int → List Int → Bool
+  | a :: as, b :: bs => a < b || (a == b && lexLt as bs)
+  | [], _ :: _ => true
+  | _, _ => false
+
+/-- `A` es un intervalo de la lista ordenada `U` (contigua en `U`). -/
+def isInterval (U A : List PathNodeId) : Bool :=
+  let idx := (List.range U.length).filter (fun i => match U[i]? with | some u => A.contains u | none => false)
+  match idx.head?, idx.getLast? with
+  | some i, some j => j + 1 - i == idx.length
+  | _, _ => true
+
+/-- `A` es el conjunto de todas las hojas vivas bajo un prefijo del árbol (subárbol completo del trie
+de claves `key`): existe un prefijo `pre` tal que `A = {u ∈ U | pre es prefijo de key u}`. -/
+def isTrieSub (key : PathNodeId → List Int) (U A : List PathNodeId) : Bool :=
+  match A.head? with
+  | none => true
+  | some a0 =>
+    let ks := A.map key
+    let pre := (List.range 4).foldl (fun acc n =>
+      let c := (key a0).take n
+      if ks.all (fun k => k.take n == c) then c else acc) []
+    U.all (fun u => (key u).take pre.length == pre → A.contains u)
+
+def hellyState (g : GPathM) (a : REAcc) : REAcc := Id.run do
+  let mut a := { a with hStates := a.hStates + 1 }
+  let tab (z : PathNodeId) : List PathNodeId := (g.node? z).map (·.owners) |>.getD []
+  for b in intRange 0 (g.current_step - 1) do
+    let U0 := ownersAt g.gowners b |>.eraseDups
+    let Uold := U0.mergeSort (fun x y => lexLt (keyOld x) (keyOld y) || keyOld x == keyOld y)
+    let Unew := U0.mergeSort (fun x y => lexLt (keyNew x) (keyNew y) || keyNew x == keyNew y)
+    let live := g.nodes.filter (fun n => n.id.id.step != b)
+    for n in live do
+      let A := ownersAt n.owners b
+      a := { a with hSets := a.hSets + 1 }
+      if !isInterval Uold A then a := { a with hNotIntOld := a.hNotIntOld + 1 }
+      if !isInterval Unew A then a := { a with hNotIntNew := a.hNotIntNew + 1 }
+      if !isTrieSub keyOld U0 A then a := { a with hNotSubOld := a.hNotSubOld + 1 }
+      if !isTrieSub keyNew U0 A then a := { a with hNotSubNew := a.hNotSubNew + 1 }
+    -- parejas y tríos que se poseen mutuamente (miembros posibles de un tramo)
+    for n in live.take 40 do
+      let A := (ownersAt n.owners b).eraseDups
+      let nbs := (n.owners.filter (fun w => w.id.step != b && w != n.id && (tab w).contains n.id)).take 12
+      for w in nbs do
+        let B := (ownersAt (tab w) b).eraseDups
+        a := { a with hPairs := a.hPairs + 1 }
+        let ab := A.filter B.contains
+        if !(ab.isEmpty || ab.length == A.length || ab.length == B.length) then
+          a := { a with hNonLam := a.hNonLam + 1 }
+          if a.hNonLamEx == "" then
+            a := { a with hNonLamEx := s!"paso {b}: {pidStr n.id} -> {A.map pidStr} / {pidStr w} -> {B.map pidStr}" }
+        for v in nbs do
+          if keyOld v != keyOld w && lexLt (keyOld w) (keyOld v) && (tab v).contains w then
+            let C := ownersAt (tab v) b
+            if !ab.isEmpty && (A.any C.contains) && (B.any C.contains) then
+              a := { a with hTriples := a.hTriples + 1 }
+              if !(ab.any C.contains) then
+                a := { a with hTripleFail := a.hTripleFail + 1 }
+                if a.hTripleEx == "" then
+                  a := { a with hTripleEx := s!"paso {b}: {pidStr n.id} -> {A.map pidStr} / {pidStr w} -> {B.map pidStr} / {pidStr v} -> {C.map pidStr}" }
+  return a
+
 def pinRE (lab : String) (X : GPathM) (a : REAcc) : REAcc := Id.run do
   let mut a := { a with pins := a.pins + 1 }
   let C := cleanInvalid₂ X
@@ -7427,6 +7507,7 @@ def pinRE (lab : String) (X : GPathM) (a : REAcc) : REAcc := Id.run do
   let R1 := reviewPass X
   a := { a with round1 := checkSE s!"{lab} vuelta1" R1 300 a.round1 }
   if !isValid C then return a
+  a := hellyState C a
   -- the doomed segments of `C`: pair conflict or collective conflict at their bad steps
   for y in C.nodes.take 20 do
     let (segs, _) := collectDown C [y.id] ([], 30)
@@ -7479,7 +7560,7 @@ partial def walkRE (lab : String) (g : GPathM) (fuel : Nat) (a : REAcc) : REAcc 
     match ReaderExec.firstChoice g with
     | none => a
     | some k => Id.run do
-      let mut a := a
+      let mut a := hellyState g a
       for q in ownersAt g.gowners k do
         a := pinRE lab ([q.id].foldl filterRequire g) a
       match (ownersAt g.gowners k).find? (fun q => isValid (filterAllAgg g [q.id])) with
@@ -7502,6 +7583,10 @@ def reportRE (name : String) (a : REAcc) (ms : Nat) : IO Unit := do
   reportSECell "salida de la 1ª vuelta       " a.round1
   IO.println s!"   condenados {a.doomed}: conflicto de pareja en algun paso sin comun {a.pairConf} (pareja contigua {a.badPairAdj}); conflicto solo colectivo {a.hellyConf}"
   if a.hellyDetail != "" then IO.println s!"      primer conflicto colectivo: {a.hellyDetail}"
+  IO.println s!"   Helly: {a.hStates} estados; parejas mutuas {a.hPairs}, no anidadas ni disjuntas {a.hNonLam}; trios (dos a dos con comun) {a.hTriples}, sin comun {a.hTripleFail}"
+  IO.println s!"   conjuntos {a.hSets}: no intervalo (antigua primero) {a.hNotIntOld}, (reciente primero) {a.hNotIntNew}; no subarbol completo del trie (antigua) {a.hNotSubOld}, (reciente) {a.hNotSubNew}"
+  if a.hNonLamEx != "" then IO.println s!"      no anidada: {a.hNonLamEx}"
+  if a.hTripleEx != "" then IO.println s!"      trio sin comun: {a.hTripleEx}"
   IO.println s!"   tras la pasada de padres: union de padres del extremo que cubre sin padre comun {a.u2cFails}"
   for d in a.detail do IO.println s!"      {d}"
   IO.println s!"   ({ms} ms)"
