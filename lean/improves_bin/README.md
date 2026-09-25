@@ -41,6 +41,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `ReaderPrefix` | — | nuevo | el lector lee un prefijo (`ReadFirst`, `PrefixUpTo`, `firstChoice_pin_gt`); `readerVerdictW_iff_of_pinChain` con una sola hipótesis abierta, `PinChain` |
 | `PinChainBin` | — | nuevo | dos bits por paso (`entry_bit`, `entry_flip`); el bit de la cadena es gratis; `PinChain` ⇐ `OtherBit` (y `chainG_through_pin`: es también necesario); `readerVerdictW_iff_of_otherBit` |
 | `OtherBitSem` | — | nuevo | `OtherBit` sobre la fórmula: los pins son una asignación parcial; la línea final lleva todas las soluciones (`carried_unique`); `readerVerdictW_iff_of_otherBitSem` con esa única hipótesis |
+| `NoDeadEnd` | — | nuevo | decodificación exacta (`selOfAssign_decode`), pins fijados (`PinNodes`), descenso; `OtherBitSem ⇐ NoDeadEnd`, `soundness_of_noDeadEnd` (con `RootValid`, sin `ClauseStepExact`/`SkipExact`), `readerVerdictW_iff_of_noDeadEnd` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales

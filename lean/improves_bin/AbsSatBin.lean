@@ -32,6 +32,7 @@ import AbsSatBin.GraphPath.Model.L6Up
 import AbsSatBin.GraphPath.Model.L7
 import AbsSatBin.GraphPath.Model.MapChain
 import AbsSatBin.GraphPath.Model.MapReachable
+import AbsSatBin.GraphPath.Model.NoDeadEnd
 import AbsSatBin.GraphPath.Model.NodeIds
 import AbsSatBin.GraphPath.Model.NodeInvariant
 import AbsSatBin.GraphPath.Model.OtherBitSem
