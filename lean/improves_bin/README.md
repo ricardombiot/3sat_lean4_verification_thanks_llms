@@ -17,6 +17,9 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `Cnf/Dimacs` | `6b6359f` | copia | |
 | `GraphMap/CnfMapBin` | — | reescrito | mapa bin como aritmética: `reqOf`, `mapNodes`, `sonsOf`, `isProhibited` |
 | `GraphMap/MapBinDump` | — | nuevo | volcado canónico para el diferencial |
+| `GraphPath/Model/GPathM` | `6b6359f` | copia | el UP clásico (`addNode`) se queda; el bin va aparte |
+| `GraphPath/Model/UpBin` | — | reescrito | `addNodeW`/`upW`: la fila sin las ventanas prohibidas; revisión solo si se saltó una. `addNodeW_none`: sin ventanas es `addNode` |
+| `GraphPath/Model/DriverBin` | — | reescrito | `PureDriver` sin pruebas: `reqOf`, `sonsOf`, `upFilteringW … (isProhibited φ)`; tests de índices y de los errores 3 y 4 |
 
 ## Diferencial del mapa
 
@@ -28,3 +31,14 @@ Compara `CnfMapBin` con `GraphMapBin.load_import_bin!` (Julia) en el corpus de `
 pasos, nodos, requires, sons y ventanas prohibidas. Estado: **74/74 iguales**, 1 saltada
 (`simple_v3_c2.cnf`, 2-SAT, que el importador bin rechaza). Una mutación de `sonsOf` da 0/74, así que
 el diferencial sí distingue.
+
+## Máquina bin contra fuerza bruta
+
+```bash
+lake build driverbin-check
+./scripts/driverbin_corpus.sh LISTA_DE_CNF [segundos] [paralelo]
+```
+
+Veredicto de `DriverBin.pureRun` contra `bruteSat`, y ningún nodo muerto en el estado final (lo que
+Julia reporta como `GRAVE ERROR READER`). El modelo en listas es lento: las fórmulas de 3 variables
+tardan milisegundos, las de `v4_c20` o `v8_c10` pasan de 20 s.

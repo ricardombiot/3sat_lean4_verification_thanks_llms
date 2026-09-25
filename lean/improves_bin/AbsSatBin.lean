@@ -4,6 +4,9 @@ import AbsSatBin.Cnf.Formula
 import AbsSatBin.Cnf.Dimacs
 import AbsSatBin.GraphMap.CnfMapBin
 import AbsSatBin.GraphMap.MapBinDump
+import AbsSatBin.GraphPath.Model.GPathM
+import AbsSatBin.GraphPath.Model.UpBin
+import AbsSatBin.GraphPath.Model.DriverBin
 
 /-! # `AbsSatBin` — the machine over the binary map
 

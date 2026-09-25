@@ -13,3 +13,8 @@ root = "AbsSatBin"
 [[lean_exe]]
 name = "mapbin-dump"
 root = "MapBinDumpMain"
+
+# The pure bin machine against brute force, with the dead-node check.
+[[lean_exe]]
+name = "driverbin-check"
+root = "DriverBinCheckMain"
