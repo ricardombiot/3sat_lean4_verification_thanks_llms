@@ -29,8 +29,6 @@ open AbsSatBin.Cnf
 open AbsSatBin.GraphMap.CnfMapBin
 open AbsSatBin.GraphPath.Model
 open AbsSatBin.GraphPath.Model.GPathM
-open AbsSatBin.GraphPath.Model.AggressiveReview
-open AbsSatBin.GraphPath.Model.ReaderAgg
 open AbsSatBin.GraphPath.Model.ReaderExec
 open AbsSatBin.GraphPath.Model.ReaderPrefix
 open AbsSatBin.GraphPath.Model.MapReachable
@@ -47,18 +45,18 @@ structure BinCtx (g : GPathM) : Prop where
   rctx  : Reader.RCtx g
   onMap : NodesOnMap φ g
 
-theorem binCtx_filterAllAgg (g : GPathM) (h : BinCtx φ g) (reqs : List NodeId) :
-    BinCtx φ (filterAllAgg g reqs) where
-  rctx  := RCtx_of_readableAgg _ ⟨g, reqs, h.rctx, rfl⟩
-  onMap := NodesOnMap_of_pruned φ (pruned_filterAllAgg g reqs) h.onMap
+theorem binCtx_filterAll (g : GPathM) (h : BinCtx φ g) (reqs : List NodeId) :
+    BinCtx φ (filterAll g reqs) where
+  rctx  := Reader.RCtx_filterAll g h.rctx reqs
+  onMap := NodesOnMap_of_pruned φ (pruned_filterAll g reqs) h.onMap
 
 theorem binCtx_start (hbd : Bounded φ) (kv : NodeId × GPathM) (hkv : kv ∈ pureRun φ) :
-    BinCtx φ (filterAllAgg kv.2 []) := by
+    BinCtx φ (filterAll kv.2 []) := by
   have hzero : (0 : Int) < stepCount φ := by simp only [stepCount]; omega
   have hok := Decision.stateOk_pureRun φ hzero kv hkv
   have hreach := reachable_of_mapReachable φ hbd kv.2 hok.reach
   have hnd := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) kv.2 hreach
-  exact binCtx_filterAllAgg φ kv.2
+  exact binCtx_filterAll φ kv.2
     ⟨Reader.RCtx_reachable (reqOf φ) (isProhibited φ) kv.2 hnd hreach,
      nodesOnMap_of_mapReachable φ kv.2 hok.reach⟩ []
 
@@ -66,7 +64,7 @@ theorem binCtx_readFirst (g₀ : GPathM) (h₀ : BinCtx φ g₀) (g : GPathM) (h
     BinCtx φ g := by
   induction hF with
   | start => exact h₀
-  | pin g _ q _ _ _ _ _ ih => exact binCtx_filterAllAgg φ g ih [q.id]
+  | pin g _ q _ _ _ _ _ ih => exact binCtx_filterAll φ g ih [q.id]
 
 -- ============================================================
 -- Two bits per step
@@ -99,8 +97,8 @@ theorem entry_flip (g : GPathM) (h : BinCtx φ g) (k : Int) (q r : PathNodeId)
 /-- **Pinning the chain's own bit keeps the chain.** -/
 theorem chainSound_pin_same (g : GPathM) (sel : Int → PathNodeId) (hsc : ChainSound g sel)
     (q : PathNodeId) (hq : (sel q.id.step).id = q.id) :
-    ChainSound (filterAllAgg g [q.id]) sel :=
-  ChainSound_filterAllAgg g [q.id] sel hsc (by
+    ChainSound (filterAll g [q.id]) sel :=
+  ChainSound_filterAll g [q.id] sel hsc (by
     intro req hreq _ _
     rw [List.mem_singleton.mp hreq]
     exact hq)
@@ -110,15 +108,15 @@ with no chain through its bit can never be repaired by the review: `PinChain` ho
 review leaves no such pin valid. -/
 theorem chainG_through_pin (g : GPathM) (hc : Reader.RCtx g) (k : Int) (q : PathNodeId)
     (hq : q ∈ ownersAt g.gowners k) (hk0 : 0 ≤ k) (hk : k < g.current_step)
-    (sel : Int → PathNodeId) (hsc : ChainSound (filterAllAgg g [q.id]) sel) :
+    (sel : Int → PathNodeId) (hsc : ChainSound (filterAll g [q.id]) sel) :
     ChainG g sel ∧ (sel k).id = q.id := by
-  have hpr := pruned_filterAllAgg g [q.id]
+  have hpr := pruned_filterAll g [q.id]
   have hqs : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
   refine ⟨⟨IsChain_of_pruned hpr hc.nodup sel hsc.chain.1,
     PairwiseOwned_of_pruned hpr hc.nodup sel hsc.chain.2.1,
     fun i hi0 hi1 => hpr.gowners_sub _ (hsc.chain.2.2 i hi0 (by rw [hpr.step_eq]; exact hi1))⟩, ?_⟩
-  have hk' : k < (filterAllAgg g [q.id]).current_step := by rw [hpr.step_eq]; exact hk
-  have hmem : sel k ∈ ownersAt (filterAllAgg g [q.id]).gowners q.id.step := by
+  have hk' : k < (filterAll g [q.id]).current_step := by rw [hpr.step_eq]; exact hk
+  have hmem : sel k ∈ ownersAt (filterAll g [q.id]).gowners q.id.step := by
     rw [hqs]
     exact List.mem_filter.mpr ⟨hsc.chain.2.2 k hk0 hk', beq_iff_eq.mpr (hsc.chain.1.1 k hk0 hk').2⟩
   exact ownersAt_pin g q (sel k) hmem
@@ -133,7 +131,7 @@ def OtherBit (g₀ : GPathM) : Prop :=
   ∀ g, ReadFirst g₀ g → isValid g = true → ∀ sel, ChainSound g sel →
     ∀ k, firstChoice g = some k → PrefixUpTo g k →
       ∀ q ∈ ownersAt g.gowners k, q.id = ⟨k, 1 - (sel k).id.index⟩ →
-        isValid (filterAllAgg g [q.id]) = true →
+        isValid (filterAll g [q.id]) = true →
         ∃ sel', ChainSound g sel' ∧ (sel' k).id = q.id
 
 theorem pinChain_of_otherBit (g₀ : GPathM) (h₀ : BinCtx φ g₀) (hob : OtherBit g₀) :
@@ -154,7 +152,7 @@ theorem pinChain_of_otherBit (g₀ : GPathM) (h₀ : BinCtx φ g₀) (hob : Othe
 
 /-- **The reader decides `φ`, with the other bit as the one open obligation.** -/
 theorem readerVerdictW_iff_of_otherBit (hbd : Bounded φ)
-    (hob : ∀ kv ∈ pureRun φ, OtherBit (filterAllAgg kv.2 [])) :
+    (hob : ∀ kv ∈ pureRun φ, OtherBit (filterAll kv.2 [])) :
     readerVerdictW φ = true ↔ Satisfiable φ :=
   readerVerdictW_iff_of_pinChain φ hbd
     (fun kv hkv => pinChain_of_otherBit φ _ (binCtx_start φ hbd kv hkv) (hob kv hkv))

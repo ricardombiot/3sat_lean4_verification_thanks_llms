@@ -4,11 +4,11 @@ import AbsSatBin.GraphPath.Model.ReaderExec
 /-!
 # The reader reads a prefix: completeness reduced to one pin (`PinChain`)
 
-`ReaderExec.readerVerdictW_of_chains` already says the reader finishes when every valid state it
-visits carries a sound chain. This module narrows the states and the obligation.
+The reader finishes when every valid state it visits carries a sound chain (it can then pin the
+chain's own node). This module narrows the states and the obligation.
 
-* **The states** (`ReadFirst`). `ReaderAgg.ReadFrom` lets any node be pinned; the reader only pins
-  at `firstChoice`, and only a pin the aggressive review leaves valid (`tryPins`). `ReadFirst` is that
+* **The states** (`ReadFirst`). The reader only pins
+  at `firstChoice`, and only a pin the review leaves valid (`tryPins`). `ReadFirst` is that
   relation, and `readLoop_complete_first` runs the loop on it.
 * **The prefix** (`PrefixUpTo`). Below `firstChoice` no step has a choice
   (`prefixUpTo_firstChoice`), and a pin at `k` removes the choice at `k` without adding one below
@@ -16,9 +16,9 @@ visits carries a sound chain. This module narrows the states and the obligation.
   fixes the steps `0, 1, 2, …` in order and never reopens one. On the bin map a choice step has
   two map nodes, so each pin fixes one bit.
 * **The start** (`start_chain`). A satisfying assignment leaves a sound chain in the state the reader
-  starts from (`Conservation.chainSound_along`, kept by `filterAllAgg … []`).
+  starts from (`Conservation.chainSound_along`, kept by `filterAll … []`).
 * **The one open obligation** (`PinChain`). At a reader state with a chain and a fixed prefix, a pin
-  at `firstChoice` that the aggressive review leaves valid keeps *some* sound chain.
+  at `firstChoice` that the review leaves valid keeps *some* sound chain.
 
 `readerVerdictW_iff_of_pinChain`: with `Bounded φ` and `PinChain` on the starting states, the reader
 decides `φ`. Nothing here uses `SegGood`, `TriExact`, `PairExact` or segments that do not start at 0.
@@ -32,8 +32,6 @@ open AbsSatBin.GraphMap.CnfMapBin
 open AbsSatBin.GraphMap.CnfSelBin
 open AbsSatBin.GraphPath.Model
 open AbsSatBin.GraphPath.Model.GPathM
-open AbsSatBin.GraphPath.Model.AggressiveReview
-open AbsSatBin.GraphPath.Model.ReaderAgg
 open AbsSatBin.GraphPath.Model.ReaderExec
 open AbsSatBin.GraphPath.Model.PickInduction (choiceAt hasChoice)
 open AbsSatBin.GraphPath.Model.PureDriver
@@ -48,17 +46,12 @@ inductive ReadFirst (g₀ : GPathM) : GPathM → Prop where
   | start : ReadFirst g₀ g₀
   | pin (g : GPathM) (k : Int) (q : PathNodeId) : ReadFirst g₀ g → isValid g = true →
       firstChoice g = some k → q ∈ ownersAt g.gowners k →
-      isValid (filterAllAgg g [q.id]) = true → ReadFirst g₀ (filterAllAgg g [q.id])
-
-theorem readFrom_of_readFirst (g₀ g : GPathM) (h : ReadFirst g₀ g) : ReadFrom g₀ g := by
-  induction h with
-  | start => exact ReadFrom.start
-  | pin g _ q _ hv _ _ _ ih => exact ReadFrom.pin g q.id ih hv
+      isValid (filterAll g [q.id]) = true → ReadFirst g₀ (filterAll g [q.id])
 
 /-- **The reader never gets stuck**, on the states it actually visits. -/
 def ProgressFirst (g₀ : GPathM) : Prop :=
   ∀ g, ReadFirst g₀ g → isValid g = true → ∀ k, firstChoice g = some k →
-    ∃ q ∈ ownersAt g.gowners k, isValid (filterAllAgg g [q.id]) = true
+    ∃ q ∈ ownersAt g.gowners k, isValid (filterAll g [q.id]) = true
 
 theorem readLoop_complete_first (g₀ : GPathM) (hP : ProgressFirst g₀) :
     ∀ (n : Nat) (g : GPathM), measure g ≤ n → ReadFirst g₀ g → isValid g = true →
@@ -71,7 +64,7 @@ theorem readLoop_complete_first (g₀ : GPathM) (hP : ProgressFirst g₀) :
     by_cases hc : hasChoice g = true
     · obtain ⟨k, hk⟩ := firstChoice_of_hasChoice g hc
       obtain ⟨q, hq, _⟩ := hP g hF hv k hk
-      have := measure_lt_of_choiceAt g k (choiceAt_of_firstChoice g k hk) q hq
+      have := PickInduction.measure_lt_of_choiceAt g k (choiceAt_of_firstChoice g k hk) q hq
       omega
     · rw [if_neg hc]; rfl
   | succ n ih =>
@@ -87,12 +80,12 @@ theorem readLoop_complete_first (g₀ : GPathM) (hP : ProgressFirst g₀) :
       simp only [ht']
       obtain ⟨q, hq, e, hv'⟩ := findSome_valid g _ h' ht
       subst e
-      have hlt := measure_lt_of_choiceAt g k (choiceAt_of_firstChoice g k hf) q hq
+      have hlt := PickInduction.measure_lt_of_choiceAt g k (choiceAt_of_firstChoice g k hf) q hq
       exact ih _ (by omega) (ReadFirst.pin g k q hF hv hf hq hv') hv'
 
-theorem readAgg_complete_first (g₀ : GPathM) (hv : isValid g₀ = true) (hP : ProgressFirst g₀) :
-    (readAgg g₀).isSome = true := by
-  unfold readAgg
+theorem readG_complete_first (g₀ : GPathM) (hv : isValid g₀ = true) (hP : ProgressFirst g₀) :
+    (readG g₀).isSome = true := by
+  unfold readG
   rw [if_pos hv]
   exact readLoop_complete_first g₀ hP _ g₀ (Nat.le_refl _) ReadFirst.start hv
 
@@ -175,8 +168,8 @@ theorem choiceAt_false_of_pruned {g g' : GPathM} (hp : Pruned g g') (k : Int)
 
 /-- After a pin at `q`, every live entry of `q`'s step is `q`'s map node. -/
 theorem ownersAt_pin (g : GPathM) (q : PathNodeId) (x : PathNodeId)
-    (hx : x ∈ ownersAt (filterAllAgg g [q.id]).gowners q.id.step) : x.id = q.id := by
-  have hp : Pruned (filterRequire g q.id) (filterAllAgg g [q.id]) := pruned_reviewAgg _
+    (hx : x ∈ ownersAt (filterAll g [q.id]).gowners q.id.step) : x.id = q.id := by
+  have hp : Pruned (filterRequire g q.id) (filterAll g [q.id]) := pruned_review _
   obtain ⟨hmem, hs⟩ := List.mem_filter.mp (mem_ownersAt_of_pruned hp _ x hx)
   obtain ⟨_, hkeep⟩ := List.mem_filter.mp hmem
   have hstep : x.id.step = q.id.step := eq_of_beq hs
@@ -185,11 +178,11 @@ theorem ownersAt_pin (g : GPathM) (q : PathNodeId) (x : PathNodeId)
 
 /-- **A pin at the first choice extends the fixed prefix by one step.** -/
 theorem prefixUpTo_pin (g : GPathM) (k : Int) (q : PathNodeId) (hf : firstChoice g = some k)
-    (hq : q ∈ ownersAt g.gowners k) : PrefixUpTo (filterAllAgg g [q.id]) (k + 1) := by
+    (hq : q ∈ ownersAt g.gowners k) : PrefixUpTo (filterAll g [q.id]) (k + 1) := by
   have hqs : q.id.step = k := eq_of_beq (List.mem_filter.mp hq).2
   intro i hi0 hik
   by_cases hik' : i < k
-  · exact choiceAt_false_of_pruned (pruned_filterAllAgg g [q.id]) i
+  · exact choiceAt_false_of_pruned (pruned_filterAll g [q.id]) i
       (prefixUpTo_firstChoice g k hf i hi0 hik')
   · have hi : i = k := by omega
     subst hi
@@ -197,7 +190,7 @@ theorem prefixUpTo_pin (g : GPathM) (k : Int) (q : PathNodeId) (hf : firstChoice
 
 /-- **The first choice only goes up**: the reader never reopens a step it has fixed. -/
 theorem firstChoice_pin_gt (g : GPathM) (k k' : Int) (q : PathNodeId) (hf : firstChoice g = some k)
-    (hq : q ∈ ownersAt g.gowners k) (hf' : firstChoice (filterAllAgg g [q.id]) = some k') :
+    (hq : q ∈ ownersAt g.gowners k) (hf' : firstChoice (filterAll g [q.id]) = some k') :
     k < k' := by
   have hc := choiceAt_of_firstChoice _ k' hf'
   have h0 : 0 ≤ k' := by
@@ -213,13 +206,13 @@ theorem firstChoice_pin_gt (g : GPathM) (k k' : Int) (q : PathNodeId) (hf : firs
 -- ============================================================
 
 /-- **`PinChain`**: at a state the reader visits, with a sound chain and the steps below the first
-choice fixed, a pin at the first choice that the aggressive review leaves valid keeps some sound
+choice fixed, a pin at the first choice that the review leaves valid keeps some sound
 chain. On the bin map the pin fixes one bit of a fixed prefix. -/
 def PinChain (g₀ : GPathM) : Prop :=
   ∀ g, ReadFirst g₀ g → isValid g = true → (∃ sel, ChainSound g sel) →
     ∀ k, firstChoice g = some k → PrefixUpTo g k →
-      ∀ q ∈ ownersAt g.gowners k, isValid (filterAllAgg g [q.id]) = true →
-        ∃ sel, ChainSound (filterAllAgg g [q.id]) sel
+      ∀ q ∈ ownersAt g.gowners k, isValid (filterAll g [q.id]) = true →
+        ∃ sel, ChainSound (filterAll g [q.id]) sel
 
 /-- Every state the reader visits keeps a chain. -/
 theorem chain_of_pinChain (g₀ : GPathM) (h₀ : ∃ sel, ChainSound g₀ sel) (hP : PinChain g₀) :
@@ -240,28 +233,28 @@ theorem progressFirst_of_chains (g₀ : GPathM) (hC : ∀ g, ReadFirst g₀ g �
   have h1 : k < g.current_step := by have := mem_intRange_upper hmem; omega
   obtain ⟨_, hstep⟩ := hsc.chain.1.1 k h0 h1
   refine ⟨sel k, List.mem_filter.mpr ⟨hsc.chain.2.2 k h0 h1, beq_iff_eq.mpr hstep⟩, ?_⟩
-  refine PickInduction.isValid_of_ChainG _ sel (ChainSound_filterAllAgg g [(sel k).id] sel hsc ?_).chain
+  refine PickInduction.isValid_of_ChainG _ sel (ChainSound_filterAll g [(sel k).id] sel hsc ?_).chain
   intro req hreq _ _
   rw [List.mem_singleton.mp hreq, hstep]
 
 /-- **The start**: a satisfying assignment leaves a sound chain in some state the reader starts from. -/
 theorem start_chain (φ : Cnf) (hbd : Bounded φ) (h : Satisfiable φ) :
-    ∃ kv ∈ pureRun φ, ∃ sel, ChainSound (filterAllAgg kv.2 []) sel := by
+    ∃ kv ∈ pureRun φ, ∃ sel, ChainSound (filterAll kv.2 []) sel := by
   obtain ⟨a, hsat⟩ := h
   have hzero : (0 : Int) < stepCount φ := by simp only [stepCount]; omega
   obtain ⟨g, hmem, hal, _⟩ := pureRun_carries φ a hbd hsat hzero
   obtain ⟨sel, hsc, _⟩ := Conservation.chainSound_along φ a hbd hsat hzero g hal
-  exact ⟨_, hmem, sel, ChainSound_filterAllAgg g [] sel hsc (fun _ h => by cases h)⟩
+  exact ⟨_, hmem, sel, ChainSound_filterAll g [] sel hsc (fun _ h => by cases h)⟩
 
 /-- **The reader decides `φ`, with one open obligation**: `PinChain` at the states it starts from. -/
 theorem readerVerdictW_iff_of_pinChain (φ : Cnf) (hbd : Bounded φ)
-    (hpin : ∀ kv ∈ pureRun φ, PinChain (filterAllAgg kv.2 [])) :
+    (hpin : ∀ kv ∈ pureRun φ, PinChain (filterAll kv.2 [])) :
     readerVerdictW φ = true ↔ Satisfiable φ := by
   refine ⟨readerVerdictW_sound φ hbd, fun h => ?_⟩
   obtain ⟨kv, hkv, sel, hsc⟩ := start_chain φ hbd h
   have hC := chain_of_pinChain _ ⟨sel, hsc⟩ (hpin kv hkv)
   have hv := PickInduction.isValid_of_ChainG _ sel hsc.chain
-  exact List.any_eq_true.mpr ⟨kv, hkv, readAgg_complete_first _ hv (progressFirst_of_chains _ hC)⟩
+  exact List.any_eq_true.mpr ⟨kv, hkv, readG_complete_first _ hv (progressFirst_of_chains _ hC)⟩
 
 /-- info: 'AbsSatBin.GraphPath.Model.ReaderPrefix.firstChoice_pin_gt' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

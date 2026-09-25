@@ -18,3 +18,8 @@ root = "MapBinDumpMain"
 [[lean_exe]]
 name = "driverbin-check"
 root = "DriverBinCheckMain"
+
+# Probe: OtherBit / PinChain on every ReadFirst branch of the reader (read-only).
+[[lean_exe]]
+name = "otherbit-probe"
+root = "OtherBitProbeMain"
