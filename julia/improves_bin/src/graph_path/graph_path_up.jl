@@ -17,6 +17,11 @@ function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
         if gpath.is_valid
             gpath.current_step += 1
             gpath.map_parent_id = map_id_node
+            # Si se saltó una ventana prohibida, algún padre se quedó sin hijo: el UP lo poda aquí,
+            # para que el gpath salga del UP revisado (review_owners = false, sin nodos muertos bajo
+            # la cima), como en el mapa clásico. Va después de avanzar el paso: la fila nueva es la
+            # cima y no necesita hijos.
+            make_review_owners!(gpath)
         end
     end
 end
