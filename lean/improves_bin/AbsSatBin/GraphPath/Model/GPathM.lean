@@ -796,6 +796,15 @@ theorem newRowIds_of_zero (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
     newRowIds g d forb = [{ id := d, parent_id := none, gparent_id := none }] := by
   unfold newRowIds shiftRowIds; rw [if_neg hz]; simp [hf]
 
+/-- At step 0 the row can only be the root, prohibited or not. -/
+theorem eq_root_of_mem_newRowIds_zero (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (hz : ¬ 0 < g.current_step) (pid : PathNodeId) (h : pid ∈ newRowIds g d forb) :
+    pid = { id := d, parent_id := none, gparent_id := none } := by
+  have h := shiftRowIds_of_mem_newRowIds g d forb pid h
+  unfold shiftRowIds at h
+  rw [if_neg hz] at h
+  exact List.mem_singleton.mp h
+
 /-- What an old node gains is a row identifier. -/
 theorem gainedOwners_subset (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM)
     (pid : PathNodeId) (h : pid ∈ gainedOwners g d forb n) : pid ∈ newRowIds g d forb :=
