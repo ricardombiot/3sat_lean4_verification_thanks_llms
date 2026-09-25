@@ -13,8 +13,11 @@ function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
                 prohibited :: Set{PathNodeId} = Set{PathNodeId}())
     if gpath.is_valid
         add_row!(gpath, map_id_node, title, prohibited)
-        gpath.current_step += 1
-        gpath.map_parent_id = map_id_node
+        # add_row! puede invalidar el gpath (p. ej. la ventana prohibida no deja ningún candidato).
+        if gpath.is_valid
+            gpath.current_step += 1
+            gpath.map_parent_id = map_id_node
+        end
     end
 end
 
@@ -30,6 +33,12 @@ function add_row!(gpath :: GPath, map_id_node :: NodeId, title :: String,
         add_root_node!(gpath, map_id_node, title)
     else
         parents_by_id = group_parents_by_shifted_id(gpath, map_id_node, prohibited)
+
+        # La ventana prohibida (o un paso anterior vacío) no deja ningún candidato: el gpath muere.
+        if isempty(parents_by_id)
+            gpath.is_valid = false
+            return
+        end
 
         # First create every node, then register them: no new node can be seen by another one.
         new_nodes = PathDocNode[]
