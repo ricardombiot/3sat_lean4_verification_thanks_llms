@@ -64,6 +64,7 @@ import AbsSatBin.GraphPath.Model.Survive
 import AbsSatBin.GraphPath.Model.SymMachine
 import AbsSatBin.GraphPath.Model.Threaded
 import AbsSatBin.GraphPath.Model.TriPinCore
+import AbsSatBin.GraphPath.Model.AmbTriCore
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs
