@@ -31,6 +31,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `PureDriver` | `53e2be6` | revisado | `sonsOfMap`, `reqOf`, `isProhibited`; `pureRun_ne_nil` sin `sorry` |
 | `DriverBin` | — | nuevo | tests de índices y errores 3/4 de Julia; `noDeadNodes`, `bruteSat` |
 | `NodeInvariant` | `53e2be6` | revisado | pasos difíciles = los `3m` pasos `L`; obligación nueva **`SkipExact`** (revisión tras ventana saltada) |
+| `SkipReview` | — | nuevo | `SkipExact` ⇐ `SkipChain` (solo los nodos viejos supervivientes) ⇐ `SkipChainBin` (esos supervivientes están sobre una cadena sólida que elige `L1 = 1`) |
 | `Decision`, `SatMachine/PureSatMachine`, `SatMachine/PureProofs` | `53e2be6` | revisado | `WF` → `Bounded` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
@@ -40,7 +41,10 @@ Cada módulo que entra se registra aquí con su procedencia:
   solo con `Bounded`.
 - `soundness_pure` / `run_pure_decides`: demostrados **bajo `ClauseStepExact`**, que en el mapa bin
   agrupa dos obligaciones abiertas: el filtro en los pasos `L` (`HardStepExact`) y la revisión tras
-  una ventana saltada (`SkipExact`).
+  una ventana saltada (`SkipExact`). `SkipExact` está reducido (demostrado) a `SkipChainBin`: los
+  nodos viejos que sobreviven a la revisión están sobre una cadena sólida que elige `L1 = 1`. Es un
+  filtro de un solo valor dos pasos por debajo de la cima: la misma forma que los filtros de
+  `HardStepExact` en los pasos `L`.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa
