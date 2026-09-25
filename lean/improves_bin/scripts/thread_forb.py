@@ -69,21 +69,62 @@ def read_arg(s: str, i: int):
     return None
 
 
+ALL_TEXT = ""
+
+
+def mask_comments(s: str) -> str:
+    """Same length as `s`, with every comment/docstring character replaced by NUL."""
+    out = list(s)
+    i, n, depth = 0, len(s), 0
+    while i < n:
+        if s.startswith("/-", i):
+            depth += 1
+            out[i] = out[i + 1] = "\0"
+            i += 2
+            continue
+        if depth and s.startswith("-/", i):
+            depth -= 1
+            out[i] = out[i + 1] = "\0"
+            i += 2
+            continue
+        if depth:
+            out[i] = "\0"
+            i += 1
+            continue
+        if s.startswith("--", i):
+            j = s.find("\n", i)
+            j = n if j == -1 else j
+            for k in range(i, j):
+                out[k] = "\0"
+            i = j
+            continue
+        i += 1
+    return "".join(out)
+
+
 SUFFIX = [(r"[A-Za-z0-9]+_addNode", 3), (r"[A-Za-z0-9]+_upFiltering", 4), (r"[A-Za-z0-9]+_up", 3)]
 
 
 def thread_calls(s: str) -> tuple[str, int]:
     n = 0
     # module-specific lemmas named after the UP (`PN_addNode`, `Shape_upFiltering`, …)
+    # …but only when that lemma really is about the UP: its header takes `(title : String)`
+    # (`hop_up` in `Threaded` is not).
     for rx, k in SUFFIX:
         for name in set(re.findall(r"(?<![A-Za-z0-9_.])(%s)(?![A-Za-z0-9_'?!])" % rx, s)):
-            API.setdefault(name, k)
+            hm = re.search(r"(?:theorem|lemma|def) %s\b(.*?):=" % re.escape(name), ALL_TEXT, flags=re.S)
+            if name in API or (hm and "(title : String)" in hm.group(1)):
+                API.setdefault(name, k)
     names = sorted(API, key=len, reverse=True)
+    # never inside comments or docstrings
+    masked = mask_comments(s)
     pat = re.compile(r"(?<![A-Za-z0-9_.'?!])(?:GPathM\.)?(%s)(?![A-Za-z0-9_'?!])" % "|".join(map(re.escape, names)))
     out = []
     pos = 0
     for m in pat.finditer(s):
         if m.start() < pos:
+            continue
+        if masked[m.start()] == "\0":
             continue
         name = m.group(1)
         # skip binders/patterns: `| up g d …`, `def up`, `theorem up`
@@ -176,6 +217,8 @@ def review_branch(s: str, all_text: str) -> tuple[str, int]:
 def main() -> int:
     path = HERE / "AbsSatBin" / (sys.argv[1] + ".lean")
     s = path.read_text()
+    global ALL_TEXT
+    ALL_TEXT = "\n".join(p.read_text() for p in (HERE / "AbsSatBin").rglob("*.lean")) + "\n" + s
     s, a = thread_calls(s)
     s, b = add_binders(s)
     all_text = "\n".join(p.read_text() for p in (HERE / "AbsSatBin").rglob("*.lean") if p != path) + s

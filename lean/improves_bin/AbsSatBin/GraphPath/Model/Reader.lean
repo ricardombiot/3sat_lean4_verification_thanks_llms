@@ -1,0 +1,855 @@
+-- lean/improves_bin/AbsSatBin/GraphPath/Model/Reader.lean
+import AbsSatBin.GraphPath.Model.Pinned
+import AbsSatBin.GraphPath.Model.NodeIds
+import AbsSatBin.GraphPath.Model.PathExists
+import AbsSatBin.GraphPath.Model.Survive
+
+/-!
+# The reader, as the author designed it
+
+`PathReader.read_step!` in the Julia original does three things and repeats:
+
+1. **select** a node of the current step (`first(ids)`) and take its *map* id;
+2. **pin** it — `filter_require!` drops every global owner at that step naming
+   a different map node, which is exactly "assume we selected all of this
+   node's owners";
+3. **review to a fixpoint** — `make_review_owners!` loops `clean_invalid_nodes!`
+   and the coherence pass until nothing more moves, and asserts the graph is
+   still valid.
+
+Each round shrinks the set of solutions the state denotes. The run ends when
+there is nothing left to choose: **one map node per step**, which is one
+solution.
+
+That process is already a theorem shape in this development —
+`PickInduction.Inhabited_of_pickSome`, with the measure descending by
+`measure_lt_of_choiceAt` and the base case discharged by
+`Pinned.inhabited_of_noChoice`. What was missing is that the induction wants a
+class `P` closed under `filterAll`, and every invariant in the library is
+stated for **one** `filterAll` applied to a `Reachable` state — while the
+reader pins again and again.
+
+This module supplies that class. `RCtx` bundles the source invariants, each of
+which has an invariant-to-invariant transfer lemma (not a `Reachable` one), so
+`RCtx` survives pinning; `Readable` is "a pinned state of an `RCtx` state", and
+it is closed under pinning by construction.
+
+The result, `Inhabited_of_pickSome_readable`, is the author's reading process
+with **one** hypothesis left: that some pick at a step that still has a choice
+keeps the graph valid.
+-/
+
+namespace AbsSatBin.GraphPath.Model.Reader
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.GraphPath.Model
+open AbsSatBin.GraphPath.Model.GPathM
+
+/-- The invariants the reader needs to carry, all of them proved for the
+machine's states and all of them stable under pinning. -/
+structure RCtx (g : GPathM) : Prop where
+  oos   : SelfOwn.OOS g
+  snn   : SelfOwn.SNN g
+  gn    : GownersNodes.GN g
+  shape : Parents.Shape g
+  rootz : Sons.RootAtZero g
+  pmp   : ParentId.PMP g
+  gpmp  : ParentId.GPMP g
+  ownb  : SelfOwn.OwnBelow g
+  below : ∀ n ∈ g.nodes, n.id.id.step < g.current_step
+  nodup : NodupIds g
+
+variable (reqOf : NodeId → List NodeId) (forb : PathNodeId → Bool)
+
+theorem RCtx_reachable (g : GPathM) (hnd : NodupIds g) (h : Reachable reqOf forb g) : RCtx g where
+  oos := SelfOwn.OOS_reachable reqOf forb g h
+  snn := SelfOwn.SNN_reachable reqOf forb g h
+  gn := GownersNodes.GN_reachable reqOf forb g h
+  shape := Parents.Shape_reachable reqOf forb g h
+  rootz := Sons.RootAtZero_reachable reqOf forb g h
+  pmp := ParentId.PMP_reachable reqOf forb g h
+  gpmp := ParentId.GPMP_reachable reqOf forb g h
+  ownb := SelfOwn.OwnBelow_reachable reqOf forb g h
+  below := steps_below_current reqOf forb h
+  nodup := hnd
+
+/-- **Pinning keeps you inside the class.** Every field transfers by its own
+`_of_pruned` / `_filterAll` lemma; `nodup` is `NodeIds.NodupIds_filterAll`. -/
+theorem RCtx_filterAll (g : GPathM) (h : RCtx g) (reqs : List NodeId) :
+    RCtx (filterAll g reqs) where
+  oos := SelfOwn.OOS_filterAll g reqs h.oos
+  snn := SelfOwn.SNN_of_pruned (pruned_filterAll g reqs) h.snn
+  gn := GownersNodes.GN_filterAll g reqs h.gn
+  gpmp := ParentId.GPMP_of_pruned (pruned_filterAll g reqs) h.gpmp
+  ownb := SelfOwn.OwnBelow_of_pruned (pruned_filterAll g reqs) h.ownb
+  shape := Parents.Shape_of_pruned_pn (pruned_filterAll g reqs)
+    (Parents.PN_filterAll g reqs h.shape.pn) h.shape
+  rootz := Sons.RootAtZero_of_pruned (pruned_filterAll g reqs) h.rootz
+  pmp := ParentId.PMP_of_pruned (pruned_filterAll g reqs) h.pmp
+  below := Certifies.nodes_below_of_pruned (pruned_filterAll g reqs) h.below
+  nodup := NodeIds.NodupIds_filterAll g h.nodup reqs
+
+/-- A state the reader can be standing in: a pinned state of a state in the
+class. Every state the machine builds is one (`readable_of_reachable`), and
+pinning again stays inside (`Readable_filterAll`). -/
+def Readable (g : GPathM) : Prop := ∃ g₀ reqs, RCtx g₀ ∧ g = filterAll g₀ reqs
+
+theorem readable_of_reachable (g : GPathM) (hnd : NodupIds g) (h : Reachable reqOf forb g)
+    (reqs : List NodeId) : Readable (filterAll g reqs) :=
+  ⟨g, reqs, RCtx_reachable reqOf forb g hnd h, rfl⟩
+
+theorem RCtx_of_readable (g : GPathM) (h : Readable g) : RCtx g := by
+  obtain ⟨g₀, reqs, hc, rfl⟩ := h
+  exact RCtx_filterAll g₀ hc reqs
+
+theorem Readable_filterAll (g : GPathM) (h : Readable g) (reqs : List NodeId) :
+    Readable (filterAll g reqs) :=
+  ⟨g, reqs, RCtx_of_readable g h, rfl⟩
+
+-- ============================================================
+-- What a readable state gives, once it is valid
+-- ============================================================
+
+/-- The review-fixpoint context, from the class instead of from `Reachable`. -/
+theorem Ctx_of_readable (g : GPathM) (h : Readable g) (hv : isValid g = true) :
+    Pinned.Ctx g := by
+  obtain ⟨g₀, reqs, hc, rfl⟩ := h
+  have hrc := RCtx_filterAll g₀ hc reqs
+  have hshape := hrc.shape
+  exact
+    { self := SelfOwn.SelfOwned_of_OOS _ hv hrc.oos hrc.snn hrc.below
+      gn := hrc.gn
+      shape := hshape
+      rootz := hrc.rootz
+      pmp := hrc.pmp
+      gpmp := hrc.gpmp
+      nodeval := fun pid n hn => review_node_valid _ hv pid n hn
+      ownGow := fun pid n hn q hq hlo hhi =>
+        Candidates.owner_mem_gowners _ hv pid n hn q hq hlo hhi }
+
+/-- A path through a valid readable state — v27's descent, over the class. -/
+theorem exists_isChain_of_readable (g : GPathM) (h : Readable g) (hv : isValid g = true) :
+    ∃ sel, IsChain g sel := by
+  if hpos : 0 < g.current_step then
+    obtain ⟨g₀, reqs, hc, rfl⟩ := h
+    have hrc := RCtx_filterAll g₀ hc reqs
+    obtain ⟨q, hq, hqstep⟩ :=
+      PickInduction.gowner_of_isValid _ hv ((filterAll g₀ reqs).current_step - 1)
+        (by omega) (by omega)
+    obtain ⟨n, hn, hid⟩ := hrc.gn q hq
+    have hsome : ((filterAll g₀ reqs).node? n.id).isSome = true :=
+      (GownersNodes.hasNode_iff _ n.id).mp ⟨n, hn, rfl⟩
+    have hnstep : n.id.id.step = (filterAll g₀ reqs).current_step - 1 := by
+      rw [hid]; exact hqstep
+    have hseed : Extendable.PartialChain (filterAll g₀ reqs) (fun _ => n.id)
+        ((filterAll g₀ reqs).current_step - 1) ((filterAll g₀ reqs).current_step - 1) := by
+      refine ⟨?_, ?_⟩
+      · intro i hi1 hi2
+        have hie : i = (filterAll g₀ reqs).current_step - 1 := by omega
+        subst hie
+        exact ⟨hsome, hnstep⟩
+      · intro i _ hi2; omega
+    obtain ⟨sel, hpc⟩ := PathExists.descend _ hv hrc.shape
+      ((filterAll g₀ reqs).current_step - 1).toNat (fun _ => n.id)
+      ((filterAll g₀ reqs).current_step - 1) ((filterAll g₀ reqs).current_step - 1)
+      (Nat.le_refl _) (by omega) (Int.le_refl _) hseed
+    exact ⟨sel, Extendable.isChain_of_partial _ sel hpc⟩
+  else
+    refine ⟨fun _ => { id := { step := 0, index := 0 }, parent_id := none }, ?_, ?_⟩
+    · intro k hk1 hk2; omega
+    · intro k hk1 hk2; omega
+
+/-- **The base case, on the class.** Nothing left to choose means one map node
+per step: `Pinned.pairwiseOwned_of_fullyPinned` makes any path pairwise owned,
+so the state denotes something. This is the author's "we are left with one
+solution". -/
+theorem inhabited_of_noChoice_readable (g : GPathM) (h : Readable g) (hv : isValid g = true)
+    (hnc : PickInduction.NoChoice g) : AbsSatBin.GraphPath.Model.Inhabited g :=
+  Pinned.inhabited_of_noChoice g (Ctx_of_readable g h hv) hnc
+    (exists_isChain_of_readable g h hv)
+
+-- ============================================================
+-- The reading process, closed
+-- ============================================================
+
+/-- **The reader's loop, with one hypothesis left.**
+
+Select, pin, review; the measure strictly drops at every round
+(`measure_lt_of_choiceAt`), so the loop ends; it ends with no choice left,
+and there the state denotes a solution.
+
+The only thing not proved is `PickSome`: that at a step which still has a
+choice, *some* pick survives the review. That is the reader's own obligation —
+`Verdict.ReadStable` — and `lake exe extend --read` finds no violation of it. -/
+theorem Inhabited_of_pickSome_readable (g : GPathM) (h : Readable g) (hv : isValid g = true)
+    (hpick : ∀ h' : GPathM, Readable h' → isValid h' = true → PickInduction.PickSome h') :
+    AbsSatBin.GraphPath.Model.Inhabited g :=
+  PickInduction.Inhabited_of_pickSome Readable
+    (fun h' mid hR _ => Readable_filterAll h' hR [mid])
+    (fun h' hR => (RCtx_of_readable h' hR).nodup)
+    (fun h' hR hv' => hpick h' hR hv')
+    (fun h' hR hv' hnc => inhabited_of_noChoice_readable h' hR hv' hnc)
+    g h hv
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.Inhabited_of_pickSome_readable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Inhabited_of_pickSome_readable
+
+
+-- ============================================================
+-- The last hypothesis: ids really are unique
+-- ============================================================
+
+theorem map_id_of_idpres (l : List PNodeM) (f : PNodeM → PNodeM) (hf : ∀ n, (f n).id = n.id) :
+    (l.map f).map (·.id) = l.map (·.id) := by
+  simp only [List.map_map, Function.comp_def]
+  exact List.map_congr_left (fun n _ => hf n)
+
+/-- `addNode` appends one id, and it is new: everything already there sits at a
+step strictly below `current_step`, and the newcomer sits *at* it. -/
+theorem nodup_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (hnd : NodupIds g)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (hd : d.step = g.current_step) :
+    NodupIds (addNode g d title forb) := by
+  have hids : NodeIds.Ids (addNode g d title forb)
+      = NodeIds.Ids g ++ newRowIds g d forb := by
+    simp only [NodeIds.Ids, addNode_nodes, List.map_append]
+    congr 1
+    · exact map_id_of_idpres g.nodes (upMap g d forb) (upMap_id g d forb)
+    · show (newRow g d title forb).map (·.id) = newRowIds g d forb
+      simp only [newRow, List.map_map, Function.comp_def]
+      show (newRowIds g d forb).map (fun q => q) = newRowIds g d forb
+      exact List.map_id _
+  show (NodeIds.Ids (addNode g d title forb)).Nodup
+  rw [hids, List.nodup_append]
+  refine ⟨hnd, nodup_newRowIds g d forb, ?_⟩
+  intro a ha b hb hab
+  obtain ⟨n, hn, hnid⟩ := List.mem_map.mp ha
+  have hlt := hbelow n hn
+  rw [hnid] at hlt
+  rw [hab, mapId_of_mem_newRowIds g d forb b hb, hd] at hlt
+  omega
+
+theorem nodup_up (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (hnd : NodupIds g)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (hd : d.step = g.current_step) :
+    NodupIds (GPathM.up g d title forb) := by
+  unfold GPathM.up
+  split
+  · split
+    · exact NodeIds.NodupIds_review _ (nodup_addNode g d title forb hnd hbelow hd)
+    · exact nodup_addNode g d title forb hnd hbelow hd
+  · exact hnd
+
+/-- `join` concatenates `g₁`'s ids with the ids of `g₂` that `g₁` does not
+already carry, so the result is `Nodup` whenever both sides are. -/
+theorem nodup_join (g₁ g₂ : GPathM) (h₁ : NodupIds g₁) (h₂ : NodupIds g₂) :
+    NodupIds (GPathM.join g₁ g₂) := by
+  have hf : ∀ n : PNodeM,
+      (match g₂.node? n.id with | some m => mergeNode n m | none => n).id = n.id := by
+    intro n
+    cases hm : g₂.node? n.id with
+    | none => rfl
+    | some m => rfl
+  have hids : NodeIds.Ids (GPathM.join g₁ g₂)
+      = NodeIds.Ids g₁ ++ (g₂.nodes.filter (fun m => (g₁.node? m.id).isNone)).map (·.id) := by
+    simp only [NodeIds.Ids, GPathM.join, List.map_append, List.map_map, Function.comp_def]
+    congr 1
+    exact List.map_congr_left (fun n _ => hf n)
+  show (NodeIds.Ids (GPathM.join g₁ g₂)).Nodup
+  rw [hids, List.nodup_append]
+  refine ⟨h₁, List.Sublist.nodup (List.Sublist.map _ List.filter_sublist) h₂, ?_⟩
+  intro a ha b hb hab
+  obtain ⟨m, hm, hmid⟩ := List.mem_map.mp hb
+  have hnone : (g₁.node? m.id).isNone = true := (List.mem_filter.mp hm).2
+  obtain ⟨n, hn, hnid⟩ := List.mem_map.mp ha
+  have hsome : (g₁.node? a).isSome = true := by
+    rw [← hnid]
+    exact Option.isSome_iff_exists.mpr ⟨n, node?_of_mem h₁ n hn⟩
+  rw [hab, ← hmid, Option.isNone_iff_eq_none.mp hnone] at hsome
+  exact Bool.noConfusion hsome
+
+/-- **Every state the machine builds has unique ids.** Seed: one node. Up: the
+newcomer is above everything already there. Join: the union is taken by id. -/
+theorem NodupIds_reachable (g : GPathM) (h : Reachable reqOf forb g) : NodupIds g := by
+  induction h with
+  | seed d title _ _ =>
+    show (NodeIds.Ids (GPathM.initSeed d title)).Nodup
+    simp only [NodeIds.Ids, initSeed_nodes]
+    simp
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    refine nodup_up _ d title forb (NodeIds.NodupIds_filterAll g ih (reqOf d))
+      (Certifies.nodes_below_of_pruned hpr (steps_below_current reqOf forb hr)) ?_
+    rw [hpr.step_eq]; exact hstep
+  | join g₁ g₂ _ _ _ ih₁ ih₂ => exact nodup_join g₁ g₂ ih₁ ih₂
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.NodupIds_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms NodupIds_reachable
+
+/-- **The reader's loop on the machine's own states.** No hypothesis left but
+the pick. -/
+theorem Inhabited_of_pickSome_machine (g : GPathM) (reqs : List NodeId)
+    (hreach : Reachable reqOf forb g) (hv : isValid (filterAll g reqs) = true)
+    (hpick : ∀ h' : GPathM, Readable h' → isValid h' = true → PickInduction.PickSome h') :
+    AbsSatBin.GraphPath.Model.Inhabited (filterAll g reqs) :=
+  Inhabited_of_pickSome_readable (filterAll g reqs)
+    (readable_of_reachable reqOf forb g (NodupIds_reachable reqOf forb g hreach) hreach reqs) hv hpick
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.Inhabited_of_pickSome_machine' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms Inhabited_of_pickSome_machine
+
+
+-- ============================================================
+-- A chain is a woven set, so the reader can follow it
+-- ============================================================
+
+/-- The nodes a chain picks. -/
+def ChainSet (g : GPathM) (sel : Int → PathNodeId) : PathNodeId → Prop :=
+  fun p => ∃ k, 0 ≤ k ∧ k < g.current_step ∧ sel k = p
+
+/-- **A pairwise-owned chain is woven.** Every clause of `Survive.Closed` is
+one clause of `IsChain` or `PairwiseOwned`, and the mutual-ownership clause —
+the `share` condition the coherence sweeps need — *is* `PairwiseOwned`. -/
+theorem WOk_chainSet (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (sel : Int → PathNodeId)
+    (hchain : IsChain g sel) (howned : PairwiseOwned g sel) :
+    Survive.WOk g (ChainSet g sel) := by
+  have hmem : ∀ k, 0 ≤ k → k < g.current_step → ∀ n, g.node? (sel k) = some n →
+      ∀ l, 0 ≤ l → l < g.current_step → sel l ∈ n.owners := by
+    intro k hk0 hk n hn l hl0 hl
+    if hlk : l = k then
+      have := ctx.self (sel k) n hn
+      rw [hlk]; exact this
+    else
+      have h := howned l k hl0 hk0 hl hk hlk
+      have : ownersOf g (sel k) = n.owners := by simp only [ownersOf, hn]
+      rw [this] at h
+      exact (List.mem_filter.mp h).1
+  have hown : ∀ p n, ChainSet g sel p → g.node? p = some n →
+      ∀ v, ChainSet g sel v → v ∈ n.owners := by
+    rintro p n ⟨k, hk0, hk, rfl⟩ hn v ⟨l, hl0, hl, rfl⟩
+    exact hmem k hk0 hk n hn l hl0 hl
+  refine ⟨⟨⟨?_, ?_, ?_, ?_, ?_, Survive.coown_of_bridge g hsmp hlink _⟩, hown⟩, hsmp, ctx.shape.notroot⟩
+  · -- gow
+    rintro p ⟨k, hk0, hk, rfl⟩
+    obtain ⟨hs, hstep⟩ := hchain.1 k hk0 hk
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hs
+    exact ctx.ownGow (sel k) n hn (sel k) (ctx.self (sel k) n hn)
+      (by rw [hstep]; exact hk0) (by rw [hstep]; exact hk)
+  · -- node
+    rintro p ⟨k, hk0, hk, rfl⟩
+    exact (hchain.1 k hk0 hk).1
+  · -- support
+    rintro p n hn ⟨k, hk0, hk, rfl⟩ l hl0 hl
+    obtain ⟨_, hstep⟩ := hchain.1 l hl0 hl
+    exact ⟨sel l, hmem k hk0 hk n hn l hl0 hl, ⟨l, hl0, hl, rfl⟩, hstep⟩
+  · -- parent
+    rintro p n hn ⟨k, hk0, hk, rfl⟩ hroot
+    obtain ⟨hs, hstep⟩ := hchain.1 k hk0 hk
+    have hkpos : 0 < k := by
+      rcases Int.lt_or_lt_of_ne (fun he : k = 0 => hroot (by
+        have := ctx.rootz n (List.mem_of_find?_eq_some hn)
+          (by rw [node?_id_eq g (sel k) n hn, hstep]; exact he)
+        rw [node?_id_eq g (sel k) n hn] at this; exact this)) with h | h
+      · omega
+      · exact h
+    have hlink' := hchain.2 (k - 1) (by omega) (by omega)
+    have hkk : k - 1 + 1 = k := by omega
+    rw [hkk, hn] at hlink'
+    exact ⟨sel (k - 1), hlink', ⟨k - 1, by omega, by omega, rfl⟩⟩
+  · -- son
+    rintro p ⟨k, hk0, hk, rfl⟩ hlast
+    obtain ⟨_, hstep⟩ := hchain.1 k hk0 hk
+    have hk1 : k + 1 < g.current_step := by
+      rw [hstep] at hlast; omega
+    obtain ⟨hs1, _⟩ := hchain.1 (k + 1) (by omega) hk1
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hs1
+    have hlink' := hchain.2 k hk0 hk1
+    rw [hm] at hlink'
+    exact ⟨sel (k + 1), m, ⟨k + 1, by omega, hk1, rfl⟩, hm, hlink'⟩
+
+/-- **The reader can always follow a chain that exists.** Pinning on the map
+node the chain picks at a step keeps the graph valid — through the pin, the
+`cleanInvalid` sweep *and* both coherence sweeps. -/
+theorem isValid_pin_of_chain (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (sel : Int → PathNodeId)
+    (hchain : IsChain g sel) (howned : PairwiseOwned g sel)
+    (k : Int) (hk0 : 0 ≤ k) (hk : k < g.current_step) :
+    isValid (filterAll g [(sel k).id]) = true := by
+  have hw := WOk_chainSet g ctx hsmp hlink sel hchain howned
+  refine Survive.isValid_filterAll_of_Woven g _ hw [(sel k).id] ?_ ?_
+  · rintro r hr p ⟨l, hl0, hl, rfl⟩ hs
+    rcases List.mem_singleton.mp hr with rfl
+    obtain ⟨_, hstepl⟩ := hchain.1 l hl0 hl
+    obtain ⟨_, hstepk⟩ := hchain.1 k hk0 hk
+    have : l = k := by rw [hstepl] at hs; rw [hs, hstepk]
+    rw [this]
+  · intro l hl0 hl
+    obtain ⟨_, hstep⟩ := hchain.1 l hl0 hl
+    exact ⟨sel l, ⟨l, hl0, hl, rfl⟩, hstep⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.isValid_pin_of_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms isValid_pin_of_chain
+
+
+/-- **The reader's obligation is exactly the verdict.** If the state denotes
+anything, the reader has a good pick at every step that still has a choice —
+namely the map node the chain itself picks.
+
+With `Inhabited_of_pickSome_readable` in the other direction, `PickSome` and
+`Inhabited` stand or fall together. So the reader's `throw("GRAVE ERROR")` is
+not a weaker foothold than "no zombies": it is the same statement. -/
+theorem PickSome_of_Inhabited (g : GPathM) (ctx : Pinned.Ctx g) (hsmp : Sons.SMP g)
+    (hlink : Bridge.LinksInOwners g) (h : AbsSatBin.GraphPath.Model.Inhabited g) :
+    PickInduction.PickSome g := by
+  intro hch
+  obtain ⟨_, sel, hchain, howned, _⟩ := h
+  obtain ⟨k, hkmem, hck⟩ := List.any_eq_true.mp hch
+  obtain ⟨hk0, hk1⟩ := PickInduction.intRange_bounds hkmem
+  have hk : k < g.current_step := by omega
+  obtain ⟨hs, hstep⟩ := hchain.1 k hk0 hk
+  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hs
+  have hgow : sel k ∈ g.gowners :=
+    ctx.ownGow (sel k) n hn (sel k) (ctx.self (sel k) n hn)
+      (by rw [hstep]; exact hk0) (by rw [hstep]; exact hk)
+  exact ⟨k, hk0, hk, hck, sel k, Extendable.mem_ownersAt hgow hstep,
+    isValid_pin_of_chain g ctx hsmp hlink sel hchain howned k hk0 hk⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.PickSome_of_Inhabited' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms PickSome_of_Inhabited
+
+
+-- ============================================================
+-- Where symmetry can be lost, and where it cannot
+-- ============================================================
+
+/-!
+`Threaded.OwnSymmetric` is measured to hold at the state the reader is handed
+(`--finalowners`: **0 violations in 11,009 nodes** over 64 final states and five
+seeds) and to fail on partial states (185 in 116,330, v54). Rather than assume
+it, this section asks which of the machine's operations can break it.
+
+The answer is: **exactly one**.
+
+* `addNode` creates ownership *symmetrically*. The newcomer takes every global
+  owner, and — the line the executable comments as
+  `all_previous_nodes_are_owners_of_me!` — every node takes the newcomer. Since
+  a node is always a global owner, the two halves match.
+* `filterRequire` touches only the global owner list; node tables are
+  untouched.
+* `cleanInvalid` intersects **every** node's owners with the *same* list, the
+  global owners. So it removes from a table only ids that are **not** global
+  owners — and while every node is one, a node is never removed from anybody's
+  table. **Proved** (`OwnSymmetric_cleanInvalid`), with
+  `Ownership.NodesAreGowners` as the hypothesis, in the section after next.
+* `reviewNode` intersects a node's owners with the union of **its own
+  neighbours'** owners. That quantity is per-node, so it can remove `q` from
+  `owners p` while leaving `p` in `owners q`. This is the only operation with
+  no symmetric counterpart at all.
+
+The two lemmas below prove the first two bullets; the section after next proves
+the third. The fourth is the one that breaks symmetry, and `lake exe extend
+--gowscope` now shows it doing so, on the reader's own first step (five seeds,
+76 final states, 64 pins):
+
+    non-gowner nodes after the pin           64     (one per pin)
+    after cleanInvalid                        0     symmetry violations 0
+    after + reviewParents                     -     symmetry violations 236
+    after review to the fixpoint              0     symmetry violations 51
+    at the read's end                         -     symmetry violations 0
+
+So symmetry is lost *inside* a read and is back at the end of it. Like v60's
+exactness, it is a property of the states with nothing left to choose, not an
+invariant the machine carries between them.
+-/
+
+theorem OwnSymmetric_filterRequire (g : GPathM) (req : NodeId)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (filterRequire g req) :=
+  fun p n q m hp hq hqn => h p n q m hp hq hqn
+
+/-- **Symmetry through the row.** With a single new node this was trivial in one
+direction: the new id was appended to *every* table. With the row a node gains a
+row id only when that row node owns it (`its_owners_are_owned_by_me!`), so the
+two directions are the same fact by construction — provided no old table already
+carried a fresh identifier, which is `OwnBelow`. -/
+theorem OwnSymmetric_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hownb : SelfOwn.OwnBelow g)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (addNode g d title forb) := by
+  have hcase : ∀ (p : PathNodeId) (n : PNodeM), (addNode g d title forb).node? p = some n →
+      (∃ n₀, g.node? p = some n₀ ∧ n = upMap g d forb n₀) ∨
+      (p ∈ newRowIds g d forb ∧ n = rowNode g d title p) := by
+    intro p n hn
+    if hps : p.id.step < g.current_step then
+      exact Or.inl (addNode_node?_below g d title forb hd p n hn hps)
+    else
+      have hid : n.id = p := node?_id_eq _ p n hn
+      have hmem : n ∈ (addNode g d title forb).nodes := List.mem_of_find?_eq_some hn
+      rw [addNode_nodes] at hmem
+      rcases List.mem_append.mp hmem with hl | hr
+      · exfalso
+        obtain ⟨n₀, hn₀, hEq⟩ := List.mem_map.mp hl
+        have hnn : n.id = n₀.id := by rw [← hEq, upMap_id]
+        have := hbelow n₀ hn₀
+        rw [← hnn, hid] at this
+        omega
+      · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb n).mp hr
+        rw [rowNode_id] at hid
+        rw [← hid]
+        exact Or.inr ⟨hpid, rfl⟩
+  -- a row id is never already in an old table
+  have hfresh : ∀ (p : PathNodeId) (n₀ : PNodeM), g.node? p = some n₀ →
+      ∀ r ∈ newRowIds g d forb, r ∉ n₀.owners := by
+    intro p n₀ hn₀ r hr hmem
+    have h1 := hownb n₀ (List.mem_of_find?_eq_some hn₀) r hmem
+    rw [mapId_of_mem_newRowIds g d forb r hr, hd] at h1
+    omega
+  intro p n q m hp hq hqn
+  rcases hcase p n hp with ⟨n₀, hn₀, rfl⟩ | ⟨hprow, rfl⟩
+  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨hqrow, rfl⟩
+    · -- both old
+      rw [upMap_owners] at hqn ⊢
+      rcases List.mem_append.mp hqn with hq0 | hq1
+      · exact List.mem_append_left _ (h p n₀ q m₀ hn₀ hm₀ hq0)
+      · exfalso
+        have hmid : m₀.id = q := node?_id_eq g _ m₀ hm₀
+        have := hbelow m₀ (List.mem_of_find?_eq_some hm₀)
+        rw [hmid, mapId_of_mem_newRowIds g d forb q (gainedOwners_subset g d forb n₀ q hq1), hd] at this
+        omega
+    · -- `p` old, `q` a row node: `p` gained `q` exactly because `q` owns `p`
+      rw [upMap_owners] at hqn
+      rw [rowNode_owners]
+      rcases List.mem_append.mp hqn with hq0 | hq1
+      · exact absurd hq0 (hfresh p n₀ hn₀ q hqrow)
+      · have := (List.mem_filter.mp hq1).2
+        rw [node?_id_eq g p n₀ hn₀] at this
+        simpa using this
+  · rcases hcase q m hq with ⟨m₀, hm₀, rfl⟩ | ⟨hqrow, rfl⟩
+    · -- `p` a row node owning the old `q`: `q` gains it, by the same filter
+      rw [rowNode_owners] at hqn
+      rw [upMap_owners]
+      refine List.mem_append_right _ (List.mem_filter.mpr ⟨hprow, ?_⟩)
+      rw [node?_id_eq g q m₀ hm₀]
+      exact List.elem_eq_true_of_mem hqn
+    · -- both in the row: a row node's only owner at the new step is itself
+      rw [rowNode_owners] at hqn ⊢
+      rcases (mem_rowOwners_iff g d p q).mp hqn with ⟨hinh, _⟩ | rfl
+      · exfalso
+        obtain ⟨r, _, mr, hmr, hqmr⟩ := exists_owner_of_mem_unionOwnersOf g _ q hinh
+        exact hfresh r mr hmr q hqrow hqmr
+      · exact self_mem_rowOwners g d q
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.OwnSymmetric_addNode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnSymmetric_addNode
+
+
+-- ============================================================
+-- The sweep cannot break symmetry — now a theorem, under one hypothesis
+-- ============================================================
+
+/-!
+The bullet above left `cleanInvalid` as an argument. This section discharges it,
+and names exactly what the argument was hiding.
+
+The sweep does three things per node: intersect its owners with the **global**
+owners, unlink what that leaves incompatible, and drop the node if it came out
+invalid. The last two leave every surviving node's owners *untouched*, so they
+carry symmetry across for free (`OwnSymmetric_of_ownersEq`). Only the
+intersection removes anything from an owner table — and it removes only ids
+that are **not global owners**.
+
+So the whole question is whether an id that owners tables lose can itself still
+be a node. If every node is a global owner it cannot, and symmetry survives the
+sweep whole. That hypothesis is `Ownership.NodesAreGowners`, measured at 0
+violations over 259,187 nodes — and broken by exactly one operation,
+`filterRequire`, which is the reader's own pin. What is *not* proved here is the
+recovery: that the sweep, handed the broken state a pin leaves, removes every
+node the pin demoted before the sweep ends. `not_gowner_invalid` below proves
+the node is indeed invalid at its own turn; what is missing is that the sweep
+still sees it as invalid then, since the global owners shrink underneath it.
+
+`--gowscope` measures the recovery rather than assuming it: over five seeds a
+pin demoted 64 nodes and `cleanInvalid` removed **all 64**, leaving **0**
+symmetry violations. So the gap between this theorem and the sweep as the reader
+actually runs it is a counting argument that the numbers say is true.
+-/
+
+/-- A narrowing that leaves every surviving node's owners **exactly** as they
+were carries symmetry across unchanged. -/
+theorem OwnSymmetric_of_ownersEq (g g' : GPathM)
+    (hEq : ∀ p n', g'.node? p = some n' → ∃ n, g.node? p = some n ∧ n'.owners = n.owners)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric g' := by
+  intro p n' q m' hp hq hqn
+  obtain ⟨n, hn, hno⟩ := hEq p n' hp
+  obtain ⟨m, hm, hmo⟩ := hEq q m' hq
+  rw [hno] at hqn
+  rw [hmo]
+  exact h p n q m hn hm hqn
+
+/-- Inversion for `updateAt`: a node of the updated graph comes from a node of
+the original with the same id. -/
+theorem updateAt_node?_inv (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (p : PathNodeId) (n' : PNodeM)
+    (hp : (updateAt g id f).node? p = some n') :
+    ∃ n, g.node? p = some n ∧ n' = (match n.id == id with | true => f n | false => n) := by
+  have hg : ∀ n : PNodeM, (match n.id == id with | true => f n | false => n).id = n.id := by
+    intro n; cases n.id == id with | true => exact hf n | false => rfl
+  have hmem : n' ∈ (updateAt g id f).nodes := List.mem_of_find?_eq_some hp
+  have hshape : (updateAt g id f).nodes
+      = g.nodes.map (fun n => match n.id == id with | true => f n | false => n) := rfl
+  rw [hshape] at hmem
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+  have hn'id : n'.id = p := node?_id_eq _ p n' hp
+  have hnid : n.id = p := by rw [← hn'id, ← hEq]; exact (hg n).symm
+  have hsome : (g.node? p).isSome := by
+    have := node?_isSome_of_mem g n hn; rw [hnid] at this; exact this
+  obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp hsome
+  have heq := updateAt_node? g id f hf p n₀ hn₀
+  rw [hp] at heq
+  injection heq with heq'
+  exact ⟨n₀, hn₀, heq'⟩
+
+/-- The unlink leaves owners alone. -/
+theorem ownersEq_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    ∀ p n', (unlinkIncompatible g id).node? p = some n' →
+      ∃ n, g.node? p = some n ∧ n'.owners = n.owners := by
+  intro p n' hp
+  cases hid : g.node? id with
+  | none =>
+      have hself : unlinkIncompatible g id = g := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      rw [hself] at hp
+      exact ⟨n', hp, rfl⟩
+  | some d =>
+      have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap d id) := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      have hmem : n' ∈ (unlinkIncompatible g id).nodes := List.mem_of_find?_eq_some hp
+      rw [hshape] at hmem
+      obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+      have hn'id : n'.id = p := node?_id_eq _ p n' hp
+      have hnid : n.id = p := by rw [← hn'id, ← hEq]; exact (unlinkMap_id d id n).symm
+      have hsome : (g.node? p).isSome := by
+        have := node?_isSome_of_mem g n hn; rw [hnid] at this; exact this
+      obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp hsome
+      have heq := unlinkIncompatible_node? g id d hid p n₀ hn₀
+      rw [hp] at heq
+      injection heq with heq'
+      exact ⟨n₀, hn₀, by rw [heq']; exact unlinkMap_owners d id n₀⟩
+
+/-- Physical removal leaves every *surviving* node's owners alone. -/
+theorem ownersEq_removeNode (g : GPathM) (id : PathNodeId) :
+    ∀ p n', (removeNode g id).node? p = some n' →
+      ∃ n, g.node? p = some n ∧ n'.owners = n.owners := by
+  intro p n' hp
+  have hmem : n' ∈ (removeNode g id).nodes := List.mem_of_find?_eq_some hp
+  rw [removeNode_nodes] at hmem
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+  have hn'id : n'.id = p := node?_id_eq _ p n' hp
+  have hnid : n.id = p := by rw [← hn'id, ← hEq]; rfl
+  have hfil := List.mem_filter.mp hn
+  have hne : p ≠ id := by
+    intro hpe
+    rw [hnid, hpe] at hfil
+    simp at hfil
+  have hsome : (g.node? p).isSome := by
+    have := node?_isSome_of_mem g n hfil.1; rw [hnid] at this; exact this
+  obtain ⟨n₀, hn₀⟩ := Option.isSome_iff_exists.mp hsome
+  have heq := removeNode_node? g id p n₀ hn₀ hne
+  rw [hp] at heq
+  injection heq with heq'
+  exact ⟨n₀, hn₀, by rw [heq']; rfl⟩
+
+-- ------------------------------------------------------------
+-- `NodesAreGowners` through the sweep
+-- ------------------------------------------------------------
+
+theorem NG_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hf : ∀ n, (f n).id = n.id) (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (updateAt g id f) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  have hid : n'.id = n.id := by
+    rw [← hEq]; cases n.id == id with | true => exact hf n | false => rfl
+  show n'.id ∈ g.gowners
+  rw [hid]
+  exact h n hn
+
+theorem NG_unlinkIncompatible (g : GPathM) (id : PathNodeId)
+    (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (unlinkIncompatible g id) := by
+  intro n' hn'
+  rw [unlinkIncompatible_gowners]
+  cases hid : g.node? id with
+  | none =>
+      have hself : unlinkIncompatible g id = g := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      rw [hself] at hn'
+      exact h n' hn'
+  | some d =>
+      have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap d id) := by
+        simp only [GPathM.unlinkIncompatible, hid]
+      rw [hshape] at hn'
+      obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+      rw [← hEq, unlinkMap_id]
+      exact h n hn
+
+theorem NG_removeNode (g : GPathM) (id : PathNodeId)
+    (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (removeNode g id) := by
+  intro n' hn'
+  rw [removeNode_nodes] at hn'
+  rw [removeNode_gowners]
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  have hid : n'.id = n.id := by rw [← hEq]; rfl
+  have hfil := List.mem_filter.mp hn
+  rw [hid]
+  exact List.mem_filter.mpr ⟨h n hfil.1, hfil.2⟩
+
+theorem NG_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, Ownership.NodesAreGowners g →
+      Ownership.NodesAreGowners (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ := NG_updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) h
+      have h₂ := NG_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (NG_removeNode _ id h₂)
+
+theorem NG_cleanInvalid (g : GPathM) (h : Ownership.NodesAreGowners g) :
+    Ownership.NodesAreGowners (cleanInvalid g) :=
+  NG_cleanInvalidGo _ g h
+
+-- ------------------------------------------------------------
+-- The one asymmetric step, and why it is not
+-- ------------------------------------------------------------
+
+/-- **The intersection against the global owners cannot break symmetry**, as
+long as every node is a global owner. It removes `q` from a table only when `q`
+is missing from the global owners, and a node never is. -/
+theorem OwnSymmetric_updateAt_gowners (g : GPathM) (id : PathNodeId)
+    (hng : Ownership.NodesAreGowners g) (h : Threaded.OwnSymmetric g) :
+    Threaded.OwnSymmetric
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners g.gowners })) := by
+  intro p n' q m' hp hq hqn
+  obtain ⟨n, hn, rfl⟩ := updateAt_node?_inv g id
+    (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) p n' hp
+  obtain ⟨m, hm, rfl⟩ := updateAt_node?_inv g id
+    (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) q m' hq
+  have hpg : p ∈ g.gowners := by
+    have := hng n (List.mem_of_find?_eq_some hn)
+    rw [node?_id_eq g p n hn] at this; exact this
+  have hsub : q ∈ n.owners := by
+    cases hb : n.id == id with
+    | true => rw [hb] at hqn; exact (List.mem_filter.mp hqn).1
+    | false => rw [hb] at hqn; exact hqn
+  have hpm : p ∈ m.owners := h p n q m hn hm hsub
+  have hc : g.gowners.contains p = true := List.elem_eq_true_of_mem hpg
+  cases hb : m.id == id with
+  | true => exact List.mem_filter.mpr ⟨hpm, by simp only [hc, Bool.or_true]⟩
+  | false => exact hpm
+
+theorem OwnSymmetric_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, Ownership.NodesAreGowners g → Threaded.OwnSymmetric g →
+      Threaded.OwnSymmetric (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g _ h; exact h
+  | cons id rest ih =>
+    intro g hng h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g hng h
+    · next d _ =>
+      have hng₁ := NG_updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners g.gowners }) (fun _ => rfl) hng
+      have h₁ := OwnSymmetric_updateAt_gowners g id hng h
+      have hng₂ := NG_unlinkIncompatible _ id hng₁
+      have h₂ := OwnSymmetric_of_ownersEq _ _ (ownersEq_unlinkIncompatible _ id) h₁
+      split
+      · exact ih _ hng₂ h₂
+      · exact ih _ (NG_removeNode _ id hng₂)
+          (OwnSymmetric_of_ownersEq _ _ (ownersEq_removeNode _ id) h₂)
+
+/-- **`cleanInvalid` cannot break symmetry.** The third bullet of the
+localisation, no longer an argument. -/
+theorem OwnSymmetric_cleanInvalid (g : GPathM) (hng : Ownership.NodesAreGowners g)
+    (h : Threaded.OwnSymmetric g) : Threaded.OwnSymmetric (cleanInvalid g) :=
+  OwnSymmetric_cleanInvalidGo _ g hng h
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.OwnSymmetric_cleanInvalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms OwnSymmetric_cleanInvalid
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.NG_cleanInvalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms NG_cleanInvalid
+
+
+/-- **A node that is not a global owner is invalid at its own turn.** The sweep
+intersects its table with the global owners; `OOS` says the only owner it has at
+its own step is itself; and itself is exactly what the intersection removes. So
+it is left with no owner at its own step, `owners_ok` fails, and the sweep drops
+it.
+
+This is the half of the recovery argument that is provable as it stands. The
+half that is not is the *timing*: the sweep reaches this node only at its own
+turn, and the global owners shrink in between, so `hstep` — the hypothesis that
+the global owners still cover this node's step — is not carried by anything. -/
+theorem not_gowner_invalid (g g' : GPathM) (hoos : SelfOwn.OOS g) (id : PathNodeId)
+    (d : PNodeM) (hd : g.node? id = some d) (hout : id ∉ g.gowners)
+    (hstep : hasStepEntry g.gowners id.id.step = true)
+    (h0 : 0 ≤ id.id.step) (hlt : id.id.step < g'.current_step) :
+    isValidNode g' (relink (intersectOwners d.owners g.gowners) d) = false := by
+  have hdmem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
+  have hdid : d.id = id := node?_id_eq g id d hd
+  have hno : hasStepEntry (intersectOwners d.owners g.gowners) id.id.step = false := by
+    cases hb : hasStepEntry (intersectOwners d.owners g.gowners) id.id.step with
+    | false => rfl
+    | true =>
+        exfalso
+        obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp hb
+        have hqf := List.mem_filter.mp hq
+        have hqe : q = d.id :=
+          hoos d hdmem q hqf.1 (by rw [hdid]; exact eq_of_beq hqs)
+        have h2 := hqf.2
+        rw [hqe, hdid] at h2
+        simp [hstep] at h2
+        exact hout h2
+  have hk : id.id.step ∈ intRange 0 (g'.current_step - 1) := mem_intRange h0 (by omega)
+  have hall : (intRange 0 (g'.current_step - 1)).all
+      (fun k => hasStepEntry (relink (intersectOwners d.owners g.gowners) d).owners k)
+      = false := by
+    cases hb : (intRange 0 (g'.current_step - 1)).all
+        (fun k => hasStepEntry (relink (intersectOwners d.owners g.gowners) d).owners k) with
+    | false => rfl
+    | true =>
+        have := List.all_eq_true.mp hb id.id.step hk
+        rw [show (relink (intersectOwners d.owners g.gowners) d).owners
+              = intersectOwners d.owners g.gowners from rfl, hno] at this
+        exact absurd this (by simp)
+  simp only [isValidNode, hall, Bool.false_and]
+  split
+  · split
+    · rfl
+    · rfl
+  · split
+    · rfl
+    · rfl
+
+/-- info: 'AbsSatBin.GraphPath.Model.Reader.not_gowner_invalid' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms not_gowner_invalid
+
+end AbsSatBin.GraphPath.Model.Reader

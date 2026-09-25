@@ -32,11 +32,12 @@ def main() -> int:
     for _ in range(50):
         out = build(mod)
         spots = []
-        for m in re.finditer(r"error: [^\n]*?:(\d+):(\d+): Application type mismatch: The argument\n(.*?)(?=\nerror:|\Z)",
-                             out, flags=re.S):
-            body = m.group(3)
-            if re.search(r"expected to have type\s+PathNodeId → Bool", body):
-                spots.append((int(m.group(1)), int(m.group(2))))
+        rel = "AbsSatBin/" + mod + ".lean"
+        # exactly: "The argument\n  X\nhas type\n  T\nbut is expected to have type\n  PathNodeId → Bool"
+        pat = (r"error: " + re.escape(rel) + r":(\d+):(\d+): Application type mismatch: The argument\n"
+               r"  [^\n]*\nhas type\n  [^\n]*\n(?:of sort `[^`]*` )?but is expected to have type\n  PathNodeId → Bool\n")
+        for m in re.finditer(pat, out):
+            spots.append((int(m.group(1)), int(m.group(2))))
         if not spots:
             break
         lines = path.read_text().split("\n")
