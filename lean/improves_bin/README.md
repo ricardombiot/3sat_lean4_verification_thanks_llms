@@ -12,20 +12,36 @@ Cada módulo que entra se registra aquí con su procedencia:
 
 | módulo | origen (`lean_project@sha`) | tipo | notas |
 |---|---|---|---|
-| `Utils/Alias` | `53e2be6` | copia | |
-| `Cnf/Formula` | `53e2be6` | revisado | `Lit.step` pasa a `2v+1`/`2v+2` (fusión raíz en el paso 0); añade `Bounded` |
-| `Cnf/Dimacs` | `53e2be6` | copia | |
-| `GraphMap/CnfMapBin` | — | reescrito | mapa bin como aritmética: `reqOf`, `mapNodes`, `sonsOf`, `isProhibited` |
-| `GraphMap/MapBinDump` | — | nuevo | volcado canónico para el diferencial |
-| `GraphPath/Model/GPathM` | `53e2be6` | reescrito (UP) | `addNode`/`up`/`upFiltering` reciben `forb`; `shiftRowIds` = candidatos, `newRowIds` = sin prohibidos; revisión solo si se saltó una ventana |
-| `GraphPath/Model/DriverBin` | — | reescrito | `PureDriver` sin pruebas: `reqOf`, `sonsOf`, `upFiltering … (isProhibited φ)`; tests de índices y de los errores 3 y 4 |
-| `GraphPath/Model/Pruned`, `Denot`, `Fuel`, `Filter`, `Join`, `Review`, `CleanInvalid`, `Coherence`, `Certificate`, `Verdict`, `Extendable` | `53e2be6` | copia | |
-| `GraphPath/Model/Reachable` | `53e2be6` | reescrito | parámetro `forb` en el constructor `up` |
-| `GraphPath/Model/OwnersInvariants` | `53e2be6` | revisado | L1 sin `sorry`; el caso con revisión va por `review_OwnersSubset` |
-| `GraphPath/Model/L6`, `L6Search` | `53e2be6` | revisado | `simp` de `initSeed`; mapas sintéticos con `noForb` |
-| `GraphPath/Model/Up` | `53e2be6` | revisado | **`rowParents_of_not_mem` cambia de hipótesis**: `p ∉ shiftRowIds` (un id prohibido no está en la fila pero sí tiene padres); `denot_upFiltering` pide `NodupIds` del `addNode` para el caso con revisión |
-| `GraphPath/Model/L6Up` | `53e2be6` | revisado | un alargamiento de cadena exige `forb (extendPid …) = false`; `SupportedG_upFiltering`: `sorry` en el caso con ventana saltada (la revisión debe podar el padre sin hijo) |
-| `GraphPath/Model/AddNode` | `53e2be6` | revisado | `ChainSound_upFiltering` pide que el alargamiento no esté prohibido; el caso con revisión por `ChainSound_review`, sin `sorry` |
+| `Utils/Alias`, `Cnf/Dimacs` | `53e2be6` | copia | |
+| `Cnf/Formula` | `53e2be6` | revisado | `Lit.step` → `Lit.binStep` (`2v+1`/`2v+2`); añade `Bounded` |
+| `GraphMap/CnfMapBin` | — | reescrito | el mapa bin como aritmética: `reqOf`, `mapNodes`, `sonsOfMap`, `isProhibited`, `clauseWindow` |
+| `GraphMap/CnfSelBin` | — | reescrito | la selección de una asignación está en el mapa **sin** `Sat`; `Sat` entra solo en `pidOfAssign_not_prohibited` |
+| `GraphMap/MapBinDump` | — | nuevo | volcado canónico para el diferencial con Julia |
+| `GraphPath/Model/GPathM` | `53e2be6` | reescrito (UP) | `addNode`/`up`/`upFiltering` con `forb`; `shiftRowIds` = candidatos, `newRowIds` = sin prohibidos; revisión solo si se saltó una ventana |
+| `Pruned`, `Denot`, `Fuel`, `Filter`, `Join`, `Review`, `CleanInvalid`, `Coherence`, `Certificate`, `Verdict`, `Extendable`, `JoinSound`, `PickInduction`, `ArcConsistency`, `Candidates`, `PathExists`, `Ownership`, `MapChain`, `Bridge`, `Pinned`, `NodeIds`, `Survive` | `53e2be6` | copia (+`forb` mecánico) | |
+| `Reachable` | `53e2be6` | reescrito | parámetro `forb` en `up` |
+| `OwnersInvariants`, `L6`, `L6Search`, `GownersNodes`, `Parents`, `Sons`, `SelfOwn`, `ParentId`, `Threaded`, `Reader` | `53e2be6` | revisado | ramas con revisión tras ventana saltada por `X_review`/`X_of_pruned`; `NodupIds_review` nuevo |
+| `Up` | `53e2be6` | revisado | **`rowParents_of_not_mem` cambia de hipótesis** (`p ∉ shiftRowIds`) |
+| `L6Up` | `53e2be6` | revisado | un alargamiento de cadena exige que no esté prohibido; **1 `sorry`**: `SupportedG_upFiltering` con ventana saltada |
+| `AddNode` | `53e2be6` | revisado | `ChainSound_upFiltering` pide alargamiento no prohibido; revisión por `ChainSound_review` |
+| `Certifies` | `53e2be6` | revisado | `ReqChain`/`FilteredChain`/`ArcImpliesChainOn`/`ValidHasChainW` piden alargamiento no prohibido |
+| `MapReachable` | `53e2be6` | reescrito | `Reachable (reqOf φ) (isProhibited φ)`; invariante nuevo **`NoForb`** |
+| `CnfChain` | `53e2be6` | reescrito | decodificación: la elección en `L3` es `clauseWindow j b₀ b₁ b₂` y `NoForb` la excluye |
+| `L7`, `Conservation` | `53e2be6` | reescrito | `extendPid_eq_pidOfAssign`; conservación sin `sorry` |
+| `PureDriver` | `53e2be6` | revisado | `sonsOfMap`, `reqOf`, `isProhibited`; `pureRun_ne_nil` sin `sorry` |
+| `DriverBin` | — | nuevo | tests de índices y errores 3/4 de Julia; `noDeadNodes`, `bruteSat` |
+| `NodeInvariant` | `53e2be6` | revisado | pasos difíciles = los `3m` pasos `L`; obligación nueva **`SkipExact`** (revisión tras ventana saltada) |
+| `Decision`, `SatMachine/PureSatMachine`, `SatMachine/PureProofs` | `53e2be6` | revisado | `WF` → `Bounded` |
+| `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
+
+## Estado de los teoremas finales
+
+- `completeness_pure` (satisfacible ⇒ la máquina dice SAT): **demostrado**, `[propext, Quot.sound]`,
+  solo con `Bounded`.
+- `soundness_pure` / `run_pure_decides`: demostrados **bajo `ClauseStepExact`**, que en el mapa bin
+  agrupa dos obligaciones abiertas: el filtro en los pasos `L` (`HardStepExact`) y la revisión tras
+  una ventana saltada (`SkipExact`).
+- `sorry` restantes: 1 (`L6Up.SupportedG_upFiltering`, fuera del cierre de los teoremas finales).
 
 ## Diferencial del mapa
 
@@ -56,6 +72,10 @@ tardan milisegundos, las de `v4_c20` o `v8_c10` pasan de 20 s.
 - `scripts/index_lint.py` — nombres del mapa clásico y aritmética de pasos sin `-- idx:` (fuentes de
   aritmética: `CnfMapBin` y `Formula`). Debe dar 0.
 - `scripts/sorry_ledger.py` — `sorry` pendientes por módulo (deuda de demostraciones).
+- `scripts/thread_forb.py` — hila `forb` por la API del UP (aridad fija, binder explícito junto a
+  `title`, nunca en comentarios) y cierra la rama con revisión con `X_review`/`X_of_pruned`.
+- `scripts/fix_forb.py` — inserta `forb` solo donde el compilador dice exactamente que falta.
+- `scripts/port.sh` — `migrate` + `thread_forb` + `fix_forb` + lint, módulo a módulo.
 
 `warningAsError = false` mientras dure la migración con `sorry`. `Lit.step` se renombró a
 `Lit.binStep` para que ningún uso heredado compile.

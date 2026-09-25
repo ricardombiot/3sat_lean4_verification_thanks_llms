@@ -14,6 +14,7 @@ import AbsSatBin.GraphPath.Model.CleanInvalid
 import AbsSatBin.GraphPath.Model.CnfChain
 import AbsSatBin.GraphPath.Model.Coherence
 import AbsSatBin.GraphPath.Model.Conservation
+import AbsSatBin.GraphPath.Model.Decision
 import AbsSatBin.GraphPath.Model.Denot
 import AbsSatBin.GraphPath.Model.DriverBin
 import AbsSatBin.GraphPath.Model.Extendable
@@ -30,6 +31,7 @@ import AbsSatBin.GraphPath.Model.L7
 import AbsSatBin.GraphPath.Model.MapChain
 import AbsSatBin.GraphPath.Model.MapReachable
 import AbsSatBin.GraphPath.Model.NodeIds
+import AbsSatBin.GraphPath.Model.NodeInvariant
 import AbsSatBin.GraphPath.Model.OwnersInvariants
 import AbsSatBin.GraphPath.Model.Ownership
 import AbsSatBin.GraphPath.Model.ParentId
@@ -48,6 +50,8 @@ import AbsSatBin.GraphPath.Model.Survive
 import AbsSatBin.GraphPath.Model.Threaded
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
+import AbsSatBin.SatMachine.PureProofs
+import AbsSatBin.SatMachine.PureSatMachine
 import AbsSatBin.Utils.Alias
 
 /-! # `AbsSatBin` — the machine over the binary map
