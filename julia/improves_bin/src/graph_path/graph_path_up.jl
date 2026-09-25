@@ -67,8 +67,12 @@ function group_parents_by_shifted_id(gpath :: GPath, map_id_node :: NodeId,
     #! [for] $ O(7*7*7) $
     for id_last in PathCollectionLines.get_ids_step(gpath.table_lines, last_step)
         path_id_node = Alias.shift_path_id(id_last, map_id_node)
-        # La ventana prohibida no se crea: (L1=0, L2=0, L3=0) no existe.
-        path_id_node in prohibited && continue
+        # La ventana prohibida no se crea: (L1=0, L2=0, L3=0) no existe. Marcar para re-revisar:
+        # el padre que solo tenía este candidato se queda sin hijo y debe ser podado.
+        if path_id_node in prohibited
+            gpath.review_owners = true
+            continue
+        end
         ids_parents = get!(parents_by_id, path_id_node, PathNodeId[])
         push!(ids_parents, id_last)
     end
