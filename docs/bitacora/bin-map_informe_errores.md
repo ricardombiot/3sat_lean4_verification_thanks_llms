@@ -92,10 +92,10 @@ exactamente las soluciones del exhaustivo (`["0011","0111"]` y `["0011"]`).
 ## Estado
 
 - Tests unitarios en verde: `GraphMapBin` 54/54, `GraphMap` (clásico) 34/34.
-- Los cuatro errores están corregidos y verificados sobre las instancias concretas.
-- Harness diferencial (`compare_bin.jl`) en re-ejecución para confirmar el resultado global
-  (se espera ~73/74 con veredicto y soluciones coincidentes; la única instancia que se salta es
-  `simple_v3_c2.cnf`, un 2-SAT que el importador rechaza por diseño).
+- Los cuatro errores están corregidos y verificados.
+- **Harness diferencial (`compare_bin.jl`) en verde**: 73 instancias, **73/73 mismo veredicto,
+  73/73 mismas soluciones (lector exponencial), 0 fallos de checker**, clásico == bin == exhaustivo.
+  La única instancia saltada es `simple_v3_c2.cnf` (2-SAT, rechazado por el importador por diseño).
 
 ## Nota de rendimiento (prevista, no bloqueante)
 
