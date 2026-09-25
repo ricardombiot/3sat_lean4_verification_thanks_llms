@@ -12,6 +12,7 @@ import AbsSatBin.GraphPath.Model.Candidates
 import AbsSatBin.GraphPath.Model.Certificate
 import AbsSatBin.GraphPath.Model.Certifies
 import AbsSatBin.GraphPath.Model.CleanInvalid
+import AbsSatBin.GraphPath.Model.CleanTwoPhase
 import AbsSatBin.GraphPath.Model.CnfChain
 import AbsSatBin.GraphPath.Model.Coherence
 import AbsSatBin.GraphPath.Model.Conservation
@@ -35,6 +36,7 @@ import AbsSatBin.GraphPath.Model.NodeIds
 import AbsSatBin.GraphPath.Model.NodeInvariant
 import AbsSatBin.GraphPath.Model.OwnersInvariants
 import AbsSatBin.GraphPath.Model.Ownership
+import AbsSatBin.GraphPath.Model.PairInactive
 import AbsSatBin.GraphPath.Model.ParentId
 import AbsSatBin.GraphPath.Model.Parents
 import AbsSatBin.GraphPath.Model.PathExists
