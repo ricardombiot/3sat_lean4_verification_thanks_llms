@@ -33,6 +33,8 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `NodeInvariant` | `53e2be6` | revisado | pasos difíciles = los `3m` pasos `L`; obligación nueva **`SkipExact`** (revisión tras ventana saltada) |
 | `SkipReview` | — | nuevo | `SkipExact` ⇐ `SkipChain` (solo los nodos viejos supervivientes) ⇐ `SkipChainBin` (esos supervivientes están sobre una cadena sólida que elige `L1 = 1`) |
 | `Decision`, `SatMachine/PureSatMachine`, `SatMachine/PureProofs` | `53e2be6` | revisado | `WF` → `Bounded` |
+| `AggressiveReview`, `ReaderAgg` | `53e2be6` | copia (+`forb`) | revisión agresiva y relación de lectura; `upFilteringR` recibe `forb` |
+| `ReaderExec` | `53e2be6` | revisado | el lector sin retroceso sobre `pureRun` (bin, sin débiles); `readerVerdictW_sound` vía `L7` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales

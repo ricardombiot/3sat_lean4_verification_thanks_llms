@@ -1,5 +1,6 @@
 -- lean/improves_bin/AbsSatBin/GraphPath/Model/DriverBin.lean
 import AbsSatBin.GraphPath.Model.PureDriver
+import AbsSatBin.GraphPath.Model.ReaderExec
 
 /-!
 # The pure machine over the bin map
@@ -99,6 +100,10 @@ def run_tests : IO Unit := do
   -- Error 3: UNSAT, every branch dies on an empty row, nothing reaches the top.
   assert! (pureRun φUnsat).isEmpty
   assert! !bruteSat φUnsat
+
+  -- The reader (aggressive review, no backtracking) agrees with brute force on both.
+  assert! ReaderExec.readerVerdictW φOr == bruteSat φOr
+  assert! ReaderExec.readerVerdictW φUnsat == bruteSat φUnsat
 
   IO.println "All DriverBin tests passed!"
 
