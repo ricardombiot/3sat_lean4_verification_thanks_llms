@@ -22,7 +22,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `Reachable` | `53e2be6` | reescrito | parámetro `forb` en `up` |
 | `OwnersInvariants`, `L6`, `L6Search`, `GownersNodes`, `Parents`, `Sons`, `SelfOwn`, `ParentId`, `Threaded`, `Reader` | `53e2be6` | revisado | ramas con revisión tras ventana saltada por `X_review`/`X_of_pruned`; `NodupIds_review` nuevo |
 | `Up` | `53e2be6` | revisado | **`rowParents_of_not_mem` cambia de hipótesis** (`p ∉ shiftRowIds`) |
-| `L6Up` | `53e2be6` | revisado | un alargamiento de cadena exige que no esté prohibido; **1 `sorry`**: `SupportedG_upFiltering` con ventana saltada |
+| `L6Up` | `53e2be6` | revisado | un alargamiento de cadena exige que no esté prohibido; `SupportedG_upFiltering` para el UP sin ventana saltada (el otro caso es `SkipExact`) |
 | `AddNode` | `53e2be6` | revisado | `ChainSound_upFiltering` pide alargamiento no prohibido; revisión por `ChainSound_review` |
 | `Certifies` | `53e2be6` | revisado | `ReqChain`/`FilteredChain`/`ArcImpliesChainOn`/`ValidHasChainW` piden alargamiento no prohibido |
 | `MapReachable` | `53e2be6` | reescrito | `Reachable (reqOf φ) (isProhibited φ)`; invariante nuevo **`NoForb`** |
@@ -41,7 +41,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 - `soundness_pure` / `run_pure_decides`: demostrados **bajo `ClauseStepExact`**, que en el mapa bin
   agrupa dos obligaciones abiertas: el filtro en los pasos `L` (`HardStepExact`) y la revisión tras
   una ventana saltada (`SkipExact`).
-- `sorry` restantes: 1 (`L6Up.SupportedG_upFiltering`, fuera del cierre de los teoremas finales).
+- `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa
 
@@ -77,5 +77,5 @@ tardan milisegundos, las de `v4_c20` o `v8_c10` pasan de 20 s.
 - `scripts/fix_forb.py` — inserta `forb` solo donde el compilador dice exactamente que falta.
 - `scripts/port.sh` — `migrate` + `thread_forb` + `fix_forb` + lint, módulo a módulo.
 
-`warningAsError = false` mientras dure la migración con `sorry`. `Lit.step` se renombró a
+`warningAsError = true` (reactivado al llegar a 0 `sorry`). `Lit.step` se renombró a
 `Lit.binStep` para que ningún uso heredado compile.

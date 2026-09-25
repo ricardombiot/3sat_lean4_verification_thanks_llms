@@ -416,9 +416,10 @@ constructor does *except* `review` preserves total support:
   reads it (`Supported_filterRequire`);
 * `addNode` is `SupportedG_addNode` above.
 
-**Bin map.** When no window is skipped every extension is allowed and the classic argument goes
-through. When one is skipped the UP reviews, and support after it needs the review to prune the
-nodes left without a son — the same review step L6 already rests on. That branch is `sorry`. -/
+**Bin map.** Stated for the UP that skips no window (`hnoskip`): then every extension is allowed
+and the classic argument goes through. When a window is skipped the UP reviews, and support after
+it needs that review to prune the nodes left without a son; that case is `SkipExact`, stated in
+the `SupportedS` currency in `NodeInvariant` (this `SupportedG` line is not used downstream). -/
 theorem SupportedG_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String)
     (forb : PathNodeId → Bool)
     (hvalid : isValid (filterAll g reqs) = true)
@@ -426,12 +427,11 @@ theorem SupportedG_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (t
     (hbelow : ∀ n ∈ (filterAll g reqs).nodes,
       n.id.id.step < (filterAll g reqs).current_step)
     (hso : ∀ pid n, (filterAll g reqs).node? pid = some n → pid ∈ n.owners)
-    (hsup : SupportedG (filterAll g reqs)) (hinh : InhabitedG (filterAll g reqs)) :
+    (hsup : SupportedG (filterAll g reqs)) (hinh : InhabitedG (filterAll g reqs))
+    (hnoskip : skipsWindow (filterAll g reqs) d forb = false) :
     SupportedG (upFiltering g reqs d title forb) := by
-  simp only [upFiltering, up, hvalid, if_true]
-  split
-  · sorry -- bin: the review after a skipped window must prune the sonless parents (L6 hole)
-  · rename_i hskip
+  simp only [upFiltering, up, hvalid, if_true, hnoskip, Bool.false_eq_true, if_false]
+  · have hskip : ¬ skipsWindow (filterAll g reqs) d forb = true := by rw [hnoskip]; decide
     have hnf : ∀ sel, IsChain (filterAll g reqs) sel →
         forb (extendPid (filterAll g reqs) d sel) = false := by
       intro sel hc
@@ -456,6 +456,8 @@ theorem SupportedG_upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (t
 #guard_msgs in
 #print axioms ChainG_addNode
 
--- `SupportedG_upFiltering`: guard removed while its skipped-window branch is `sorry`.
+/-- info: 'AbsSatBin.GraphPath.Model.SupportedG_upFiltering' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms SupportedG_upFiltering
 
 end AbsSatBin.GraphPath.Model

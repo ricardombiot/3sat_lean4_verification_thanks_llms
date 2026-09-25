@@ -570,8 +570,9 @@ theorem stateOk_initSeed (φ : Cnf) (d : NodeId) (hd : d ∈ mapNodes φ 0) :
   · rfl
 
 /-- **The first line is a line, and it carries every branch.** Every map node
-of step 0 gets its own seed, and the assignment's node is one of them. -/
-theorem init_ok (φ : Cnf) (a : Assign) (hsat : Sat a φ) (hzero : (0 : Int) < stepCount φ) :
+of step 0 gets its own seed, and the assignment's node is one of them — for **any** assignment
+on the bin map (no `Sat`: every step has both values). -/
+theorem init_ok (φ : Cnf) (a : Assign) (hzero : (0 : Int) < stepCount φ) :
     LineOk φ 0 (pureInit φ) ∧ Carries φ a 0 (pureInit φ) := by
   have hsel : selOfAssign φ a 0 ∈ mapNodes φ 0 := selOfAssign_onMap φ a 0 (by omega) hzero
   simp only [pureInit]
@@ -641,7 +642,7 @@ theorem pureRun_carries (φ : Cnf) (a : Assign) (hwf : Bounded φ) (hsat : Sat a
     (hzero : (0 : Int) < stepCount φ) :
     ∃ g, (selOfAssign φ a (stepCount φ - 1), g) ∈ pureRun φ
       ∧ AlongAssign φ a g ∧ g.current_step = stepCount φ := by
-  obtain ⟨hl0, hc0⟩ := init_ok φ a hsat hzero
+  obtain ⟨hl0, hc0⟩ := init_ok φ a hzero
   have hcast : (((stepCount φ - 1).toNat : Nat) : Int) = stepCount φ - 1 := by omega
   have h := run_ok φ a hwf hsat hzero (stepCount φ - 1).toNat 0 (by omega)
     (by omega) (pureInit φ) hl0 hc0
