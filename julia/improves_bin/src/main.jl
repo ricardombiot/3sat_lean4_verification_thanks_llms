@@ -17,6 +17,9 @@ using Main.AbsSat.DBCollections.MapCollectionVars
 using Main.AbsSat.GraphMap: GMap
 using Main.AbsSat.GraphMap
 
+using Main.AbsSat.GraphMapBin: GMapBin
+using Main.AbsSat.GraphMapBin
+
 using Main.AbsSat.GraphMapVisual
 
 using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode

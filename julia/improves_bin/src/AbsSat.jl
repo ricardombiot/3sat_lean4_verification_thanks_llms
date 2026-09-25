@@ -6,6 +6,7 @@ module AbsSat
     include("./db/db_collections.jl")
 
     include("./graph_map/graph_map.jl")
+    include("./graph_map/graph_map_bin.jl")
     include("./graph_map/graph_map_visual.jl")
 
     include("./graph_path/graph_path.jl")

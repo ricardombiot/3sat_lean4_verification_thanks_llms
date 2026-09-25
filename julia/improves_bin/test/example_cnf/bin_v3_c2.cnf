@@ -1,0 +1,6 @@
+c bin_v3_c2.cnf
+c 3 vars, 2 clauses. Clause 1 all positive (exercises the (0,0,0) prohibition);
+c clause 2 mixed signs (exercises negative literals).
+p cnf 3 2
+1 2 3 0
+-1 2 -3 0

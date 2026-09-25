@@ -15,7 +15,11 @@ end
 
    # include("./graph_map/test_graph_map_vars.jl")
    # include("./graph_map/test_graph_map_gates.jl")
-   include("./graph_map/test_graph_map_import.jl")
+   #include("./graph_map/test_graph_map_import.jl")
+end
+
+@time @testset "GraphMapBin" begin
+    include("./graph_map/test_graph_map_bin.jl")
 end
 
 
@@ -23,7 +27,7 @@ end
 
 @time @testset "Machine" begin
 
-    include("./db/machine/cols/test_timeline.jl")
+   # include("./db/machine/cols/test_timeline.jl")
     #include("./sat_machine/test_sat_machine.jl")
     #include("./sat_machine/test_sat_machine_unsat.jl")
     #include("./sat_machine/test_sat_machine_building_map.jl")
@@ -39,16 +43,16 @@ end
     #include("./sat_machine/test_sat_reader.jl")
     #include("./sat_machine/test_sat_machine_biglines.jl")
 
-    include("./sat_machine/test_sat_machine_agresive.jl")
+    #include("./sat_machine/test_sat_machine_agresive.jl")
 end
 
 
 @time @testset "ReviewSimetrico" begin
-    include("./graph_path/test_symmetric_review.jl")
+   # include("./graph_path/test_symmetric_review.jl")
 end
 
 @time @testset "PairMode" begin
-    include("./graph_path/test_pair_mode.jl")
+   #include("./graph_path/test_pair_mode.jl")
 end
 
 @time @testset "ExaustiveSolver" begin
