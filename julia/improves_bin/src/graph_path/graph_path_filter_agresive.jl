@@ -27,7 +27,7 @@ function agressive_consistence_filter!(gpath :: GPath)
                                 if !symmetric_entry(gpath, node_x, node_w)
                                     PathDocumentNode.remove_owner!(node_x, node_id_w)
                                     AGG_ASYM[] += 1
-                                    # println("Apply Agressive: [Asymetric Detection] Step_x $(step) Step_w $(step_w) <-- ")
+                                    println("Apply Agressive: [Asymetric Detection] Step_x $(step) Step_w $(step_w) <-- ")
                                     gpath.review_owners = true
                                 else
                                     # intersección de los owners 
@@ -41,7 +41,7 @@ function agressive_consistence_filter!(gpath :: GPath)
                                         AGG_INCONS[] += 1
                                         is_valid_x = is_valid_node(gpath, node_x)
                                         is_valid_w = is_valid_node(gpath, node_w)
-                                        #println("Apply Agressive [Consistence] Step_x $(step) Step_w $(step_w) <-- ")
+                                        println("Apply Agressive [Consistence] Step_x $(step) Step_w $(step_w) <-- ")
                                         gpath.review_owners = true
                                     end
                                 end
