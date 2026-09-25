@@ -2,18 +2,23 @@ import AbsSatBin.GraphPath.Model.PinChainBin
 import AbsSatBin.GraphPath.Model.DriverBin
 import AbsSatBin.Cnf.Dimacs
 
-/-! `lake exe otherbit-probe [--cap N] f1.cnf …` — measures `PinChainBin.OtherBit` (equivalently
-`ReaderPrefix.PinChain`) on the states the reader can visit.
+/-! `lake exe otherbit-probe [--chain] [--cap N] f1.cnf …` — measures the reader's one open
+obligation on the states the reader can visit.
 
 From each starting state `filterAll kv.2 []` it walks **every** `ReadFirst` branch (every valid
-pin at `firstChoice`, not only the one `tryPins` takes), up to `--cap` states per start. At each
-state with a sound chain, and each valid pin `q`, it looks for a `ChainSound` through `q.id` at `k`
-(the exact Lean definition, searched step by step). A valid pin with no such chain is a failure.
+pin at `firstChoice`, not only the one `tryPins` takes), up to `--cap` states per start, keeping the
+list of pins (`OtherBitSem.ReadPins`).
+
+* default: **`OtherBitSem.OtherBitSem`**, by brute force over the solutions of `φ`. A failure is a
+  valid pin `q` at a state where some solution agrees with the pins but none agrees with the pins
+  and `q`.
+* `--chain`: **`PinChainBin.OtherBit`**, searching a `ChainSound` through `q.id` step by step (the
+  exact Lean definition; much slower).
 
 Read-only: nothing is changed in the machine. -/
 
 open AbsSatBin.Utils.Alias AbsSatBin.Cnf AbsSatBin.GraphPath.Model AbsSatBin.GraphPath.Model.GPathM
-open AbsSatBin.GraphPath.Model.ReaderExec
+open AbsSatBin.GraphPath.Model.ReaderExec AbsSatBin.GraphMap.CnfSelBin
 open AbsSatBin.GraphPath.Model.PureDriver AbsSatBin.GraphPath.Model.DriverBin
 
 def ownersB (g : GPathM) (p : PathNodeId) : List PathNodeId :=
@@ -43,21 +48,34 @@ partial def chainFrom (g : GPathM) (fix : Option (Int × NodeId)) (i : Int)
 
 structure Stats where
   states : Nat := 0
-  chained : Nat := 0
-  unchained : Nat := 0
+  witnessed : Nat := 0
+  unwitnessed : Nat := 0
   pins : Nat := 0
   validPins : Nat := 0
   fails : Nat := 0
   capped : Bool := false
   firstFail : Option String := none
 
-partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
+/-- The obligation holds at this pin? `sols` are the solutions of `φ`. -/
+def pinOk (chainMode : Bool) (φ : Cnf) (sols : List Assign) (g : GPathM) (ps : List NodeId)
+    (k : Int) (d : NodeId) : Bool :=
+  if chainMode then chainFrom g (some (k, d)) 0 #[]
+  else sols.any (fun a => (d :: ps).all (fun p => selOfAssign φ a p.step == p))
+
+/-- Does the state have a witness (a solution agreeing with the pins, or a chain)? -/
+def witnessed (chainMode : Bool) (φ : Cnf) (sols : List Assign) (g : GPathM) (ps : List NodeId) :
+    Bool :=
+  if chainMode then chainFrom g none 0 #[]
+  else sols.any (fun a => ps.all (fun p => selOfAssign φ a p.step == p))
+
+partial def explore (chainMode : Bool) (φ : Cnf) (sols : List Assign) (cap : Nat) (g : GPathM)
+    (ps : List NodeId) (st : Stats) : Stats := Id.run do
   if st.states ≥ cap then return { st with capped := true }
   let mut st := { st with states := st.states + 1 }
   if !isValid g then return st
-  let hasC := chainFrom g none 0 #[]
-  if hasC then st := { st with chained := st.chained + 1 }
-  else st := { st with unchained := st.unchained + 1 }
+  let hasW := witnessed chainMode φ sols g ps
+  if hasW then st := { st with witnessed := st.witnessed + 1 }
+  else st := { st with unwitnessed := st.unwitnessed + 1 }
   match firstChoice g with
   | none => return st
   | some k =>
@@ -67,13 +85,13 @@ partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
       st := { st with pins := st.pins + 1 }
       if isValid g' then
         st := { st with validPins := st.validPins + 1 }
-        if hasC && !chainFrom g (some (k, d)) 0 #[] then
+        if hasW && !pinOk chainMode φ sols g ps k d then
           st := { st with fails := st.fails + 1,
-                          firstFail := st.firstFail.orElse (fun _ => some s!"k={k} bit={d.index}") }
-        st := explore cap g' st
+                          firstFail := st.firstFail.orElse (fun _ => some s!"k={k} bit={d.index} pins={ps.length}") }
+        st := explore chainMode φ sols cap g' (d :: ps) st
     return st
 
-def checkOne (cap : Nat) (path : String) : IO Nat := do
+def checkOne (chainMode : Bool) (cap : Nat) (path : String) : IO Nat := do
   let lines := (← IO.FS.lines path).toList
   let name := (System.FilePath.mk path).fileName.getD path
   match Dimacs.parse lines with
@@ -81,21 +99,26 @@ def checkOne (cap : Nat) (path : String) : IO Nat := do
   | .ok φ =>
     if φ.clauses.isEmpty then IO.println s!"{name}\tSKIP\tno clauses"; return 0
     let t0 ← IO.monoMsNow
+    let sols : List Assign := (List.range (2 ^ φ.nVars)).filterMap (fun m =>
+      let a : Assign := fun v => m.testBit v
+      if satB a φ then some a else none)
     let r := pureRun φ
+    let t1 ← IO.monoMsNow
     let mut st : Stats := {}
     for kv in r do
-      st := explore cap (filterAll kv.2 []) st
-    let t1 ← IO.monoMsNow
-    let truth := bruteSat φ
-    IO.println s!"{name}\tbrute={if truth then "SAT" else "UNSAT"}\tstarts={r.length}\tstates={st.states}\tchained={st.chained}\tunchained={st.unchained}\tpins={st.pins}\tvalid={st.validPins}\tfails={st.fails}\tcapped={st.capped}\tfirst={st.firstFail.getD "-"}\tms={t1 - t0}"
+      st := explore chainMode φ sols cap (filterAll kv.2 []) [] st
+    let t2 ← IO.monoMsNow
+    IO.println s!"{name}\tsols={sols.length}\tstarts={r.length}\tstates={st.states}\twitnessed={st.witnessed}\tunwitnessed={st.unwitnessed}\tpins={st.pins}\tvalid={st.validPins}\tfails={st.fails}\tcapped={st.capped}\tfirst={st.firstFail.getD "-"}\tmachine_ms={t1 - t0}\tprobe_ms={t2 - t1}"
     return st.fails
 
 def main (args : List String) : IO UInt32 := do
+  let chainMode := args.contains "--chain"
+  let args := args.filter (· != "--chain")
   let (cap, files) := match args with
     | "--cap" :: n :: rest => (n.toNat!, rest)
     | rest => (2000, rest)
   let mut bad := 0
   for f in files do
-    bad := bad + (← checkOne cap f)
-  IO.println s!"fallos OtherBit = {bad}"
+    bad := bad + (← checkOne chainMode cap f)
+  IO.println s!"fallos ({if chainMode then "OtherBit" else "OtherBitSem"}) = {bad}"
   return 0

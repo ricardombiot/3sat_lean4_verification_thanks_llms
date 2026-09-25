@@ -34,6 +34,7 @@ import AbsSatBin.GraphPath.Model.MapChain
 import AbsSatBin.GraphPath.Model.MapReachable
 import AbsSatBin.GraphPath.Model.NodeIds
 import AbsSatBin.GraphPath.Model.NodeInvariant
+import AbsSatBin.GraphPath.Model.OtherBitSem
 import AbsSatBin.GraphPath.Model.OwnersInvariants
 import AbsSatBin.GraphPath.Model.Ownership
 import AbsSatBin.GraphPath.Model.PairInactive
