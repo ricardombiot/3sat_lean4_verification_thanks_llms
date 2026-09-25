@@ -42,6 +42,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `PinChainBin` | — | nuevo | dos bits por paso (`entry_bit`, `entry_flip`); el bit de la cadena es gratis; `PinChain` ⇐ `OtherBit` (y `chainG_through_pin`: es también necesario); `readerVerdictW_iff_of_otherBit` |
 | `OtherBitSem` | — | nuevo | `OtherBit` sobre la fórmula: los pins son una asignación parcial; la línea final lleva todas las soluciones (`carried_unique`); `readerVerdictW_iff_of_otherBitSem` con esa única hipótesis |
 | `NoDeadEnd` | — | nuevo | decodificación exacta (`selOfAssign_decode`), pins fijados (`PinNodes`), descenso; `OtherBitSem ⇐ NoDeadEnd`, `soundness_of_noDeadEnd` (con `RootValid`, sin `ClauseStepExact`/`SkipExact`), `readerVerdictW_iff_of_noDeadEnd` |
+| `Kernel` | — | nuevo | `Kernel` (propiedades estáticas de un punto fijo válido del review) y `Below`; `below_review`: el review nunca baja de un kernel; `isValid_filterAll_of_kernel`: un pin sobrevive si un kernel válido por debajo concuerda con él |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
