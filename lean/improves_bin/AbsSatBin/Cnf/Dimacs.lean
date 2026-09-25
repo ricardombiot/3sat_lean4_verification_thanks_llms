@@ -94,8 +94,8 @@ def parse (lines : List String) : Except String Cnf :=
 
 def clauseWfB (n : Nat) (c : Clause) : Bool :=
   decide (c.l1.v < n) && decide (c.l2.v < n) && decide (c.l3.v < n)
-  && decide (c.l1.step ≠ c.l2.step) && decide (c.l1.step ≠ c.l3.step)
-  && decide (c.l2.step ≠ c.l3.step)
+  && decide (c.l1.binStep ≠ c.l2.binStep) && decide (c.l1.binStep ≠ c.l3.binStep)
+  && decide (c.l2.binStep ≠ c.l3.binStep)
 
 def wfB (φ : Cnf) : Bool := φ.clauses.all (clauseWfB φ.nVars)
 

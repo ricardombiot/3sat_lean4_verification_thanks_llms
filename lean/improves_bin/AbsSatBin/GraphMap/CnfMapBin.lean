@@ -18,7 +18,7 @@ windows. `MapBinDiff` checks every one of them against the map Julia builds.
 | `2v+1` | `⟨2v+1,0⟩` (`"v=0"`), `⟨2v+1,1⟩` (`"v=1"`) — no requirements |
 | `2v+2` | `⟨2v+2,i⟩` (`"!v=i"`), requiring `⟨2v+1, 1-i⟩` |
 | `2n+1` | one `"FusionNode"` (middle) |
-| `2n+2+3j+p` | `⟨·,b⟩`, `b ∈ {0,1}`: literal `p` of clause `j` has value `b`; requires `⟨lₚ.step, b⟩` |
+| `2n+2+3j+p` | `⟨·,b⟩`, `b ∈ {0,1}`: literal `p` of clause `j` has value `b`; requires `⟨lₚ.binStep, b⟩` |
 | `2n+3m+2` | one `"FusionNode"` (top) |
 
 so `stepCount = 2n + 3m + 3`. Every step has one or two nodes.
@@ -58,16 +58,16 @@ def clauseStep (φ : Cnf) (j p : Nat) : Int :=
 def fusionTop (φ : Cnf) : Int := 2 * (φ.nVars : Int) + 3 * (φ.clauses.length : Int) + 2
 def stepCount (φ : Cnf) : Int := 2 * (φ.nVars : Int) + 3 * (φ.clauses.length : Int) + 3
 
-theorem varStep_eq (l : Lit) (h : l.pos = true) : l.step = varStep l.v := by
-  simp [Lit.step, varStep, h]
+theorem varStep_eq (l : Lit) (h : l.pos = true) : l.binStep = varStep l.v := by
+  simp [Lit.binStep, varStep, h]
 
-theorem negStep_eq (l : Lit) (h : l.pos = false) : l.step = negStep l.v := by
-  simp [Lit.step, negStep, h]; omega
+theorem negStep_eq (l : Lit) (h : l.pos = false) : l.binStep = negStep l.v := by
+  simp [Lit.binStep, negStep, h]; omega
 
 /-- A literal of the formula sits strictly between the root and the middle fusion. -/
 theorem lit_step_bounds (φ : Cnf) (l : Lit) (h : l.v < φ.nVars) :
-    0 < l.step ∧ l.step < midFusion φ := by
-  refine ⟨?_, ?_⟩ <;> (simp only [Lit.step, midFusion]; split <;> omega)
+    0 < l.binStep ∧ l.binStep < midFusion φ := by
+  refine ⟨?_, ?_⟩ <;> (simp only [Lit.binStep, midFusion]; split <;> omega)
 
 -- ============================================================
 -- Clause steps
@@ -128,7 +128,7 @@ def mapNodes (φ : Cnf) (k : Int) : List NodeId :=
   else [⟨k, 0⟩, ⟨k, 1⟩]
 
 /-- The requirement function — the only channel from the map to the proofs.
-Total and uniform, as in `CnfMap.reqOfCnf`: it does not check the index. -/
+Total and uniform, as `lean_project`'s `CnfMap.reqOfCnf`: it does not check the index. -/
 def reqOf (φ : Cnf) (d : NodeId) : List NodeId :=
   if d.step ≤ 0 then []
   else if d.step < midFusion φ then
@@ -139,7 +139,7 @@ def reqOf (φ : Cnf) (d : NodeId) : List NodeId :=
   else
     match clauseOf φ d.step with
     | none => []
-    | some (c, p) => [{ step := (litAt c p).step, index := d.index }]
+    | some (c, p) => [{ step := (litAt c p).binStep, index := d.index }]
 
 /-- The sons the map links. A positive variable node links only to the
 negation node it agrees with (`add_var!`'s `add_son!`); every other node links
@@ -240,7 +240,7 @@ theorem reqOf_neg (φ : Cnf) (d : NodeId) (v : Nat) (hv : v < φ.nVars)
 theorem reqOf_clause (φ : Cnf) (d : NodeId) (j p : Nat) (c : Clause) (hp : p < 3)
     (hjlt : j < φ.clauses.length) (hj : φ.clauses[j]? = some c)
     (h : d.step = clauseStep φ j p) :
-    reqOf φ d = [{ step := (litAt c p).step, index := d.index }] := by
+    reqOf φ d = [{ step := (litAt c p).binStep, index := d.index }] := by
   have h0 : ¬ d.step ≤ 0 := by rw [h]; simp only [clauseStep]; omega
   have h1 : ¬ d.step < midFusion φ := by rw [h]; simp only [clauseStep, midFusion]; omega
   have h2 : ¬ d.step = midFusion φ := by rw [h]; simp only [clauseStep, midFusion]; omega
@@ -304,7 +304,7 @@ theorem reqOf_backward (φ : Cnf) (hb : Bounded φ) (d : NodeId) :
             have hv : (litAt c p).v < φ.nVars := by
               unfold litAt; split <;> assumption
             have := (lit_step_bounds φ (litAt c p) hv).2
-            show (litAt c p).step < d.step
+            show (litAt c p).binStep < d.step
             omega
 
 -- ============================================================

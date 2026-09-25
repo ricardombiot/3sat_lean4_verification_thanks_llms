@@ -506,8 +506,31 @@ def filterAll (g : GPathM) (reqs : List NodeId) : GPathM :=
   review (reqs.foldl filterRequire g)
 
 -- ============================================================
--- UP (mirror of add_node! / do_up! / do_up_filtering!)
+-- UP (mirror of the bin add_row! / do_up! / do_up_filtering!)
 -- ============================================================
+
+/-!
+### The UP of the bin map — **rewritten** (not copied from `lean_project`)
+
+Mirror of `julia/improves_bin/src/graph_path/graph_path_up.jl` (commits `92315b1`, `ba6cc6d`,
+`5697d96`). Every UP takes the map's **prohibited windows** as a predicate
+`forb : PathNodeId → Bool` (the machine passes `CnfMapBin.isProhibited φ`; `noForb` is the empty
+one). The signatures differ from `lean_project`'s on purpose: code copied from there that calls
+the classic UP does not compile until it says which windows it forbids.
+
+* `shiftRowIds` — every identifier the window shift gives to the last row (the classic row);
+* `newRowIds … forb` — those minus the prohibited ones (`group_parents_by_shifted_id` skips them);
+* a row node's parents and owners depend on its own identifier only, so `rowParents`/`rowOwners`
+  are unchanged;
+* an empty row needs no flag: the new step has no global owner, so `isValid` fails by itself
+  (`isValid_addNode_of_nil`);
+* `up` reviews **only when a window was skipped** (`skipsWindow`), as Julia's `review_owners`.
+
+**Indices.** The prohibited window `(L3=0, L2=0, L1=0)`, most recent first, is recognised on the
+*shifted* identifier `shiftPid last d = (d, last.id, last.parent_id)`: `d` is the `L3` node, the
+row node's parent stands at `L2`, and *its* parent at `L1`. That needs the window of three,
+which `shiftPid` always builds (`gparent_id := last.parent_id`).
+-/
 
 /-- **Shift of the identifier window** — Julia's `Alias.shift_path_id`:
 `(gp, p, last) + d ↦ (p, last, d)`. The new identifier keeps two levels of the
@@ -515,6 +538,9 @@ branch that reaches it, which is what lets a *pair* of adjacent path nodes carry
 *three* map ids. -/
 def shiftPid (last : PathNodeId) (d : NodeId) : PathNodeId :=
   { id := d, parent_id := some last.id, gparent_id := last.parent_id }
+
+/-- No prohibited window: the variables and fusion steps, the seed, and the tests. -/
+def noForb : PathNodeId → Bool := fun _ => false
 
 /-- The ids of the last row — the candidate parents of the row `UP` is about to
 add. Empty before anything has been visited. -/
@@ -568,14 +594,21 @@ theorem nodup_dedupPids : ∀ (l : List PathNodeId), (dedupPids l).Nodup := by
     have := (List.mem_filter.mp hc).2
     simp at this
 
-/-- **The identifiers of the row `UP` adds**: one per identifier the window shift
-gives to the last row (`group_parents_by_shifted_id`). Nodes of the last row
-that agree on *both* their map id and their parent's shift to the same
-identifier and are merged into one node with several parents. Before anything
-has been visited, the single root id. -/
-def newRowIds (g : GPathM) (d : NodeId) : List PathNodeId :=
+/-- **The candidate identifiers of the row**: one per identifier the window shift
+gives to the last row. Nodes of the last row that agree on *both* their map id and
+their parent's shift to the same identifier and are merged into one node with
+several parents. Before anything has been visited, the single root id. -/
+def shiftRowIds (g : GPathM) (d : NodeId) : List PathNodeId :=
   if g.current_step > 0 then dedupPids ((newParents g).map (fun q => shiftPid q d))
   else [{ id := d, parent_id := none, gparent_id := none }]
+
+/-- **The identifiers of the row `UP` adds**: the candidates that are not prohibited. -/
+def newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) : List PathNodeId :=
+  (shiftRowIds g d).filter (fun pid => !forb pid)
+
+/-- Some candidate was prohibited: Julia's `review_owners = true` after the row. -/
+def skipsWindow (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) : Bool :=
+  (shiftRowIds g d).any forb
 
 /-- The nodes of the last row that shift to `pid`: exactly its parents. -/
 def rowParents (g : GPathM) (d : NodeId) (pid : PathNodeId) : List PathNodeId :=
@@ -601,38 +634,39 @@ def rowNode (g : GPathM) (d : NodeId) (title : String) (pid : PathNodeId) : PNod
   { id := pid, title := title, parents := rowParents g d pid, sons := [],
     owners := rowOwners g d pid }
 
-def newRow (g : GPathM) (d : NodeId) (title : String) : List PNodeM :=
-  (newRowIds g d).map (rowNode g d title)
+def newRow (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) : List PNodeM :=
+  (newRowIds g d forb).map (rowNode g d title)
 
-/-- The row ids a pre-existing node becomes a parent of. -/
-def gainedSons (g : GPathM) (d : NodeId) (n : PNodeM) : List PathNodeId :=
-  (newRowIds g d).filter (fun pid => (rowParents g d pid).contains n.id)
+/-- The row ids a pre-existing node becomes a parent of. A prohibited id is not
+created, so nobody gains it as a son. -/
+def gainedSons (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) :
+    List PathNodeId :=
+  (newRowIds g d forb).filter (fun pid => (rowParents g d pid).contains n.id)
 
 /-- The row ids that own a pre-existing node — and so, by the symmetry of the
 tables, that it gains as owners (`its_owners_are_owned_by_me!`). A node no row
 node owns gains nothing, and the next review will find it without an owner at
 the new step and drop it. -/
-def gainedOwners (g : GPathM) (d : NodeId) (n : PNodeM) : List PathNodeId :=
-  (newRowIds g d).filter (fun pid => (rowOwners g d pid).contains n.id)
+def gainedOwners (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) :
+    List PathNodeId :=
+  (newRowIds g d forb).filter (fun pid => (rowOwners g d pid).contains n.id)
 
-def upSons (g : GPathM) (d : NodeId) (n : PNodeM) : PNodeM :=
-  { n with sons := n.sons ++ gainedSons g d n }
+def upSons (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) : PNodeM :=
+  { n with sons := n.sons ++ gainedSons g d forb n }
 
-def upOwners (g : GPathM) (d : NodeId) (n : PNodeM) : PNodeM :=
-  { n with owners := n.owners ++ gainedOwners g d n }
+def upOwners (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) : PNodeM :=
+  { n with owners := n.owners ++ gainedOwners g d forb n }
 
 /-- What `addNode` does to every pre-existing node. -/
-def upMap (g : GPathM) (d : NodeId) (n : PNodeM) : PNodeM := upOwners g d (upSons g d n)
+def upMap (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) : PNodeM :=
+  upOwners g d forb (upSons g d forb n)
 
 /-- **The `UP`** (`add_row!`). It adds a whole row, not a node: one node per
-identifier the window shift gives to the last row. With a window of two every
-node of the last row shifts to the same identifier (they all carry `map_parent`
-— that is `ParentId.TL`), so the row is the single node the machine added before
-the window existed. The name is kept because every lemma downstream is
-`*_addNode`. -/
-def addNode (g : GPathM) (d : NodeId) (title : String) : GPathM :=
-  { nodes := g.nodes.map (upMap g d) ++ newRow g d title,
-    gowners := g.gowners ++ newRowIds g d,
+identifier the window shift gives to the last row, **minus the prohibited ones**.
+The name is kept because every lemma downstream is `*_addNode`. -/
+def addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) : GPathM :=
+  { nodes := g.nodes.map (upMap g d forb) ++ newRow g d title forb,
+    gowners := g.gowners ++ newRowIds g d forb,
     current_step := g.current_step + 1,
     map_parent := some d }
 
@@ -640,31 +674,58 @@ def addNode (g : GPathM) (d : NodeId) (title : String) : GPathM :=
 -- Shape of the row (the lemmas every consumer of `addNode` needs)
 -- ============================================================
 
-theorem upMap_id (g : GPathM) (d : NodeId) (n : PNodeM) : (upMap g d n).id = n.id := rfl
+theorem upMap_id (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) :
+    (upMap g d forb n).id = n.id := rfl
 
-theorem upMap_parents (g : GPathM) (d : NodeId) (n : PNodeM) :
-    (upMap g d n).parents = n.parents := rfl
+theorem upMap_parents (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) :
+    (upMap g d forb n).parents = n.parents := rfl
 
-theorem upMap_sons (g : GPathM) (d : NodeId) (n : PNodeM) :
-    (upMap g d n).sons = n.sons ++ gainedSons g d n := rfl
+theorem upMap_sons (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) :
+    (upMap g d forb n).sons = n.sons ++ gainedSons g d forb n := rfl
 
-theorem upMap_owners (g : GPathM) (d : NodeId) (n : PNodeM) :
-    (upMap g d n).owners = n.owners ++ gainedOwners g d n := rfl
+theorem upMap_owners (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM) :
+    (upMap g d forb n).owners = n.owners ++ gainedOwners g d forb n := rfl
 
-theorem addNode_nodes (g : GPathM) (d : NodeId) (title : String) :
-    (addNode g d title).nodes = g.nodes.map (upMap g d) ++ newRow g d title := rfl
+theorem addNode_nodes (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) :
+    (addNode g d title forb).nodes = g.nodes.map (upMap g d forb) ++ newRow g d title forb := rfl
 
-theorem addNode_gowners (g : GPathM) (d : NodeId) (title : String) :
-    (addNode g d title).gowners = g.gowners ++ newRowIds g d := rfl
+theorem addNode_gowners (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) :
+    (addNode g d title forb).gowners = g.gowners ++ newRowIds g d forb := rfl
 
-theorem addNode_current (g : GPathM) (d : NodeId) (title : String) :
-    (addNode g d title).current_step = g.current_step + 1 := rfl
+theorem addNode_current (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) :
+    (addNode g d title forb).current_step = g.current_step + 1 := rfl
 
+theorem mem_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (pid : PathNodeId) :
+    pid ∈ newRowIds g d forb ↔ pid ∈ shiftRowIds g d ∧ forb pid = false := by
+  simp [newRowIds]
+
+/-- **A prohibited identifier never enters the gpath.** The disjunction as a fact of shape. -/
+theorem not_forb_of_mem_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (pid : PathNodeId) (h : pid ∈ newRowIds g d forb) : forb pid = false :=
+  ((mem_newRowIds g d forb pid).mp h).2
+
+theorem shiftRowIds_of_mem_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (pid : PathNodeId) (h : pid ∈ newRowIds g d forb) : pid ∈ shiftRowIds g d :=
+  ((mem_newRowIds g d forb pid).mp h).1
+
+/-- With nothing prohibited, the row is the whole shift. -/
+theorem newRowIds_noForb (g : GPathM) (d : NodeId) : newRowIds g d noForb = shiftRowIds g d := by
+  simp [newRowIds, noForb]
+
+/-- The same whenever nothing the shift produces is prohibited — every step of the bin map
+that is not the third literal of a clause. -/
+theorem newRowIds_of_none_forb (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (h : ∀ pid ∈ shiftRowIds g d, forb pid = false) : newRowIds g d forb = shiftRowIds g d := by
+  unfold newRowIds
+  rw [List.filter_eq_self]
+  intro pid hpid
+  simp [h pid hpid]
 
 /-- Every identifier of the row carries the map id the `UP` visited. -/
-theorem mapId_of_mem_newRowIds (g : GPathM) (d : NodeId) (pid : PathNodeId)
-    (h : pid ∈ newRowIds g d) : pid.id = d := by
-  unfold newRowIds at h
+theorem mapId_of_mem_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (pid : PathNodeId) (h : pid ∈ newRowIds g d forb) : pid.id = d := by
+  have h := shiftRowIds_of_mem_newRowIds g d forb pid h
+  unfold shiftRowIds at h
   split at h
   · obtain ⟨q, _, hq⟩ := List.mem_map.mp ((mem_dedupPids _ _).mp h)
     rw [← hq]; rfl
@@ -683,8 +744,9 @@ theorem rowNode_sons (g : GPathM) (d : NodeId) (title : String) (pid : PathNodeI
     (rowNode g d title pid).sons = [] := rfl
 
 /-- The nodes of the row are exactly the row identifiers. -/
-theorem mem_newRow_iff (g : GPathM) (d : NodeId) (title : String) (m : PNodeM) :
-    m ∈ newRow g d title ↔ ∃ pid ∈ newRowIds g d, m = rowNode g d title pid := by
+theorem mem_newRow_iff (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (m : PNodeM) :
+    m ∈ newRow g d title forb ↔ ∃ pid ∈ newRowIds g d forb, m = rowNode g d title pid := by
   constructor
   · intro h
     obtain ⟨pid, hpid, hm⟩ := List.mem_map.mp h
@@ -693,47 +755,55 @@ theorem mem_newRow_iff (g : GPathM) (d : NodeId) (title : String) (m : PNodeM) :
     exact List.mem_map.mpr ⟨pid, hpid, rfl⟩
 
 /-- A node of the row sits at the new step. -/
-theorem newRow_step (g : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = g.current_step) (m : PNodeM) (hm : m ∈ newRow g d title) :
+theorem newRow_step (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (hd : d.step = g.current_step) (m : PNodeM) (hm : m ∈ newRow g d title forb) :
     m.id.id.step = g.current_step := by
-  obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title m).mp hm
-  rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
+  obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb m).mp hm
+  rw [rowNode_id, mapId_of_mem_newRowIds g d forb pid hpid]
   exact hd
 
 /-- **Every row identifier is the shift of a node of the last row.** -/
-theorem exists_shift_of_mem_newRowIds (g : GPathM) (d : NodeId) (pid : PathNodeId)
-    (hpos : 0 < g.current_step) (h : pid ∈ newRowIds g d) :
+theorem exists_shift_of_mem_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (pid : PathNodeId) (hpos : 0 < g.current_step) (h : pid ∈ newRowIds g d forb) :
     ∃ q ∈ newParents g, pid = shiftPid q d := by
-  unfold newRowIds at h
+  have h := shiftRowIds_of_mem_newRowIds g d forb pid h
+  unfold shiftRowIds at h
   rw [if_pos hpos] at h
   obtain ⟨q, hq, hqp⟩ := List.mem_map.mp ((mem_dedupPids _ pid).mp h)
   exact ⟨q, hq, hqp.symm⟩
 
 /-- A row identifier above step 0 is never a root. -/
-theorem parent_id_ne_none_of_mem_newRowIds (g : GPathM) (d : NodeId) (pid : PathNodeId)
-    (hpos : 0 < g.current_step) (h : pid ∈ newRowIds g d) : pid.parent_id ≠ none := by
-  obtain ⟨q, _, rfl⟩ := exists_shift_of_mem_newRowIds g d pid hpos h
+theorem parent_id_ne_none_of_mem_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (pid : PathNodeId) (hpos : 0 < g.current_step) (h : pid ∈ newRowIds g d forb) :
+    pid.parent_id ≠ none := by
+  obtain ⟨q, _, rfl⟩ := exists_shift_of_mem_newRowIds g d forb pid hpos h
   show (some q.id : Option NodeId) ≠ none
   simp
 
 /-- **The row has no repeated identifier.** -/
-theorem nodup_newRowIds (g : GPathM) (d : NodeId) : (newRowIds g d).Nodup := by
-  unfold newRowIds
+theorem nodup_newRowIds (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) :
+    (newRowIds g d forb).Nodup := by
+  unfold newRowIds shiftRowIds
+  apply nodup_filter_aux
   split
   · exact nodup_dedupPids _
   · exact List.nodup_cons.mpr ⟨List.not_mem_nil, List.nodup_nil⟩
 
-/-- The seed row is a single root. -/
-theorem newRowIds_of_zero (g : GPathM) (d : NodeId) (hz : ¬ 0 < g.current_step) :
-    newRowIds g d = [{ id := d, parent_id := none, gparent_id := none }] := by
-  unfold newRowIds; rw [if_neg hz]
+/-- The seed row is a single root (nothing can prohibit it: the check reads the window). -/
+theorem newRowIds_of_zero (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (hz : ¬ 0 < g.current_step)
+    (hf : forb { id := d, parent_id := none, gparent_id := none } = false) :
+    newRowIds g d forb = [{ id := d, parent_id := none, gparent_id := none }] := by
+  unfold newRowIds shiftRowIds; rw [if_neg hz]; simp [hf]
 
 /-- What an old node gains is a row identifier. -/
-theorem gainedOwners_subset (g : GPathM) (d : NodeId) (n : PNodeM) (pid : PathNodeId)
-    (h : pid ∈ gainedOwners g d n) : pid ∈ newRowIds g d := (List.mem_filter.mp h).1
+theorem gainedOwners_subset (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM)
+    (pid : PathNodeId) (h : pid ∈ gainedOwners g d forb n) : pid ∈ newRowIds g d forb :=
+  (List.mem_filter.mp h).1
 
-theorem gainedSons_subset (g : GPathM) (d : NodeId) (n : PNodeM) (pid : PathNodeId)
-    (h : pid ∈ gainedSons g d n) : pid ∈ newRowIds g d := (List.mem_filter.mp h).1
+theorem gainedSons_subset (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool) (n : PNodeM)
+    (pid : PathNodeId) (h : pid ∈ gainedSons g d forb n) : pid ∈ newRowIds g d forb :=
+  (List.mem_filter.mp h).1
 
 /-- A parent of a row node is a node of the last row. -/
 theorem rowParents_subset (g : GPathM) (d : NodeId) (pid q : PathNodeId)
@@ -752,10 +822,13 @@ theorem shiftPid_of_mem_rowParents (g : GPathM) (d : NodeId) (pid q : PathNodeId
     (h : q ∈ rowParents g d pid) : shiftPid q d = pid :=
   eq_of_beq (List.mem_filter.mp h).2
 
-/-- A node of the last row shifts into the row. -/
-theorem mem_newRowIds_of_mem_newParents (g : GPathM) (d : NodeId) (q : PathNodeId)
-    (hpos : 0 < g.current_step) (h : q ∈ newParents g) : shiftPid q d ∈ newRowIds g d := by
-  unfold newRowIds
+/-- A node of the last row shifts into the row **unless its shift is prohibited**. This is the
+one lemma of the classic UP that changes meaning: the classic one had no side condition. -/
+theorem mem_newRowIds_of_mem_newParents (g : GPathM) (d : NodeId) (forb : PathNodeId → Bool)
+    (q : PathNodeId) (hpos : 0 < g.current_step) (h : q ∈ newParents g)
+    (hf : forb (shiftPid q d) = false) : shiftPid q d ∈ newRowIds g d forb := by
+  refine (mem_newRowIds g d forb _).mpr ⟨?_, hf⟩
+  unfold shiftRowIds
   rw [if_pos hpos]
   exact (mem_dedupPids _ _).mpr (List.mem_map_of_mem h)
 
@@ -802,14 +875,51 @@ theorem mem_rowOwners_iff (g : GPathM) (d : NodeId) (pid q : PathNodeId) :
     · exact Or.inl (List.mem_filter.mpr ⟨h1, by simpa using h2⟩)
     · exact Or.inr (List.mem_singleton.mpr rfl)
 
-def up (g : GPathM) (d : NodeId) (title : String) : GPathM :=
-  if isValid g then addNode g d title else g
+/-- **An empty row kills the gpath** (Julia's fix of error 3, `92315b1`). The hypothesis on the
+global owners — none at the step being added — holds on every state the machine builds. -/
+theorem isValid_addNode_of_nil (g : GPathM) (d : NodeId) (title : String)
+    (forb : PathNodeId → Bool) (hnil : newRowIds g d forb = []) (h0 : 0 ≤ g.current_step)
+    (hg : ∀ q ∈ g.gowners, q.id.step ≠ g.current_step) :
+    isValid (addNode g d title forb) = false := by
+  have hmem : g.current_step ∈ intRange 0 ((addNode g d title forb).current_step - 1) := by
+    rw [addNode_current]
+    exact mem_intRange_zero _ _ h0 (by omega)
+  have hno : hasStepEntry (addNode g d title forb).gowners g.current_step = false := by
+    rw [addNode_gowners, hnil, List.append_nil]
+    unfold hasStepEntry
+    rw [List.any_eq_false]
+    intro q hq hb
+    exact hg q hq (eq_of_beq hb)
+  -- `List.all_eq_false` would bring `Classical.choice`; go through `all_eq_true` instead.
+  cases hv : isValid (addNode g d title forb) with
+  | false => rfl
+  | true =>
+    unfold isValid at hv
+    have := List.all_eq_true.mp hv _ hmem
+    rw [hno] at this
+    exact absurd this Bool.false_ne_true
 
-def upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String) : GPathM :=
-  up (filterAll g reqs) d title
+/-- **The bin `do_up!`**: add the row; if a window was skipped, review. -/
+def up (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) : GPathM :=
+  if isValid g then
+    if skipsWindow g d forb then review (addNode g d title forb) else addNode g d title forb
+  else g
+
+/-- **The bin `do_up_filtering!`**. -/
+def upFiltering (g : GPathM) (reqs : List NodeId) (d : NodeId) (title : String)
+    (forb : PathNodeId → Bool) : GPathM :=
+  up (filterAll g reqs) d title forb
+
+theorem skipsWindow_noForb (g : GPathM) (d : NodeId) : skipsWindow g d noForb = false := by
+  simp [skipsWindow, noForb]
+
+/-- With nothing prohibited, `up` is the plain `addNode` on a valid state. -/
+theorem up_noForb (g : GPathM) (d : NodeId) (title : String) :
+    up g d title noForb = if isValid g then addNode g d title noForb else g := by
+  simp only [up, skipsWindow_noForb, Bool.false_eq_true, if_false]
 
 def initSeed (d : NodeId) (title : String) : GPathM :=
-  up empty d title
+  up empty d title noForb
 
 -- ============================================================
 -- Join (mirror of do_join!)
@@ -860,12 +970,12 @@ value node at even steps, negation node (requiring the value) at odd steps,
 fusion node at step 6. -/
 private def chainOf (x y z : Int) : GPathM :=
   let g := initSeed (nid 0 x) s!"X={x}"
-  let g := upFiltering g [nid 0 x] (nid 1 (1 - x)) s!"!X={1 - x}"
-  let g := up g (nid 2 y) s!"Y={y}"
-  let g := upFiltering g [nid 2 y] (nid 3 (1 - y)) s!"!Y={1 - y}"
-  let g := up g (nid 4 z) s!"Z={z}"
-  let g := upFiltering g [nid 4 z] (nid 5 (1 - z)) s!"!Z={1 - z}"
-  up g (nid 6 0) "FusionNode"
+  let g := upFiltering g [nid 0 x] (nid 1 (1 - x)) s!"!X={1 - x}" noForb
+  let g := up g (nid 2 y) s!"Y={y}" noForb
+  let g := upFiltering g [nid 2 y] (nid 3 (1 - y)) s!"!Y={1 - y}" noForb
+  let g := up g (nid 4 z) s!"Z={z}" noForb
+  let g := upFiltering g [nid 4 z] (nid 5 (1 - z)) s!"!Z={1 - z}" noForb
+  up g (nid 6 0) "FusionNode" noForb
 
 def run_tests : IO Unit := do
   -- Single chain: 7 steps, one node per step, everyone owns everyone.
@@ -903,7 +1013,7 @@ def run_tests : IO Unit := do
   -- Clause-style UP over the join (requires X=1 and Y=0), the L1 scenario:
   -- the new node's owners at each required step point only at the required
   -- map node.
-  let c := upFiltering j [nid 0 1, nid 2 0] (nid 7 3) "or0=100"
+  let c := upFiltering j [nid 0 1, nid 2 0] (nid 7 3) "or0=100" noForb
   assert! isValid c
   match c.node? { id := nid 7 3, parent_id := some (nid 6 0), gparent_id := some (nid 5 1) } with
   | none => assert! false

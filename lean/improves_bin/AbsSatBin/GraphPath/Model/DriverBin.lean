@@ -1,5 +1,5 @@
 -- lean/improves_bin/AbsSatBin/GraphPath/Model/DriverBin.lean
-import AbsSatBin.GraphPath.Model.UpBin
+import AbsSatBin.GraphPath.Model.GPathM
 import AbsSatBin.GraphMap.CnfMapBin
 
 /-!
@@ -10,7 +10,7 @@ import AbsSatBin.GraphMap.CnfMapBin
 * requirements come from `CnfMapBin.reqOf`;
 * destinations come from `CnfMapBin.sonsOf` (`map_node.sons`), so a positive variable node is
   sent only to the negation node it agrees with;
-* the UP is `upFilteringW … (isProhibited φ)` (`map_prohibited(machine.gmap)`).
+* the UP is `upFiltering … (isProhibited φ)` (`map_prohibited(machine.gmap)`).
 
 Definitions only; the invariants of `PureDriver` come later, once the UP lemmas they consume
 are re-proved for `addNodeW`.
@@ -35,7 +35,7 @@ def insertPure (line : PureLine) (key : NodeId) (g : GPathM) : PureLine :=
 /-- The bin `send_to_destine!`: filter by the destination's requirements, UP skipping the
 prohibited windows, keep the state only if it is still valid. -/
 def sendTo (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
-  let g' := upFilteringW g (reqOf φ d) d "" (isProhibited φ)
+  let g' := upFiltering g (reqOf φ d) d "" (isProhibited φ)
   if isValid g' then insertPure next d g' else next
 
 /-- Send one state to every son of its origin (`send_to_destine_by_origin!`). -/
@@ -47,7 +47,7 @@ def pureAdvance (φ : Cnf) (line : PureLine) : PureLine :=
 
 def pureInit (φ : Cnf) : PureLine :=
   (mapNodes φ 0).foldl
-    (fun line id => insertPure line id (upW GPathM.empty id "" (isProhibited φ))) []
+    (fun line id => insertPure line id (initSeed id "")) []
 
 def pureSteps (φ : Cnf) : Nat → PureLine → PureLine
   | 0, line => line

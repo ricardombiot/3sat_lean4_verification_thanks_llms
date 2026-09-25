@@ -46,8 +46,11 @@ structure Lit where
 for a negated one. This is `GraphMapBin`'s layout (root fusion at step 0, then
 the variables), with `get_step_var`'s `+1` rule for the negation, as arithmetic.
 
-**Changed from `lean_project`**, where it is `2v` / `2v+1` (no root fusion). -/
-def Lit.step (l : Lit) : Int := 2 * (l.v : Int) + 1 + (if l.pos then 0 else 1)
+**Changed from `lean_project`**, where it is `Lit.step` = `2v` / `2v+1` (no root fusion).
+**Renamed on purpose**: the old name does not exist here, so any code copied from `lean_project`
+that reads a literal's step fails to compile instead of silently computing with the classic
+layout. -/
+def Lit.binStep (l : Lit) : Int := 2 * (l.v : Int) + 1 + (if l.pos then 0 else 1)
 
 /-- A 3-clause, as a triple. -/
 structure Clause where
@@ -110,7 +113,7 @@ repeated literal simply occupies two clause steps that require the same node.
 because `Dimacs.wfB` and whatever is copied later may still read it. -/
 def Clause.WF (n : Nat) (c : Clause) : Prop :=
   (c.l1.v < n ∧ c.l2.v < n ∧ c.l3.v < n) ∧
-  (c.l1.step ≠ c.l2.step ∧ c.l1.step ≠ c.l3.step ∧ c.l2.step ≠ c.l3.step)
+  (c.l1.binStep ≠ c.l2.binStep ∧ c.l1.binStep ≠ c.l3.binStep ∧ c.l2.binStep ≠ c.l3.binStep)
 
 def WF (φ : Cnf) : Prop := ∀ c ∈ φ.clauses, Clause.WF φ.nVars c
 
@@ -129,7 +132,7 @@ theorem Clause.WF_of_distinct_vars (n : Nat) (c : Clause)
     (h12 : c.l1.v ≠ c.l2.v) (h13 : c.l1.v ≠ c.l3.v) (h23 : c.l2.v ≠ c.l3.v) :
     Clause.WF n c := by
   refine ⟨hb, ?_, ?_, ?_⟩ <;>
-    · simp only [Lit.step]
+    · simp only [Lit.binStep]
       intro hstep
       split at hstep <;> split at hstep <;> omega
 
