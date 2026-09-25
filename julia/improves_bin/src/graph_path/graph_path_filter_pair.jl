@@ -14,7 +14,7 @@
 #
 #   :off — (por defecto hasta medir) el review de siempre.
 #   :on  — make_review_owners! llama a pair_consistency_after_clean! tras clean_invalid_nodes!.
-const PAIR_MODE = Ref(:off)
+const PAIR_MODE = Ref(:on)
 
 # Contadores (solo para medir; no cambian nada).
 const PAIR_REMOVED = Ref(0)     # parejas deshechas (cada pareja mutua cuenta dos veces: (x,w) y (w,x))
