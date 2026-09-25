@@ -248,6 +248,48 @@ theorem reqOf_clause (φ : Cnf) (d : NodeId) (j p : Nat) (c : Clause) (hp : p < 
   simp only [reqOf, if_neg h0, if_neg h1, if_neg h2, if_neg h3]
   rw [h, clauseOf_clauseStep φ j p c hp hj]
 
+theorem reqOf_nonpos (φ : Cnf) (d : NodeId) (h : d.step ≤ 0) : reqOf φ d = [] := by
+  unfold reqOf; rw [if_pos h]
+
+theorem reqOf_mid (φ : Cnf) (d : NodeId) (h : d.step = midFusion φ) : reqOf φ d = [] := by
+  have h0 : ¬ d.step ≤ 0 := by rw [h]; simp only [midFusion]; omega
+  have h1 : ¬ d.step < midFusion φ := by rw [h]; omega
+  unfold reqOf; rw [if_neg h0, if_neg h1, if_pos h]
+
+theorem reqOf_above (φ : Cnf) (d : NodeId) (h : fusionTop φ ≤ d.step) : reqOf φ d = [] := by
+  have h0 : ¬ d.step ≤ 0 := by simp only [fusionTop] at h; omega
+  have h1 : ¬ d.step < midFusion φ := by simp only [fusionTop, midFusion] at h ⊢; omega
+  have h2 : ¬ d.step = midFusion φ := by simp only [fusionTop, midFusion] at h ⊢; omega
+  unfold reqOf; rw [if_neg h0, if_neg h1, if_neg h2, if_pos h]
+
+-- ============================================================
+-- The shape of `mapNodes`
+-- ============================================================
+
+/-- A fusion step (root, middle or top) has the single node `⟨k, 0⟩`. -/
+theorem mapNodes_fusion (φ : Cnf) (k : Int)
+    (h : k = 0 ∨ k = midFusion φ ∨ (fusionTop φ ≤ k ∧ k < stepCount φ)) :
+    mapNodes φ k = [⟨k, 0⟩] := by
+  have h0 : ¬ k < 0 := by simp only [midFusion, fusionTop] at h; omega
+  have hc : ¬ stepCount φ ≤ k := by
+    simp only [midFusion, fusionTop, stepCount] at h ⊢; omega
+  unfold mapNodes
+  rw [if_neg h0, if_neg hc]
+  by_cases hz : k = 0
+  · rw [if_pos hz]
+  · rw [if_neg hz]
+    by_cases hm : k = midFusion φ
+    · rw [if_pos hm]
+    · rw [if_neg hm, if_pos (by omega)]
+
+/-- Every other step of the map has both values. -/
+theorem mapNodes_two (φ : Cnf) (k : Int) (h0 : 0 < k) (hm : k ≠ midFusion φ)
+    (ht : k < fusionTop φ) : mapNodes φ k = [⟨k, 0⟩, ⟨k, 1⟩] := by
+  have hn : ¬ k < 0 := by omega
+  have hc : ¬ stepCount φ ≤ k := by simp only [fusionTop, stepCount] at ht ⊢; omega
+  unfold mapNodes
+  rw [if_neg hn, if_neg hc, if_neg (by omega), if_neg hm, if_neg (by omega)]
+
 -- ============================================================
 -- The two obligations `Reachable.up` states
 -- ============================================================

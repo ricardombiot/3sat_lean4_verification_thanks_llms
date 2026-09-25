@@ -2,6 +2,7 @@
 import AbsSatBin.Cnf.Dimacs
 import AbsSatBin.Cnf.Formula
 import AbsSatBin.GraphMap.CnfMapBin
+import AbsSatBin.GraphMap.CnfSelBin
 import AbsSatBin.GraphMap.MapBinDump
 import AbsSatBin.GraphPath.Model.AddNode
 import AbsSatBin.GraphPath.Model.ArcConsistency
@@ -10,6 +11,7 @@ import AbsSatBin.GraphPath.Model.Candidates
 import AbsSatBin.GraphPath.Model.Certificate
 import AbsSatBin.GraphPath.Model.Certifies
 import AbsSatBin.GraphPath.Model.CleanInvalid
+import AbsSatBin.GraphPath.Model.CnfChain
 import AbsSatBin.GraphPath.Model.Coherence
 import AbsSatBin.GraphPath.Model.Denot
 import AbsSatBin.GraphPath.Model.DriverBin
@@ -24,6 +26,7 @@ import AbsSatBin.GraphPath.Model.L6
 import AbsSatBin.GraphPath.Model.L6Search
 import AbsSatBin.GraphPath.Model.L6Up
 import AbsSatBin.GraphPath.Model.MapChain
+import AbsSatBin.GraphPath.Model.MapReachable
 import AbsSatBin.GraphPath.Model.NodeIds
 import AbsSatBin.GraphPath.Model.OwnersInvariants
 import AbsSatBin.GraphPath.Model.Ownership

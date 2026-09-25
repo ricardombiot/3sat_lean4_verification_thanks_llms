@@ -246,7 +246,7 @@ theorem hop_up (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
     (hd : g.node? p = some d) (hlo : 0 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2)
     (a : PathNodeId) (ha : a ∈ d.owners)
     (halo : 0 ≤ a.id.step) (hahi : a.id.step < g.current_step) :
-    ∃ c ∈ d.sons, ∃ m, g.node? c = some m ∧ a ∈ m.owners ∧ c.id.step = p.id.step + 1 := by
+    ∃ c ∈ d.sons, ∃ m, g.node? c = some m ∧ a ∈ m.owners ∧ c.id.step = p.id.step + 1 := by  -- idx: adjacent rows (one gpath row per map step, bin map too)
   have hmem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
   have hid : d.id = p := node?_id_eq g p d hd
   have hson := sons_ne_nil_of_isValidNode g d (ctx.nodeval p d hd) (by rw [hid]; omega)
@@ -256,7 +256,7 @@ theorem hop_up (g : GPathM) (ctx : TCtx g) (p : PathNodeId) (d : PNodeM)
     | cons x xs => exact ⟨x, xs, rfl⟩
   have hc₀mem : c₀ ∈ d.sons := by rw [hcons]; exact List.mem_cons_self ..
   -- a witness son, so the union has an entry at `a`'s step
-  have hstep₀ : c₀.id.step = p.id.step + 1 := by
+  have hstep₀ : c₀.id.step = p.id.step + 1 := by  -- idx: adjacent rows (one gpath row per map step, bin map too)
     have := ctx.sabove d hmem c₀ hc₀mem; rw [hid] at this; exact this
   have hc₀own : c₀ ∈ d.owners := (ctx.links p d hd).2 c₀ hc₀mem
   obtain ⟨m₀, hm₀⟩ := Option.isSome_iff_exists.mp

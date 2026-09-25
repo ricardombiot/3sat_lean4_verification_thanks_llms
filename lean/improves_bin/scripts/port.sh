@@ -10,5 +10,5 @@ for m in "$@"; do
   ./scripts/thread_forb.py "$m"
   ./scripts/fix_forb.py "$m"
   n=$(lake build "AbsSatBin.${m//\//.}" 2>&1 | grep -c '^error: AbsSatBin')
-  echo "  → $m: $n error(es) restantes"
+  echo "  → $m: $n error(es) restantes; $(./scripts/index_lint.py | tail -1)"
 done

@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "AbsSatBin"
-SOURCE = {"GraphMap/CnfMapBin.lean", "Cnf/Formula.lean"}  # las únicas fuentes de aritmética del mapa
+SOURCE = {"GraphMap/CnfMapBin.lean", "Cnf/Formula.lean", "GraphMap/CnfSelBin.lean"}  # las únicas fuentes de aritmética del mapa
 # Una mención histórica de un nombre clásico se admite si la línea cita su origen.
 HISTORY = re.compile(r"lean_project|classic|clásic")
 

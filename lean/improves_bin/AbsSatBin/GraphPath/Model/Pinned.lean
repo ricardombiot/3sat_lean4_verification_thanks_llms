@@ -101,7 +101,7 @@ theorem mapId_eq (h : GPathM) (ctx : Ctx h) (k : Int)
 /-- A non-root node has a parent, and that parent is a node one step below. -/
 theorem some_parent (h : GPathM) (ctx : Ctx h)
     (p : PathNodeId) (n : PNodeM) (hn : h.node? p = some n) (hroot : p.parent_id ≠ none) :
-    ∃ pp ∈ n.parents, ∃ pn, h.node? pp = some pn ∧ pp.id.step = p.id.step - 1 ∧
+    ∃ pp ∈ n.parents, ∃ pn, h.node? pp = some pn ∧ pp.id.step = p.id.step - 1 ∧  -- idx: adjacent rows (one gpath row per map step, bin map too)
       some pp.id = p.parent_id := by
   have hmem : n ∈ h.nodes := List.mem_of_find?_eq_some hn
   have hnid : n.id = p := node?_id_eq h p n hn

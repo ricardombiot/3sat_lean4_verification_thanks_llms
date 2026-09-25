@@ -1514,7 +1514,7 @@ theorem support_below (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.cu
     (hbelow : ∀ p n, g.node? p = some n → p.id.step < g.current_step)
     (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
     (hpos : 0 < p.id.step) :
-    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step - 1 := by
+    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step - 1 := by  -- idx: adjacent rows (one gpath row per map step, bin map too)
   obtain ⟨n', hn', u, hu, humid⟩ := hp
   have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
   have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
@@ -1534,7 +1534,7 @@ theorem support_above (tctx : Threaded.TCtx g) (hklo : 0 ≤ k) (hkhi : k < g.cu
     (hlink : Bridge.LinksInOwners g)
     (p : PathNodeId) (n : PNodeM) (hn : g.node? p = some n) (hp : PinSet g k mid p)
     (hlo : 0 ≤ p.id.step) (hhi : p.id.step ≤ g.current_step - 2) :
-    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step + 1 := by
+    ∃ v ∈ n.owners, PinSet g k mid v ∧ v.id.step = p.id.step + 1 := by  -- idx: adjacent rows (one gpath row per map step, bin map too)
   obtain ⟨n', hn', u, hu, humid⟩ := hp
   have hnn : n' = n := Option.some.inj (hn'.symm.trans hn)
   have hus : u.id.step = k := eq_of_beq (List.mem_filter.mp hu).2
