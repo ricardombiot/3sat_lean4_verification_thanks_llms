@@ -46,6 +46,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `KernelReader` | — | nuevo | `OwnAbove` (entradas en pasos ≥ 0) en toda la máquina; `kernel_of_review`: un review válido es un kernel; `kernel_readPins`: todo estado válido del lector es un kernel; `NoDeadEnd ⇐ KernelSplit`, `readerVerdictW_iff_of_kernelSplit` |
 | `KernelSplit` | — | nuevo | subkernel de un pin (`restrictPin`); `TriPin` (regla de parejas con el pin como tercer miembro fijo); `restrict_kernel`, `pin_survives_of_triPin`; `KernelSplit ⇐ TriPin` en la primera elección; `readerVerdictW_iff_of_triPin` |
 | `KernelIff` | — | nuevo | el review nunca añade hijos (`sonsSub_review`); `below_filterAll_self`; `kernelSplit_iff_noDeadEnd` |
+| `TriPinCore` | — | nuevo | un miembro exclusivo del pin cierra el trío (`tri_of_exclusive`); `TriPin ⇐ AmbTri` (solo parejas ambiguas) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
