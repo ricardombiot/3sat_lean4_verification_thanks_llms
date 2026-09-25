@@ -1,14 +1,18 @@
-function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String)
+# `prohibited` son las ventanas prohibidas del mapa (conjunto de PathNodeId); para el mapa clásico
+# es vacío. Véase docs/plans/bin-map.md, Fase B.
+function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
+                          prohibited :: Set{PathNodeId} = Set{PathNodeId}())
 
     filter!(gpath, requires)
     #up_filter_triangle_nodes!(gpath, requires)
 
-    do_up!(gpath, map_id_node, title)
+    do_up!(gpath, map_id_node, title, prohibited)
 end
 
-function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String)
+function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
+                prohibited :: Set{PathNodeId} = Set{PathNodeId}())
     if gpath.is_valid
-        add_row!(gpath, map_id_node, title)
+        add_row!(gpath, map_id_node, title, prohibited)
         gpath.current_step += 1
         gpath.map_parent_id = map_id_node
     end
@@ -20,11 +24,12 @@ The new row has one node per identifier that the window shift gives to the nodes
 Nodes of the last row that share `parent` shift to the same identifier, so they are merged
 into one node with several parents.
 =#
-function add_row!(gpath :: GPath, map_id_node :: NodeId, title :: String)
+function add_row!(gpath :: GPath, map_id_node :: NodeId, title :: String,
+                  prohibited :: Set{PathNodeId} = Set{PathNodeId}())
     if gpath.current_step == Step(0)
         add_root_node!(gpath, map_id_node, title)
     else
-        parents_by_id = group_parents_by_shifted_id(gpath, map_id_node)
+        parents_by_id = group_parents_by_shifted_id(gpath, map_id_node, prohibited)
 
         # First create every node, then register them: no new node can be seen by another one.
         new_nodes = PathDocNode[]
@@ -45,13 +50,16 @@ function add_root_node!(gpath :: GPath, map_id_node :: NodeId, title :: String)
     register_node!(gpath, node)
 end
 
-function group_parents_by_shifted_id(gpath :: GPath, map_id_node :: NodeId) :: Dict{PathNodeId, Vector{PathNodeId}}
+function group_parents_by_shifted_id(gpath :: GPath, map_id_node :: NodeId,
+                                     prohibited :: Set{PathNodeId} = Set{PathNodeId}()) :: Dict{PathNodeId, Vector{PathNodeId}}
     parents_by_id = Dict{PathNodeId, Vector{PathNodeId}}()
     last_step = gpath.current_step-1
 
     #! [for] $ O(7*7*7) $
     for id_last in PathCollectionLines.get_ids_step(gpath.table_lines, last_step)
         path_id_node = Alias.shift_path_id(id_last, map_id_node)
+        # La ventana prohibida no se crea: (L1=0, L2=0, L3=0) no existe.
+        path_id_node in prohibited && continue
         ids_parents = get!(parents_by_id, path_id_node, PathNodeId[])
         push!(ids_parents, id_last)
     end

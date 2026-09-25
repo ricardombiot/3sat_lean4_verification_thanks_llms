@@ -25,9 +25,11 @@ module PathReader
         is_finished :: Bool
     end
 
-    function new(gpath :: GPath)
+    function new(gpath :: GPath, first_lit_step :: Step = Step(0))
         solution = BitArray([])
-        step = Step(0)
+        # En el mapa clásico las variables positivas están en los pasos pares (0,2,...); en el mapa
+        # bin, con fusión raíz en el paso 0, están en los impares (1,3,...). Véase docs/plans/bin-map.md.
+        step = first_lit_step
         last_selected = nothing
         last_requires = nothing
         is_finished = false

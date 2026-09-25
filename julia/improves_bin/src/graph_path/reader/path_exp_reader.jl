@@ -25,8 +25,8 @@ module PathExpReader
         is_finished :: Bool
     end
 
-    function new(gpath :: GPath) :: GPathExpReader
-        reader_seed = PathReader.new(gpath)
+    function new(gpath :: GPath, first_lit_step :: Step = Step(0)) :: GPathExpReader
+        reader_seed = PathReader.new(gpath, first_lit_step)
         list_readers = Array{GPathReader,1}()
         push!(list_readers, reader_seed)
         list_solutions = Array{BitArray{1},1}()

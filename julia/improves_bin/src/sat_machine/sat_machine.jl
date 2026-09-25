@@ -11,26 +11,38 @@ module SatMachine
 
     using Main.AbsSat.GraphMap: GMap
     using Main.AbsSat.GraphMap
+    using Main.AbsSat.GraphMapBin: GMapBin
+    using Main.AbsSat.GraphMapBin
     using Main.AbsSat.GraphPath: GPath
     using Main.AbsSat.GraphPath
 
     using Main.AbsSat.GraphPathVisual
 
     mutable struct MSat
-        gmap :: GMap
+        gmap :: Union{GMap, GMapBin}
         timeline :: ColTimeline
         current_step :: Step
     end
 
-    function new(gmap :: GMap)
+    function new(gmap :: Union{GMap, GMapBin})
         timeline = CollectionTimeline.new()
         current_step = Step(0)
         MSat(gmap, timeline, current_step)
     end
 
+    # Acceso polimórfico al mapa: la máquina lee tanto GMap (clásico) como GMapBin (bin).
+    map_get_node(gmap :: GMap, id :: NodeId) = GraphMap.get_node(gmap, id)
+    map_get_node(gmap :: GMapBin, id :: NodeId) = GraphMapBin.get_node(gmap, id)
+
+    map_for_each_node_step(gmap :: GMap, step :: Step, fn) = GraphMap.for_each_node_step(gmap, step, fn)
+    map_for_each_node_step(gmap :: GMapBin, step :: Step, fn) = GraphMapBin.for_each_node_step(gmap, step, fn)
+
+    map_prohibited(gmap :: GMap) = Set{PathNodeId}()
+    map_prohibited(gmap :: GMapBin) = gmap.prohibited_windows
+
     function init!(machine :: MSat)
         #! [fn-iter] $ O(2) $
-        GraphMap.for_each_node_step(machine.gmap, Step(0), function (map_node)
+        map_for_each_node_step(machine.gmap, Step(0), function (map_node)
             id = map_node.id
             title = map_node.title
             CollectionTimeline.init_gpath_seed!(machine.timeline, id, title)
@@ -81,7 +93,7 @@ module SatMachine
     function send_to_destine_by_origin!(machine :: MSat, inmutable_gpath :: GPath)
         map_id_node = inmutable_gpath.map_parent_id
         #println("For each destine...")
-        map_node = GraphMap.get_node(machine.gmap, map_id_node)
+        map_node = map_get_node(machine.gmap, map_id_node)
 
         #! [for] $ O(7) $
         for id_destine in map_node.sons
@@ -91,12 +103,12 @@ module SatMachine
     end
 
     function send_to_destine!(machine :: MSat, inmutable_gpath :: GPath, id_destine :: NodeId)
-        map_node_destine = GraphMap.get_node(machine.gmap, id_destine)
+        map_node_destine = map_get_node(machine.gmap, id_destine)
         title = map_node_destine.title
         requires = map_node_destine.requires
 
         gpath = deepcopy(inmutable_gpath)
-        GraphPath.do_up_filtering!(gpath, requires, id_destine, title)
+        GraphPath.do_up_filtering!(gpath, requires, id_destine, title, map_prohibited(machine.gmap))
 
         if gpath.is_valid
             next_step = machine.current_step + 1
