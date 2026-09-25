@@ -1,0 +1,15 @@
+name = "abs-sat-bin"
+version = "0.1.0"
+defaultTargets = ["AbsSatBin"]
+
+[leanOptions]
+warningAsError = true
+
+[[lean_lib]]
+name = "AbsSatBin"
+root = "AbsSatBin"
+
+# Dump of the arithmetic bin map, for the differential against Julia (scripts/diff_map_bin.sh).
+[[lean_exe]]
+name = "mapbin-dump"
+root = "MapBinDumpMain"
