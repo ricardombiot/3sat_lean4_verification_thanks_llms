@@ -59,6 +59,9 @@ Cada módulo que entra se registra aquí con su procedencia:
   nodos viejos que sobreviven a la revisión están sobre una cadena sólida que elige `L1 = 1`. Es un
   filtro de un solo valor dos pasos por debajo de la cima: la misma forma que los filtros de
   `HardStepExact` en los pasos `L`.
+- Ruta alternativa (v194): `soundness_of_noDeadEnd` da la solidez **sin `ClauseStepExact`** con
+  `NoDeadEnd` + `RootValid`; y `NoDeadEnd ⇔ KernelSplit ⇐ TriPin ⇐ AmbTri` (parejas ambiguas con el
+  pin), la única pieza abierta del lector.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa
