@@ -67,6 +67,17 @@ def run_tests : IO Unit := do
   assert! isProhibited φOr (shiftPid last00 (nid 8 0))
   assert! !isProhibited φOr (shiftPid last00 (nid 8 1))
   assert! !isProhibited φOr (shiftPid last10 (nid 8 0))
+  -- **Only (L1, L2, L3) = (0,0,0) is prohibited**: the other seven UPs into L3 are allowed,
+  -- including the three whose new node has index 0: (1,0,0), (0,1,0), (1,1,0). Checked both on
+  -- `clauseWindow` and on the identifier the UP actually builds (`shiftPid` of the L2 node).
+  for b1 in [0, 1] do
+    for b2 in [0, 1] do
+      for b3 in [0, 1] do
+        let expected := b1 == 0 && b2 == 0 && b3 == 0
+        assert! isProhibited φOr (clauseWindow φOr 0 b1 b2 b3) == expected
+        let lastL2 : PathNodeId :=
+          { id := nid 7 b2, parent_id := some (nid 6 b1), gparent_id := some (nid 5 0) }
+        assert! isProhibited φOr (shiftPid lastL2 (nid 8 b3)) == expected
   -- One step too early (the L2 step) is never prohibited, even with zeros everywhere.
   let at6 : PathNodeId := { id := nid 6 0, parent_id := some (nid 5 0), gparent_id := some (nid 4 1) }
   assert! !isProhibited φOr (shiftPid at6 (nid 7 0))
