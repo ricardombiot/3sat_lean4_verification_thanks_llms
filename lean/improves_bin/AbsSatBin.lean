@@ -39,6 +39,7 @@ import AbsSatBin.GraphPath.Model.ParentId
 import AbsSatBin.GraphPath.Model.Parents
 import AbsSatBin.GraphPath.Model.PathExists
 import AbsSatBin.GraphPath.Model.PickInduction
+import AbsSatBin.GraphPath.Model.PinChainBin
 import AbsSatBin.GraphPath.Model.Pinned
 import AbsSatBin.GraphPath.Model.Pruned
 import AbsSatBin.GraphPath.Model.PureDriver
