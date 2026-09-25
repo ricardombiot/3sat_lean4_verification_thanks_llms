@@ -126,9 +126,11 @@ end
 
 theorem parent_of_owner {g : GPathM} (c : PinCtx g) (y : PathNodeId) (ny : PNodeM)
     (hy : g.node? y = some ny) (h1 : 1 ≤ y.id.step) (r : PathNodeId) (hr : r ∈ ny.owners)
+    -- idx: adjacent gpath rows (one row per map step, bin map too)
     (hrs : r.id.step = y.id.step - 1) : r ∈ ny.parents ∧ ∃ nr, g.node? r = some nr := by
   obtain ⟨cc, hcc, nc, hnc, hrc⟩ := c.ker.nbrP y ny hy h1 r hr
   have hyid : ny.id = y := node?_id_eq g y ny hy
+  -- idx: adjacent gpath rows (one row per map step, bin map too)
   have hcs : cc.id.step = y.id.step - 1 := by
     have := c.pb ny (List.mem_of_find?_eq_some hy) cc hcc; rw [hyid] at this; exact this
   have hncid : nc.id = cc := node?_id_eq g cc nc hnc
@@ -139,9 +141,11 @@ theorem parent_of_owner {g : GPathM} (c : PinCtx g) (y : PathNodeId) (ny : PNode
 
 theorem son_of_owner {g : GPathM} (c : PinCtx g) (y : PathNodeId) (ny : PNodeM)
     (hy : g.node? y = some ny) (h1 : y.id.step ≤ g.current_step - 2) (r : PathNodeId)
+    -- idx: adjacent gpath rows (one row per map step, bin map too)
     (hr : r ∈ ny.owners) (hrs : r.id.step = y.id.step + 1) : r ∈ ny.sons ∧ ∃ nr, g.node? r = some nr := by
   obtain ⟨cc, hcc, nc, hnc, hrc⟩ := c.ker.nbrS y ny hy h1 r hr
   have hyid : ny.id = y := node?_id_eq g y ny hy
+  -- idx: adjacent gpath rows (one row per map step, bin map too)
   have hcs : cc.id.step = y.id.step + 1 := by
     have := c.sa ny (List.mem_of_find?_eq_some hy) cc hcc; rw [hyid] at this; exact this
   have hncid : nc.id = cc := node?_id_eq g cc nc hnc
@@ -170,8 +174,10 @@ theorem restrict_kernel {g : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNode
       ∀ v nv, g.node? v = some nv → x ∈ nv.owners → v ∈ ny.owners →
       ∃ r ∈ ny.parents, ∃ nr, g.node? r = some nr ∧ inS g x r = true ∧ v ∈ nr.owners := by
     intro y ny hy hxy h1 v nv hv hxv hvy
+    -- idx: adjacent gpath rows (one row per map step, bin map too)
     have hlt : y.id.step - 1 < g.current_step := by
       have := c.below ny (List.mem_of_find?_eq_some hy); rw [node?_id_eq g y ny hy] at this; omega
+    -- idx: adjacent gpath rows (one row per map step, bin map too)
     obtain ⟨r, hr, hrv, hrx, hrs⟩ := ht y ny v nv nx hy hv hx hxy hxv hvy (y.id.step - 1) (by omega) hlt
     obtain ⟨hpar, nr, hnr⟩ := parent_of_owner c y ny hy h1 r hr hrs
     exact ⟨r, hpar, nr, hnr, hxo r hrx, hk.sym v nv r nr hv hnr hrv⟩
@@ -181,6 +187,7 @@ theorem restrict_kernel {g : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNode
     intro y ny hy hxy h1 v nv hv hxv hvy
     have h0 : 0 ≤ y.id.step := by
       have := c.snn ny (List.mem_of_find?_eq_some hy); rw [node?_id_eq g y ny hy] at this; exact this
+    -- idx: adjacent gpath rows (one row per map step, bin map too)
     obtain ⟨r, hr, hrv, hrx, hrs⟩ := ht y ny v nv nx hy hv hx hxy hxv hvy (y.id.step + 1) (by omega) (by omega)
     obtain ⟨hson, nr, hnr⟩ := son_of_owner c y ny hy h1 r hr hrs
     exact ⟨r, hson, nr, hnr, hxo r hrx, hk.sym v nv r nr hv hnr hrv⟩
@@ -234,17 +241,20 @@ theorem restrict_kernel {g : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNode
       · refine Or.inr ?_
         obtain ⟨cc, hcc⟩ := List.exists_mem_of_ne_nil _ hr
         obtain ⟨ncc, hncc⟩ := hk.isNode_owner p n hn cc (hk.linkP p n hn cc hcc).1
+        -- idx: adjacent gpath rows (one row per map step, bin map too)
         have hccs : cc.id.step = p.id.step - 1 := by
           have := c.pb n hnm cc hcc; rw [hnid] at this; exact this
         have hc0 : 0 ≤ cc.id.step := by
           have := c.snn ncc (List.mem_of_find?_eq_some hncc)
           rw [node?_id_eq g cc ncc hncc] at this; exact this
         have h1 : 1 ≤ p.id.step := by omega
+        -- idx: adjacent gpath rows (one row per map step, bin map too)
         obtain ⟨r, hr', hrS, hrs⟩ := hentry p n hn hxn (p.id.step - 1) (by omega) (by omega)
         obtain ⟨hrp, _⟩ := parent_of_owner c p n hn h1 r hr' hrs
         exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨hrp, hrS⟩)
     · by_cases hle : p.id.step ≤ g.current_step - 2
       · refine Or.inr ?_
+        -- idx: adjacent gpath rows (one row per map step, bin map too)
         obtain ⟨r, hr', hrS, hrs⟩ := hentry p n hn hxn (p.id.step + 1) (by omega) (by omega)
         obtain ⟨hrs', _⟩ := son_of_owner c p n hn hle r hr' hrs
         exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨hrs', hrS⟩)
