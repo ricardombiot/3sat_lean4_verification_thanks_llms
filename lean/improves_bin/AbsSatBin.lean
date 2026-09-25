@@ -27,6 +27,7 @@ import AbsSatBin.GraphPath.Model.GownersNodes
 import AbsSatBin.GraphPath.Model.Join
 import AbsSatBin.GraphPath.Model.JoinSound
 import AbsSatBin.GraphPath.Model.Kernel
+import AbsSatBin.GraphPath.Model.KernelIff
 import AbsSatBin.GraphPath.Model.KernelReader
 import AbsSatBin.GraphPath.Model.KernelSplit
 import AbsSatBin.GraphPath.Model.L6
