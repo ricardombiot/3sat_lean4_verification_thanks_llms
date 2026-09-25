@@ -1,6 +1,5 @@
 -- lean/improves_bin/AbsSatBin/GraphPath/Model/DriverBin.lean
-import AbsSatBin.GraphPath.Model.GPathM
-import AbsSatBin.GraphMap.CnfMapBin
+import AbsSatBin.GraphPath.Model.PureDriver
 
 /-!
 # The pure machine over the bin map
@@ -22,39 +21,7 @@ open AbsSatBin.Utils.Alias
 open AbsSatBin.Cnf
 open AbsSatBin.GraphMap.CnfMapBin
 open AbsSatBin.GraphPath.Model.GPathM
-
-abbrev PureLine := List (NodeId × GPathM)
-
-/-- States arriving at the same map node are merged (`CollectionTimeline.impact!`). -/
-def insertPure (line : PureLine) (key : NodeId) (g : GPathM) : PureLine :=
-  match line.find? (fun kv => kv.1 == key) with
-  | some (_, existing) =>
-    line.map (fun kv => if kv.1 == key then (key, doJoin existing g) else kv)
-  | none => line ++ [(key, g)]
-
-/-- The bin `send_to_destine!`: filter by the destination's requirements, UP skipping the
-prohibited windows, keep the state only if it is still valid. -/
-def sendTo (φ : Cnf) (g : GPathM) (next : PureLine) (d : NodeId) : PureLine :=
-  let g' := upFiltering g (reqOf φ d) d "" (isProhibited φ)
-  if isValid g' then insertPure next d g' else next
-
-/-- Send one state to every son of its origin (`send_to_destine_by_origin!`). -/
-def sendAll (φ : Cnf) (kv : NodeId × GPathM) (next : PureLine) : PureLine :=
-  (sonsOf φ kv.1).foldl (sendTo φ kv.2) next
-
-def pureAdvance (φ : Cnf) (line : PureLine) : PureLine :=
-  line.foldl (fun next kv => sendAll φ kv next) []
-
-def pureInit (φ : Cnf) : PureLine :=
-  (mapNodes φ 0).foldl
-    (fun line id => insertPure line id (initSeed id "")) []
-
-def pureSteps (φ : Cnf) : Nat → PureLine → PureLine
-  | 0, line => line
-  | n + 1, line => pureSteps φ n (pureAdvance φ line)
-
-/-- The whole run. An empty result is the UNSAT answer. -/
-def pureRun (φ : Cnf) : PureLine := pureSteps φ (stepCount φ - 1).toNat (pureInit φ)
+open AbsSatBin.GraphPath.Model.PureDriver
 
 -- ============================================================
 -- Checks the tests and the harness read

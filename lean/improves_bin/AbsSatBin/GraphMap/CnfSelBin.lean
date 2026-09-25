@@ -219,9 +219,9 @@ theorem selOfAssign_onMap (φ : Cnf) (a : Assign) (k : Int) (h0 : 0 ≤ k) (hk :
 /-- **The assignment's branch is a path along the map's sons.** The crossed link of the variable
 block (`"v=b"` has the single son `"!v=1-b"`) is where it needs the selection's own value. -/
 theorem selOfAssign_son (φ : Cnf) (a : Assign) (k : Int) (h0 : 0 ≤ k) (hk : k + 1 < stepCount φ) :
-    selOfAssign φ a (k + 1) ∈ sonsOf φ (selOfAssign φ a k) := by
+    selOfAssign φ a (k + 1) ∈ sonsOfMap φ (selOfAssign φ a k) := by
   have hstep := selOfAssign_step φ a k
-  unfold sonsOf
+  unfold sonsOfMap
   rw [hstep]
   split
   · rename_i hvar

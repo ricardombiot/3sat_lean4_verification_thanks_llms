@@ -144,7 +144,7 @@ def reqOf (φ : Cnf) (d : NodeId) : List NodeId :=
 /-- The sons the map links. A positive variable node links only to the
 negation node it agrees with (`add_var!`'s `add_son!`); every other node links
 to every node of the next step. -/
-def sonsOf (φ : Cnf) (d : NodeId) : List NodeId :=
+def sonsOfMap (φ : Cnf) (d : NodeId) : List NodeId :=
   if 0 < d.step ∧ d.step < midFusion φ ∧ d.step % 2 = 1 then
     [{ step := d.step + 1, index := 1 - d.index }]
   else mapNodes φ (d.step + 1)
@@ -289,6 +289,57 @@ theorem mapNodes_two (φ : Cnf) (k : Int) (h0 : 0 < k) (hm : k ≠ midFusion φ)
   have hc : ¬ stepCount φ ≤ k := by simp only [fusionTop, stepCount] at ht ⊢; omega
   unfold mapNodes
   rw [if_neg hn, if_neg hc, if_neg (by omega), if_neg hm, if_neg (by omega)]
+
+/-- Every node the map builds at a step reports that step. -/
+theorem mapNodes_step (φ : Cnf) (k : Int) (d : NodeId) (h : d ∈ mapNodes φ k) : d.step = k := by
+  unfold mapNodes at h
+  split at h
+  · exact absurd h List.not_mem_nil
+  · split at h
+    · exact absurd h List.not_mem_nil
+    · split at h
+      · rcases List.mem_singleton.mp h with rfl; rfl
+      · split at h
+        · rcases List.mem_singleton.mp h with rfl; rfl
+        · split at h
+          · rcases List.mem_singleton.mp h with rfl; rfl
+          · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+            rcases h with rfl | rfl <;> rfl
+
+/-- The index of a node of a two-valued step is `0` or `1`. -/
+theorem mapNodes_index (φ : Cnf) (k : Int) (d : NodeId) (h : d ∈ mapNodes φ k) :
+    d.index = 0 ∨ d.index = 1 := by
+  unfold mapNodes at h
+  split at h
+  · exact absurd h List.not_mem_nil
+  · split at h
+    · exact absurd h List.not_mem_nil
+    · split at h
+      · rcases List.mem_singleton.mp h with rfl; exact Or.inl rfl
+      · split at h
+        · rcases List.mem_singleton.mp h with rfl; exact Or.inl rfl
+        · split at h
+          · rcases List.mem_singleton.mp h with rfl; exact Or.inl rfl
+          · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+            rcases h with rfl | rfl
+            · exact Or.inl rfl
+            · exact Or.inr rfl
+
+/-- **A son of a map node is a map node, one step up.** The crossed link of a positive variable
+node lands on `1 - i`, and `i ∈ {0,1}` because the node is on the map. -/
+theorem sonsOfMap_subset (φ : Cnf) (d : NodeId) (hd : d ∈ mapNodes φ d.step) :
+    ∀ s ∈ sonsOfMap φ d, s ∈ mapNodes φ (d.step + 1) := by
+  intro s hs
+  unfold sonsOfMap at hs
+  split at hs
+  · rename_i hvar
+    obtain ⟨hpos, hlt, hodd⟩ := hvar
+    rcases List.mem_singleton.mp hs with rfl
+    have hi := mapNodes_index φ _ d hd
+    rw [mapNodes_two φ (d.step + 1) (by omega) (by simp only [midFusion] at hlt ⊢; omega)
+      (by simp only [midFusion, fusionTop] at hlt ⊢; omega)]
+    rcases hi with h | h <;> simp [h]
+  · exact hs
 
 -- ============================================================
 -- The two obligations `Reachable.up` states

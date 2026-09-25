@@ -33,7 +33,7 @@ def dumpLines (φ : Cnf) : List String := Id.run do
   let mut out : List String := [s!"S {stepCount φ}"]
   for k in List.range (stepCount φ).toNat do
     for d in mapNodes φ (k : Int) do
-      out := out ++ [s!"N {as_key d} R {keysSorted (reqOf φ d)} O {keysSorted (sonsOf φ d)}"]
+      out := out ++ [s!"N {as_key d} R {keysSorted (reqOf φ d)} O {keysSorted (sonsOfMap φ d)}"]
   for w in prohibitedList φ do
     out := out ++ [s!"W {as_key_from_PathNodeId w}"]
   return out
