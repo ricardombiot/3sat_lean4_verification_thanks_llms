@@ -44,6 +44,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `NoDeadEnd` | — | nuevo | decodificación exacta (`selOfAssign_decode`), pins fijados (`PinNodes`), descenso; `OtherBitSem ⇐ NoDeadEnd`, `soundness_of_noDeadEnd` (con `RootValid`, sin `ClauseStepExact`/`SkipExact`), `readerVerdictW_iff_of_noDeadEnd` |
 | `Kernel` | — | nuevo | `Kernel` (propiedades estáticas de un punto fijo válido del review) y `Below`; `below_review`: el review nunca baja de un kernel; `isValid_filterAll_of_kernel`: un pin sobrevive si un kernel válido por debajo concuerda con él |
 | `KernelReader` | — | nuevo | `OwnAbove` (entradas en pasos ≥ 0) en toda la máquina; `kernel_of_review`: un review válido es un kernel; `kernel_readPins`: todo estado válido del lector es un kernel; `NoDeadEnd ⇐ KernelSplit`, `readerVerdictW_iff_of_kernelSplit` |
+| `KernelSplit` | — | nuevo | subkernel de un pin (`restrictPin`); `TriPin` (regla de parejas con el pin como tercer miembro fijo); `restrict_kernel`, `pin_survives_of_triPin`; `KernelSplit ⇐ TriPin` en la primera elección; `readerVerdictW_iff_of_triPin` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales

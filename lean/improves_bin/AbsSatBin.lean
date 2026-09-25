@@ -28,6 +28,7 @@ import AbsSatBin.GraphPath.Model.Join
 import AbsSatBin.GraphPath.Model.JoinSound
 import AbsSatBin.GraphPath.Model.Kernel
 import AbsSatBin.GraphPath.Model.KernelReader
+import AbsSatBin.GraphPath.Model.KernelSplit
 import AbsSatBin.GraphPath.Model.L6
 import AbsSatBin.GraphPath.Model.L6Search
 import AbsSatBin.GraphPath.Model.L6Up
