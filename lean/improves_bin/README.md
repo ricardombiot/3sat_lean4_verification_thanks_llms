@@ -43,6 +43,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `OtherBitSem` | — | nuevo | `OtherBit` sobre la fórmula: los pins son una asignación parcial; la línea final lleva todas las soluciones (`carried_unique`); `readerVerdictW_iff_of_otherBitSem` con esa única hipótesis |
 | `NoDeadEnd` | — | nuevo | decodificación exacta (`selOfAssign_decode`), pins fijados (`PinNodes`), descenso; `OtherBitSem ⇐ NoDeadEnd`, `soundness_of_noDeadEnd` (con `RootValid`, sin `ClauseStepExact`/`SkipExact`), `readerVerdictW_iff_of_noDeadEnd` |
 | `Kernel` | — | nuevo | `Kernel` (propiedades estáticas de un punto fijo válido del review) y `Below`; `below_review`: el review nunca baja de un kernel; `isValid_filterAll_of_kernel`: un pin sobrevive si un kernel válido por debajo concuerda con él |
+| `KernelReader` | — | nuevo | `OwnAbove` (entradas en pasos ≥ 0) en toda la máquina; `kernel_of_review`: un review válido es un kernel; `kernel_readPins`: todo estado válido del lector es un kernel; `NoDeadEnd ⇐ KernelSplit`, `readerVerdictW_iff_of_kernelSplit` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
