@@ -46,6 +46,7 @@ import AbsSatBin.GraphPath.Model.Reachable
 import AbsSatBin.GraphPath.Model.Reader
 import AbsSatBin.GraphPath.Model.ReaderAgg
 import AbsSatBin.GraphPath.Model.ReaderExec
+import AbsSatBin.GraphPath.Model.ReaderPrefix
 import AbsSatBin.GraphPath.Model.Review
 import AbsSatBin.GraphPath.Model.SelfOwn
 import AbsSatBin.GraphPath.Model.SkipReview
