@@ -86,6 +86,21 @@ function probe(path, st; k3 = false)
                 good(U, B, Q, topp) || continue
                 bump("AP Q con testigos")
                 bump(any(i -> good(Up[i], Bp[i], Q, topp), eachindex(pieces)) ? "AP ok" : "AP FALLA")
+                # Wd: por destino. Para cada testigo de la cima w (destino d = w.id), ¿hay testigo en cada paso
+                # dentro de la unión de las piezas de destino d?
+                length(Set(p.map_parent_id for p in pieces)) >= 2 || continue
+                bump("  Wd Q en paso con 2 destinos")
+                tops = [w for w in get(B, topp, PathNodeId[]) if all(q -> owns(U, w, q), Q)]
+                for w in tops
+                    idx = [i for i in eachindex(pieces) if pieces[i].map_parent_id == w.id]
+                    Ud = Dict{PathNodeId, Set{PathNodeId}}()
+                    for i in idx; for (r, S) in Up[i]; union!(get!(Ud, r, Set{PathNodeId}()), S); end; end
+                    Bd = bystep_of(Ud)
+                    bump(haswit(Ud, Bd, Q, topp) ? "  Wd ok: testigos en todo paso dentro del destino de w" : "  Wd FALLA")
+                    bump(good(Ud, Bd, Q, topp) ? "  Gd ok: Q buena en la unión del destino de w" : "  Gd FALLA")
+                end
+                dgood = unique([pieces[i].map_parent_id for i in eachindex(pieces) if good(Up[i], Bp[i], Q, topp)])
+                bump(length(dgood) == 1 ? "  destinos buenos = 1" : "  destinos buenos = $(length(dgood))")
             end
         end
         (SatMachine.is_finished(m) || !SatMachine.have_gpaths_step(m)) && break

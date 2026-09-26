@@ -1285,6 +1285,12 @@ testigos de la unión de piezas lo es de la unión de fuentes (las tablas viejas
 luego GL(n) la lleva a una sola fuente. Lo que queda es el filtro: los testigos deben poseer los requisitos del
 destino, y los testigos de piezas de otro destino no los poseen.
 
+**Por destino (misma sonda).** En pasos con 2 destinos: para cada testigo de la cima `w` (destino `d = w.id`),
+¿hay testigos en todo paso dentro de las piezas de `d`? **Falla 5 701 veces** de 2,67 M (Wd, y Gd igual): el destino
+de un testigo cualquiera de la cima no sirve. Pero siempre hay algún destino bueno (AP): 1 en 1,47 M casos, los 2 en
+0,31 M. El filtro por destino no se puede elegir desde un testigo suelto; hay que elegir el destino con la clique
+entera, como la pieza buena (H19).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
