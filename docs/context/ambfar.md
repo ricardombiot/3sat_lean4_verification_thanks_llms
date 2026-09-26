@@ -1258,6 +1258,13 @@ Si `v` está por encima de `q`, la simetría basta (la inducción ya cubre `v`).
 Lectura: `MapCert` ⇐ X1 (iterado hasta un nodo por paso) + "una clique completa con testigos es una cadena". X1 es
 el núcleo en su forma más pequeña: añadir un nodo.
 
+**Formalizado (`GrowCert.lean`)**: la pieza 2 y la iteración ya estaban (`CertDescent.chain_of_cover`,
+`StateGrow.cover_of_grow`, `certClique_of_grow`). Nuevo, con las restricciones de mapa `R`:
+* `GrowR g`: una clique con testigos que poseen `R` gana un nodo en cualquier paso. **`growR_iff_mapCert`**: en un
+  kernel con el contexto del lector, `GrowR ⇔ MapCert`. X1 es exactamente `MapCert`.
+* **`growR_join`**: si crecen las piezas y vale `PieceLocal`, crece el estado unido (la extensión se toma en la pieza
+  buena, X4).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
