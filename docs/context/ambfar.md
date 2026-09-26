@@ -294,6 +294,45 @@ un certificado. La cadena queda así:
   * **En los estados del lector, `CliqueTri` y `CertLink` son el mismo enunciado.** El núcleo tiene
     una sola forma: la máquina guarda exactamente los certificados, leídos por las tablas cortadas.
 
+### 4.2f Intento: `CertLink` en la salida de la máquina — **no demostrado**
+
+**Qué dice en la salida.** En `g₀ = filterAll kv.2 []` (paso final), los certificados son exactamente
+las soluciones:
+* toda solución da una cadena en `g₀` (`OtherBitSem.chain_of_agrees`, sobre `carried_unique`);
+* toda cadena decodifica a una solución (`NoDeadEnd.selOfAssign_decode`);
+* y la ventana de un nodo (`PMP`, `GPMP`) fija el `PathNodeId` a partir de los nodos de mapa.
+
+Así, `CertLink(g₀)` es un enunciado **sobre `φ`**: todo enlace compatible relativo a una clique está,
+junto con la clique, en el camino de una solución.
+
+**Intento 1: inducción sobre la corrida de la máquina.** No funciona paso a paso.
+* Tras `addNode`, la compatibilidad en el paso nuevo pide un testigo `z` que posea `y`, `w` y `P`. La
+  tabla de `z` es la unión de las de sus padres (como mucho dos en bin), así que distintos miembros
+  pueden venir de padres distintos.
+* Además, en `CxP` los testigos de pasos distintos son independientes entre sí.
+* Por tanto `CertLink(addNode g)` no se sigue de `CertLink(g)`: solo el review posterior puede
+  restaurarlo. Tampoco `join` lo conserva, porque crea enlaces cruzados.
+
+**Intento 2: razonar sobre el punto fijo.**
+* `CertLink ⇔ CliqueTri`, y el review solo impone la regla de parejas.
+* Los axiomas del kernel admiten puntos fijos sin cadenas.
+* El fallo medido de `TriPin` muestra que las tablas no tienen la propiedad de Helly.
+* Lo que la historia sí da (demostrado) es que **no se pierde ningún certificado**. Lo que falta es el
+  converso: que toda estructura compatible esté respaldada por una solución, es decir, **la exactitud
+  del review respecto a la fórmula**.
+
+**Diagnóstico.**
+* Es el contenido entero de la completitud del lector. Ya no queda un lema más pequeño en la cadena.
+* Cualquier prueba tiene que usar la estructura concreta de los requisitos bin: cada paso de
+  cláusula prohíbe localmente la ventana `000`, y las ventanas son de tres pasos.
+* Rutas posibles:
+  * **Local a global**: exactitud dentro de un bloque de cláusula, y pegado a lo largo de la cadena de
+    pasos, aprovechando que las ventanas solapadas dan una estructura de anchura acotada. **Propuesto.**
+  * **Medir antes** si `CliqueTri` vale en la salida, en las instancias pequeñas, por ejemplo con
+    cliques de tamaño ≤ 2, porque la versión completa es exponencial. Si falla, esta ruta muere
+    aunque el lector siga funcionando. `NoDeadEnd` es lo necesario; `CliqueTri` es suficiente.
+    **Pendiente de confirmación.**
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
