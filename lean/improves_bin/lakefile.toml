@@ -28,3 +28,8 @@ root = "OtherBitProbeMain"
 [[lean_exe]]
 name = "ambhigh-probe"
 root = "AmbHighProbeMain"
+
+# Cross-check of the first TriPin failure found by ambhigh-probe (read-only).
+[[lean_exe]]
+name = "ambhigh-dump"
+root = "AmbHighDumpMain"

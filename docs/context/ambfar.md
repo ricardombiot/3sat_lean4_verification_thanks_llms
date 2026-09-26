@@ -160,6 +160,13 @@ servir de oráculo en instancias de 3 variables. Sin lanzar hasta que lo confirm
   todo `x`, solo para uno. Eso descarta un invariante que dé `TriPin` para todos los bits (como la
   versión «para todo `x`» de `SecPair` en §4.3, o la regla de tríos de §4.4 como invariante de la
   máquina actual). **Medido, sin valor estadístico.**
+* **Verificado que no es un error** (`lake exe ambhigh-dump`, independiente del bucle de la sonda):
+  * el estado es el de partida, sin pins, y es un kernel (0 roturas de simetría y de regla de parejas);
+  * `x = [1.0|0.0|_]`, `y = [9.0|8.1|7.0]`, `w = [5.1|4.1|3.0]`; en el paso 7, `y∩w = {[7.0|6.0|5.1]}` y
+    ese nodo no está en la tabla de `x`;
+  * semántica: 6 soluciones concuerdan con `x`, y **ninguna pasa por `y` y `w` a la vez**. El enlace
+    `y–w` es legítimo por parejas, pero no es compatible con `x`;
+  * al pinchar `x`, el review corta `w` de la tabla de `y` y el estado sigue válido.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
