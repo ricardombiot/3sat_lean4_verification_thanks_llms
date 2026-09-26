@@ -1265,6 +1265,13 @@ el núcleo en su forma más pequeña: añadir un nodo.
 * **`growR_join`**: si crecen las piezas y vale `PieceLocal`, crece el estado unido (la extensión se toma en la pieza
   buena, X4).
 
+**Todo estado de la máquina es un kernel (`KernelUp.lean`, demostrado).** `kernel_addNode`/`kernel_up` (el `UP` sin
+ventana saltada conserva el kernel), `kernel_join` (la unión de dos kernels es un kernel), `kernel_initSeed`, y la
+inducción sobre `Reachable`: **`kernel_reachable`**, **`aCtx_line`** (todo estado de línea tiene el contexto completo
+del lector) y **`growR_iff_mapCert_line`**: en todo estado de la máquina, crecer un nodo (X1) es exactamente `MapCert`.
+Medido antes en Julia tras corregir los enlaces caducados (`LINK_MODE`): 5 033/5 033 piezas y 2 986/2 986 estados
+de línea son kernels.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

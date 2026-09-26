@@ -571,4 +571,163 @@ theorem kernel_join {A B : GPathM} (hA : Kernel A) (hB : Kernel B) (hok : okJoin
 #guard_msgs in
 #print axioms kernel_join
 
+-- ============================================================
+-- Every state of the machine is a kernel
+-- ============================================================
+
+/-- **The seed is a kernel**: one node, its own only owner, at step `0`. -/
+theorem kernel_initSeed (d : NodeId) (title : String) (hstep : d.step = 0) : Kernel (initSeed d title) := by
+  let root : PathNodeId := { id := d, parent_id := none }
+  let rn : PNodeM := PNodeM.mk root title [] [] [root]
+  have hnode : ∀ p n, (initSeed d title).node? p = some n → n = rn ∧ p = root := by
+    intro p n hn
+    have hm := List.mem_of_find?_eq_some hn
+    rw [initSeed_nodes] at hm
+    have hn' : n = rn := List.mem_singleton.mp hm
+    refine ⟨hn', ?_⟩
+    have := node?_id_eq _ p n hn
+    rw [hn'] at this; exact this.symm
+  have hget : (initSeed d title).node? root = some rn := by
+    have hm : rn ∈ (initSeed d title).nodes := by rw [initSeed_nodes]; exact List.mem_singleton_self _
+    obtain ⟨m, hm'⟩ := Option.isSome_iff_exists.mp (node?_isSome_of_mem _ rn hm)
+    rw [hm', (hnode _ m hm').1]
+  have hgow := Certifies.initSeed_gowners d title
+  have hcs := initSeed_current d title
+  refine
+    { gow := ?_, gn := ?_, own := ?_, valid := ?_, sym := ?_, linkP := ?_, linkS := ?_, pair := ?_,
+      nbrP := ?_, nbrS := ?_ }
+  · intro p n hn; obtain ⟨_, rfl⟩ := hnode p n hn; rw [hgow]; exact List.mem_singleton_self _
+  · intro q hq; rw [hgow] at hq; rw [List.mem_singleton.mp hq, hget]; rfl
+  · intro p n hn v hv; obtain ⟨rfl, _⟩ := hnode p n hn; rw [hgow]; exact hv
+  · intro p n hn
+    obtain ⟨rfl, _⟩ := hnode p n hn
+    refine (isValidNode_iff _ rn).mpr ⟨List.all_eq_true.mpr (fun k hk => ?_), Or.inl rfl, Or.inl ?_⟩
+    · have h0 := mem_intRange_lower hk
+      have h1 := mem_intRange_upper hk
+      rw [hcs] at h1
+      exact List.any_eq_true.mpr ⟨root, List.mem_singleton_self _, beq_iff_eq.mpr (by
+        show d.step = k; omega)⟩
+    · rw [hcs]; exact beq_iff_eq.mpr (by show d.step = 1 - 1; omega)
+  · intro p n q m hn hm _
+    obtain ⟨rfl, rfl⟩ := hnode p n hn
+    obtain ⟨rfl, rfl⟩ := hnode q m hm
+    exact List.mem_singleton_self _
+  · intro p n hn c hc; obtain ⟨rfl, _⟩ := hnode p n hn; exact absurd hc List.not_mem_nil
+  · intro p n hn c hc; obtain ⟨rfl, _⟩ := hnode p n hn; exact absurd hc List.not_mem_nil
+  · intro p n w nw hn hnw _ k h0 h1
+    obtain ⟨rfl, _⟩ := hnode p n hn
+    obtain ⟨rfl, _⟩ := hnode w nw hnw
+    rw [hcs] at h1
+    exact ⟨root, List.mem_singleton_self _, List.mem_singleton_self _, by show d.step = k; omega⟩
+  · intro p n hn h1
+    obtain ⟨_, rfl⟩ := hnode p n hn
+    exact absurd h1 (by show ¬ (1 ≤ d.step); omega)
+  · intro p n hn h2
+    obtain ⟨_, rfl⟩ := hnode p n hn
+    rw [hcs] at h2
+    exact absurd h2 (by show ¬ (d.step ≤ 1 - 2); omega)
+
+section
+variable (reqOf : NodeId → List NodeId) (forb : PathNodeId → Bool)
+
+/-- **Every valid state of the machine is a kernel**: the seed is one, the filter's review of a machine
+state is one (`kernel_of_review`), the `UP` keeps it (`kernel_up`) or reviews (`kernel_of_review`), and the
+join keeps it (`kernel_join`). -/
+theorem kernel_reachable (g : GPathM) (h : Reachable reqOf forb g) : isValid g = true → Kernel g := by
+  induction h with
+  | seed d title hstep _ => intro _; exact kernel_initSeed d title hstep
+  | up g d title hstep _ _ hr _ =>
+    intro hv
+    have hpr := pruned_filterAll g (reqOf d)
+    have hnd := Reader.NodupIds_reachable reqOf forb g hr
+    have cg := Reader.RCtx_reachable reqOf forb g hnd hr
+    have abg := KernelReader.ownAbove_reachable reqOf forb g hr
+    show Kernel (up (filterAll g (reqOf d)) d title forb)
+    have hv' : isValid (up (filterAll g (reqOf d)) d title forb) = true := hv
+    -- the filter is valid, else `up` returns it unchanged
+    have hvF : isValid (filterAll g (reqOf d)) = true := by
+      cases e : isValid (filterAll g (reqOf d)) with
+      | true => rfl
+      | false => unfold up at hv'; rw [e] at hv'; simp only [Bool.false_eq_true, if_false] at hv'; rw [e] at hv'; exact hv'
+    have hvg : isValid g = true := Certifies.isValid_of_pruned hpr hvF
+    have sg := (SymMachine.symInv_reachable reqOf forb g hr hvg).1
+    -- the filtered state is a kernel
+    have cX : Reader.RCtx ((reqOf d).foldl filterRequire g) :=
+      ReaderAgg.RCtx_of_keeps (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire (reqOf d) g) cg
+    have abX : KernelReader.OwnAbove ((reqOf d).foldl filterRequire g) := by
+      intro m hm; rw [SymMachine.foldl_filterRequire_nodes] at hm; exact abg m hm
+    have hkF : Kernel (filterAll g (reqOf d)) :=
+      KernelReader.kernel_of_review _ cX (SymMachine.sym_foldl_filterRequire (reqOf d) g sg) abX hvF
+    have cF := Reader.RCtx_filterAll g cg (reqOf d)
+    have hdF : d.step = (filterAll g (reqOf d)).current_step := by rw [hpr.step_eq]; exact hstep
+    have hpos : 0 < (filterAll g (reqOf d)).current_step := by
+      rw [hpr.step_eq]; exact NodeInvariant.pos_reachable reqOf forb g hr
+    have hso : Ownership.SelfOwned (filterAll g (reqOf d)) :=
+      SelfOwn.SelfOwned_of_OOS ((reqOf d).foldl filterRequire g) hvF cF.oos cF.snn cF.below
+    cases hsk : skipsWindow (filterAll g (reqOf d)) d forb with
+    | false => exact kernel_up d title forb hkF hdF cF.below hpos hso cF.oos cF.ownb hvF hsk
+    | true =>
+      have he : up (filterAll g (reqOf d)) d title forb = review (addNode (filterAll g (reqOf d)) d title forb) := by
+        unfold up; rw [if_pos hvF, hsk]; rfl
+      rw [he] at hv' ⊢
+      have hmokF := MachineOk_of_pruned hpr (Certifies.MachineOk_reachable reqOf forb g hr)
+      have hTL : ParentId.TL (filterAll g (reqOf d)) :=
+        ParentId.TL_of_pruned hpr (ParentId.TL_reachable reqOf forb g hr)
+      have cA : Reader.RCtx (addNode (filterAll g (reqOf d)) d title forb) :=
+        { oos := SelfOwn.OOS_addNode _ d title forb hdF cF.below cF.gn cF.oos
+          snn := SelfOwn.SNN_addNode _ d title forb hdF hmokF cF.snn
+          gn := GownersNodes.GN_addNode _ d title forb cF.gn
+          shape := ⟨Parents.PN_addNode _ d title forb cF.shape.pn,
+            Parents.PBelow_addNode _ d title forb hdF cF.shape.pbelow,
+            Parents.NotRoot_addNode _ d title forb hdF hmokF cF.shape.notroot⟩
+          rootz := Sons.RootAtZero_addNode _ d title forb hdF hmokF cF.rootz
+          pmp := ParentId.PMP_addNode _ d title forb hTL cF.pmp
+          gpmp := ParentId.GPMP_addNode _ d title forb cF.gpmp
+          ownb := SelfOwn.OwnBelow_addNode _ d title forb hdF cF.ownb
+          below := SymMachine.below_addNode _ d title forb hdF cF.below
+          nodup := Reader.nodup_addNode _ d title forb cF.nodup cF.below hdF }
+      have sA := Reader.OwnSymmetric_addNode _ d title forb hdF cF.below cF.ownb hkF.sym
+      have abA := KernelReader.ownAbove_addNode _ d title forb hdF (by omega) cF.gn cF.snn
+        (KernelReader.ownAbove_of_pruned hpr abg)
+      exact KernelReader.kernel_of_review _ cA sA abA hv'
+  | join g₁ g₂ hok _ _ ih₁ ih₂ =>
+    intro _
+    obtain ⟨_, hv₁, hv₂⟩ := SymMachine.okJoin_parts hok
+    exact kernel_join (ih₁ hv₁) (ih₂ hv₂) hok
+
+/-- info: 'AbsSatBin.GraphPath.Model.KernelUp.kernel_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms kernel_reachable
+
+end
+
+/-- **A valid machine state carries the reader's full context**: it is a kernel with the reader's invariants. -/
+theorem aCtx_reachable (reqOf : NodeId → List NodeId) (forb : PathNodeId → Bool) (g : GPathM)
+    (h : Reachable reqOf forb g) (hv : isValid g = true) : AmbTriCore.ACtx g := by
+  have hnd := Reader.NodupIds_reachable reqOf forb g h
+  have c := Reader.RCtx_reachable reqOf forb g hnd h
+  exact ⟨⟨kernel_reachable reqOf forb g h hv, hnd, c.oos, c.shape.pbelow,
+    Sons.SAbove_reachable reqOf forb g h, c.snn, c.below⟩, c⟩
+
+open AbsSatBin.Cnf
+open AbsSatBin.GraphMap.CnfMapBin
+open AbsSatBin.GraphPath.Model.PureDriver
+open AbsSatBin.GraphPath.Model.LineSem
+
+/-- **Every state of every line of the machine is a kernel**, with the reader's context. -/
+theorem aCtx_line (φ : Cnf) (hbd : Bounded φ) (n : Nat) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) :
+    AmbTriCore.ACtx kv.2 := by
+  have hok : StateOk φ n kv := (lineOk φ n).2 kv hkv
+  exact aCtx_reachable (reqOf φ) (isProhibited φ) kv.2
+    (MapReachable.reachable_of_mapReachable φ hbd kv.2 hok.reach) hok.valid
+
+/-- **On every state of the machine, growing one node at a time is exactly `MapCert`.** -/
+theorem growR_iff_mapCert_line (φ : Cnf) (hbd : Bounded φ) (n : Nat) (kv : NodeId × GPathM)
+    (hkv : kv ∈ line φ n) : GrowCert.GrowR kv.2 ↔ MapCert.MapCert kv.2 :=
+  GrowCert.growR_iff_mapCert (aCtx_line φ hbd n kv hkv)
+
+/-- info: 'AbsSatBin.GraphPath.Model.KernelUp.growR_iff_mapCert_line' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms growR_iff_mapCert_line
+
 end AbsSatBin.GraphPath.Model.KernelUp
