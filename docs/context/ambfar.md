@@ -1,6 +1,6 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`, hasta el commit de `AmbHighCore` (peldaño 10).
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en §4.2κ (sesión 2026-09-26).
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
 > Informe de referencia: `docs/bitacora/verificacion_inseguridad_autor_v194.md` (hasta `TriPin`/`AmbTri`).
@@ -1203,157 +1203,108 @@ de mapa, la de caminos pasa el join porque la unión no inventa cadenas.
 
 **Abierto, único:** `PieceLocal` (equivalente a `MapCert` del estado unido). Medido: 3,5 M cliques sin excepción.
 
-### 4.2κ El join es compresión sin pérdida: se descomprime filtrando por la clave (medido)
+### 4.2κ Después del invariante combinado: el join, los kernels y la unión de línea (sesión 2026-09-26)
 
-Sonda `julia/improves_bin/test_3sat/probes/decompress_probe.jl` (2 047 joins, 4 094 piezas, 1,94 M cliques con
-testigos; instancias crafted, random_small y ejemplos):
+**Resumen de estado.**
 
-* **D1: `filter(J, {k_i}) = P_i`**, tabla a tabla, en las 4 094 piezas. Filtrar el estado unido por la clave del
-  paso `n` de la fuente devuelve exactamente la pieza. La unión conserva toda la información y es invertible.
-* **SYM**: la posesión es simétrica en todo estado unido (2 047/2 047).
-* **H20**: toda clique con testigos de `J` admite una clave `k_i` co-poseída por testigos en todos los pasos
-  (`WitR J Q [k_i]`), sin excepción. Pero **H21/FP fallan en 20 casos**: `WitR J Q [k_i]` no basta para que la
-  clique sobreviva al filtro por `k_i`. La pieza buena la sigue fijando la clique entera (H19).
-* F3 falla (2 503): no toda pieza con un testigo en el paso `n` conserva la clique.
+| pieza | estado |
+|---|---|
+| Todo estado de la máquina es un kernel; `GrowR ⇔ MapCert` en cada estado de línea | **demostrado**, sin hipótesis |
+| El join se descomprime por la clave: la pieza revisada cabe en `filter(J,{k})` | **demostrado** |
+| FU: filtrar el estado unido cabe en la unión de sus piezas filtradas, bajo `MapCert J` | **demostrado** |
+| Bajada fijada: pieza fijada sin cima ⊆ fuente fijada; truncar un kernel da un kernel | **demostrado** |
+| `MapCert` de la línea `n+1` desde GL/GLF de la línea `n` | **demostrado como implicación**; su hipótesis es **falsa** en 20 casos (restricción en la cima) |
+| `PieceLocal` (≡ `MapCert` del estado unido ≡ X1 en el estado unido) | **abierto**; medido sin fallos |
 
-Lectura. Por D1, `J = join (filterAll J [k_A]) (filterAll J [k_B])`: es la forma de `CertRoute.certClique_join_pins`
-(demostrado), pero ese lema pide que `J` ya sea exacto. Las dos vías llegan al mismo núcleo: una clique con
-testigos del estado unido tiene cadena (Helly en la unión). D1 dice que la unión no pierde ni mezcla
-información; lo que falta es que la review de las piezas (ventana saltada en `L3`) baste para decidir la pieza.
+Lo único que falta para que el lector decida sigue siendo `PieceLocal`. Esta sesión lo ha reducido y medido desde varios
+lados; el núcleo que queda en todas las formas es el mismo: **elegir, con la clique entera, la pieza (o el destino)
+donde vive**; ninguna regla local lo decide.
 
-**Demostrado (`PieceFilter.piece_survives_filter`)**: la pieza revisada queda por debajo de `filter(J, {k})`. La
-pieza revisada es un kernel, está por debajo de `J` y en el paso `n` solo nombra `k`; la review nunca baja de un
-kernel. **Reducido (`PieceFilter.filter_in_piece`)**: la otra mitad, `filter(J, {k}) ⊆ A`, sale si toda entrada que
-deja el filtro está en una cadena (`EntryOnChain`). La cadena sube a `J`, baja a la pieza de su clave en el paso
-`n` (`chain_in_piece`), y esa clave es la fijada. La review calcula el mayor kernel (`below_review`), y un kernel
-solo tiene apoyo local: `EntryOnChain` del estado filtrado es la forma por entradas de `NoDeadEnd`, el núcleo
-abierto. Medido: toda entrada de todo estado de línea y de lector está en una cadena (`supported_probe.jl`,
-74 k estados, 0 fallos).
+#### 4.2κ.1 Compresión sin pérdida (`decompress_probe.jl`, `PieceFilter.lean`)
 
-**`EntryOnChain` es `MapCert` en cliques de dos** (`PieceFilter.entryOnChain_of_mapCert`): en un kernel, la regla de
-parejas da en cada paso un nodo en las dos tablas de una entrada `q→v`, y la simetría hace que posea a ambos; la
-entrada es una clique de dos con testigos. Un pin conserva `MapCert` (`mapCert_filter_pin`). Por tanto
-`MapCert J ⇒ filter(J, {k}) ⊆ A` (`filter_in_piece_of_mapCert`): bajo el invariante combinado el join se
-descomprime exacto. Para `PieceLocal` esto es circular (pide `MapCert J`); lo que aporta es que la mitad dura
-de la descompresión y `PieceLocal` son el mismo enunciado de Helly, ahora ya en cliques de dos.
+* **Medido** (review antigua; reejecución pendiente, ver 4.2κ.8): D1, `filter(J,{k_i}) = P_i` tabla a tabla en 4 094
+  de 4 094 piezas; SYM, posesión simétrica en todo estado unido; H20, toda clique con testigos de `J` admite una clave
+  `k_i` co-poseída por testigos en todos los pasos, pero **FP/H21 fallan en 20 casos** (`WitR J Q [k_i]` no basta para
+  sobrevivir al filtro por `k_i`); F3 falla 2 503.
+* **Demostrado**: `piece_survives_filter` (la pieza revisada cabe en `filter(J,{k})`: es un kernel bajo `J` que en el
+  paso `n` solo nombra `k`, y la review nunca baja de un kernel); `filter_in_piece` (la otra mitad, si toda entrada del
+  filtrado está en una cadena, `EntryOnChain`); `entryOnChain_of_mapCert` (en un kernel, una entrada es una clique de
+  dos con testigos: regla de parejas y simetría); `mapCert_filter_pin`; `filter_in_piece_of_mapCert` (bajo `MapCert J`
+  el join se descomprime exacto). Circular para `PieceLocal`, pero muestra que la mitad dura de la descompresión y
+  `PieceLocal` son el mismo enunciado.
 
-**La entrada filtrada, sonda `lift_probe.jl`** (890 774 entradas `q→v` del estado unido ausentes de una pieza `P`).
-Se buscaba una regla local que diera `filter(J,{k}) ⊆ A` por inducción de arriba abajo en el kernel filtrado.
-Si `v` está por encima de `q`, la simetría basta (la inducción ya cubre `v`). El caso difícil es `v` por debajo
-(260 301 entradas):
-* Subida por un hijo (SL) falla 4 302; por un hijo que co-posee `q` y `v` en `P` (SL2), 1 872; con co-poseedores en
-  `P` en todo paso por encima de `q` (C2), 287. Ninguna regla de arriba abajo cierra la inducción.
-* **FW, 0 fallos**: si `v ∉ P(q)`, hay algún paso (por encima o por debajo) sin nodo de `P` que posea a la vez `q`
-  y `v`. Los testigos de la pieza en todos los pasos fuerzan la entrada. Pero usar FW en el kernel filtrado pide
-  los testigos de pasos inferiores, y la inducción deja de estar bien fundada: es otra vez el núcleo global.
+#### 4.2κ.2 Reglas locales para la entrada filtrada: ninguna (`lift_probe.jl`, review antigua)
 
-**Vía 1, crecimiento paso a paso, sonda `grow_step_probe.jl`** (2,26 M cliques con testigos; 1,94 M en estados unidos):
-* **X1, 0 fallos** (55 M pruebas): toda clique con testigos crece, en cualquier paso libre, con algún nodo `r` y
-  `Q ∪ {r}` sigue siendo clique con testigos.
-* **X3, 0 fallos**: completar de arriba abajo eligiendo **cualquier** extensión válida nunca se atasca. Las cliques
-  con testigos son cerradas bajo extensión: no hay callejones sin salida para ellas.
-* **X4, 0 fallos**: en el estado unido, la extensión puede tomarse dentro de la pieza buena y sigue buena allí.
-* X2 falla (318 k): no todo testigo extiende; hay que elegir entre los testigos.
+Inducción de arriba abajo en el kernel filtrado. Si `v` está por encima de `q`, basta la simetría; con `v` debajo
+(260 301 entradas): SL falla 4 302, SL2 1 872, C2 (co-poseedores en `P` en todo paso por encima) 287. **FW, 0 fallos**:
+si `v ∉ P(q)`, algún paso no tiene nodo de `P` que posea `q` y `v`. Usarlo pide los pasos de abajo: no bien fundado.
 
-Lectura: `MapCert` ⇐ X1 (iterado hasta un nodo por paso) + "una clique completa con testigos es una cadena". X1 es
-el núcleo en su forma más pequeña: añadir un nodo.
+#### 4.2κ.3 Crecer un nodo (`grow_step_probe.jl`, review antigua; `GrowCert.lean`)
 
-**Formalizado (`GrowCert.lean`)**: la pieza 2 y la iteración ya estaban (`CertDescent.chain_of_cover`,
-`StateGrow.cover_of_grow`, `certClique_of_grow`). Nuevo, con las restricciones de mapa `R`:
-* `GrowR g`: una clique con testigos que poseen `R` gana un nodo en cualquier paso. **`growR_iff_mapCert`**: en un
-  kernel con el contexto del lector, `GrowR ⇔ MapCert`. X1 es exactamente `MapCert`.
-* **`growR_join`**: si crecen las piezas y vale `PieceLocal`, crece el estado unido (la extensión se toma en la pieza
-  buena, X4).
+* **Medido**: X1 (toda clique con testigos gana un nodo en cualquier paso, 55 M pruebas), X3 (la voraz con cualquier
+  extensión válida nunca se atasca), X4 (en el estado unido, la extensión se toma en la pieza buena): 0 fallos. X2
+  (todo testigo extiende) falla 318 k.
+* **Demostrado**: `growR_iff_mapCert` (en un kernel con el contexto del lector, crecer con restricciones de mapa es
+  exactamente `MapCert`); `growR_join` (si crecen las piezas y vale `PieceLocal`, crece el estado unido). X1 es el
+  núcleo en su forma más pequeña, no una hipótesis más débil.
 
-**Todo estado de la máquina es un kernel (`KernelUp.lean`, demostrado).** `kernel_addNode`/`kernel_up` (el `UP` sin
-ventana saltada conserva el kernel), `kernel_join` (la unión de dos kernels es un kernel), `kernel_initSeed`, y la
-inducción sobre `Reachable`: **`kernel_reachable`**, **`aCtx_line`** (todo estado de línea tiene el contexto completo
-del lector) y **`growR_iff_mapCert_line`**: en todo estado de la máquina, crecer un nodo (X1) es exactamente `MapCert`.
-Medido antes en Julia tras corregir los enlaces caducados (`LINK_MODE`): 5 033/5 033 piezas y 2 986/2 986 estados
-de línea son kernels.
+#### 4.2κ.4 Todo estado de la máquina es un kernel (`KernelUp.lean`) — demostrado, incondicional
 
-**X1 en el estado unido: un invariante no local (sonda `global_local_probe.jl`).** En un kernel, añadir a `Q` un
-testigo `r` da siempre una clique (simetría); lo abierto es que algún testigo tenga a su vez testigos (**E**). Las
-reglas locales ya fallaron (E1w, H16). Medido, sin fallos:
-* **GL** (1,78 M): en el mapa bin cada línea tiene como mucho 2 estados; la unión de los dos (con claves distintas,
-  que la máquina nunca une) no crea cliques con testigos: toda clique con testigos de la unión vive en uno.
-* **AP** (1,95 M): la unión de **todas** las piezas de un paso (2, 3 o 4, con destinos distintos) tampoco.
+* Julia tenía **enlaces caducados** (padre–hijo entre nodos que ya no se poseen): el corte en dos fases, la regla de
+  parejas, el espejo y la regla de la cadena quitaban dueños sin desenlazar. Corregido (`LINK_MODE = :on`, f463d92),
+  como el modelo Lean (`unlinkIncompatible`, `cutNode`). Además (e1acfd4) la review contra hijos llega al paso 0 (la
+  asimetría de v48) y se desactiva la regla de la cadena (no está en el modelo Lean). Tras los tres cambios: veredictos
+  55/55 frente a fuerza bruta, piezas 5 033/5 033 y estados de línea 2 986/2 986 son kernels (`kernel_probe.jl`).
+* **Demostrado**: `kernel_addNode`/`kernel_up` (el `UP` sin ventana saltada conserva el kernel; con salto aplica la
+  review y `kernel_of_review`), `kernel_join` (la unión de dos kernels es un kernel; se añadió `Join.join_sons_source`),
+  `kernel_initSeed`, **`kernel_reachable`** (inducción sobre `Reachable`), **`aCtx_line`** (todo estado de línea tiene el
+  contexto completo del lector) y **`growR_iff_mapCert_line`**.
 
-Propuesta de invariante: `MapCert` de la unión de los estados de cada línea. Paso fácil: AP(n) ⇒ GL(n+1) (los
-estados de la línea `n+1` son uniones de piezas). Paso por hacer: GL(n) ⇒ AP(n). Quitando la cima, una clique con
-testigos de la unión de piezas lo es de la unión de fuentes (las tablas viejas de una pieza están en su fuente),
-luego GL(n) la lleva a una sola fuente. Lo que queda es el filtro: los testigos deben poseer los requisitos del
-destino, y los testigos de piezas de otro destino no los poseen.
+#### 4.2κ.5 La unión de línea como invariante (`global_local_probe.jl`, `dest_probe.jl`, `glpin_probe.jl`, `glfstar_probe.jl`)
 
-**Por destino (misma sonda).** En pasos con 2 destinos: para cada testigo de la cima `w` (destino `d = w.id`),
-¿hay testigos en todo paso dentro de las piezas de `d`? **Falla 5 701 veces** de 2,67 M (Wd, y Gd igual): el destino
-de un testigo cualquiera de la cima no sirve. Pero siempre hay algún destino bueno (AP): 1 en 1,47 M casos, los 2 en
-0,31 M. El filtro por destino no se puede elegir desde un testigo suelto; hay que elegir el destino con la clique
-entera, como la pieza buena (H19).
+Medido con la review corregida, sin fallos salvo lo indicado:
+* **GL** (1,78 M): en bin cada línea tiene como mucho 2 estados; su unión (claves distintas) no crea cliques con
+  testigos (con `R` vacío). **AP** (1,95 M): la unión de todas las piezas de un paso tampoco.
+* **Por destino**: el destino de un testigo cualquiera de la cima no siempre tiene testigos (Wd falla 5 701 de 2,67 M);
+  siempre hay algún destino bueno. **B1** (26 M pares, con tríos): el destino es bueno ⇔ `Q` es clique en `J_d` con
+  testigos en todos los `L3`; de los malos, 12,13 M no son clique y 184 fallan por testigos en una cláusula.
+* **GLF** (GL con fijaciones): caso ventana 251 076, fijaciones al azar 2,83 M. **GLF\*** (familias con estados repetidos
+  y fijaciones al azar): 4,29 M. **FU** (filtrar el estado unido cabe en la unión de sus piezas filtradas): 5 337.
 
-**El paso del join desde GL, un destino (`LineUnion.lean`, demostrado).** `GL φ n` (la unión de la línea no crea
-cliques con testigos, con restricciones `R`) es la hipótesis. **`certR_low_of_GL`**: bajo `GL` y `MapCert` en la
-línea `n`, toda clique con testigos de un estado de la línea `n+1` con miembros por debajo de la cima tiene
-certificado, si ninguna ventana de su clave está prohibida. El filtro se resuelve: las piezas de un destino
-comparten requisitos, y un kernel filtrado posee en un paso fijado solo el nodo fijado (`req_of_join`); la clique,
-con los requisitos añadidos a `R`, tiene testigos en la unión de las fuentes (`owns_of_join`); `GL` la lleva a una
-fuente cuya cadena pasa por el requisito (`son_of_req`: su clave es padre del destino), sobrevive al filtro y sube.
-**Miembro en la cima (`certR_top_of_GL`, demostrado, sin hipótesis de ventana).** Los testigos poseen las claves de
-la ventana de `w` (`wit_owns_window`: la regla de parejas en la pieza de `w` da un padre `x` de `w`; el apoyo por
-padres del kernel da un padre de `x` que posee al testigo, con el id que dice `PMP`). La cadena de la fuente acaba
-justo debajo de `w` y sube a `w`, que existe: su ventana no está prohibida. **`mapCert_next_of_GL`**: GL y `MapCert`
-en la línea `n` dan `MapCert` en todo estado de la línea `n+1` cuya clave no tenga ventana prohibida. Quedan: la
-ventana prohibida para cliques sin miembro en la cima, y GL(n+1).
+#### 4.2κ.6 El paso del join desde la unión de línea (`LineUnion.lean`, `Trunc.lean`, `FilterUnion.lean`)
 
-**Qué decide el destino bueno (`dest_probe.jl --k3`, 26 M pares clique–destino).** B1, 0 fallos: el destino es bueno
-⇔ `Q` es clique en `J_d` con testigos en todos los `L3`. De los malos, 12,13 M fallan por no ser clique en `J_d` y solo
-184 por testigos en una cláusula (`L1+L2+L3`). La compatibilidad con los requisitos (B3) no basta (91 796 fallos).
+**Demostrado** (implicaciones):
+* `certR_low_of_GL` y `certR_top_of_GL`: con GL y `MapCert` en la línea `n`, cliques con testigos de la línea `n+1`
+  sin/con miembro en la cima tienen certificado. El filtro se resuelve (`req_of_join`: las piezas de un destino
+  comparten requisitos; `owns_of_join`; `son_of_req`: la clave de la cadena es padre del destino); con miembro en la
+  cima, los testigos poseen las claves de su ventana (`wit_owns_window`) y la cadena sube justo a él.
+* **Ventana prohibida**: `StatePiece.skip_window` (extraído de `mapCert_skip`), `Trunc.kernel_trunc` (truncar la cima de
+  un kernel da un kernel), `skip_trunc_below`; con fijaciones `pinsW` (requisitos del destino y `L1 = 1` para la fuente
+  que salta), `certR_low_of_GLF` y `mapCert_next_F`: **GLF y `MapCert` en la línea `n` dan `MapCert` en la línea `n+1`**.
+* **Hacia GLF(n+1)**: `mapCert_filter_pins`, **`filter_union`** (FU desde `MapCert J`) y **`piece_pinned_below`** (bajada
+  fijada), ambos incondicionales dada `MapCert J`.
 
-**GL con fijaciones (sonda `glpin_probe.jl`, 0 fallos).** GLW (ventana: fuente `L2 = 1` filtrada por los requisitos
-de `d = L3 0`; fuente `L2 = 0` filtrada además por `L1 = 1`): 251 076 cliques con testigos, todas en un estado. GLP
-(cada estado de la línea filtrado por un nodo de mapa al azar, 3 sorteos por paso): 2,83 M, todas en un estado. El
-invariante natural es GLF: la unión de estados de la línea, cada uno filtrado por sus fijaciones, es local.
+#### 4.2κ.7 ⚠ Refutado: GL/GLF con restricción en la cima (`select_probe.jl`, `gltop_probe.jl`)
 
-**La ventana prohibida, cerrada con GLF (`LineUnion.lean`, `Trunc.lean`, `StatePiece.skip_window`).** Las fijaciones
-`pinsW` de cada fuente son los requisitos del destino y `L1 = 1` para la fuente cuyo filtro salta la ventana. La pieza
-con salto, sin su fila de arriba (`kernel_trunc`: truncar la cima de un kernel da un kernel), queda por debajo de su
-fuente así fijada (`skip_trunc_below`); la cadena de la fuente fijada pasa por `L1 = 1` si su filtro salta, y si no
-salta cualquier extensión está permitida. **`certR_low_of_GLF`** (sin hipótesis de ventana) y **`mapCert_next`**:
-`GL`, `GLF` y `MapCert` en la línea `n` dan `MapCert` en todo estado de la línea `n+1`. Queda la inducción del propio
-invariante: GL(n+1) y GLF(n+1) desde la línea `n`.
+`LineUnion.GL`/`GLF` cuantifican sobre todo `R`. Con `R` que fija un nodo de la cima (todos los testigos poseen, en la
+unión, un nodo de la cima con id `m`): **GLtop falla 20 de 2,08 M** (estados sin fijar) y **GLFtop 20 de 2,1 M**
+(fijados por `pinsW`): los mismos 20 casos que FP en 4.2κ.1. Los usos lo necesitan: la clave de la ventana (paso `n`)
+y las restricciones de `R` en el paso `n` son restricciones en la cima de la línea `n`. Por tanto `certR_*_of_GL(F)` y
+`mapCert_next(_F)` son **implicaciones correctas con hipótesis falsa**; los resultados de 4.2κ.4 y las piezas FU/bajada
+no dependen de ella.
 
-**Unificado en GLF (`mapCert_next_F`, demostrado).** El caso con miembro en la cima se rehízo dentro de la pieza
-(`wit_owns_windowF`: kernel con `PMP`) y sus entradas llegan a la fuente fijada por `pieceF`; basta GLF.
+Selección de miembro en familias fijadas: WL falla 319 575, WL1 y CL 1 610 de 5,19 M. Vía de cadenas: 519 de 61 108
+cadenas de la unión no son cadena de ningún miembro (mezclan versiones fijadas de un mismo estado).
 
-**Inducción de GLF (sonda `glfstar_probe.jl`, 0 fallos).** GLF\* (familias de 3–4 estados de la línea, con pins al
-azar, un estado puede repetirse con pins distintos): 4,29 M cliques con testigos, todas en un miembro. FU (filtrar
-el estado unido por pins al azar cabe, entrada a entrada, en la unión de sus piezas filtradas): 5 337, sin fallo.
-Plan: GLF\*(n) ⇒ `MapCert` de la línea `n+1` (`mapCert_next_F`) ⇒ FU(n+1) (una entrada del estado unido filtrado
-es una clique de dos con testigos; su cadena vive en una pieza y sobrevive a su filtro) ⇒ GLF\*(n+1) (bajando por
-FU a las piezas filtradas, por la truncación a las fuentes fijadas, y GLF\*(n)). Detalles pendientes: restricciones
-`R` en la cima (cada miembro tiene su destino) y el caso base.
+#### 4.2κ.8 Qué queda y repaso
 
-**Paso 2 demostrado (`FilterUnion.lean`).** `mapCert_filter_pins`: las fijaciones conservan `MapCert` cuando el estado
-fijado es un kernel. **`filter_union`** (FU): con `MapCert` de un estado de la línea `n+1`, toda entrada del estado
-filtrado por `ps` es entrada de una de sus piezas filtrada por `ps`.
-
-**Bajada fijada (`piece_pinned_below`, demostrado).** Una pieza filtrada por fijaciones cualesquiera `ps`, sin su fila de
-arriba, queda por debajo de su fuente filtrada por `pinsW` y por las fijaciones de `ps` bajo la cima. Con FU, toda
-entrada bajo la cima de un estado de la línea `n+1` fijado es entrada de una fuente de la línea `n` fijada.
-
-**Lo que queda del paso 3: elegir el miembro.** Si `Q` tiene un miembro en la cima o `R` fija un nodo de la cima, el
-miembro que da GLF\*(n) tiene que subir a ese destino y cumplir las fijaciones de ese miembro de la línea `n+1`. Las
-entradas de los testigos pueden venir de miembros con destinos distintos, y GLF\*(n) no dice de cuál sale. Es otra
-forma del mismo núcleo de Helly (la selección de destino, como Wd), ahora con todos los testigos poseyendo la cima.
-
-
-**⚠ GL y GLF con restricción en la cima son falsos (sondas `select_probe.jl`, `gltop_probe.jl`).** Con `R` que fija un
-nodo de la cima (todos los testigos poseen, en la unión, un nodo de la cima con id `m`): GLtop falla 20 de 2,08 M
-(estados de la línea sin fijar) y GLFtop 20 de 2,1 M (fijados por `pinsW`); son los mismos 20 casos que FP en la
-sonda de descompresión. `LineUnion.GL`/`GLF` están definidos para todo `R`, así que su hipótesis no siempre se cumple:
-`certR_*_of_GL(F)` y `mapCert_next(_F)` son implicaciones correctas con hipótesis refutada. La selección de miembro
-(a): WL falla 319 575, WL1 y CL 1 610 de 5,19 M (familias fijadas al azar). (b) Cadenas de la unión: 519 de 61 108 no
-son cadena de ningún miembro fijado (combinan versiones fijadas distintas de un mismo estado).
+* **Abierto, único**: `PieceLocal` (≡ X1 en el estado unido). En cada reformulación reaparece la misma selección: la
+  pieza (o el destino) buena la fija la clique entera con sus testigos en los `L3` (H19, B1), no una entrada, un
+  testigo suelto ni la posesión de la cima.
+* **Siguiente candidato**: GL/GLF con restricciones solo por debajo de la cima (sonda en curso) y tratar la clave de la
+  cima como miembro de `Q` en vez de restricción; o un invariante que lleve la selección por cláusulas (`L3`).
+* **Reejecución pendiente** con la review corregida: `decompress_probe.jl`, `lift_probe.jl`, `grow_step_probe.jl`
+  (medidos antes de f463d92/e1acfd4).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1406,11 +1357,10 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
-1. ~~§4.1: `AmbFar ⇐ AmbHigh`~~ — hecho.
-2. §4.2: medir `AmbHigh` en Julia. Decide entre §4.3 y §4.4: si nunca falla, buscar el invariante; si
-   falla para un bit pero no para los dos, el invariante tiene que ser por bit; si falla para los dos,
-   la máquina actual no basta y toca §4.4.
-3. §4.3: formalizar `SecPair` y atacar su conservación por `addNode`.
+1. Reejecutar con la review corregida las sondas anteriores a f463d92/e1acfd4 (§4.2κ.8).
+2. Decidir la forma corregida del invariante de línea: restricciones solo bajo la cima (medir) o la clave de la cima
+   como miembro de `Q`; adaptar `LineUnion` en consecuencia.
+3. Atacar `PieceLocal` por la selección por cláusulas (`L3`, H19/B1): es lo que decide la pieza/destino bueno.
 
 ## 6. Mapa de ficheros (todos en `lean/improves_bin/AbsSatBin/GraphPath/Model/`)
 
@@ -1428,5 +1378,15 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `TriPinCore.lean` | `Exclusive`, `excl`, `tri_of_exclusive`, `AmbTri`, `triPin_of_ambTri` |
 | `AmbTriCore.lean` | `ACtx`, `gowner_eq`, `share_below`, `excl_near`, `AmbFar`, `ambTri_of_ambFar`, `readerVerdictW_iff_of_ambFar` |
 | `AmbHighCore.lean` | `forced_in_all`, `forced_owns_all`, `AmbHigh`, `ambFar_of_ambHigh`, `readerVerdictW_iff_of_ambHigh` |
+| `PieceJoin.lean`, `StatePiece.lean`, `StateLine.lean` | `PieceLocal`, `chain_in_piece`, `mapCert_skip`, `skip_window`, `mapCert_line`, `readerVerdictW_iff_of_pieceLocal` |
+| `ChainRoute.lean` | `supported_join`, `readerVerdictW_iff_of_chains`, `combined_invariant` |
+| `PieceFilter.lean` | `piece_survives_filter`, `filter_in_piece`, `entryOnChain_of_mapCert`, `mapCert_filter_pin` |
+| `GrowCert.lean` | `GrowR`, `growR_iff_mapCert`, `growR_join` |
+| `KernelUp.lean` | `kernel_addNode`, `kernel_up`, `kernel_join`, `kernel_reachable`, `aCtx_line`, `growR_iff_mapCert_line` |
+| `Trunc.lean` | `trunc`, `kernel_trunc` |
+| `LineUnion.lean` | `GL`, `GLF` (⚠ refutados con restricción en la cima), `certR_top_of_GLF`, `certR_low_of_GLF`, `mapCert_next_F` |
+| `FilterUnion.lean` | `mapCert_filter_pins`, `filter_union`, `piece_pinned_below` |
 
-Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`).
+Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
+`julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
+`glfstar`, `select`, `gltop`, `verdict_brute`, `supported`).
