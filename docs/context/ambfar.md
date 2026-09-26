@@ -614,6 +614,45 @@ mezcla necesitaría un nodo compatible con `x`, `w` y `x_u = v₁` en un paso, y
 y `x_u = v₂` en otro. Hay que ver si el filtro por requisito sobre `x_u`, aplicado cuando se creó el
 literal `cᵢ`, lo impide.
 
+### 4.2o ¿Fija el requisito la rama? — **no; la mezcla nace en el `join`** (deducido del código) + `JoinChoice` (demostrado)
+
+**Cómo se unen las historias** (`PureDriver.sendTo`, `insertPure`):
+* La línea tiene un estado por nodo de mapa del paso actual.
+* En el paso `s−3`, los literales `c₁` y `c₂` son **estados distintos**. En cada uno, el requisito ha
+  fijado `x_u`, así que las tablas de ese estado solo ven `x_u = vᵢ`.
+* En el paso `s−2`, ambos estados se envían a la misma clave `b` y se unen con `doJoin`.
+* En el estado unido, los nodos nuevos de cada rama (`(b, cᵢ, ·)` y después `pᵢ = (a, b, cᵢ)`) conservan
+  tablas de su rama. Pero los nodos **anteriores** a `s−3`, comunes a ambas historias, tienen como tabla
+  la **unión** de las dos (`mergeNode`).
+* La fusión de ventana en el paso `s` solo hace visible una mezcla que ya creó el `join` en `s−2`.
+
+**Qué fija el requisito y qué no.**
+* Fija la rama de los testigos que llevan el valor explícitamente: en el paso de `x_u` (su índice es el
+  valor) y en `s−3` (su id es `cᵢ`, por `gparentId_of_owner`). También en `s−1` y `s−2` (son los padres y
+  abuelos de la rama).
+* En los demás pasos, un nodo viejo `r` puede poseer a `x` por la historia 1 y a `p₂` por la historia 2.
+  En el estado unido, su tabla no recuerda qué historia respaldaba cada entrada.
+* Por tanto **el requisito no impide la mezcla**. La raíz es el `join` de historias.
+
+**Demostrado** (`BranchRel.lean`):
+* `JoinChoice g₁ g₂`: todo enlace compatible con `x` del `join` ya lo es en uno de los dos lados.
+* `pairExactRelAll_join`, `pairExactRelAll_doJoin`: con `JoinChoice`, el `join` conserva
+  `PairExactRelAll`.
+
+**Estado de la ruta por exactitud relativa** (`PairExactRelAll`, que da `TriPin₁`):
+
+| operación | ¿conserva? |
+|---|---|
+| review | sí (demostrado) |
+| `addNode` sin fusión | sí (demostrado) |
+| `addNode` con fusión | sí, si `ShadowChoice` (demostrado; la condición, abierta) |
+| `join` | sí, si `JoinChoice` (demostrado; la condición, abierta) |
+| filtro por requisito | abierto: necesita exactitud relativa a **dos** nodos (el `x` y el requerido), así que la jerarquía sube, como con los pins |
+| review tras ventana saltada | abierto |
+
+Las dos condiciones abiertas son del mismo tipo: **coherencia de rama en una unión**. Los testigos
+compatibles de pasos distintos tienen que poder elegirse de una misma historia.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

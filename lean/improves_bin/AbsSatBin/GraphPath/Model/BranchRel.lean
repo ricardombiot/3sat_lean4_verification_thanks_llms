@@ -381,6 +381,39 @@ theorem shadowChoice_of_single
   exact ⟨r, hra, hrb, hre, hrs⟩
 end
 
+-- ============================================================
+-- Joins: the choice of a side
+-- ============================================================
+
+/-- **The local condition at joins**: every `x`-compatible link of the join is `x`-compatible on one side
+already, with its three nodes. -/
+def JoinChoice (g₁ g₂ : GPathM) : Prop :=
+  ∀ x nx y ny w nw, (join g₁ g₂).node? x = some nx → (join g₁ g₂).node? y = some ny →
+    (join g₁ g₂).node? w = some nw → x ∈ ny.owners → x ∈ nw.owners → Cx (join g₁ g₂) x ny w →
+    (∃ nx' ny' nw', g₁.node? x = some nx' ∧ g₁.node? y = some ny' ∧ g₁.node? w = some nw' ∧
+        x ∈ ny'.owners ∧ x ∈ nw'.owners ∧ Cx g₁ x ny' w) ∨
+      (∃ nx' ny' nw', g₂.node? x = some nx' ∧ g₂.node? y = some ny' ∧ g₂.node? w = some nw' ∧
+        x ∈ ny'.owners ∧ x ∈ nw'.owners ∧ Cx g₂ x ny' w)
+
+/-- **With the local condition at joins, `join` keeps exactness relative to every node.** -/
+theorem pairExactRelAll_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) (h₁ : PairExactRelAll g₁)
+    (h₂ : PairExactRelAll g₂) (hch : JoinChoice g₁ g₂) : PairExactRelAll (join g₁ g₂) := by
+  intro x nx hx y ny w nw hy hw hxy hxw hC
+  rcases hch x nx y ny w nw hx hy hw hxy hxw hC with
+    ⟨nx', ny', nw', hx', hy', hw', hxy', hxw', hC'⟩ | ⟨nx', ny', nw', hx', hy', hw', hxy', hxw', hC'⟩
+  · obtain ⟨sel, hs, hon⟩ := h₁ x nx' hx' y ny' w nw' hy' hw' hxy' hxw' hC'
+    exact ⟨sel, ChainSound_join_left g₁ g₂ sel hs, hon⟩
+  · obtain ⟨sel, hs, hon⟩ := h₂ x nx' hx' y ny' w nw' hy' hw' hxy' hxw' hC'
+    exact ⟨sel, ChainSound_join_right g₁ g₂ hok sel hs, hon⟩
+
+/-- A join with an empty side (or a failed `okJoin`) is the other side: nothing to choose. -/
+theorem pairExactRelAll_doJoin (g₁ g₂ : GPathM) (h₁ : PairExactRelAll g₁) (h₂ : PairExactRelAll g₂)
+    (hch : okJoin g₁ g₂ = true → JoinChoice g₁ g₂) : PairExactRelAll (doJoin g₁ g₂) := by
+  unfold doJoin
+  cases hok : okJoin g₁ g₂ with
+  | true => exact pairExactRelAll_join g₁ g₂ hok h₁ h₂ (hch hok)
+  | false => exact h₁
+
 /-- info: 'AbsSatBin.GraphPath.Model.BranchRel.triPin₁_of_pairExactRel' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms triPin₁_of_pairExactRel
@@ -396,5 +429,9 @@ end
 /-- info: 'AbsSatBin.GraphPath.Model.BranchRel.shadowChoice_of_single' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms shadowChoice_of_single
+
+/-- info: 'AbsSatBin.GraphPath.Model.BranchRel.pairExactRelAll_join' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairExactRelAll_join
 
 end AbsSatBin.GraphPath.Model.BranchRel
