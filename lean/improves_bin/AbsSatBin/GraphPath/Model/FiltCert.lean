@@ -27,6 +27,11 @@ constraint applied as a filter no failure is known (`fcert_probe.jl`, `fcert_any
 * **`pieceF_of_topParent`**: with a member `w` at the top, `PieceF` follows from `TopParent` (some parent of `w` takes
   its place in the clique with witnesses; with a merge `w` has two). **`readerVerdictW_iff_of_topParent`**: the reader
   decides under `PieceLocalF` and `TopParent`.
+* **Without a merge `TopParent` is proved** (`single_parent`, `topParent_of_topMerge`): with one parent, `nbrP` puts
+  the whole table of `w` in the parent's. **With a merge** (`topMerge_of_mergeSplit`): the two parents differ only in
+  their grandparent (step `n-2`); pinned there, `w` has one parent. So `TopMerge` follows from `MergeSplit` — the clique
+  survives one of the two pins — and **`readerVerdictW_iff_of_mergeSplit`**: the reader decides under `PieceLocalF` and
+  `MergeSplit`, two statements of one shape (a clique with witnesses stays on one side of two complementary pins).
 -/
 
 namespace AbsSatBin.GraphPath.Model.FiltCert
@@ -389,6 +394,123 @@ theorem topParent_of_topMerge (hTM : TopMerge φ n) : TopParent φ n := by
 #guard_msgs in
 #print axioms topParent_of_topMerge
 
+omit hbd in
+/-- **A node owns, two steps below, only its grandparent**: an owner two steps down is owned by a parent (`nbrP`), then
+by a grandparent, which is it (`OOS`); `PMP` and `GPMP` name it by the node's id. -/
+theorem gparent_owner {g : GPathM} (c : AmbTriCore.ACtx g) (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx)
+    (h2 : 2 ≤ x.id.step) (e : PathNodeId) (he : e ∈ nx.owners) (hes : e.id.step = x.id.step - 2) :
+    x.gparent_id = some e.id := by
+  have hxm := List.mem_of_find?_eq_some hx
+  have hxid : nx.id = x := node?_id_eq _ x nx hx
+  obtain ⟨p, hp, np, hnp, hep⟩ := c.pc.ker.nbrP x nx hx (by omega) e he
+  have hps : p.id.step = x.id.step - 1 := by have := c.pc.pb nx hxm p hp; rw [hxid] at this; exact this
+  have hpm := List.mem_of_find?_eq_some hnp
+  have hpid : np.id = p := node?_id_eq _ p np hnp
+  obtain ⟨pp, hpp, npp, hnpp, hepp⟩ := c.pc.ker.nbrP p np hnp (by omega) e hep
+  have hpps : pp.id.step = x.id.step - 2 := by
+    have := c.pc.pb np hpm pp hpp; rw [hpid, hps] at this; omega
+  have hppm := List.mem_of_find?_eq_some hnpp
+  have hppid : npp.id = pp := node?_id_eq _ pp npp hnpp
+  have hepp' : e = pp := by
+    have := c.pc.oos npp hppm e hepp (by rw [hppid, hpps, hes]); rw [hppid] at this; exact this
+  have h1 : some pp.id = p.parent_id := by have := c.rc.pmp np hpm pp hpp; rw [hpid] at this; exact this
+  have h2' : x.gparent_id = p.parent_id := by have := c.rc.gpmp.1 nx hxm p hp; rw [hxid] at this; exact this
+  rw [h2', ← h1, hepp']
+
+/-- info: 'AbsSatBin.GraphPath.Model.FiltCert.gparent_owner' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms gparent_owner
+
+omit hbd in
+/-- **`MergeSplit n`**: in a filtered piece of line `n+1`, a clique with witnesses with a member `w` at the top that
+comes from a merge survives the filter by the grandparent `u` of one of `w`'s parents (a map node at step `n-2`; the
+two parents differ only there). The same shape as `PieceLocalF`: a clique with witnesses stays on one side of two
+complementary pins. -/
+def MergeSplit : Prop :=
+  ∀ kv ∈ line φ n, ∀ d ∈ sonsOfMap φ kv.1, isValid (upF φ kv.2 d) = true →
+    ∀ ps : List NodeId, (∀ p ∈ ps, 0 ≤ p.step ∧ p.step < (upF φ kv.2 d).current_step) →
+      isValid (filterAll (upF φ kv.2 d) ps) = true →
+      ∀ w Q0, Clique (filterAll (upF φ kv.2 d) ps) (w :: Q0) → Wit (filterAll (upF φ kv.2 d) ps) (w :: Q0) →
+        w.id.step = (n : Int) + 1 → (∀ q ∈ Q0, q.id.step ≤ n) →
+        ∀ nw, (filterAll (upF φ kv.2 d) ps).node? w = some nw →
+        (∃ c₁ ∈ nw.parents, ∃ c₂ ∈ nw.parents, c₁ ≠ c₂) →
+        ∃ u : NodeId, (∃ c ∈ nw.parents, c.gparent_id = some u) ∧ 0 ≤ u.step ∧ u.step = (n : Int) - 2 ∧
+          isValid (filterAll (upF φ kv.2 d) (ps ++ [u])) = true ∧
+          Clique (filterAll (upF φ kv.2 d) (ps ++ [u])) (w :: Q0) ∧
+          Wit (filterAll (upF φ kv.2 d) (ps ++ [u])) (w :: Q0)
+
+/-- **`TopMerge` from `MergeSplit`.** Pinned by the grandparent `u`, every parent of `w` owns, two steps below, a node
+named `u`, so its grandparent is `u` (`gparent_owner`); the parents of `w` share their id and parent (`PMP`, `GPMP`),
+so pinned there `w` has one parent and `single_parent` applies; the pinned piece sits below the unpinned one. -/
+theorem topMerge_of_mergeSplit (hMS : MergeSplit φ n) : TopMerge φ n := by
+  intro kv hkv d hd hv ps hps hvP w Q0 hQ hW hws hlow nw hnw hm
+  obtain ⟨u, _, hu0, hus, hvU, hQU, hWU⟩ := hMS kv hkv d hd hv ps hps hvP w Q0 hQ hW hws hlow nw hnw hm
+  obtain ⟨hok, _, hcs, _, _, _⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
+  have hPcs : (upF φ kv.2 d).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  have hndP := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hP.reach)
+  have cU := filt_ctx φ hbd _ (d, upF φ kv.2 d) hP (ps ++ [u]) hvU
+  have hUcs : (filterAll (upF φ kv.2 d) (ps ++ [u])).current_step = (n : Int) + 2 := by
+    rw [(pruned_filterAll _ _).step_eq, hPcs]
+  -- the pinned piece sits below the unpinned one
+  have hBF : Kernel.Below (filterAll (upF φ kv.2 d) ps) (filterAll (upF φ kv.2 d) (ps ++ [u])) :=
+    Kernel.below_filterAll cU.pc.ker (KernelIff.below_filterAll_self _ hndP (ps ++ [u])) ps
+      (fun r hr q hq hqs => LineUnion.gowner_pinned _ _ q hq r (List.mem_append_left _ hr) hqs)
+  obtain ⟨nw1, hnw1, _⟩ := hQU w List.mem_cons_self
+  have hw1m := List.mem_of_find?_eq_some hnw1
+  have hw1id : nw1.id = w := node?_id_eq _ w nw1 hnw1
+  -- every parent of `w` in the pinned piece has grandparent `u`, id and parent those of `w`'s window
+  have hpar : ∀ c' ∈ nw1.parents, c'.gparent_id = some u ∧ some c'.id = w.parent_id ∧ w.gparent_id = c'.parent_id := by
+    intro c' hc'
+    obtain ⟨_, nc', hnc', _⟩ := cU.pc.ker.linkP w nw1 hnw1 c' hc'
+    have hc's : c'.id.step = (n : Int) := by
+      have := cU.pc.pb nw1 hw1m c' hc'; rw [hw1id, hws] at this; omega
+    have hval := ((Kernel.isValidNode_iff _ nc').mp (cU.pc.ker.valid c' nc' hnc')).1
+    obtain ⟨e, he, hes⟩ := List.any_eq_true.mp (List.all_eq_true.mp hval u.step
+      (mem_intRange_zero u.step _ hu0 (by rw [hUcs]; omega)))
+    have hes' : e.id.step = u.step := eq_of_beq hes
+    have heu := LineUnion.gowner_pinned _ _ e (cU.pc.ker.own c' nc' hnc' e he) u (List.mem_append_right _
+      List.mem_cons_self) hes'
+    have hg := gparent_owner cU c' nc' hnc' (show 2 ≤ c'.id.step by rw [hc's]; omega) e he
+      (show e.id.step = c'.id.step - 2 by rw [hes', hus, hc's])
+    rw [heu] at hg
+    refine ⟨hg, ?_, ?_⟩
+    · have := cU.rc.pmp nw1 hw1m c' hc'; rw [hw1id] at this; exact this
+    · have := cU.rc.gpmp.1 nw1 hw1m c' hc'; rw [hw1id] at this; exact this
+  -- `w` has a parent there, and only one
+  have hnr : nw1.id.parent_id ≠ none := cU.rc.shape.notroot nw1 hw1m (by rw [hw1id, hws]; omega)
+  obtain ⟨cp, hcp⟩ : ∃ cp, cp ∈ nw1.parents := by
+    rcases ((Kernel.isValidNode_iff _ nw1).mp (cU.pc.ker.valid w nw1 hnw1)).2.1 with h' | h'
+    · exact absurd (Option.isNone_iff_eq_none.mp h') hnr
+    · exact List.exists_mem_of_ne_nil _ h'
+  have hone : ∀ c' ∈ nw1.parents, c' = cp := by
+    intro c' hc'
+    obtain ⟨g1, i1, p1⟩ := hpar c' hc'
+    obtain ⟨g2, i2, p2⟩ := hpar cp hcp
+    have hid : c'.id = cp.id := Option.some.inj (i1.trans i2.symm)
+    have hpi : c'.parent_id = cp.parent_id := p1.symm.trans p2
+    have hgp : c'.gparent_id = cp.gparent_id := g1.trans g2.symm
+    revert hid hpi hgp
+    cases c' with
+    | mk a b e => cases cp with
+      | mk a' b' e' => intro hid hpi hgp; simp only at hid hpi hgp; rw [hid, hpi, hgp]
+  obtain ⟨hQc, hWc⟩ := single_parent cU.pc w nw1 hnw1 (by rw [hws]; omega) cp hone Q0 hQU hWU
+  -- back in the unpinned piece
+  obtain ⟨nx, hnx, _, hpx, _⟩ := hBF.node w nw1 hnw1
+  rw [hnw] at hnx; cases hnx
+  refine ⟨cp, hpx cp hcp, fun p hp => ?_, fun l h0 h1 => ?_⟩
+  · obtain ⟨np, hnp, ho⟩ := hQc p hp
+    obtain ⟨nx, hnx, hox, _, _⟩ := hBF.node p np hnp
+    exact ⟨nx, hnx, fun s hs => hox s (ho s hs)⟩
+  · obtain ⟨r, nr, hnr', hrs, ho⟩ := hWc l h0 (by rw [← hBF.step]; exact h1)
+    obtain ⟨nx, hnx, hox, _, _⟩ := hBF.node r nr hnr'
+    exact ⟨r, nx, hnx, hrs, fun s hs => hox s (ho s hs)⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.FiltCert.topMerge_of_mergeSplit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topMerge_of_mergeSplit
+
 /-- **`PieceF` from `TopParent`.** Below the top, `cert_piece_low`. With a member `w` at the top (the only one: two
 nodes of one step do not own each other), `TopParent` gives a parent `c`; the certificate through `c` and the members
 below extends at the top by the shift of `c`, which is `w` (its id, parent and grandparent are those of `w`). -/
@@ -526,5 +648,17 @@ theorem readerVerdictW_iff_of_topMerge (hPL : ∀ n : Nat, (n : Int) + 1 < stepC
 /-- info: 'AbsSatBin.GraphPath.Model.FiltCert.readerVerdictW_iff_of_topMerge' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_topMerge
+
+/-- **The reader decides `φ` under `PieceLocalF` at every join and `MergeSplit` from line 1 on**: both say that a
+clique with witnesses stays on one side of two complementary pins (the key at step `n` of a joined state, the
+grandparent at step `n-2` of a merged top node). -/
+theorem readerVerdictW_iff_of_mergeSplit (hPL : ∀ n : Nat, (n : Int) + 1 < stepCount φ → PieceLocalF φ n)
+    (hMS : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplit φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_topMerge φ hbd hPL (fun n hn1 hn => topMerge_of_mergeSplit φ hbd n (hMS n hn1 hn))
+
+/-- info: 'AbsSatBin.GraphPath.Model.FiltCert.readerVerdictW_iff_of_mergeSplit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_mergeSplit
 
 end AbsSatBin.GraphPath.Model.FiltCert
