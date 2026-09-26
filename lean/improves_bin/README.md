@@ -62,6 +62,8 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `ReqFilter` | — | nuevo | el filtro por requisito es un pin sobre un nodo de mapa: con exactitud relativa previa y `FilterChoice` da exactitud por parejas (`pairExact_filter_of_choice`); `FilterChoice` vale si el nodo requerido tiene un único nodo de camino vivo (`filterChoice_of_unique`) |
 | `HellyTwo` | — | nuevo | Helly con número 2 (`helly2`); en un paso con a lo sumo dos nodos de camino vivos, tres nodos que se poseen comparten entrada (`share3_of_two`) |
 | `CertMachine` | — | nuevo | `CertClique` (monótono) a lo largo de la máquina: **el filtro por requisito lo conserva con un único nodo de camino** (`certClique_filter_unique`); **`addNode` sin fusiones lo conserva** (`certClique_addNode_old`, `certClique_addNode_single`); ventana saltada: `SkipChoice` (`certThrough_addNode_skip`) ⇐ clique con un padre que respeta la cláusula (`skipChoice_of_parent`) |
+| `CertRoute` | — | nuevo | **la unión de pins complementarios de un estado exacto es exacta** (`certClique_join_pins`): el certificado elige la rama |
+| `MapCert` | — | nuevo | certificados con restricciones a nivel de nodo de mapa (`MapCert` ⇒ `CertClique`); **lo conservan el review, todo filtro por requisito (con cualquier número de ventanas), `addNode` con fusiones y la unión de pins complementarios** (`mapCert_filterAll_nil`, `mapCert_filter`, `mapCert_addNode`, `mapCert_join_pins`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales

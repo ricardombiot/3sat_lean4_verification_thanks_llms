@@ -778,6 +778,50 @@ En bin, en el tercer literal de una cláusula con valor `0`, eso es un padre con
   propuesta de enrutado explota eso.
 * La cuarta, la cláusula, es la disyunción propia de la fórmula.
 
+### 4.2s Enrutado formalizado: `MapCert` — **demostrado** (`CertRoute.lean`, `MapCert.lean`)
+
+**Idea.** Tres de las cuatro uniones son disyunciones sobre **nodos de camino del mismo nodo de mapa**:
+* un requisito nombra un nodo de mapa con un nodo de camino por valor de la variable anterior;
+* los padres de una fusión comparten nodos de mapa y difieren en el paso olvidado;
+* los dos lados de un `join` son pins complementarios de un nodo de mapa.
+
+Una clique de nodos de camino no puede decir «uno de estos», pero un nodo de mapa sí. **Es el
+certificado el que elige la ventana.**
+
+**Demostrado:**
+* `certClique_join_pins` / `mapCert_join_pins`: **la unión de dos pins complementarios de un estado
+  exacto es exacta.** El certificado de la clique en el estado anterior pasa, en el paso fijado, por
+  `r₁` o por `r₂`, sobrevive a ese pin y está en la unión. No importa de qué lado viniera cada testigo.
+* **`MapCert g`**: si `Q` es clique y en cada paso un nodo vivo posee `Q` y **algún** nodo de camino de
+  cada nodo de mapa de `R`, hay un certificado por `Q` y por los nodos de mapa de `R`. Con `R = []` es
+  `CertClique` (`certClique_of_mapCert`).
+* `mapCert_filterAll_nil`: el review lo conserva.
+* **`mapCert_filter`: todo filtro por requisito lo conserva, con cualquier número de ventanas.** Tras el
+  filtro todo nodo posee algún nodo de camino del nodo requerido, así que el requisito es una
+  restricción de mapa más. **`FilterChoice` deja de ser una obligación.**
+* **`mapCert_addNode`: `addNode` lo conserva, fusiones incluidas** (sin ventana saltada, desde el paso
+  2).
+  * Una clique con un nodo nuevo `z = (d, a, b)` pasa a la clique vieja con las restricciones de mapa
+    `a` (un paso abajo) y `b` (dos abajo).
+  * Un testigo que posee `z` posee un padre `(a, b, ·)` y, por la regla de parejas y `PMP`, un nodo de
+    camino de `b`.
+  * El certificado por `a` y `b` termina en **algún** padre de `z`, el que dé su propia ventana, y se
+    extiende por `z`.
+  * **`ShadowChoice` deja de ser una obligación.**
+
+**Lo que queda para `MapCert` a lo largo de la máquina:**
+1. **El `join` de la máquina.** Une estados de la misma clave que vienen de claves anteriores
+   distintas, y no es literalmente la unión de dos pins de un mismo estado: entre el pin y el `join`
+   median `addNode` y otro filtro. Hace falta un lema de «cobertura por enrutado»: si los lados
+   descienden de un estado común con `MapCert` por operaciones que conservan certificados y cada
+   certificado del estado común entra en uno de los lados, el `join` hereda `MapCert`.
+   `mapCert_join_pins` es el caso base.
+2. **La ventana saltada: la cláusula** (`SkipChoice`, §4.2r).
+3. **Hipótesis de contexto**: que los estados filtrados sean kernels (validez), y los pasos 0 y 1.
+
+**Medida `v4_c12`** (lanzada antes, `--cap 100`, 40 min por instancia): solo terminaron 3 de 15, con 1
+estado o 3 estados y 0 fallos. No es informativa: el modelo Lean en listas no llega.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

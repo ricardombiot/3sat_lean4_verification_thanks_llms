@@ -79,6 +79,8 @@ import AbsSatBin.GraphPath.Model.BranchRel
 import AbsSatBin.GraphPath.Model.ReqFilter
 import AbsSatBin.GraphPath.Model.HellyTwo
 import AbsSatBin.GraphPath.Model.CertMachine
+import AbsSatBin.GraphPath.Model.CertRoute
+import AbsSatBin.GraphPath.Model.MapCert
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs
