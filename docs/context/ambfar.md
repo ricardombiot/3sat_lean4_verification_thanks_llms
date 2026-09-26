@@ -362,6 +362,55 @@ completar una clique que ninguna rama sola completa.
 3. Si no la impide, cambiar la máquina para que registre la rama (por ejemplo, tablas relativas al
    `gparent` en las fusiones).
 
+### 4.2h ¿Impide la estructura bin la mezcla en las fusiones? — **no, por sí sola** (deducido)
+
+**Dónde hay fusiones.** Un nodo nuevo `z = shiftPid q d = (d, q.id, q.parent_id)` tiene como padres
+los nodos de la fila anterior con el mismo `(id, parent_id)`, que solo difieren en el paso `s−3`.
+Recorriendo el mapa (`CnfMapBin`):
+
+| paso de `z` | padres | qué olvida |
+|---|---|---|
+| `2v+1` (variable, positiva) | 2 | `¬a_{v−2}` (el paso `2v−2`) |
+| `2v+2` (negación) | 1 | nada: el padre en `2v+1` tiene un único padre posible (el hijo de un positivo es único) |
+| `2n+1` (fusión media `F`) | 2 | `¬a_{n−2}` |
+| primer literal tras `F` | 1 | nada: solo hay un `F` |
+| segundo literal tras `F` | 2 | `a_{n−1}` |
+| resto de pasos de cláusula | 2 | el bit de literal de hace tres pasos |
+
+Hay fusión en casi todos los pasos.
+
+**Qué información se pierde.**
+* En la sección de cláusulas, el bit olvidado es el valor de un literal, que por el requisito es
+  función de una variable `x_u`.
+* Las tablas de los dos padres sí distinguen `x_u`: `T(p₁)` solo ve `x_u = v₁` y `T(p₂)` solo
+  `x_u = v₂`.
+* Pero `T(z) = T(p₁) ∪ T(p₂)`, y una clique `Q ∪ {z}` puede tener testigos que en un paso poseen `p₁`
+  y en otro `p₂`. Nada en las tablas por parejas obliga a que un testigo que posee `p₂` sea
+  incompatible, junto con el resto de `Q`, con `x_u = v₁`.
+* La exclusión es de tres vías (`p₂`, `x_u`, testigo), y el review es de dos.
+
+**Conclusión.** La estructura bin no impide la mezcla por sí sola. El olvido de ventana es inherente a
+cualquier ventana finita, y las fusiones aparecen en casi todos los pasos, incluidos todos los de
+cláusula.
+
+**¿Quitar la fusión media `F`?**
+* No resuelve esto. Sin `F`, el primer paso de cláusula tendría ventana `(b₁, ¬a_{n−1}, a_{n−1})` y las
+  fusiones de los pasos de cláusula seguirían igual: las crea el bloque de tres literales, no `F`.
+* Tampoco estorba: `F` solo concentra en un paso el olvido de la sección de variables, y simplifica la
+  aritmética y las pruebas (`selOfAssign`, `step_cases`).
+* Recomendación: **mantenerla**.
+* Una observación más útil: los pasos de negación `2v+2` duplican la variable, así que en la sección de
+  variables la ventana de tres cubre en la práctica 1,5 variables. No afecta a la mezcla, pero sí al
+  tamaño.
+
+**Lo que sí atacaría la mezcla es cambiar qué guardan las tablas en las fusiones** (propuesto):
+* Guardar los owners de `z` **por rama de padre**: `T_{p₁}(z)` y `T_{p₂}(z)` en vez de la unión. En bin
+  cada nodo tiene como mucho dos padres, así que la memoria como mucho se duplica.
+* La duda es si basta con un nivel. Un nodo posterior fusiona ramas de `z`, que a su vez tenía ramas.
+  Si la separación se anida, crece exponencialmente. Si no se anida, la mezcla sube un nivel.
+* Decidir si el review puede colapsar las ramas anidadas sin perder la exclusión de tres vías es
+  exactamente el «test de vacío» de la visión de subconjuntos.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
