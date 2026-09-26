@@ -257,6 +257,35 @@ sola, sin lector. Lo explorado:
   pasan por la clique. De ahí `CliqueTri` saldría por los certificados de la propia clique. Es la
   versión en tablas de la visión de subconjuntos de caminos.
 
+### 4.2e La caracterización por certificados — **formalizada** (`CertFix.lean`)
+
+* **Certificado**: una cadena `ChainSound g sel`, con un nodo vivo por paso, enlazados por padres e
+  hijos y poseyéndose todos. En la línea final son las soluciones. En un estado intermedio son los
+  caminos parciales que cumplen los requisitos vistos.
+* `cxP_of_cert` (**demostrado, siempre**): si un certificado pasa por la clique `P`, por `y` y por
+  `w`, el enlace `y–w` es `P`-compatible. Los testigos son los nodos del propio certificado.
+* **`CertLink g`** (la caracterización): el converso. Todo enlace `P`-compatible está, junto con `P`,
+  en un certificado.
+* `cutTable_iff_cert` (**demostrado**): bajo `CertLink`, la tabla cortada de `y` relativa a `P` es
+  exactamente lo que proyectan los certificados que pasan por `y` y `P`.
+* `cliqueTri_of_certLink` (**demostrado**): el testigo en cada paso es el nodo del certificado, y sus
+  enlaces son compatibles por el mismo certificado.
+* `readerVerdictW_iff_of_certLink` (**demostrado**): si los estados de partida cumplen `CertLink`, el
+  lector decide `φ`.
+
+`CertLink` con `P = []` es la exactitud por parejas: todo enlace que pasa la regla de parejas está en
+un certificado. La cadena queda así:
+
+  `CertLink` (partida) ⇒ `CliqueTri` (partida) ⇒ `CliqueTri` (todo estado del lector) ⇒ `AllTriPin₁`
+  ⇒ `TriPin₁` ⇒ `KernelSplit` ⇔ `NoDeadEnd` ⇒ el lector decide.
+
+**Abierto:**
+* **`CertLink` en la salida de la máquina.** Es el enunciado semántico de que la máquina guarda
+  exactamente los certificados, en su forma de tablas.
+* **Conjetura: `CliqueTri ⇒ CertLink`, por descenso.** Relativo a `y :: w :: P`, se pincha nodo a nodo
+  dentro del subkernel cortado, con `cliqueTri_pin` como paso, hasta un estado sin elecciones, que
+  contiene una cadena. Si sale, las dos son equivalentes y el núcleo tiene una sola forma. **Propuesto.**
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
