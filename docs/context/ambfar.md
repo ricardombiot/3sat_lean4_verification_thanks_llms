@@ -411,6 +411,37 @@ cláusula.
 * Decidir si el review puede colapsar las ramas anidadas sin perder la exclusión de tres vías es
   exactamente el «test de vacío» de la visión de subconjuntos.
 
+### 4.2i El diseño se mantiene; el invariante era demasiado fuerte: `PrefixTri` — **demostrado**
+
+El usuario descarta cambiar la máquina: el diseño actual no tiene fallos y falta la demostración. Si
+es así, el escenario de mezcla de §4.2g–h tiene que ser un problema **del invariante**, no de la
+máquina. Y lo es:
+* `CliqueTri` y `CertLink` piden la regla de tríos para **toda** clique.
+* El escenario de mezcla usa cliques con huecos: dos nodos lejanos y una fusión entre medias.
+* El lector nunca forma esas cliques. Sus pins van en pasos crecientes, y todo lo que queda por debajo
+  del último pin está forzado (un solo nodo, presente en todas las tablas).
+
+**Definiciones.**
+* **`PrefixClique g Q k`**: clique con un nodo en cada paso `0 … k` y ninguno por encima.
+* **`PrefixTri g`**: `TriP g Q` para toda clique prefijo.
+
+**Demostrado** (`PrefixTri.lean`):
+* `prefixTri_of_cliqueTri`: es más débil que `CliqueTri`.
+* `triP_congr`: `TriP g P` solo depende de qué nodos poseen `P`, así que añadir nodos forzados no
+  cambia nada (`ownsAll_forced`).
+* `triPin₁_of_prefixTri`: en un estado del lector, los forzados bajo `k` junto con el pin `x` forman una
+  clique prefijo, y su regla de tríos es `TriPin₁ g x`.
+* `prefixTri_pin`: el pin conserva `PrefixTri`. Una clique prefijo del estado pinchado, con `x` y los
+  forzados añadidos, es clique prefijo del estado anterior, y `triP_of_cut` la traslada.
+* `readerVerdictW_iff_of_prefixTri`: **basta `PrefixTri` en los estados de partida.**
+
+**Por qué es el objetivo correcto.** Va en el mismo orden que la máquina, de izquierda a derecha: una
+clique prefijo es un camino parcial hasta `k`, que es exactamente lo que la máquina construye paso a
+paso. Las mezclas en fusiones de §4.2h necesitaban nodos por encima y por debajo de la fusión sin los
+pasos intermedios, y en una clique prefijo todos los pasos hasta `k` están fijados.
+
+**Siguiente**: `PrefixTri` en la salida de la máquina, siguiendo la corrida.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

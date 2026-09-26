@@ -148,16 +148,17 @@ end
 -- A state whose tables are the cut tables of `g` keeps `CliqueTri`
 -- ============================================================
 
-/-- **`CliqueTri` passes to a state with the cut tables of `x`.** -/
-theorem cliqueTri_of_cut {g g' : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNodeM)
+/-- **The pair rule relative to a clique `P` passes to a state with the cut tables of `x`**, from the
+pair rule relative to `x :: P` (which is a clique of `g`). -/
+theorem triP_of_cut {g g' : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNodeM)
     (hx : g.node? x = some nx)
     (hE0 : ∀ p nh, g'.node? p = some nh → ∃ n, g.node? p = some n)
     (hE1 : ∀ p nh n, g'.node? p = some nh → g.node? p = some n →
       x ∈ n.owners ∧ ∀ q, q ∈ nh.owners ↔ (q ∈ n.owners ∧ inS g x q = true ∧ Cx g x n q))
     (hE2 : ∀ p n, g.node? p = some n → x ∈ n.owners → ∃ nh, g'.node? p = some nh)
-    (hcs : g'.current_step = g.current_step) (hT : CliqueTri g) : CliqueTri g' := by
+    (hcs : g'.current_step = g.current_step) (P : List PathNodeId) (hP : Clique g' P)
+    (hTP : Clique g (x :: P) → TriP g (x :: P)) : TriP g' P := by
   have hk := c.ker
-  intro P hP
   -- `x :: P` is a clique of `g`
   have hxQ : x ∈ x :: P := List.mem_cons_self
   have ownQ_of : ∀ p nh n, g'.node? p = some nh → g.node? p = some n → OwnsAll P nh → OwnsAll (x :: P) n := by
@@ -179,7 +180,7 @@ theorem cliqueTri_of_cut {g g' : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : P
     · obtain ⟨nhq, hnhq, hownq⟩ := hP q hq
       obtain ⟨nq, hnq⟩ := hE0 q nhq hnhq
       exact ⟨nq, hnq, ownQ_of q nhq nq hnhq hnq hownq⟩
-  have hTQ := hT (x :: P) hQ
+  have hTQ := hTP hQ
   -- membership in a table of `g'`
   have mem' : ∀ z nhz nz v nv, g'.node? z = some nhz → g.node? z = some nz → g.node? v = some nv →
       x ∈ nv.owners → CxP g (x :: P) nz v → v ∈ nhz.owners := by
@@ -228,6 +229,16 @@ theorem cliqueTri_of_cut {g g' : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : P
   exact ⟨r, mem' y nhy ny r nr hy' hny hnr (hrQ x hxQ) cy, mem' w nhw nw r nr hw' hnw hnr (hrQ x hxQ) cw,
     hrs, node' ny r nr hnr hrQ cy, link' y nhy ny r nr hy' hny hyQ hnr hrQ cy,
     link' w nhw nw r nr hw' hnw hwQ hnr hrQ cw⟩
+
+/-- **`CliqueTri` passes to a state with the cut tables of `x`.** -/
+theorem cliqueTri_of_cut {g g' : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNodeM)
+    (hx : g.node? x = some nx)
+    (hE0 : ∀ p nh, g'.node? p = some nh → ∃ n, g.node? p = some n)
+    (hE1 : ∀ p nh n, g'.node? p = some nh → g.node? p = some n →
+      x ∈ n.owners ∧ ∀ q, q ∈ nh.owners ↔ (q ∈ n.owners ∧ inS g x q = true ∧ Cx g x n q))
+    (hE2 : ∀ p n, g.node? p = some n → x ∈ n.owners → ∃ nh, g'.node? p = some nh)
+    (hcs : g'.current_step = g.current_step) (hT : CliqueTri g) : CliqueTri g' :=
+  fun P hP => triP_of_cut c x nx hx hE0 hE1 hE2 hcs P hP (fun hQ => hT (x :: P) hQ)
 
 -- ============================================================
 -- The pin is the cut sub-kernel
@@ -309,16 +320,18 @@ theorem pin_eq_cut {g : GPathM} (c : ACtx g) {k : Int} (hp : PrefixUpTo g k) (x 
   exact below_filterAll hK hbK [x.id]
     (fun r hr q hq hqs => by rw [List.mem_singleton.mp hr] at hqs ⊢; exact hpin q hq hqs)
 
-/-- **The pin keeps `CliqueTri`.** -/
-theorem cliqueTri_pin {g : GPathM} (c : ACtx g) {k : Int} (hp : PrefixUpTo g k) (x : PathNodeId)
-    (hx : x ∈ ownersAt g.gowners k) (hk' : Kernel (filterAll g [x.id])) (hT : CliqueTri g) :
-    CliqueTri (filterAll g [x.id]) := by
-  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp (c.pc.ker.gn x (List.mem_filter.mp hx).1)
-  have ht := allTriPin₁_of_cliqueTri c.pc hT x nx hnx
+/-- **Under `TriPin₁ g x`, the pinned state has exactly the cut tables of `x`**, in the form
+`triP_of_cut` reads. -/
+theorem pin_cut_facts {g : GPathM} (c : ACtx g) {k : Int} (hp : PrefixUpTo g k) (x : PathNodeId)
+    (hx : x ∈ ownersAt g.gowners k) (hk' : Kernel (filterAll g [x.id])) (ht : TriPin₁ g x) :
+    (∀ p nh, (filterAll g [x.id]).node? p = some nh → ∃ n, g.node? p = some n) ∧
+    (∀ p nh n, (filterAll g [x.id]).node? p = some nh → g.node? p = some n →
+      x ∈ n.owners ∧ ∀ q, q ∈ nh.owners ↔ (q ∈ n.owners ∧ inS g x q = true ∧ Cx g x n q)) ∧
+    (∀ p n, g.node? p = some n → x ∈ n.owners → ∃ nh, (filterAll g [x.id]).node? p = some nh) ∧
+    (filterAll g [x.id]).current_step = g.current_step := by
   obtain ⟨hin, hout⟩ := pin_eq_cut c hp x hx hk' ht
   have hb := KernelIff.below_filterAll_self g c.pc.nd [x.id]
-  refine cliqueTri_of_cut c.pc x nx hnx (fun p nh hnh => ?_) (fun p nh n hnh hn => ?_)
-    (fun p n hn hxn => ?_) hb.step.symm hT
+  refine ⟨fun p nh hnh => ?_, fun p nh n hnh hn => ?_, fun p n hn hxn => ?_, hb.step.symm⟩
   · obtain ⟨n, hn, _⟩ := hb.node p nh hnh
     exact ⟨n, hn⟩
   · obtain ⟨nk, hnk, ho, _, _⟩ := hin.node p nh hnh
@@ -327,9 +340,18 @@ theorem cliqueTri_pin {g : GPathM} (c : ACtx g) {k : Int} (hp : PrefixUpTo g k) 
     subst hEq
     obtain ⟨nh2, hnh2, ho2, _, _⟩ := hout.node p (rn₁ g x n) (restrict₁_node? c.pc.nd p n hn hxn')
     rw [hnh] at hnh2; cases hnh2
-    refine ⟨hxn', fun q => ⟨fun hq => mem_keep_of (ho q hq), fun ⟨h1, h2, h3⟩ => ho2 q (mem_keep h1 h2 h3)⟩⟩
+    exact ⟨hxn', fun q => ⟨fun hq => mem_keep_of (ho q hq), fun ⟨h1, h2, h3⟩ => ho2 q (mem_keep h1 h2 h3)⟩⟩
   · obtain ⟨nh, hnh, _⟩ := hout.node p (rn₁ g x n) (restrict₁_node? c.pc.nd p n hn hxn)
     exact ⟨nh, hnh⟩
+
+/-- **The pin keeps `CliqueTri`.** -/
+theorem cliqueTri_pin {g : GPathM} (c : ACtx g) {k : Int} (hp : PrefixUpTo g k) (x : PathNodeId)
+    (hx : x ∈ ownersAt g.gowners k) (hk' : Kernel (filterAll g [x.id])) (hT : CliqueTri g) :
+    CliqueTri (filterAll g [x.id]) := by
+  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp (c.pc.ker.gn x (List.mem_filter.mp hx).1)
+  have ht := allTriPin₁_of_cliqueTri c.pc hT x nx hnx
+  obtain ⟨e0, e1, e2, ecs⟩ := pin_cut_facts c hp x hx hk' ht
+  exact cliqueTri_of_cut c.pc x nx hnx e0 e1 e2 ecs hT
 
 -- ============================================================
 -- With the reader: only the starting states matter

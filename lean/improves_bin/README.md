@@ -55,6 +55,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `CertFix` | — | nuevo | caracterización del punto fijo por certificados (`ChainSound`): `CertLink` (todo enlace compatible relativo a una clique está, con ella, en un certificado); `cxP_of_cert` (converso, siempre); `cutTable_iff_cert`; `CertLink ⇒ CliqueTri`; `readerVerdictW_iff_of_certLink` |
 | `CertDescent` | — | nuevo | `CliqueTri ⇒ CertLink` haciendo crecer una clique con testigos hasta un certificado (`grow`, `cover`, `chain_of_cover`); `certLink_iff_cliqueTri` |
 | `CertInvariant` | — | nuevo | `CertClique` (toda clique con testigos está en un certificado) ⇔ `CertLink`; **el review lo conserva** (`certClique_filterAll_nil`); basta en la salida cruda de la máquina (`readerVerdictW_iff_of_certClique`) |
+| `PrefixTri` | — | nuevo | el lector solo necesita cliques **prefijo** (un nodo por paso `0…k`): `PrefixTri` ⇐ `CliqueTri`; da `TriPin₁` en la primera elección; el pin lo conserva (`prefixTri_pin`); basta en los estados de partida (`readerVerdictW_iff_of_prefixTri`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
