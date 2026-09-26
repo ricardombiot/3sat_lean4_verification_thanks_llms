@@ -1230,6 +1230,13 @@ solo tiene apoyo local: `EntryOnChain` del estado filtrado es la forma por entra
 abierto. Medido: toda entrada de todo estado de línea y de lector está en una cadena (`supported_probe.jl`,
 74 k estados, 0 fallos).
 
+**`EntryOnChain` es `MapCert` en cliques de dos** (`PieceFilter.entryOnChain_of_mapCert`): en un kernel, la regla de
+parejas da en cada paso un nodo en las dos tablas de una entrada `q→v`, y la simetría hace que posea a ambos; la
+entrada es una clique de dos con testigos. Un pin conserva `MapCert` (`mapCert_filter_pin`). Por tanto
+`MapCert J ⇒ filter(J, {k}) ⊆ A` (`filter_in_piece_of_mapCert`): bajo el invariante combinado el join se
+descomprime exacto. Para `PieceLocal` esto es circular (pide `MapCert J`); lo que aporta es que la mitad dura
+de la descompresión y `PieceLocal` son el mismo enunciado de Helly, ahora ya en cliques de dos.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

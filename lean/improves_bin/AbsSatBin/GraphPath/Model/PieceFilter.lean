@@ -19,6 +19,11 @@ line `n+1` by the key `k` of the source of one of its pieces `A` gives back exac
   (`Kernel.below_review`), and a kernel only has local support; that every entry of it lies on a chain is
   the entry form of `NoDeadEnd`. Measured: every entry of every line and reader state lies on a chain
   (`supported_probe.jl`, 74 k states, 0 failures).
+* **`entryOnChain_of_mapCert`**: in a kernel every entry is a clique of two with witnesses (pair rule plus
+  symmetry), so `EntryOnChain` is `MapCert` on cliques of two. **`mapCert_filter_pin`**: a pin keeps
+  `MapCert` (the witnesses of the pinned kernel own only the pinned node at its step). Together:
+  **`filter_in_piece_of_mapCert`**, under `MapCert` of the joined state the filter by a key leaves only its
+  piece — with `ChainRoute.combined_invariant`, under `PieceLocal` the join is decompressed exactly.
 -/
 
 namespace AbsSatBin.GraphPath.Model.PieceFilter
@@ -52,6 +57,93 @@ theorem grown_of_below {X h : GPathM} (hb : Below X h) : Grown h X where
   step_eq := hb.step
   gowners_grown := hb.gow
   node?_grown := hb.node
+
+/-- Every entry of a table lies on a chain through its node. -/
+def EntryOnChain (g : GPathM) : Prop :=
+  ∀ q nq, g.node? q = some nq → ∀ v ∈ nq.owners, ∃ sel, ChainSound g sel ∧
+    0 ≤ q.id.step ∧ q.id.step < g.current_step ∧ 0 ≤ v.id.step ∧ v.id.step < g.current_step ∧
+    sel q.id.step = q ∧ sel v.id.step = v
+
+-- ============================================================
+-- `EntryOnChain` is `MapCert` on cliques of two
+-- ============================================================
+
+/-- **In a kernel, every entry is a clique of two with witnesses**: the pair rule gives, at every step, a
+node in both tables, and symmetry makes it own both ends. So `MapCert` gives every entry a chain. -/
+theorem entryOnChain_of_mapCert {g : GPathM} (hk : Kernel g) (hso : Ownership.SelfOwned g)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (hab : KernelReader.OwnAbove g)
+    (hm : MapCert.MapCert g) : EntryOnChain g := by
+  intro q nq hq v hv
+  obtain ⟨nv, hnv⟩ := hk.isNode_owner q nq hq v hv
+  have hqq := hso q nq hq
+  have hvv := hso v nv hnv
+  have hqv := hk.sym q nq v nv hq hnv hv
+  have hQ : CliqueTri.Clique g [q, v] := by
+    intro p hp
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact ⟨nq, hq, fun x hx => by
+        rcases List.mem_cons.mp hx with rfl | hx
+        · exact hqq
+        · rw [List.mem_singleton.mp hx]; exact hv⟩
+    · rw [List.mem_singleton.mp hp]
+      exact ⟨nv, hnv, fun x hx => by
+        rcases List.mem_cons.mp hx with rfl | hx
+        · exact hqv
+        · rw [List.mem_singleton.mp hx]; exact hvv⟩
+  have hW : MapCert.WitR g [q, v] [] := by
+    intro l h0 h1
+    obtain ⟨r, hrq, hrv, hrs⟩ := hk.pair q nq v nv hq hnv hv l h0 h1
+    obtain ⟨nr, hnr⟩ := hk.isNode_owner q nq hq r hrq
+    refine ⟨r, nr, hnr, hrs, fun x hx => ?_, fun _ h => absurd h List.not_mem_nil⟩
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact hk.sym x nq r nr hq hnr hrq
+    · rw [List.mem_singleton.mp hx]; exact hk.sym v nv r nr hnv hnr hrv
+  obtain ⟨sel, hs, hon, _⟩ := hm [q, v] [] hQ hW
+  have hmq := List.mem_of_find?_eq_some hq
+  have hmv := List.mem_of_find?_eq_some hnv
+  have hiq := node?_id_eq _ q nq hq
+  have hiv := node?_id_eq _ v nv hnv
+  refine ⟨sel, hs, hab nq hmq q hqq, ?_, hab nv hmv v hvv, ?_, hon q List.mem_cons_self,
+    hon v (List.mem_cons_of_mem _ List.mem_cons_self)⟩
+  · have := hbelow nq hmq; rw [hiq] at this; exact this
+  · have := hbelow nv hmv; rw [hiv] at this; exact this
+
+/-- **A pin keeps `MapCert`** when the pinned state is a kernel: its witnesses own, at the pinned step, only
+the pinned map node, so a clique with witnesses of the pinned state has, in the state, witnesses that also
+own the pin; its certificate goes through the pin and survives the filter. -/
+theorem mapCert_filter_pin (X : GPathM) (hnd : NodupIds X) (k : NodeId) (hkF : Kernel (filterAll X [k]))
+    (h0 : 0 ≤ k.step) (h1 : k.step < X.current_step) (hm : MapCert.MapCert X) :
+    MapCert.MapCert (filterAll X [k]) := by
+  have hb := KernelIff.below_filterAll_self X hnd [k]
+  intro Q R hQ hW
+  have hQX : CliqueTri.Clique X Q := fun p hp => by
+    obtain ⟨np, hnp, hpQ⟩ := hQ p hp
+    obtain ⟨nx, hnx, ho, _, _⟩ := hb.node p np hnp
+    exact ⟨nx, hnx, fun s hs => ho s (hpQ s hs)⟩
+  have hWX : MapCert.WitR X Q (k :: R) := by
+    intro l hl0 hl1
+    obtain ⟨r, nr, hnr, hrs, hrQ, hrR⟩ := hW l hl0 (by rw [← hb.step]; exact hl1)
+    obtain ⟨nx, hnx, hox, _, _⟩ := hb.node r nr hnr
+    refine ⟨r, nx, hnx, hrs, fun p hp => hox p (hrQ p hp), fun m hm => ?_⟩
+    rcases List.mem_cons.mp hm with rfl | hm'
+    · obtain ⟨hall, _, _⟩ := (isValidNode_iff _ nr).mp (hkF.valid r nr hnr)
+      have he := List.all_eq_true.mp hall m.step
+        (mem_intRange_zero m.step _ h0 (by rw [← hb.step]; exact h1))
+      obtain ⟨p, hp, hps⟩ := List.any_eq_true.mp he
+      have hg : p ∈ (filterRequire X m).gowners :=
+        (pruned_review (filterRequire X m)).gowners_sub _ (hkF.own r nr hnr p hp)
+      have := (List.mem_filter.mp hg).2
+      simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, beq_iff_eq] at this hps
+      rcases this with h | h
+      · exact absurd hps h
+      · exact ⟨p, hox p hp, h⟩
+    · obtain ⟨p, hp, hpm⟩ := hrR m hm'
+      exact ⟨p, hox p hp, hpm⟩
+  obtain ⟨sel, hs, hon, hR⟩ := hm Q (k :: R) hQX hWX
+  refine ⟨sel, ChainSound_filterAll X [k] sel hs (fun r hr hr0 hr1 => ?_), hon,
+    fun m hm hm0 hm1 => hR m (List.mem_cons_of_mem _ hm) hm0 (by rw [hb.step]; exact hm1)⟩
+  rw [List.mem_singleton.mp hr] at hr0 hr1 ⊢
+  exact hR k List.mem_cons_self hr0 hr1
 
 variable (φ : Cnf) (hbd : Bounded φ) (n : Nat)
 include hbd
@@ -88,12 +180,6 @@ theorem piece_survives_filter (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (
 -- ============================================================
 -- The other half: the filter leaves nothing of the other piece, if its entries lie on chains
 -- ============================================================
-
-/-- Every entry of a table lies on a chain through its node. -/
-def EntryOnChain (g : GPathM) : Prop :=
-  ∀ q nq, g.node? q = some nq → ∀ v ∈ nq.owners, ∃ sel, ChainSound g sel ∧
-    0 ≤ q.id.step ∧ q.id.step < g.current_step ∧ 0 ≤ v.id.step ∧ v.id.step < g.current_step ∧
-    sel q.id.step = q ∧ sel v.id.step = v
 
 /-- **The filter of the joined state by the key of a source leaves only that piece**, when every entry the
 filter leaves lies on a chain: the chain climbs to the joined state, goes down into the piece of its own
@@ -171,5 +257,46 @@ theorem filter_in_piece (hn : (n : Int) + 1 < stepCount φ) (kv : NodeId × GPat
 /-- info: 'AbsSatBin.GraphPath.Model.PieceFilter.filter_in_piece' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms filter_in_piece
+
+/-- **The filtered joined state is a kernel**, self-owned, below its step, with owners above `0`. -/
+theorem filter_ctx (d : NodeId) (J : GPathM) (hJ : (d, J) ∈ line φ (n + 1)) (k : NodeId)
+    (hvF : isValid (filterAll J [k]) = true) :
+    NodupIds J ∧ Kernel (filterAll J [k]) ∧ Ownership.SelfOwned (filterAll J [k]) ∧
+      (∀ m ∈ (filterAll J [k]).nodes, m.id.id.step < (filterAll J [k]).current_step) ∧
+      KernelReader.OwnAbove (filterAll J [k]) := by
+  have hokJ : StateOk φ ((n + 1 : Nat) : Int) (d, J) := (lineOk φ (n + 1)).2 _ hJ
+  have hreachJ := MapReachable.reachable_of_mapReachable φ hbd _ hokJ.reach
+  have hndJ := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreachJ
+  have cJ := Reader.RCtx_reachable (reqOf φ) (isProhibited φ) _ hndJ hreachJ
+  have sJ := (SymMachine.symInv_reachable (reqOf φ) (isProhibited φ) _ hreachJ hokJ.valid).1
+  have abJ := KernelReader.ownAbove_reachable (reqOf φ) (isProhibited φ) _ hreachJ
+  have cX : Reader.RCtx ([k].foldl filterRequire J) :=
+    ReaderAgg.RCtx_of_keeps (ReaderAgg.keeps_foldl _ ReaderAgg.keeps_filterRequire [k] J) cJ
+  have abX : KernelReader.OwnAbove ([k].foldl filterRequire J) := by
+    intro m hm; rw [SymMachine.foldl_filterRequire_nodes] at hm; exact abJ m hm
+  have hk : Kernel (filterAll J [k]) :=
+    KernelReader.kernel_of_review _ cX (SymMachine.sym_foldl_filterRequire [k] J sJ) abX hvF
+  have cF := Reader.RCtx_filterAll J cJ [k]
+  exact ⟨hndJ, hk, SelfOwn.SelfOwned_of_OOS (filterRequire J k) hvF cF.oos cF.snn cF.below, cF.below,
+    KernelReader.ownAbove_of_pruned (pruned_filterAll J [k]) abJ⟩
+
+/-- **Under `MapCert` of the joined state, the join is decompressed exactly**: the filter by the key of a
+source leaves only that piece (and `piece_survives_filter` gives the reviewed piece back). -/
+theorem filter_in_piece_of_mapCert (hn : (n : Int) + 1 < stepCount φ) (kv : NodeId × GPathM)
+    (hkv : kv ∈ line φ n) (d : NodeId) (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true)
+    (J : GPathM) (hJ : (d, J) ∈ line φ (n + 1)) (hvF : isValid (filterAll J [kv.1]) = true)
+    (hmJ : MapCert.MapCert J) :
+    ∀ q nq, (filterAll J [kv.1]).node? q = some nq →
+      ∃ nA, (upF φ kv.2 d).node? q = some nA ∧ ∀ v ∈ nq.owners, v ∈ nA.owners := by
+  obtain ⟨hndJ, hk, hso, hbelow, hab⟩ := filter_ctx φ hbd n d J hJ kv.1 hvF
+  have hokJ : StateOk φ ((n + 1 : Nat) : Int) (d, J) := (lineOk φ (n + 1)).2 _ hJ
+  have hkey : kv.1.step = (n : Int) := mapNodes_step φ n kv.1 ((lineOk φ n).2 kv hkv).onMap
+  exact filter_in_piece φ hbd n hn kv hkv d hd hv J hJ hvF
+    (entryOnChain_of_mapCert hk hso hbelow hab
+      (mapCert_filter_pin J hndJ kv.1 hk (by omega) (by rw [hokJ.step, hkey]; push_cast; omega) hmJ))
+
+/-- info: 'AbsSatBin.GraphPath.Model.PieceFilter.filter_in_piece_of_mapCert' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms filter_in_piece_of_mapCert
 
 end AbsSatBin.GraphPath.Model.PieceFilter
