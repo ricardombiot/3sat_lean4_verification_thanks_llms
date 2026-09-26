@@ -1203,6 +1203,24 @@ de mapa, la de caminos pasa el join porque la unión no inventa cadenas.
 
 **Abierto, único:** `PieceLocal` (equivalente a `MapCert` del estado unido). Medido: 3,5 M cliques sin excepción.
 
+### 4.2κ El join es compresión sin pérdida: se descomprime filtrando por la clave (medido)
+
+Sonda `julia/improves_bin/test_3sat/probes/decompress_probe.jl` (2 047 joins, 4 094 piezas, 1,94 M cliques con
+testigos; instancias crafted, random_small y ejemplos):
+
+* **D1: `filter(J, {k_i}) = P_i`**, tabla a tabla, en las 4 094 piezas. Filtrar el estado unido por la clave del
+  paso `n` de la fuente devuelve exactamente la pieza. La unión conserva toda la información y es invertible.
+* **SYM**: la posesión es simétrica en todo estado unido (2 047/2 047).
+* **H20**: toda clique con testigos de `J` admite una clave `k_i` co-poseída por testigos en todos los pasos
+  (`WitR J Q [k_i]`), sin excepción. Pero **H21/FP fallan en 20 casos**: `WitR J Q [k_i]` no basta para que la
+  clique sobreviva al filtro por `k_i`. La pieza buena la sigue fijando la clique entera (H19).
+* F3 falla (2 503): no toda pieza con un testigo en el paso `n` conserva la clique.
+
+Lectura. Por D1, `J = join (filterAll J [k_A]) (filterAll J [k_B])`: es la forma de `CertRoute.certClique_join_pins`
+(demostrado), pero ese lema pide que `J` ya sea exacto. Las dos vías llegan al mismo núcleo: una clique con
+testigos del estado unido tiene cadena (Helly en la unión). D1 dice que la unión no pierde ni mezcla
+información; lo que falta es que la review de las piezas (ventana saltada en `L3`) baste para decidir la pieza.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
