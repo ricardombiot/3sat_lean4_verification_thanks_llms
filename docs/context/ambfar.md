@@ -333,6 +333,35 @@ junto con la clique, en el camino de una solución.
     aunque el lector siga funcionando. `NoDeadEnd` es lo necesario; `CliqueTri` es suficiente.
     **Pendiente de confirmación.**
 
+### 4.2g Segundo intento, operación a operación: `CertClique` — **en curso**
+
+**`CertClique g`**: toda clique con testigos (`Wit`) está en un certificado. En los estados del lector
+es `CertLink` (`certClique_iff_certLink`, **demostrado**). Se enuncia sobre cualquier estado, así que
+puede seguirse a lo largo de la máquina.
+
+**Por operación de la máquina** (la salida es `filterAll kv.2 []` de estados hechos con
+`up = addNode ∘ filterAll reqs`, `join` e `insertPure`):
+
+| operación | ¿conserva `CertClique`? | por qué |
+|---|---|---|
+| review sin requisitos | **sí, demostrado** (`certClique_filterAll_nil`) | tras el review hay menos cliques y menos testigos, y los certificados sobreviven (`ChainSound_filterAll`) |
+| filtro por requisito | abierto | la clique `Q` tiene testigo en el paso del requisito con el id pedido, pero `Q ∪ {ese testigo}` no tiene por qué tener testigos en los demás pasos |
+| `addNode`, fila sin fusión (un padre) | plausible, sin formalizar | los testigos que poseen `z` poseen a su único padre `p`; el certificado de `Q ∪ {p}` se extiende por `z` (`ChainSound_addNode`) |
+| `addNode`, nodo con dos padres | abierto | `z = (d,a,b)` con padres `(a,b,c₁)` y `(a,b,c₂)`: un testigo puede poseer `Q` con `p₁` y otro, en otro paso, `Q` con `p₂`, sin testigo común |
+| `join` | abierto | une tablas de historias distintas con la misma clave |
+
+**El mecanismo común**: `Wit` permite testigos distintos en pasos distintos. El review, que es por
+parejas, no los correlaciona. Donde la máquina **une** (fusiones de ventana, `join`, requisitos que
+dejan varios nodos de camino con el mismo nodo de mapa), testigos de ramas distintas pueden
+completar una clique que ninguna rama sola completa.
+
+**Siguientes pasos posibles**:
+1. Formalizar `addNode` sin fusión.
+2. Ver si la estructura bin impide la mezcla en las fusiones. Los padres solo difieren en el paso
+   `s−3`, y lo que puede distinguirlos son los requisitos que miran a ese paso.
+3. Si no la impide, cambiar la máquina para que registre la rama (por ejemplo, tablas relativas al
+   `gparent` en las fusiones).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

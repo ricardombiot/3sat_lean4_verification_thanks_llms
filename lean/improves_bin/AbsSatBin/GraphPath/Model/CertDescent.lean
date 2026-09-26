@@ -177,10 +177,11 @@ theorem chain_of_cover (Q : List PathNodeId) (hQ : Clique g Q)
     have hid : n.id = pick Q k := node?_id_eq g _ n hn
     have := c.rc.shape.notroot n hm (by rw [hid, (spec k (by omega) h1).2]; exact h0)
     rw [hid] at this; exact this
-/-- **`CliqueTri ⇒ CertLink`.** -/
-theorem certLink_of_cliqueTri (hT : CliqueTri g) : CertLink g := by
+/-- The start of the growth: a compatible link and its clique give a clique with witnesses. -/
+theorem clique_start (P : List PathNodeId) (hP : Clique g P) (y : PathNodeId) (ny : PNodeM) (w : PathNodeId)
+    (nw : PNodeM) (hy : g.node? y = some ny) (hw : g.node? w = some nw) (hyP : OwnsAll P ny)
+    (hwP : OwnsAll P nw) (hC : CxP g P ny w) : Clique g (y :: w :: P) ∧ Wit g (y :: w :: P) := by
   have hk := c.pc.ker
-  intro P hP y ny w nw hy hw hyP hwP hC
   have hwy : w ∈ ny.owners := by obtain ⟨_, _, h, _⟩ := hC; exact h
   -- `y :: w :: P` is a clique with witnesses
   have hQ0 : Clique g (y :: w :: P) := by
@@ -219,6 +220,12 @@ theorem certLink_of_cliqueTri (hT : CliqueTri g) : CertLink g := by
     rcases List.mem_cons.mp hs with e | hs
     · rw [e]; exact hk.sym w nw r nr hw hnr hrw
     · exact hrP s hs
+  exact ⟨hQ0, hW0⟩
+
+/-- **`CliqueTri ⇒ CertLink`.** -/
+theorem certLink_of_cliqueTri (hT : CliqueTri g) : CertLink g := by
+  intro P hP y ny w nw hy hw hyP hwP hC
+  obtain ⟨hQ0, hW0⟩ := clique_start c P hP y ny w nw hy hw hyP hwP hC
   obtain ⟨Q, hsub, hQ, _, hcov⟩ := cover c hT _ hQ0 hW0 y List.mem_cons_self g.current_step.toNat
   obtain ⟨hs, hon⟩ := chain_of_cover c Q hQ (fun l h0 h1 => hcov l h0 (by omega) h1)
   exact ⟨pick Q, hs, fun q hq => hon q (hsub q hq)⟩

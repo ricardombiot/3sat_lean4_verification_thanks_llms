@@ -54,6 +54,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `CliqueTri` | — | nuevo | `TriP g P` (regla de parejas relativa a una clique `P`), `CliqueTri` (para toda clique) ⇒ `AllTriPin₁`; **el pin es el subkernel cortado** (`pin_eq_cut`); **el pin conserva `CliqueTri`** (`cliqueTri_pin`); el lector decide si `CliqueTri` vale en los estados de partida (`readerVerdictW_iff_of_cliqueTri`) |
 | `CertFix` | — | nuevo | caracterización del punto fijo por certificados (`ChainSound`): `CertLink` (todo enlace compatible relativo a una clique está, con ella, en un certificado); `cxP_of_cert` (converso, siempre); `cutTable_iff_cert`; `CertLink ⇒ CliqueTri`; `readerVerdictW_iff_of_certLink` |
 | `CertDescent` | — | nuevo | `CliqueTri ⇒ CertLink` haciendo crecer una clique con testigos hasta un certificado (`grow`, `cover`, `chain_of_cover`); `certLink_iff_cliqueTri` |
+| `CertInvariant` | — | nuevo | `CertClique` (toda clique con testigos está en un certificado) ⇔ `CertLink`; **el review lo conserva** (`certClique_filterAll_nil`); basta en la salida cruda de la máquina (`readerVerdictW_iff_of_certClique`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
