@@ -269,6 +269,31 @@ theorem join_parents_source (g₁ g₂ : GPathM) (pid : PathNodeId) (n : PNodeM)
       · refine Or.inr ⟨m₂, ?_, (List.mem_filter.mp hr).1⟩
         rw [← hid]; exact h2
 
+/-- **Provenance of a son link**, as for parents. -/
+theorem join_sons_source (g₁ g₂ : GPathM) (pid : PathNodeId) (n : PNodeM)
+    (h : (join g₁ g₂).node? pid = some n) (w : PathNodeId) (hw : w ∈ n.sons) :
+    (∃ m, g₁.node? pid = some m ∧ w ∈ m.sons) ∨ (∃ m, g₂.node? pid = some m ∧ w ∈ m.sons) := by
+  rcases node?_cases g₁ pid with h1 | ⟨m, h1⟩
+  · refine Or.inr ⟨n, ?_, hw⟩
+    rw [← join_node?_only_right g₁ g₂ pid h1]; exact h
+  · have hid : m.id = pid := node?_id_eq g₁ pid m h1
+    have hj := join_node?_left g₁ g₂ pid m h1
+    rw [hj] at h
+    have hn : n = joinMap g₂ m := (Option.some_inj.mp h).symm
+    rcases node?_cases g₂ m.id with h2 | ⟨m₂, h2⟩
+    · refine Or.inl ⟨m, h1, ?_⟩
+      have hmm : joinMap g₂ m = m := by simp only [joinMap, h2]
+      rw [hn, hmm] at hw; exact hw
+    · have heq : joinMap g₂ m = mergeNode m m₂ := by simp only [joinMap, h2]
+      rw [hn, heq] at hw
+      have hso : (mergeNode m m₂).sons
+          = m.sons ++ m₂.sons.filter (fun q => !m.sons.contains q) := rfl
+      rw [hso] at hw
+      rcases List.mem_append.mp hw with hl | hr
+      · exact Or.inl ⟨m, h1, hl⟩
+      · refine Or.inr ⟨m₂, ?_, (List.mem_filter.mp hr).1⟩
+        rw [← hid]; exact h2
+
 theorem node?_isSome_of_mem (g : GPathM) (n : PNodeM) (hn : n ∈ g.nodes) :
     (g.node? n.id).isSome := by
   simp only [node?]

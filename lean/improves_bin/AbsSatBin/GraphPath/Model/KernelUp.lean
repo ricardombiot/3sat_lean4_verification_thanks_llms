@@ -20,6 +20,11 @@ field, from the kernel below:
   of a top node.
 
 When a candidate is prohibited, `up` reviews the new state and `KernelReader.kernel_of_review` applies.
+
+**`kernel_join`**: the union of two kernels is a kernel — every entry and link of the union comes from one
+side (`join_owners_source`, `join_parents_source`, `join_sons_source`), where both ends are nodes and the
+condition holds, and the union only enlarges tables and links. So every step of the machine keeps kernels:
+the filter (`kernel_of_review`), the `UP` (`kernel_up`, or the review when a window is skipped) and the join.
 -/
 
 namespace AbsSatBin.GraphPath.Model.KernelUp
@@ -438,5 +443,132 @@ theorem kernel_up {g : GPathM} (d : NodeId) (title : String) (forb : PathNodeId 
 /-- info: 'AbsSatBin.GraphPath.Model.KernelUp.kernel_up' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms kernel_up
+
+-- ============================================================
+-- The join of two kernels
+-- ============================================================
+
+/-- A node of a side is, in a state it grows into, the node found there, with larger tables and links. -/
+theorem lift {K J : GPathM} (hg : Grown K J) (p : PathNodeId) (m : PNodeM) (hm : K.node? p = some m)
+    (n : PNodeM) (hn : J.node? p = some n) :
+    (∀ q ∈ m.owners, q ∈ n.owners) ∧ (∀ q ∈ m.parents, q ∈ n.parents) ∧ (∀ q ∈ m.sons, q ∈ n.sons) := by
+  obtain ⟨n', hn', ho, hp, hs⟩ := hg.node?_grown p m hm
+  rw [hn] at hn'; cases hn'
+  exact ⟨ho, hp, hs⟩
+
+/-- A node of a side is a node of what it grows into. -/
+theorem lift_node {K J : GPathM} (hg : Grown K J) (p : PathNodeId) (m : PNodeM) (hm : K.node? p = some m) :
+    ∃ n, J.node? p = some n ∧ ∀ q ∈ m.owners, q ∈ n.owners := by
+  obtain ⟨n', hn', ho, _, _⟩ := hg.node?_grown p m hm
+  exact ⟨n', hn', ho⟩
+
+/-- **The union of two kernels is a kernel**: every entry and every link of the union comes from one side,
+where both ends are nodes and the kernel's condition holds; the union only enlarges tables and links. -/
+theorem kernel_join {A B : GPathM} (hA : Kernel A) (hB : Kernel B) (hok : okJoin A B = true) :
+    Kernel (join A B) := by
+  have gl := grown_join_left A B
+  have gr := grown_join_right A B hok
+  refine
+    { gow := ?_, gn := ?_, own := ?_, valid := ?_, sym := ?_, linkP := ?_, linkS := ?_, pair := ?_,
+      nbrP := ?_, nbrS := ?_ }
+  -- gow
+  · intro p n hn
+    rcases join_node?_source A B p n hn with h | h
+    · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp h
+      exact gl.gowners_grown p (hA.gow p m hm)
+    · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp h
+      exact gr.gowners_grown p (hB.gow p m hm)
+  -- gn
+  · intro q hq
+    have hq' : q ∈ A.gowners ++ B.gowners.filter (fun x => !A.gowners.contains x) := hq
+    rcases List.mem_append.mp hq' with h | h
+    · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (hA.gn q h)
+      obtain ⟨n, hn, _⟩ := lift_node gl q m hm
+      rw [hn]; rfl
+    · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (hB.gn q (List.mem_filter.mp h).1)
+      obtain ⟨n, hn, _⟩ := lift_node gr q m hm
+      rw [hn]; rfl
+  -- own
+  · intro p n hn v hv
+    rcases join_owners_source A B p n hn v hv with ⟨m, hm, hvm⟩ | ⟨m, hm, hvm⟩
+    · exact gl.gowners_grown v (hA.own p m hm v hvm)
+    · exact gr.gowners_grown v (hB.own p m hm v hvm)
+  -- valid
+  · intro p n hn
+    rcases join_node?_source A B p n hn with h | h
+    · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp h
+      obtain ⟨ho, hp, hs⟩ := lift gl p m hm n hn
+      exact isValidNode_mono _ m n (by rw [node?_id_eq _ p n hn, node?_id_eq _ p m hm]) gl.step_eq ho hp hs
+        (hA.valid p m hm)
+    · obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp h
+      obtain ⟨ho, hp, hs⟩ := lift gr p m hm n hn
+      exact isValidNode_mono _ m n (by rw [node?_id_eq _ p n hn, node?_id_eq _ p m hm]) gr.step_eq ho hp hs
+        (hB.valid p m hm)
+  -- sym
+  · intro p n q m hn hm hq
+    rcases join_owners_source A B p n hn q hq with ⟨a, ha, hqa⟩ | ⟨a, ha, hqa⟩
+    · obtain ⟨b, hb⟩ := hA.isNode_owner p a ha q hqa
+      exact (lift gl q b hb m hm).1 p (hA.sym p a q b ha hb hqa)
+    · obtain ⟨b, hb⟩ := hB.isNode_owner p a ha q hqa
+      exact (lift gr q b hb m hm).1 p (hB.sym p a q b ha hb hqa)
+  -- linkP
+  · intro p n hn c hc
+    have one : ∀ K, Kernel K → Grown K (join A B) → ∀ m, K.node? p = some m → c ∈ m.parents →
+        c ∈ n.owners ∧ ∃ nc, (join A B).node? c = some nc ∧ p ∈ nc.owners := by
+      intro K hK hg m hm hcm
+      obtain ⟨hco, nc, hnc, hpo⟩ := hK.linkP p m hm c hcm
+      obtain ⟨nc', hnc', hoc⟩ := lift_node hg c nc hnc
+      exact ⟨(lift hg p m hm n hn).1 c hco, nc', hnc', hoc p hpo⟩
+    rcases join_parents_source A B p n hn c hc with ⟨m, hm, hcm⟩ | ⟨m, hm, hcm⟩
+    · exact one A hA gl m hm hcm
+    · exact one B hB gr m hm hcm
+  -- linkS
+  · intro p n hn c hc
+    have one : ∀ K, Kernel K → Grown K (join A B) → ∀ m, K.node? p = some m → c ∈ m.sons →
+        c ∈ n.owners ∧ ∃ nc, (join A B).node? c = some nc ∧ p ∈ nc.owners := by
+      intro K hK hg m hm hcm
+      obtain ⟨hco, nc, hnc, hpo⟩ := hK.linkS p m hm c hcm
+      obtain ⟨nc', hnc', hoc⟩ := lift_node hg c nc hnc
+      exact ⟨(lift hg p m hm n hn).1 c hco, nc', hnc', hoc p hpo⟩
+    rcases join_sons_source A B p n hn c hc with ⟨m, hm, hcm⟩ | ⟨m, hm, hcm⟩
+    · exact one A hA gl m hm hcm
+    · exact one B hB gr m hm hcm
+  -- pair
+  · intro p n w nw hn hnw hwn k h0 h1
+    have one : ∀ K, Kernel K → Grown K (join A B) → ∀ m, K.node? p = some m → w ∈ m.owners →
+        ∃ r ∈ n.owners, r ∈ nw.owners ∧ r.id.step = k := by
+      intro K hK hg m hm hwm
+      obtain ⟨mw, hmw⟩ := hK.isNode_owner p m hm w hwm
+      obtain ⟨r, hr1, hr2, hrs⟩ := hK.pair p m w mw hm hmw hwm k h0 (by rw [← hg.step_eq]; exact h1)
+      exact ⟨r, (lift hg p m hm n hn).1 r hr1, (lift hg w mw hmw nw hnw).1 r hr2, hrs⟩
+    rcases join_owners_source A B p n hn w hwn with ⟨m, hm, hwm⟩ | ⟨m, hm, hwm⟩
+    · exact one A hA gl m hm hwm
+    · exact one B hB gr m hm hwm
+  -- nbrP
+  · intro p n hn h1 v hv
+    have one : ∀ K, Kernel K → Grown K (join A B) → ∀ m, K.node? p = some m → v ∈ m.owners →
+        ∃ c ∈ n.parents, ∃ nc, (join A B).node? c = some nc ∧ v ∈ nc.owners := by
+      intro K hK hg m hm hvm
+      obtain ⟨c, hc, nc, hnc, hvc⟩ := hK.nbrP p m hm h1 v hvm
+      obtain ⟨nc', hnc', hoc⟩ := lift_node hg c nc hnc
+      exact ⟨c, (lift hg p m hm n hn).2.1 c hc, nc', hnc', hoc v hvc⟩
+    rcases join_owners_source A B p n hn v hv with ⟨m, hm, hvm⟩ | ⟨m, hm, hvm⟩
+    · exact one A hA gl m hm hvm
+    · exact one B hB gr m hm hvm
+  -- nbrS
+  · intro p n hn h2 v hv
+    have one : ∀ K, Kernel K → Grown K (join A B) → ∀ m, K.node? p = some m → v ∈ m.owners →
+        ∃ c ∈ n.sons, ∃ nc, (join A B).node? c = some nc ∧ v ∈ nc.owners := by
+      intro K hK hg m hm hvm
+      obtain ⟨c, hc, nc, hnc, hvc⟩ := hK.nbrS p m hm (by rw [← hg.step_eq]; exact h2) v hvm
+      obtain ⟨nc', hnc', hoc⟩ := lift_node hg c nc hnc
+      exact ⟨c, (lift hg p m hm n hn).2.2 c hc, nc', hnc', hoc v hvc⟩
+    rcases join_owners_source A B p n hn v hv with ⟨m, hm, hvm⟩ | ⟨m, hm, hvm⟩
+    · exact one A hA gl m hm hvm
+    · exact one B hB gr m hm hvm
+
+/-- info: 'AbsSatBin.GraphPath.Model.KernelUp.kernel_join' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms kernel_join
 
 end AbsSatBin.GraphPath.Model.KernelUp
