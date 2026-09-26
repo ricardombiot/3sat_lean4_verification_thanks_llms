@@ -87,6 +87,7 @@ import AbsSatBin.GraphPath.Model.LineSem
 import AbsSatBin.GraphPath.Model.ClauseKey
 import AbsSatBin.GraphPath.Model.NoInvent
 import AbsSatBin.GraphPath.Model.ClauseWitness
+import AbsSatBin.GraphPath.Model.StateGrow
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs

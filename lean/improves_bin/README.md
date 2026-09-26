@@ -70,6 +70,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `ClauseKey` | — | nuevo | la cláusula por claves: cada pieza de `L3` fija un literal cierto; `semConcl_low` (paso sin cláusula), `ClauseKey` (los testigos coinciden en un literal cierto) `⇒ ClauseChoice`; `readerVerdictW_iff_of_clauseKey`; **`clauseKey_mid`**: con un nodo en `L2` la ventana elige el literal (caso `00`: el review de la ventana saltada fuerza la clave `1`) |
 | `NoInvent` | — | nuevo | «ninguna entrada es inventada»: toda entrada de una tabla es co-ocurrencia en una solución parcial real (`NoInvent`); `noInvent_of_semCert` en los estados revisados de la línea; `filter_entry_req`: tras el filtro de requisito cada entrada lleva un tercer nodo (por qué la pareja sola no es inductiva) |
 | `ClauseWitness` | — | nuevo | la regla aprendida de la sonda Julia: un nodo de un paso de cláusula fija en su tabla las variables de los literales de su ventana (`req_in_table`, `parent_req_in_table`, `owns_window_req`); **`witness_fixes_clique`**: un testigo en `L_p` fija el valor de todo miembro de la clique en las variables de los literales `p` y `p-1`; `clauseKey_trueVar` (la clique contiene un valor que hace cierto un literal) y `clauseKey_allFalse` (contiene los tres valores falsos: no hay testigo en `L2`); **composición**: `ExtAt` (la clique se amplía con un nodo en un paso de variable conservando testigos) `⇒ ClauseKey` (`clauseKey_of_ext`) y el lector decide (`readerVerdictW_iff_of_ext`) |
+| `StateGrow` | — | nuevo | **corrección**: la sonda Julia refuta `SemCert` por entradas de la línea (`rand3sat_v8_c10`); la hipótesis del lector pasa a ser **por estado**: `GrowState` (en un estado, una clique con testigos crece en cualquier paso) `⇒ CertClique` (`certClique_of_grow`) y `readerVerdictW_iff_of_grow`; la regla del join: `row_parent_key`, **`top_one_source`** (toda entrada de un nodo del paso nuevo viene del mismo estado de origen) y `clique_in_source` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
@@ -91,7 +92,8 @@ Cada módulo que entra se registra aquí con su procedencia:
   (`CliqueTri`), así que basta en los estados de partida: **abierto** que la máquina lo construya. Forma
   equivalente por certificados: `CertLink ⇔ CliqueTri` (`CertFix`, `CertDescent`).
 - **Lector completo salvo la cláusula** (`LineSem.readerVerdictW_iff_of_clauseChoice`): el único
-  supuesto es `ClauseChoice` en el tercer literal de cada cláusula.
+  supuesto es `ClauseChoice` en el tercer literal de cada cláusula. **Ojo**: `ClauseChoice`/`SemCert` por
+  entradas es falso (sonda Julia); la ruta vigente es por estado: `StateGrow.readerVerdictW_iff_of_grow`.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa

@@ -125,7 +125,7 @@ function probe_file(path; k3 = false, perstate = false)
                     bump("FALLO semántico: Q con testigos sin solución (tamaño $(length(Q)))")
                     length(examples) < 5 && push!(examples, "$(basename(path)) L3=$s Q=$(map(key, Q))")
                 end
-                for l in 1:2nv
+                for l in (isLast ? (0:s) : (1:2nv))
                     any(q -> q.id.step == l, Q) && continue
                     cands = [x for x in get(bystep, l, PathNodeId[]) if isclique(U, vcat([x], Q))]
                     if isempty(cands)

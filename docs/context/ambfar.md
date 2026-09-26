@@ -1063,6 +1063,21 @@ línea. Regla observada para el join: **el testigo del paso nuevo fija la pieza 
 Los módulos `LineSem`/`ClauseKey`/`ClauseWitness` siguen siendo correctos como implicaciones, pero su
 hipótesis (por entradas) no se cumple; hay que reenunciar `SemCert` por estado.
 
+### 4.2α La corrección: por estado, y el testigo del paso nuevo fija el origen (`StateGrow.lean`)
+
+* **`GrowState g`**: dentro del estado `g`, toda clique con testigos gana un nodo en cualquier paso sin perder
+  testigos (el `ExtAt` por estado, 0 fallos en la sonda).
+* `certClique_of_grow`: creciendo hasta tener un nodo en cada paso sale un certificado; **`readerVerdictW_iff_of_grow`**:
+  el lector decide `φ` si los estados de partida crecen. Sustituye a la ruta por entradas (`LineSem`),
+  cuya hipótesis es falsa.
+* **La regla del join, demostrada**: `row_parent_key` (un nodo del paso nuevo de una pieza tiene por padre la
+  clave de su origen) y **`top_one_source`**: en un estado de la línea `n+1`, **toda** entrada de un nodo del
+  paso nuevo viene del mismo estado de origen (claves únicas en la línea). `clique_in_source`: una clique que
+  posee un nodo del paso nuevo está entera en el origen filtrado, y cada miembro posee allí un padre suyo.
+
+**Abierto:** `GrowState` en los estados de la máquina. La regla del join fija el origen de las entradas del nodo
+superior; falta llevar a ese origen los testigos de los demás pasos (pueden venir de otras piezas del join).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
