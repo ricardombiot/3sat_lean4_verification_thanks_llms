@@ -1163,6 +1163,20 @@ tiene, `chain_in_piece` lo pone en una pieza, con la clique y sus testigos dentr
 El lector necesita la versión para cliques con testigos (`PieceLocal`), porque `MapCert` habla de cliques. P3 es
 su caso de cliques completas.
 
+### 4.2η Crecer en el estado unido y la clave de la clique (`join_grow_probe.jl`)
+
+Mismo corpus, 3,5 M cliques con testigos en estados unidos:
+* **A, crecer:** en todo paso sin miembro hay un nodo que amplía la clique conservando testigos. **84,6 M
+  comprobaciones, ninguna falla.** Es `GrowState` en los estados unidos.
+* **B1:** siempre hay testigos frontera `r` (paso `n`) y `w` (paso `n+1`) compatibles (`w` posee `r`).
+* **B2:** algún par así amplía la clique (siempre); no todos (B2' falla 33 162).
+* **B3:** la pieza de todo par frontera que amplía la clique es buena (siempre).
+
+Consecuencia lógica (sin nuevas hipótesis): si la clique crece hasta tener un nodo en cada paso, es una cadena
+(`chain_of_cover`), y `chain_in_piece` la pone en la pieza de su propia clave. Así **`GrowState` en el estado
+unido ⇒ `PieceLocal`** (y B3 es este argumento). Y `GrowState` en los estados de partida ya basta al lector
+(`StateGrow.readerVerdictW_iff_of_grow`). El núcleo es **crecer**.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
