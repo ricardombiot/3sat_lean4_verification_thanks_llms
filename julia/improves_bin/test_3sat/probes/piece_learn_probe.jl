@@ -59,6 +59,17 @@ function probe(path; k3 = false)
             length(ps) >= 2 || return
             U = tables([g]); B = bystep_of(U)
             Up = [tables([p]) for p in ps]; Bp = [bystep_of(u) for u in Up]
+            # E1rw: entrada entre dos nodos poseídos (en P) por un par frontera compatible (r en n, w en n+1, w ∋ r)
+            for i in eachindex(Up)
+                for w in get(Bp[i], s1, PathNodeId[]), r in get(Bp[i], s1 - 1, PathNodeId[])
+                    owns(Up[i], w, r) || continue
+                    T = [q for q in Up[i][w] if haskey(Up[i], q) && q.id.step < s1 - 1 && owns(Up[i], r, q)]
+                    for a in T, b in T
+                        owns(U, a, b) || continue
+                        bump(owns(Up[i], a, b) ? "E1rw ok" : "E1rw FALLA")
+                    end
+                end
+            end
             # E1w: entrada entre dos nodos poseídos (en P) por un mismo nodo del paso nuevo de P
             for i in eachindex(Up)
                 for w in get(Bp[i], s1, PathNodeId[])

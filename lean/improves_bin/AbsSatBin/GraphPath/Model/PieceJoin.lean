@@ -360,8 +360,82 @@ end frontier
 #guard_msgs in
 #print axioms mapCert_join
 
+-- ============================================================
+-- The combined invariant: the join gap is exactly `MapCert` of the joined state
+-- ============================================================
+
+/-- **Certificates of the joined state give `PieceLocal`.** A clique with witnesses of a state of line `n+1`
+that has a certificate there has it in one piece (`chain_in_piece`), and the certificate carries the clique
+and its witnesses into that piece. So, with the pieces' `MapCert` (proved, `StatePiece`), `PieceLocal n` is
+**equivalent** to `MapCert` of the states of line `n+1` (`mapCert_join` is the other direction). -/
+theorem pieceLocal_of_mapCert (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 < stepCount φ)
+    (hJ : ∀ kv' ∈ line φ (n + 1), MapCert kv'.2) : PieceLocal φ n := by
+  intro kv' hkv' Q R hQ hW
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hcs' : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hreach := reachable_of_mapReachable φ hbd kv'.2 hok'.reach
+  have hnd := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) kv'.2 hreach
+  have cr := Reader.RCtx_reachable (reqOf φ) (isProhibited φ) kv'.2 hnd hreach
+  have hab := KernelReader.ownAbove_reachable (reqOf φ) (isProhibited φ) kv'.2 hreach
+  obtain ⟨sel, hs, hon, hR⟩ := hJ kv' hkv' Q R hQ hW
+  obtain ⟨kv, hkv, hd, hv, sel', hs', hag⟩ := chain_in_piece φ hbd n hn kv' hkv' sel hs
+  have hcsP : (upF φ kv.2 kv'.1).current_step = (n : Int) + 2 := by
+    obtain ⟨_, _, hcs, _, hvF, _⟩ := src_ctx φ hbd n kv hkv kv'.1 hd hv
+    rw [Conservation.current_step_upFiltering _ _ _ _ _ hvF, hcs]; omega
+  -- the steps of the clique and of the map constraints
+  have qstep : ∀ q ∈ Q, 0 ≤ q.id.step ∧ q.id.step < (n : Int) + 2 := by
+    intro q hq
+    obtain ⟨nq, hnq, _⟩ := hQ q hq
+    have hm := List.mem_of_find?_eq_some hnq
+    have h0 := cr.snn nq hm; have h1 := cr.below nq hm
+    rw [node?_id_eq _ q nq hnq] at h0 h1; rw [← hcs']; exact ⟨h0, h1⟩
+  have mstep : ∀ m ∈ R, 0 ≤ m.step ∧ m.step < (n : Int) + 2 := by
+    intro m hm
+    obtain ⟨r, nr, hnr, _, _, hrR⟩ := hW 0 (Int.le_refl 0) (by rw [hcs']; omega)
+    obtain ⟨p, hp, hpm⟩ := hrR m hm
+    have hm' := List.mem_of_find?_eq_some hnr
+    have h0 := hab nr hm' p hp; have h1 := cr.ownb nr hm' p hp
+    rw [← hpm, ← hcs']; exact ⟨h0, h1⟩
+  have onP : ∀ q ∈ Q, sel' q.id.step = q := fun q hq => by
+    rw [hag _ (qstep q hq).1 (qstep q hq).2]; exact hon q hq
+  -- a node of the certificate owns every node of the certificate
+  have ownsCert : ∀ k j, 0 ≤ k → k < (n : Int) + 2 → 0 ≤ j → j < (n : Int) + 2 →
+      ∃ nk, (upF φ kv.2 kv'.1).node? (sel' k) = some nk ∧ sel' j ∈ nk.owners := by
+    intro k j hk0 hk1 hj0 hj1
+    obtain ⟨nk, hnk⟩ := Option.isSome_iff_exists.mp (hs'.chain.1.1 k hk0 (by rw [hcsP]; exact hk1)).1
+    refine ⟨nk, hnk, ?_⟩
+    by_cases hkj : j = k
+    · subst hkj
+      have := hs'.self_owned j hk0 (by rw [hcsP]; exact hk1)
+      simp only [ownersOf, hnk] at this; exact this
+    · have := hs'.chain.2.1 j k hj0 hk0 (by rw [hcsP]; exact hj1) (by rw [hcsP]; exact hk1) hkj
+      simp only [ownersOf, hnk, ownersAt] at this
+      exact (List.mem_filter.mp this).1
+  refine ⟨kv, hkv, hd, hv, fun q hq => ?_, fun l h0 h1 => ?_⟩
+  · obtain ⟨nk, hnk, _⟩ := ownsCert q.id.step q.id.step (qstep q hq).1 (qstep q hq).2 (qstep q hq).1 (qstep q hq).2
+    rw [onP q hq] at hnk
+    refine ⟨nk, hnk, fun s hs0 => ?_⟩
+    obtain ⟨nk', hnk', hmem⟩ := ownsCert q.id.step s.id.step (qstep q hq).1 (qstep q hq).2 (qstep s hs0).1 (qstep s hs0).2
+    rw [onP q hq, hnk] at hnk'; cases hnk'
+    rw [onP s hs0] at hmem; exact hmem
+  · rw [hcsP] at h1
+    obtain ⟨nk, hnk, _⟩ := ownsCert l l h0 h1 h0 h1
+    refine ⟨sel' l, nk, hnk, (hs'.chain.1.1 l h0 (by rw [hcsP]; exact h1)).2, fun s hs0 => ?_, fun m hm => ?_⟩
+    · obtain ⟨nk', hnk', hmem⟩ := ownsCert l s.id.step h0 h1 (qstep s hs0).1 (qstep s hs0).2
+      rw [hnk] at hnk'; cases hnk'
+      rw [onP s hs0] at hmem; exact hmem
+    · obtain ⟨nk', hnk', hmem⟩ := ownsCert l m.step h0 h1 (mstep m hm).1 (mstep m hm).2
+      rw [hnk] at hnk'; cases hnk'
+      refine ⟨sel' m.step, hmem, ?_⟩
+      rw [hag _ (mstep m hm).1 (mstep m hm).2]
+      exact hR m hm (mstep m hm).1 (by rw [hcs']; exact (mstep m hm).2)
+
 /-- info: 'AbsSatBin.GraphPath.Model.PieceJoin.chain_in_piece' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms chain_in_piece
+
+/-- info: 'AbsSatBin.GraphPath.Model.PieceJoin.pieceLocal_of_mapCert' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pieceLocal_of_mapCert
 
 end AbsSatBin.GraphPath.Model.PieceJoin

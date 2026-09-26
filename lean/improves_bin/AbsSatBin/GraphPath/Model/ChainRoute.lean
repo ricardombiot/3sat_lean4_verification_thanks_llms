@@ -84,4 +84,21 @@ theorem readerVerdictW_iff_of_chains (hbd : Bounded φ)
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_chains
 
+-- ============================================================
+-- The combined invariant
+-- ============================================================
+
+/-- **The combined invariant.** Cliques inside each piece (filter, `UP`, skipped window: `StatePiece`) and
+chains across the join (`PieceJoin.chain_in_piece`): `MapCert` holds in every state of the machine **if and
+only if** `PieceLocal` holds at every join. -/
+theorem combined_invariant (hbd : Bounded φ) :
+    (∀ n : Nat, (n : Int) + 1 < stepCount φ → PieceJoin.PieceLocal φ n) ↔
+      (∀ n : Nat, (n : Int) < stepCount φ → ∀ kv ∈ line φ n, MapCert.MapCert kv.2) := by
+  refine ⟨fun h => StateLine.mapCert_line φ hbd h, fun h n hn => ?_⟩
+  exact PieceJoin.pieceLocal_of_mapCert φ hbd n hn (h (n + 1) (by push_cast; exact hn))
+
+/-- info: 'AbsSatBin.GraphPath.Model.ChainRoute.combined_invariant' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms combined_invariant
+
 end AbsSatBin.GraphPath.Model.ChainRoute

@@ -1190,6 +1190,19 @@ unido ⇒ `PieceLocal`** (y B3 es este argumento). Y `GrowState` en los estados 
 Cada vía resuelve justo lo que la otra deja abierto: la de cliques pasa filtros y cláusulas porque lleva restricciones
 de mapa, la de caminos pasa el join porque la unión no inventa cadenas.
 
+### 4.2ι El invariante combinado, formalizado (`ChainRoute.combined_invariant`)
+
+* **`PieceJoin.pieceLocal_of_mapCert`**: si los estados de la línea `n+1` tienen `MapCert`, vale `PieceLocal n`: el
+  certificado de una clique con testigos del estado unido está en una pieza (`chain_in_piece`) y lleva allí la
+  clique y sus testigos (los nodos de una cadena se poseen dos a dos).
+* **`combined_invariant`**: `MapCert` en todos los estados de la máquina **⇔** `PieceLocal` en todos los joins.
+  Cliques dentro de cada pieza (filtro, `UP`, ventana saltada: demostrados) y cadenas a través del join.
+* Reglas locales del join descartadas con datos: E1 (20 304 fallos), E1w (10 338), E1rw (7 296), H13, H16. La
+  pieza buena la fija la clique entera con todos sus testigos (H19: clique y testigos en todos los `L3`
+  anteriores), no una entrada.
+
+**Abierto, único:** `PieceLocal` (equivalente a `MapCert` del estado unido). Medido: 3,5 M cliques sin excepción.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
