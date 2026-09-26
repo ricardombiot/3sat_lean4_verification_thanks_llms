@@ -1078,6 +1078,26 @@ hipótesis (por entradas) no se cumple; hay que reenunciar `SemCert` por estado.
 **Abierto:** `GrowState` en los estados de la máquina. La regla del join fija el origen de las entradas del nodo
 superior; falta llevar a ese origen los testigos de los demás pasos (pueden venir de otras piezas del join).
 
+### 4.2β El lector decide con `PieceLocal` como única hipótesis (`PieceJoin`, `StatePiece`, `StateLine`)
+
+**Sonda** `piecelocal_probe.jl` (reconstruye las piezas de cada join con `do_up_filtering!`): 3,5 M cliques de
+tamaño 1–3 con testigos en estados unidos; **todas** son clique con testigos dentro de una sola pieza.
+
+**Demostrado, estado por estado:**
+* `piece_grown`: toda pieza válida crece (`Grown`) en el estado de su destino: el join solo añade.
+* `mapCert_join`: con `PieceLocal`, `MapCert` de las piezas da `MapCert` del estado unido.
+* `mapCert_piece`: una pieza conserva `MapCert`: filtro de requisito, `addNode`, y **la ventana saltada**
+  (`mapCert_skip`). Dentro de una pieza la cláusula es uniforme: la ventana `000` solo se salta en la clave
+  `L3 = 0` desde el estado `L2 = 0`; todo nodo de la pieza revisada posee un nodo del paso nuevo, cuya ventana
+  está permitida, así que posee `L1 = 1`; un certificado por `L1 = 1` extiende por una ventana permitida
+  (`MapCert.certR_addNode_sub`, generalización de `mapCert_addNode` a un subestado cuyos nodos poseen `E`).
+* Base: semilla y línea 1 calculadas (`decide`).
+* **`readerVerdictW_iff_of_pieceLocal`**: el lector decide `φ` si `PieceLocal` vale en cada join.
+
+**Abierto:** `PieceLocal` (la regla del join). `top_one_source` ya da su primera parte (la tabla de un nodo del
+paso nuevo viene de un solo origen). Falta que los testigos de los pasos inferiores y las entradas entre
+miembros puedan tomarse en esa misma pieza.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

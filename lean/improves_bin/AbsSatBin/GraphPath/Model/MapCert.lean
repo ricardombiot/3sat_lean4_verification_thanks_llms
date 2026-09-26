@@ -161,11 +161,20 @@ theorem mapCert_join_pins (J : GPathM) (hnd : NodupIds J) (r₁ r₂ : NodeId) (
 section
 variable (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
   (c : ACtx g) (hd : d.step = g.current_step) (hs2 : 2 ≤ g.current_step)
-  (hmok : MachineOk g) (hnf : ∀ pid ∈ shiftRowIds g d, forb pid = false) (h : MapCert g)
-include c hd hs2 hmok hnf h
+  (hmok : MachineOk g) (h : MapCert g)
+include c hd hs2 hmok h
 
-/-- **`addNode` keeps `MapCert`, merges included** (no window skipped). -/
-theorem mapCert_addNode : MapCert (addNode g d title forb) := by
+/-- **`addNode` keeps certificates for a sub-state `S`** whose nodes all own the map nodes `E`, when every
+certificate through `E` extends by an allowed window. With `S = addNode` and `E = []` it is
+`mapCert_addNode`; with `S` the review after a skipped window and `E` the true literal it is the clause. -/
+theorem certR_addNode_sub (S : GPathM)
+    (hS : ∀ p ns, S.node? p = some ns → ∃ nG, (addNode g d title forb).node? p = some nG ∧ ∀ v ∈ ns.owners, v ∈ nG.owners)
+    (hScs : S.current_step = (addNode g d title forb).current_step)
+    (E : List NodeId) (hEs : ∀ m ∈ E, m.step < g.current_step)
+    (hEown : ∀ r ns, S.node? r = some ns → r.id.step < g.current_step → ∀ n, g.node? r = some n →
+      ∀ m ∈ E, ∃ p ∈ n.owners, p.id = m)
+    (hnf' : ∀ sel, ChainSound g sel → (∀ m ∈ E, 0 ≤ m.step → (sel m.step).id = m) → forb (extendPid g d sel) = false) :
+    ∀ Q R, Clique S Q → WitR S Q R → CertR (addNode g d title forb) Q R := by
   have hk := c.pc.ker
   have hpos : 0 < g.current_step := by omega
   have hbelow := c.pc.below
@@ -197,7 +206,17 @@ theorem mapCert_addNode : MapCert (addNode g d title forb) := by
         obtain ⟨_, _, np', hnp', hpp'⟩ := KernelReader.mem_unionOwnersOf_inv g _ p hu
         have := hownb np' (List.mem_of_find?_eq_some hnp') p hpp'; omega
       · rw [he]; exact mapId_of_mem_newRowIds g d forb q hqn
-  intro Q R hQ hW
+  intro Q R hQS hWS
+  have hQ : Clique (addNode g d title forb) Q := fun p hp => by
+    obtain ⟨ns, hns, hpQ⟩ := hQS p hp
+    obtain ⟨nG, hnG, ho⟩ := hS p ns hns
+    exact ⟨nG, hnG, fun s hs => ho s (hpQ s hs)⟩
+  have hW : WitR (addNode g d title forb) Q R := fun l h0 h1 => by
+    obtain ⟨r, ns, hns, hrs, hrQ, hrR⟩ := hWS l h0 (by rw [hScs]; exact h1)
+    obtain ⟨nG, hnG, ho⟩ := hS r ns hns
+    refine ⟨r, nG, hnG, hrs, fun s hs => ho s (hrQ s hs), fun m hm => ?_⟩
+    obtain ⟨p, hp, hpm⟩ := hrR m hm
+    exact ⟨p, ho p hp, hpm⟩
   have topR : ∀ m ∈ R, m.step = g.current_step → m = d := by
     intro m hm hms
     obtain ⟨r, nr, hnr, _, _, hrR⟩ := hW 0 (Int.le_refl 0) (by rw [hcs']; omega)
@@ -222,17 +241,22 @@ theorem mapCert_addNode : MapCert (addNode g d title forb) := by
   -- witnesses below the new step, seen in `g`
   have witOld : ∀ l, 0 ≤ l → l < g.current_step → ∃ r nr n, (addNode g d title forb).node? r = some nr ∧
       g.node? r = some n ∧ nr = upMap g d forb n ∧ r.id.step = l ∧ OwnsAll Qo n ∧
-      (∀ m ∈ Ro, ∃ p ∈ n.owners, p.id = m) ∧ OwnsAll Q nr := by
+      (∀ m ∈ Ro, ∃ p ∈ n.owners, p.id = m) ∧ OwnsAll Q nr ∧ (∀ m ∈ E, ∃ p ∈ n.owners, p.id = m) := by
     intro l hl0 hl1
-    obtain ⟨r, nr, hnr, hrs, hrQ, hrR⟩ := hW l hl0 (by rw [hcs']; omega)
+    obtain ⟨r, ns, hns, hrs, hrQS, hrRS⟩ := hWS l hl0 (by rw [hScs, hcs']; omega)
+    obtain ⟨nr, hnr, hoS⟩ := hS r ns hns
+    have hrQ : OwnsAll Q nr := fun s hs => hoS s (hrQS s hs)
+    have hrR : ∀ m ∈ R, ∃ p ∈ nr.owners, p.id = m := fun m hm => by
+      obtain ⟨p, hp, hpm⟩ := hrRS m hm; exact ⟨p, hoS p hp, hpm⟩
     obtain ⟨n, hn, hEq⟩ := addNode_node?_below g d title forb hd r nr hnr (by rw [hrs]; exact hl1)
-    refine ⟨r, nr, n, hnr, hn, hEq, hrs, fun s hs => ?_, fun m hm => ?_, hrQ⟩
+    refine ⟨r, nr, n, hnr, hn, hEq, hrs, fun s hs => ?_, fun m hm => ?_, hrQ, fun m hm => ?_⟩
     · obtain ⟨hsQ, hss⟩ := (memQo s).mp hs
       rw [hEq] at hrQ; exact back r n hn s (hrQ s hsQ) hss
     · obtain ⟨hmR, hms⟩ := (memRo m).mp hm
       obtain ⟨p, hp, hpm⟩ := hrR m hmR
       rw [hEq] at hp
       exact ⟨p, back r n hn p hp (by rw [hpm]; exact hms), hpm⟩
+    · exact hEown r ns hns (by rw [hrs]; exact hl1) n hn m hm
   -- finishing: the extension of a certificate through `Qo` and `Ro` covers `Q` and `R`
   have finish : ∀ sel, ChainSound g sel → (∀ q ∈ Qo, sel q.id.step = q) →
       (∀ m ∈ Ro, 0 ≤ m.step → m.step < g.current_step → (sel m.step).id = m) →
@@ -257,12 +281,16 @@ theorem mapCert_addNode : MapCert (addNode g d title forb) := by
   cases hz : Q.any (fun q => q.id.step == g.current_step) with
   | false =>
     -- only old nodes: the certificate extends by its own last node
-    have hWo : WitR g Qo Ro := by
+    have hWo : WitR g Qo (Ro ++ E) := by
       intro l hl0 hl1
-      obtain ⟨r, _, n, _, hn, _, hrs, hrQ, hrR, _⟩ := witOld l hl0 hl1
-      exact ⟨r, n, hn, hrs, hrQ, hrR⟩
-    obtain ⟨sel, hs, hon, hR⟩ := h Qo Ro hQo hWo
-    refine finish sel hs hon hR (hnf _ (extendPid_mem_shiftRowIds g d sel hs.chain.1)) (fun q hq hqs => ?_)
+      obtain ⟨r, _, n, _, hn, _, hrs, hrQ, hrR, _, hrE⟩ := witOld l hl0 hl1
+      refine ⟨r, n, hn, hrs, hrQ, fun m hm => ?_⟩
+      rcases List.mem_append.mp hm with hm | hm
+      · exact hrR m hm
+      · exact hrE m hm
+    obtain ⟨sel, hs, hon, hR⟩ := h Qo (Ro ++ E) hQo hWo
+    refine finish sel hs hon (fun m hm => hR m (List.mem_append_left _ hm))
+      (hnf' sel hs (fun m hm h0 => hR m (List.mem_append_right _ hm) h0 (hEs m hm))) (fun q hq hqs => ?_)
     exfalso
     exact (List.any_eq_false.mp hz q hq) (beq_iff_eq.mpr hqs)
   | true =>
@@ -328,7 +356,7 @@ theorem mapCert_addNode : MapCert (addNode g d title forb) := by
           rw [he] at this; omega
     have hWo : WitR g Qo (Ro ++ [a, b]) := by
       intro l hl0 hl1
-      obtain ⟨r, nr, n, _, hn, hEq, hrs, hrQ, hrR, hrQ'⟩ := witOld l hl0 hl1
+      obtain ⟨r, nr, n, _, hn, hEq, hrs, hrQ, hrR, hrQ', _⟩ := witOld l hl0 hl1
       have hzr : z ∈ (upMap g d forb n).owners := by rw [← hEq]; exact hrQ' z hzQ
       obtain ⟨⟨pa, hpa, hpaid⟩, ⟨eb, heb, hebid⟩⟩ := ownsAB r n hn hzr
       refine ⟨r, n, hn, hrs, hrQ, fun m hm => ?_⟩
@@ -369,6 +397,15 @@ theorem mapCert_addNode : MapCert (addNode g d title forb) := by
       obtain ⟨_, _, np', hnp', hqp'⟩ := KernelReader.mem_unionOwnersOf_inv g _ q hu
       have := hownb np' (List.mem_of_find?_eq_some hnp') q hqp'; omega
     · exact he
+
+omit hs2 in
+/-- **`addNode` keeps `MapCert`, merges included** (no window skipped). -/
+theorem mapCert_addNode (hs2 : 2 ≤ g.current_step) (hnf : ∀ pid ∈ shiftRowIds g d, forb pid = false) :
+    MapCert (addNode g d title forb) :=
+  certR_addNode_sub g d title forb c hd hs2 hmok h (addNode g d title forb)
+    (fun _ ns hns => ⟨ns, hns, fun _ hv => hv⟩) rfl [] (fun _ h => absurd h List.not_mem_nil)
+    (fun _ _ _ _ _ _ _ h => absurd h List.not_mem_nil)
+    (fun sel hs _ => hnf _ (extendPid_mem_shiftRowIds g d sel hs.chain.1))
 end
 
 /-- info: 'AbsSatBin.GraphPath.Model.MapCert.mapCert_filter' depends on axioms: [propext, Quot.sound] -/
