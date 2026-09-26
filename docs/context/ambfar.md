@@ -1247,6 +1247,17 @@ Si `v` está por encima de `q`, la simetría basta (la inducción ya cubre `v`).
   y `v`. Los testigos de la pieza en todos los pasos fuerzan la entrada. Pero usar FW en el kernel filtrado pide
   los testigos de pasos inferiores, y la inducción deja de estar bien fundada: es otra vez el núcleo global.
 
+**Vía 1, crecimiento paso a paso, sonda `grow_step_probe.jl`** (2,26 M cliques con testigos; 1,94 M en estados unidos):
+* **X1, 0 fallos** (55 M pruebas): toda clique con testigos crece, en cualquier paso libre, con algún nodo `r` y
+  `Q ∪ {r}` sigue siendo clique con testigos.
+* **X3, 0 fallos**: completar de arriba abajo eligiendo **cualquier** extensión válida nunca se atasca. Las cliques
+  con testigos son cerradas bajo extensión: no hay callejones sin salida para ellas.
+* **X4, 0 fallos**: en el estado unido, la extensión puede tomarse dentro de la pieza buena y sigue buena allí.
+* X2 falla (318 k): no todo testigo extiende; hay que elegir entre los testigos.
+
+Lectura: `MapCert` ⇐ X1 (iterado hasta un nodo por paso) + "una clique completa con testigos es una cadena". X1 es
+el núcleo en su forma más pequeña: añadir un nodo.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
