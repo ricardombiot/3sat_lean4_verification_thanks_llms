@@ -9,6 +9,10 @@ of the states of a line (at most two in the bin map, with different keys, which 
 no clique with witnesses — each lives in one state (GL, 1.78 M cliques). This module takes that as the hypothesis
 of the join step.
 
+**⚠ Refuted as stated.** `GL` and `GLF` quantify over every `R`; with a constraint at the top step (every witness owns,
+in the union, a top node named `m`) they fail in 20 of 2.08 M cases (`gltop_probe.jl`, `docs/context/ambfar.md`
+§4.2κ). The theorems below are correct implications, but their hypothesis does not always hold.
+
 * **`GL φ n`**: a clique with witnesses in the union of the states of line `n` (every entry and every witness
   entry taken from some state) is a clique with witnesses of one state.
 * **Through the filter** (`owns_of_join`, `req_of_join`): an entry below the top of a state of line `n+1` is an

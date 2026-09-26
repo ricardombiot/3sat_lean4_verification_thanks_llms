@@ -1347,6 +1347,14 @@ entradas de los testigos pueden venir de miembros con destinos distintos, y GLF\
 forma del mismo núcleo de Helly (la selección de destino, como Wd), ahora con todos los testigos poseyendo la cima.
 
 
+**⚠ GL y GLF con restricción en la cima son falsos (sondas `select_probe.jl`, `gltop_probe.jl`).** Con `R` que fija un
+nodo de la cima (todos los testigos poseen, en la unión, un nodo de la cima con id `m`): GLtop falla 20 de 2,08 M
+(estados de la línea sin fijar) y GLFtop 20 de 2,1 M (fijados por `pinsW`); son los mismos 20 casos que FP en la
+sonda de descompresión. `LineUnion.GL`/`GLF` están definidos para todo `R`, así que su hipótesis no siempre se cumple:
+`certR_*_of_GL(F)` y `mapCert_next(_F)` son implicaciones correctas con hipótesis refutada. La selección de miembro
+(a): WL falla 319 575, WL1 y CL 1 610 de 5,19 M (familias fijadas al azar). (b) Cadenas de la unión: 519 de 61 108 no
+son cadena de ningún miembro fijado (combinan versiones fijadas distintas de un mismo estado).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
