@@ -183,6 +183,13 @@ En el caso medido, el enlace `y–w` no es `Cx`, así que `TriPin₁` no lo exig
 `TriPin₁` vale en los pins que sobreviven, y si hacen falta más rondas (`TriPinₙ`, cuyo límite es
 `NoDeadEnd`).
 
+**Medida (`ambhigh-probe`, 6 instancias pequeñas, todas las ramas del lector).** `TriPin₁` vale para
+los 70 nodos de primera elección examinados, **incluido el caso en que `TriPin` falla**
+(`simple3sat_v3_c2`, `k=1`, bit 0). Coherencia de la sonda: 0 casos de `TriPin` o `TriPin₁` ciertos
+con el pin muerto, como exigen los teoremas. **Límite**: en estas instancias **todo pin sobrevive**
+(`otherbit-probe`: `pins = valid`), así que aún no se ha visto a `TriPin₁` separar un pin vivo de uno
+muerto. **Medido, sin valor estadístico.**
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

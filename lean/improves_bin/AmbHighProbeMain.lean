@@ -1,4 +1,5 @@
 import AbsSatBin.GraphPath.Model.AmbHighCore
+import AbsSatBin.GraphPath.Model.TriPinCut
 import AbsSatBin.GraphPath.Model.DriverBin
 import AbsSatBin.Cnf.Dimacs
 
@@ -20,6 +21,7 @@ open AbsSatBin.Utils.Alias AbsSatBin.Cnf AbsSatBin.GraphPath.Model AbsSatBin.Gra
 open AbsSatBin.GraphPath.Model.ReaderExec AbsSatBin.GraphMap.CnfSelBin
 open AbsSatBin.GraphPath.Model.PureDriver AbsSatBin.GraphPath.Model.DriverBin
 open AbsSatBin.GraphPath.Model.TriPinCore (excl)
+open AbsSatBin.GraphPath.Model.TriPinCut (cx)
 
 /-- The triple `(y, w, x)` shares an entry at step `l`. -/
 def shares (ny nw nx : PNodeM) (l : Int) : Bool :=
@@ -55,7 +57,31 @@ def triCheck (g : GPathM) (x : PathNodeId) (sel : PNodeM → Bool) (lo : Int) (k
         l := l + 1
   return (pairs, none)
 
+/-- First failure of `TriPin₁ g x` (`TriPinCut.TriPin₁`), with the exact test `TriPinCut.cx`. -/
+def tri1Check (g : GPathM) (x : PathNodeId) (k : Int) : Option Fail := Id.run do
+  let some nx := g.node? x | return none
+  for ny in g.nodes do
+    if !ny.owners.contains x then continue
+    for w in ny.owners do
+      let some nw := g.node? w | continue
+      if !(nw.owners.contains x && cx g x ny w) then continue
+      let mut l : Int := 0
+      while l < g.current_step do
+        let ok := ny.owners.any (fun r => r.id.step == l && nw.owners.contains r && nx.owners.contains r
+          && cx g x ny r && cx g x nw r)
+        if !ok then
+          return some { kind := "tri1", k, x := x.id.index.toNat, ys := ny.id.id.step,
+                        ws := nw.id.id.step, l, cs := g.current_step }
+        l := l + 1
+  return none
+
 structure Stats where
+  tri1Fail : Nat := 0
+  tri1FailAlive : Nat := 0
+  tri1Both : Nat := 0
+  triOkDead : Nat := 0
+  tri1OkDead : Nat := 0
+  firstTri1 : Option Fail := none
   states : Nat := 0
   choiceStates : Nat := 0
   xs : Nat := 0
@@ -85,6 +111,7 @@ partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
     let xsK := ownersAt g.gowners k
     let mut anyTri := false
     let mut anyHigh := false
+    let mut anyTri1 := false
     for x in xsK do
       st := { st with xs := st.xs + 1 }
       let (_, ft) := triCheck g x (fun _ => true) 0 "tri" k
@@ -95,6 +122,15 @@ partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
       let ft := ft.map ({ · with alive })
       let fh := fh.map ({ · with alive })
       if fh.isSome && alive then st := { st with highFailAlive := st.highFailAlive + 1 }
+      let f1 := (tri1Check g x k).map ({ · with alive })
+      match f1 with
+      | none =>
+        anyTri1 := true
+        if !alive then st := { st with tri1OkDead := st.tri1OkDead + 1 }
+      | some f =>
+        st := { st with tri1Fail := st.tri1Fail + 1, firstTri1 := st.firstTri1.orElse (fun _ => some f) }
+        if alive then st := { st with tri1FailAlive := st.tri1FailAlive + 1 }
+      if ft.isNone && !alive then st := { st with triOkDead := st.triOkDead + 1 }
       st := { st with highPairs := st.highPairs + hp }
       match ft with
       | none => anyTri := true
@@ -104,6 +140,7 @@ partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
       | some f => st := { st with highFail := st.highFail + 1, firstHigh := st.firstHigh.orElse (fun _ => some f) }
     if !anyTri then st := { st with triBoth := st.triBoth + 1 }
     if !anyHigh then st := { st with highBoth := st.highBoth + 1 }
+    if !anyTri1 then st := { st with tri1Both := st.tri1Both + 1 }
     let ids := xsK.map (·.id) |>.eraseDups
     let mut alive := false
     for d in ids do
@@ -128,7 +165,7 @@ def checkOne (cap : Nat) (path : String) : IO Nat := do
     for kv in r do
       st := explore cap (filterAll kv.2 []) st
     let t2 ← IO.monoMsNow
-    IO.println s!"{name}\tstarts={r.length}\tstates={st.states}\tchoice={st.choiceStates}\txs={st.xs}\thighPairs={st.highPairs}\ttriFail={st.triFail}\thighFail={st.highFail}\thighFailVivo={st.highFailAlive}\ttriBoth={st.triBoth}\thighBoth={st.highBoth}\tdead={st.dead}\tcapped={st.capped}\tfirstTri={showFail st.firstTri}\tfirstHigh={showFail st.firstHigh}\tmachine_ms={t1 - t0}\tprobe_ms={t2 - t1}"
+    IO.println s!"{name}\tstarts={r.length}\tstates={st.states}\tchoice={st.choiceStates}\txs={st.xs}\thighPairs={st.highPairs}\ttriFail={st.triFail}\thighFail={st.highFail}\thighFailVivo={st.highFailAlive}\ttriBoth={st.triBoth}\thighBoth={st.highBoth}\ttri1Fail={st.tri1Fail}\ttri1FailVivo={st.tri1FailAlive}\ttri1Both={st.tri1Both}\ttriOkDead={st.triOkDead}\ttri1OkDead={st.tri1OkDead}\tdead={st.dead}\tcapped={st.capped}\tfirstTri={showFail st.firstTri}\tfirstHigh={showFail st.firstHigh}\tfirstTri1={showFail st.firstTri1}\tmachine_ms={t1 - t0}\tprobe_ms={t2 - t1}"
     return st.highBoth
 
 def main (args : List String) : IO UInt32 := do
