@@ -34,12 +34,16 @@ open AbsSatBin.GraphPath.Model.MapCert (MapCert WitR CertR)
 variable (φ : Cnf) (hbd : Bounded φ) (n : Nat)
 include hbd
 
-/-- **A piece with a skipped window keeps `MapCert`.** -/
-theorem mapCert_skip (hn1 : 1 ≤ n) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId)
+/-- **What a skipped window says** (the core of `mapCert_skip`): the key is `L2 = 0`, the destination is
+`L3 = 0` at a third literal, and every node of the reviewed piece owns, in the filtered source, the node `L1 = 1`. -/
+theorem skip_window (hn1 : 1 ≤ n) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId)
     (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true)
-    (hF : MapCert (filterAll kv.2 (reqOf φ d)))
     (hsk : skipsWindow (filterAll kv.2 (reqOf φ d)) d (isProhibited φ) = true) :
-    MapCert (upF φ kv.2 d) := by
+    kv.1 = ⟨(n : Int), 0⟩ ∧ d = ⟨(n : Int) + 1, 0⟩ ∧ isL3 φ ((n : Int) + 1) = true ∧
+      upF φ kv.2 d = filterAll (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ)) [] ∧
+      ∀ r ns, (filterAll (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ)) []).node? r = some ns →
+        r.id.step < (filterAll kv.2 (reqOf φ d)).current_step → ∀ nF, (filterAll kv.2 (reqOf φ d)).node? r = some nF →
+        ∃ e ∈ nF.owners, e.id = ⟨(n : Int) - 1, 1⟩ := by
   obtain ⟨hok, hdst, hcs, hdm, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
   have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
   have hk := c.pc.ker
@@ -164,6 +168,32 @@ theorem mapCert_skip (hn1 : 1 ≤ n) (kv : NodeId × GPathM) (hkv : kv ∈ line 
           exact ⟨⟨⟨hL3, beq_iff_eq.mpr rfl⟩, beq_iff_eq.mpr rfl⟩, beq_iff_eq.mpr rfl⟩
         rw [hnf] at hzf; cases hzf
       · exact List.mem_singleton.mp e1
+  exact ⟨hkey0, hdid, hL3, hG, fun r ns hns hrs nF hnF =>
+    hEown r ns hns hrs nF hnF _ List.mem_cons_self⟩
+
+/-- **A piece with a skipped window keeps `MapCert`.** -/
+theorem mapCert_skip (hn1 : 1 ≤ n) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId)
+    (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true)
+    (hF : MapCert (filterAll kv.2 (reqOf φ d)))
+    (hsk : skipsWindow (filterAll kv.2 (reqOf φ d)) d (isProhibited φ) = true) :
+    MapCert (upF φ kv.2 d) := by
+  obtain ⟨hok, hdst, hcs, hdm, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  have hb := KernelIff.below_filterAll_self kv.2 hnd (reqOf φ d)
+  have hFcs : (filterAll kv.2 (reqOf φ d)).current_step = (n : Int) + 1 := by rw [← hb.step, hcs]
+  have hdF : d.step = (filterAll kv.2 (reqOf φ d)).current_step := by rw [hFcs, ← hcs, hdst]
+  have hmokX : MachineOk kv.2 := ⟨by rw [hok.step]; omega, fun h => by rw [hok.step] at h; omega,
+    fun _ => by rw [hok.par]; simp⟩
+  have hmok : MachineOk (filterAll kv.2 (reqOf φ d)) := MachineOk_of_pruned (pruned_filterAll _ _) hmokX
+  have hpos : 0 < (filterAll kv.2 (reqOf φ d)).current_step := by omega
+  obtain ⟨_, hdid, _, hG, hE⟩ := skip_window φ hbd n hn1 kv hkv d hd hv hsk
+  have hndG := Reader.nodup_addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ) c.pc.nd c.pc.below hdF
+  have hbG := KernelIff.below_filterAll_self (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ)) hndG []
+  have hEown : ∀ r ns, (filterAll (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ)) []).node? r = some ns →
+      r.id.step < (filterAll kv.2 (reqOf φ d)).current_step → ∀ nF, (filterAll kv.2 (reqOf φ d)).node? r = some nF →
+      ∀ m ∈ [(⟨(n : Int) - 1, 1⟩ : NodeId)], ∃ e ∈ nF.owners, e.id = m := by
+    intro r ns hns hrs nF hnF m hm
+    rw [List.mem_singleton.mp hm]; exact hE r ns hns hrs nF hnF
   -- a certificate through `L1 = 1` extends by an allowed window
   have hnf' : ∀ sel, ChainSound (filterAll kv.2 (reqOf φ d)) sel →
       (∀ m ∈ [(⟨(n : Int) - 1, 1⟩ : NodeId)], 0 ≤ m.step → (sel m.step).id = m) →

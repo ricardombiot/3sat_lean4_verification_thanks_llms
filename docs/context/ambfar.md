@@ -1314,6 +1314,14 @@ de `d = L3 0`; fuente `L2 = 0` filtrada además por `L1 = 1`): 251 076 cliques c
 (cada estado de la línea filtrado por un nodo de mapa al azar, 3 sorteos por paso): 2,83 M, todas en un estado. El
 invariante natural es GLF: la unión de estados de la línea, cada uno filtrado por sus fijaciones, es local.
 
+**La ventana prohibida, cerrada con GLF (`LineUnion.lean`, `Trunc.lean`, `StatePiece.skip_window`).** Las fijaciones
+`pinsW` de cada fuente son los requisitos del destino y `L1 = 1` para la fuente cuyo filtro salta la ventana. La pieza
+con salto, sin su fila de arriba (`kernel_trunc`: truncar la cima de un kernel da un kernel), queda por debajo de su
+fuente así fijada (`skip_trunc_below`); la cadena de la fuente fijada pasa por `L1 = 1` si su filtro salta, y si no
+salta cualquier extensión está permitida. **`certR_low_of_GLF`** (sin hipótesis de ventana) y **`mapCert_next`**:
+`GL`, `GLF` y `MapCert` en la línea `n` dan `MapCert` en todo estado de la línea `n+1`. Queda la inducción del propio
+invariante: GL(n+1) y GLF(n+1) desde la línea `n`.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
