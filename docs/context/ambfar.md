@@ -1177,6 +1177,19 @@ Consecuencia lógica (sin nuevas hipótesis): si la clique crece hasta tener un 
 unido ⇒ `PieceLocal`** (y B3 es este argumento). Y `GrowState` en los estados de partida ya basta al lector
 (`StateGrow.readerVerdictW_iff_of_grow`). El núcleo es **crecer**.
 
+### 4.2θ Las dos vías, lado a lado (`ChainRoute.lean`)
+
+| | vía de cliques (`MapCert`/crecer) | vía de caminos (`SupportedG`/cadenas) |
+|---|---|---|
+| filtro de requisito | demostrado (`mapCert_filter`) | abierto (`HardStepExact`: el review tras el filtro) |
+| `UP` con ventana saltada | demostrado por pieza (`mapCert_skip`) | abierto (`SkipExact`) |
+| `UP` sin salto | demostrado (`mapCert_addNode`) | demostrado (`SupportedS_addNode`) |
+| join | abierto (`PieceLocal` / crecer en el unido) | **demostrado** (`supported_join`, `chain_in_piece`) |
+| lector | `readerVerdictW_iff_of_pieceLocal`, `_of_grow` | **`readerVerdictW_iff_of_chains`**: basta que todo estado válido que visita el lector tenga una cadena |
+
+Cada vía resuelve justo lo que la otra deja abierto: la de cliques pasa filtros y cláusulas porque lleva restricciones
+de mapa, la de caminos pasa el join porque la unión no inventa cadenas.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
