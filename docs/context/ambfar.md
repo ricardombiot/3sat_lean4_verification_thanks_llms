@@ -1237,6 +1237,16 @@ entrada es una clique de dos con testigos. Un pin conserva `MapCert` (`mapCert_f
 descomprime exacto. Para `PieceLocal` esto es circular (pide `MapCert J`); lo que aporta es que la mitad dura
 de la descompresión y `PieceLocal` son el mismo enunciado de Helly, ahora ya en cliques de dos.
 
+**La entrada filtrada, sonda `lift_probe.jl`** (890 774 entradas `q→v` del estado unido ausentes de una pieza `P`).
+Se buscaba una regla local que diera `filter(J,{k}) ⊆ A` por inducción de arriba abajo en el kernel filtrado.
+Si `v` está por encima de `q`, la simetría basta (la inducción ya cubre `v`). El caso difícil es `v` por debajo
+(260 301 entradas):
+* Subida por un hijo (SL) falla 4 302; por un hijo que co-posee `q` y `v` en `P` (SL2), 1 872; con co-poseedores en
+  `P` en todo paso por encima de `q` (C2), 287. Ninguna regla de arriba abajo cierra la inducción.
+* **FW, 0 fallos**: si `v ∉ P(q)`, hay algún paso (por encima o por debajo) sin nodo de `P` que posea a la vez `q`
+  y `v`. Los testigos de la pieza en todos los pasos fuerzan la entrada. Pero usar FW en el kernel filtrado pide
+  los testigos de pasos inferiores, y la inducción deja de estar bien fundada: es otra vez el núcleo global.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
