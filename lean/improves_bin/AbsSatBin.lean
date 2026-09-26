@@ -76,6 +76,7 @@ import AbsSatBin.GraphPath.Model.PrefixTri
 import AbsSatBin.GraphPath.Model.OneShot
 import AbsSatBin.GraphPath.Model.BranchFull
 import AbsSatBin.GraphPath.Model.BranchRel
+import AbsSatBin.GraphPath.Model.ReqFilter
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs

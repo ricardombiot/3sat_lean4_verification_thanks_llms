@@ -653,6 +653,48 @@ literal `cᵢ`, lo impide.
 Las dos condiciones abiertas son del mismo tipo: **coherencia de rama en una unión**. Los testigos
 compatibles de pasos distintos tienen que poder elegirse de una misma historia.
 
+### 4.2p El filtro por requisito — **es un pin; reducido a `FilterChoice`** (`ReqFilter.lean`)
+
+En bin un nodo tiene como mucho un requisito (`reqOf_length_le_one`): un nodo de mapa `req` en un paso de
+variable. `filterAll g [req]` deja en ese paso solo los nodos de camino cuyo nodo de mapa es `req`, y
+revisa. **Es un pin sobre un nodo de mapa.**
+
+**Demostrado:**
+* `req_id`: tras el filtro, una entrada viva en el paso del requisito nombra `req`.
+* `FilterChoice g req`: todo enlace superviviente era compatible, antes del filtro, relativo a **uno** de
+  los nodos de camino de `req`.
+* `pairExact_filter_of_choice`: la exactitud relativa previa (`PairExactRelAll g`) junto con
+  `FilterChoice` dan la exactitud por parejas después (`PairExact`). El certificado por ese nodo cumple
+  el requisito y sobrevive (`ChainSound_filterAll`).
+* `filterChoice_of_unique`: si `req` tiene **un único** nodo de camino vivo `x` tras el filtro, se cumple
+  `FilterChoice`.
+  * Todo nodo lo posee, porque es la única entrada de su paso.
+  * Los testigos de cada enlace superviviente también lo poseen, así que por simetría están en la tabla
+    de `x` en el estado anterior.
+  * Es el mismo argumento que `below_cut_pin` en el lector.
+
+**Cuándo hay unicidad.** Un nodo de camino en el paso de variable `2u+1` o `2u+2` lleva en su ventana
+el valor de la variable anterior `a_{u−1}`, así que `req` tiene en general **dos** nodos de camino. Hay
+unicidad:
+* para `u = 0`, cuya ventana llega a la raíz;
+* cuando el estado ya tiene `a_{u−1}` fijado.
+
+En otro caso el filtro es un **pin disyuntivo**: otra unión.
+
+**Lectura del conjunto.**
+* El filtro baja la jerarquía un orden: de exactitud relativa a exactitud por parejas. Para conservar
+  la exactitud relativa haría falta exactitud relativa a **dos** nodos antes, igual que con los pins
+  del lector.
+* Las tres uniones de la máquina reciben el mismo tratamiento:
+  * fusión de ventana → `ShadowChoice`;
+  * `join` de historias → `JoinChoice`;
+  * pin disyuntivo del requisito → `FilterChoice`.
+* Todas dicen lo mismo: **los testigos compatibles de pasos distintos pueden elegirse de una misma
+  rama.**
+* Con un único nodo de camino o un único padre, las tres están demostradas. El núcleo abierto es esa
+  coherencia de rama en las uniones de dos elementos, que en bin siempre difieren en un solo paso de
+  ventana: el olvidado.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
