@@ -1030,7 +1030,14 @@ cierto cada literal, `keyOpts`):
   `L2` tendría ventana `00` (`owns_window_req`), no cabe en una pieza de clave `0` (`no00_key0`) y en una de
   clave `1` el filtro no deja el valor falso del tercer literal: no hay testigo, caso vacío.
 
-**Abierto:** componer esta regla hasta `ClauseKey` en general. En el ejemplo actúa el testigo de **otra**
+**Composición** (`clauseKey_of_ext`): si en la línea del `L3` toda clique con testigos se puede ampliar con
+un nodo en cualquier paso de variable conservando sus testigos (`ExtAt`), se amplía con las tres variables
+de la cláusula; un valor cierto da `clauseKey_trueVar`, los tres falsos `clauseKey_allFalse`. Así
+**`ExtAt ⇒ ClauseKey ⇒ el lector decide`** (`readerVerdictW_iff_of_ext`).
+
+**Abierto:** `ExtAt` en la línea del `L3`. Es una propiedad de un solo nodo (como la supervivencia del
+pin del lector), pero su prueba es la composición global: en el ejemplo, el testigo que decide está en
+otra cláusula. En el ejemplo actúa el testigo de **otra**
 cláusula anterior, así que la composición es global (cadenas de cláusulas), no local al `L3`.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)

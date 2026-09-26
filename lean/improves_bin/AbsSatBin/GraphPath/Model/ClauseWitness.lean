@@ -218,6 +218,114 @@ end cases
 #guard_msgs in
 #print axioms clauseKey_allFalse
 
+-- ============================================================
+-- Composition: extending the clique by the clause's variables
+-- ============================================================
+
+/-- The requirement of a clause step is a variable step. -/
+theorem reqOf_clause_var (hbd : Bounded φ) (k : Int) (hlo : midFusion φ < k) (hhi : k < fusionTop φ) :
+    ∃ s : Int, 0 < s ∧ s < midFusion φ ∧ ∀ i, reqOf φ ⟨k, i⟩ = [⟨s, i⟩] := by
+  obtain ⟨s, hs⟩ := reqOf_clause φ k hlo hhi
+  have hmem : (⟨s, 0⟩ : NodeId) ∈ reqOf φ ⟨k, 0⟩ := by rw [hs]; exact List.mem_singleton_self _
+  have hback := reqOf_backward φ hbd _ _ hmem
+  refine ⟨s, ?_, ?_, hs⟩
+  all_goals
+    unfold reqOf at hmem
+    dsimp only at hmem
+    have hm0 : (0 : Int) < midFusion φ := by simp only [midFusion]; omega
+    rw [if_neg (show ¬ (k ≤ 0) by omega), if_neg (show ¬ (k < midFusion φ) by omega),
+      if_neg (show ¬ (k = midFusion φ) by omega), if_neg (show ¬ (fusionTop φ ≤ k) by omega)] at hmem
+    split at hmem
+    · exact absurd hmem List.not_mem_nil
+    · next c p hc =>
+      have e := congrArg NodeId.step (List.mem_singleton.mp hmem)
+      simp only at e
+      have hcm := mem_of_clauseOf φ k c p hc
+      obtain ⟨b1, b2, b3⟩ := hbd c hcm
+      have hv : (litAt c p).v < φ.nVars := by unfold litAt; split <;> assumption
+      have := lit_step_bounds φ (litAt c p) hv
+      omega
+
+/-- A node of line `n+1` at a variable step names one of its two values. -/
+theorem var_node_value (n : Nat) (x : PathNodeId) (hx : Owns φ (n + 1) x x) (s : Int) (hxs : x.id.step = s)
+    (h0 : 0 < s) (h1 : s < midFusion φ) : x.id = ⟨s, 0⟩ ∨ x.id = ⟨s, 1⟩ := by
+  obtain ⟨kv, hkv, nx, hnx, _⟩ := hx
+  have hok : StateOk φ ((n + 1 : Nat) : Int) kv := (lineOk φ (n + 1)).2 kv hkv
+  have := nodesOnMap_of_mapReachable φ kv.2 hok.reach nx (List.mem_of_find?_eq_some hnx)
+  rw [node?_id_eq _ x nx hnx, hxs,
+    mapNodes_two φ s h0 (by omega) (by simp only [midFusion, fusionTop] at h1 ⊢; omega)] at this
+  rcases List.mem_cons.mp this with e | e
+  · exact Or.inl e
+  · exact Or.inr (List.mem_singleton.mp e)
+
+/-- **The clique can be extended by one node at step `l`, keeping its witnesses.** -/
+def ExtAt (n : Nat) (l : Int) : Prop :=
+  ∀ Q R, LClique φ (n + 1) Q → LWit φ (n + 1) Q R → (∀ q ∈ Q, q.id.step ≤ (n : Int)) →
+    ∃ x : PathNodeId, x.id.step = l ∧ LClique φ (n + 1) (x :: Q) ∧ LWit φ (n + 1) (x :: Q) R
+
+theorem oldWit_sub (n : Nat) (Q Q' : List PathNodeId) (R E : List NodeId) (hsub : ∀ q ∈ Q, q ∈ Q')
+    (h : ClauseKey.OldWit φ n Q' R E) : ClauseKey.OldWit φ n Q R E := by
+  intro l h0 hl
+  obtain ⟨r, hrs, hrn, hrQ, hrR, hrE⟩ := h l h0 hl
+  exact ⟨r, hrs, hrn, fun q hq => hrQ q (hsub q hq), hrR, hrE⟩
+
+/-- **`ClauseKey ⇐` extension at the variable steps.** Extend the clique by the three variables of the
+clause; if one takes the value that makes its literal true, every witness owns it
+(`clauseKey_trueVar`); if the three make their literals false, there is no witness at `L2`
+(`clauseKey_allFalse`). -/
+theorem clauseKey_of_ext (hbd : Bounded φ) (n : Nat)
+    (hext : ∀ l, 0 < l → l < midFusion φ → ExtAt φ n l) : ClauseKey.ClauseKey φ n := by
+  intro hL3 Q R hQ hW hlow
+  obtain ⟨hn, hmid, htop⟩ := ClauseKey.l3_facts φ n hL3
+  obtain ⟨s1, h1a, h1b, hs1⟩ := reqOf_clause_var φ hbd ((n : Int) - 1) (by omega) (by omega)
+  obtain ⟨s2, h2a, h2b, hs2⟩ := reqOf_clause_var φ hbd (n : Int) (by omega) (by omega)
+  obtain ⟨s3, h3a, h3b, hs3⟩ := reqOf_clause_var φ hbd ((n : Int) + 1) (by omega) (by omega)
+  obtain ⟨x1, hx1s, hQ1, hW1⟩ := hext s1 h1a h1b Q R hQ hW hlow
+  have hlow1 : ∀ q ∈ x1 :: Q, q.id.step ≤ (n : Int) := by
+    intro q hq; rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hx1s]; omega
+    · exact hlow q hq
+  obtain ⟨x2, hx2s, hQ2, hW2⟩ := hext s2 h2a h2b _ R hQ1 hW1 hlow1
+  have hlow2 : ∀ q ∈ x2 :: x1 :: Q, q.id.step ≤ (n : Int) := by
+    intro q hq; rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hx2s]; omega
+    · exact hlow1 q hq
+  obtain ⟨x3, hx3s, hQ3, hW3⟩ := hext s3 h3a h3b _ R hQ2 hW2 hlow2
+  let Q3 := x3 :: x2 :: x1 :: Q
+  have m3 : x3 ∈ Q3 := List.mem_cons_self
+  have m2 : x2 ∈ Q3 := List.mem_cons_of_mem _ List.mem_cons_self
+  have m1 : x1 ∈ Q3 := List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self)
+  have hsub : ∀ q ∈ Q, q ∈ Q3 := fun q hq =>
+    List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hq))
+  have v1 := var_node_value φ n x1 (hQ3 x1 m1 x1 m1) s1 hx1s h1a h1b
+  have v2 := var_node_value φ n x2 (hQ3 x2 m2 x2 m2) s2 hx2s h2a h2b
+  have v3 := var_node_value φ n x3 (hQ3 x3 m3 x3 m3) s3 hx3s h3a h3b
+  -- a true value: every witness owns it
+  have viaTrue : ∀ x ∈ Q3, ∀ k : Int, (k = (n : Int) + 1 ∨ k = (n : Int) ∨ k = (n : Int) - 1) →
+      x.id ∈ reqOf φ ⟨k, 1⟩ → ∃ E ∈ ClauseKey.keyOpts φ n, ClauseKey.OldWit φ n Q R E := by
+    intro x hx k hk hxk
+    obtain ⟨E, hE, hWE⟩ := clauseKey_trueVar φ hbd n hL3 Q3 R hW3 x hx k hk hxk
+    exact ⟨E, hE, oldWit_sub φ n Q Q3 R E hsub hWE⟩
+  rcases v1 with e1 | e1
+  · rcases v2 with e2 | e2
+    · rcases v3 with e3 | e3
+      · exact (clauseKey_allFalse φ hbd n hL3 Q3 R hW3 x1 x2 x3 m1 m2 m3
+          (by rw [e1, hs1]; exact List.mem_singleton_self _) (by rw [e2, hs2]; exact List.mem_singleton_self _)
+          (by rw [e3, hs3]; exact List.mem_singleton_self _)).elim
+      · exact viaTrue x3 m3 _ (Or.inl rfl) (by rw [e3, hs3]; exact List.mem_singleton_self _)
+    · exact viaTrue x2 m2 _ (Or.inr (Or.inl rfl)) (by rw [e2, hs2]; exact List.mem_singleton_self _)
+  · exact viaTrue x1 m1 _ (Or.inr (Or.inr rfl)) (by rw [e1, hs1]; exact List.mem_singleton_self _)
+
+/-- **The reader decides `φ` when, at every third literal, cliques extend at the variable steps.** -/
+theorem readerVerdictW_iff_of_ext (hbd : Bounded φ)
+    (hext : ∀ n : Nat, (n : Int) + 1 < stepCount φ → ∀ l, 0 < l → l < midFusion φ → ExtAt φ n l) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ :=
+  ClauseKey.readerVerdictW_iff_of_clauseKey φ hbd (fun n hn => clauseKey_of_ext φ hbd n (hext n hn))
+
+/-- info: 'AbsSatBin.GraphPath.Model.ClauseWitness.readerVerdictW_iff_of_ext' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_ext
+
 /-- info: 'AbsSatBin.GraphPath.Model.ClauseWitness.witness_fixes_clique' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms witness_fixes_clique
