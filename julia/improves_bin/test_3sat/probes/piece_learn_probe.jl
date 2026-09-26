@@ -59,6 +59,16 @@ function probe(path; k3 = false)
             length(ps) >= 2 || return
             U = tables([g]); B = bystep_of(U)
             Up = [tables([p]) for p in ps]; Bp = [bystep_of(u) for u in Up]
+            # E1w: entrada entre dos nodos poseídos (en P) por un mismo nodo del paso nuevo de P
+            for i in eachindex(Up)
+                for w in get(Bp[i], s1, PathNodeId[])
+                    T = [q for q in Up[i][w] if haskey(Up[i], q) && q.id.step < s1]
+                    for r in T, q in T
+                        owns(U, r, q) || continue
+                        bump(owns(Up[i], r, q) ? "E1w ok" : "E1w FALLA")
+                    end
+                end
+            end
             # E0 y E1 sobre todas las entradas
             for (r, S) in U
                 inP = [i for i in eachindex(Up) if haskey(Up[i], r)]
@@ -130,6 +140,7 @@ function probe(path; k3 = false)
                     iw = [i for i in eachindex(Up) if haskey(Up[i], w)]
                     length(iw) == 1 || (bump("  top en $(length(iw)) piezas"); continue)
                     i = iw[1]
+                    bump(isclique(Up[i], Q) ? "  H16 ok: Q es clique en la pieza de cada top w" : "  H16 FALLA")
                     e2 = all(q -> haskey(Up[i], q), Q)
                     bump(e2 ? "  E2 ok" : "  E2 FALLA: miembro fuera de P_w")
                     e3 = all(l -> any(r -> haskey(Up[i], r) && all(q -> owns(U, r, q), Q), get(B, l, PathNodeId[])), 0:s1)

@@ -1122,6 +1122,10 @@ Sonda (`piece_learn_probe.jl`, H13–H15, 3,5 M cliques):
 * **H14 siempre**: alguna pieza contiene un testigo de cada paso frontera y es buena. **H13 falla** (13 847): no
   basta cualquier pieza con ambos.
 
+Descartados también: **E1w** (la entrada entre dos nodos que posee un mismo nodo del paso nuevo de la pieza es
+local a la pieza; falla 10 338) y **H16** (la clique es clique en la pieza de cada testigo del paso nuevo; falla
+25 713). La pieza buena no la fija la tabla de un solo testigo frontera.
+
 **Abierto:** el lema 1 (H9: la clique es clique en alguna pieza) para tamaño ≥ 3. Los testigos frontera fijan
 la pieza de sus propias entradas, pero las entradas entre miembros pueden venir de la otra pieza (E1 falla).
 
