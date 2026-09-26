@@ -1272,6 +1272,19 @@ del lector) y **`growR_iff_mapCert_line`**: en todo estado de la máquina, crece
 Medido antes en Julia tras corregir los enlaces caducados (`LINK_MODE`): 5 033/5 033 piezas y 2 986/2 986 estados
 de línea son kernels.
 
+**X1 en el estado unido: un invariante no local (sonda `global_local_probe.jl`).** En un kernel, añadir a `Q` un
+testigo `r` da siempre una clique (simetría); lo abierto es que algún testigo tenga a su vez testigos (**E**). Las
+reglas locales ya fallaron (E1w, H16). Medido, sin fallos:
+* **GL** (1,78 M): en el mapa bin cada línea tiene como mucho 2 estados; la unión de los dos (con claves distintas,
+  que la máquina nunca une) no crea cliques con testigos: toda clique con testigos de la unión vive en uno.
+* **AP** (1,95 M): la unión de **todas** las piezas de un paso (2, 3 o 4, con destinos distintos) tampoco.
+
+Propuesta de invariante: `MapCert` de la unión de los estados de cada línea. Paso fácil: AP(n) ⇒ GL(n+1) (los
+estados de la línea `n+1` son uniones de piezas). Paso por hacer: GL(n) ⇒ AP(n). Quitando la cima, una clique con
+testigos de la unión de piezas lo es de la unión de fuentes (las tablas viejas de una pieza están en su fuente),
+luego GL(n) la lleva a una sola fuente. Lo que queda es el filtro: los testigos deben poseer los requisitos del
+destino, y los testigos de piezas de otro destino no los poseen.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
