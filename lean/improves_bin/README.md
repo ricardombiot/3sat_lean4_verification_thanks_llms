@@ -66,6 +66,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `MapCert` | — | nuevo | certificados con restricciones a nivel de nodo de mapa (`MapCert` ⇒ `CertClique`); **lo conservan el review, todo filtro por requisito (con cualquier número de ventanas), `addNode` con fusiones y la unión de pins complementarios** (`mapCert_filterAll_nil`, `mapCert_filter`, `mapCert_addNode`, `mapCert_join_pins`) |
 | `PrefixCarry` | — | nuevo | **la máquina conserva toda solución parcial** (`PreSat`: ventanas permitidas antes de `T`) en el estado de su nodo de mapa (`chainSound_along_pre`, `run_ok_pre`, `cert_of_prefix`); generaliza `pureRun_carries`, donde `Sat` solo entraba por la ventana |
 | `PrefixDecode` | — | nuevo | **paso 1**: una cadena de un estado de la máquina es una solución parcial (`decode_prefix`: `PreSat` de la asignación decodificada y su ventana es la cadena); versiones de prefijo de `selOfAssign_decode`, `litVal_of_node` |
+| `LineSem` | — | nuevo | **paso 2**: `SemCert` a lo largo de toda la línea de la máquina (orígenes de cada entrada, traspaso por `upFiltering`, extensión semántica de soluciones parciales); **el lector decide `φ` bajo `ClauseChoice`** (`readerVerdictW_iff_of_clauseChoice`): lo único abierto es el tercer literal de cada cláusula para cliques sin miembro en ese paso |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
@@ -86,6 +87,8 @@ Cada módulo que entra se registra aquí con su procedencia:
   `AllTriPin₁` (`TriPinAll`); su forma cerrada `CliqueTri` se conserva con cada pin del lector
   (`CliqueTri`), así que basta en los estados de partida: **abierto** que la máquina lo construya. Forma
   equivalente por certificados: `CertLink ⇔ CliqueTri` (`CertFix`, `CertDescent`).
+- **Lector completo salvo la cláusula** (`LineSem.readerVerdictW_iff_of_clauseChoice`): el único
+  supuesto es `ClauseChoice` en el tercer literal de cada cláusula.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa

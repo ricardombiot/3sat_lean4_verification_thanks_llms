@@ -857,6 +857,46 @@ enchufar.
 Si 1 y 2 salen, **toda la ruta del lector queda reducida a los pasos de cláusula**: lo único abierto
 sería la disyunción propia de la fórmula.
 
+### 4.2u Pasos 1 y 2 — **demostrados**; el lector queda reducido a la cláusula (`PrefixDecode.lean`, `LineSem.lean`)
+
+**Paso 1** (`decode_prefix`): una cadena de cualquier estado de la máquina es una solución parcial.
+* La asignación decodificada nombra en cada paso el nodo de mapa de la cadena
+  (`selOfAssign_decode_pre`), y su ventana es el nodo de camino de la cadena (`pidOfAssign_decode_pre`).
+* Sus ventanas por debajo del paso actual están permitidas (`preSat_decode`).
+
+**Paso 2** (`LineSem`): se sigue la línea de la máquina entera, entrada a entrada, sin construir un
+estado unión.
+* `Owns n r q`: en algún estado de la línea `n`, la tabla de `r` contiene `q`. `LClique` y `LWit` son la
+  clique y los testigos para esa relación. **`SemCert n`**: toda clique con testigos en la línea `n` la
+  atraviesa una solución parcial (`PreSat`).
+* **Orígenes** (`src_pureAdvance`): todo nodo y toda entrada de un estado de la línea `n+1` viene de
+  `upFiltering` de un estado de la línea `n`, pasando por `sendTo`, `insertPure` y `doJoin`.
+* **Traspaso** (`upF_old`, `upF_new`, `upF_owner_new`, `row_owner_window`, `filt_owns_req`, `owns_top`):
+  * una entrada vieja ya estaba antes;
+  * un nodo que posee un nodo nuevo `z` poseía, antes, un padre de `z`, un nodo del mapa del abuelo de
+    `z` y el requisito de `z`.
+* **Nodos del último paso** (`top_node`, `top_owns_self`, `top_entry_key`): en su propio paso solo se
+  poseen a sí mismos, no están prohibidos y llevan la clave del estado. **El testigo del último paso
+  fija la clave y la ventana.**
+* **Extensión semántica** (`extend_to`, `selOfAssign_of_req`, `selOfAssign_congr`, `chain_eq_pid`): una
+  solución parcial por la parte vieja se extiende al último paso. En una variable positiva el valor es
+  libre; en el resto lo fija el requisito.
+* **Inducción** (`semCert_zero`, `semCert_succ`, `semCert_all`).
+  * En cada paso se trata la clique con miembro en el último paso y la que no lo tiene.
+  * La segunda solo necesita hipótesis cuando ese paso es el **tercer literal de una cláusula**: la
+    extensión de la solución parcial puede caer en la ventana `000`.
+  * Esa hipótesis es **`ClauseChoice`**.
+* **Conclusión** (`mapCert_start`, `readerVerdictW_iff_of_clauseChoice`): `SemCert` en la línea final da
+  `MapCert` en el estado de partida revisado. De ahí salen `CertClique`, `CertLink` y `CliqueTri`, y el
+  lector decide.
+
+> **`readerVerdictW φ = true ↔ Satisfiable φ`, suponiendo solo `ClauseChoice` en el tercer literal de
+> cada cláusula.**
+
+`ClauseChoice n`: si el paso `n+1` es el tercer literal de una cláusula, toda clique de la línea `n+1`
+sin miembro en ese paso, y con testigos, la atraviesa una solución parcial. Es la disyunción propia de
+la fórmula, y es lo único que queda.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
