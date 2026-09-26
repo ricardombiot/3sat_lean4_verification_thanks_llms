@@ -1113,6 +1113,18 @@ Corpus pequeño completo, 3,5 M cliques de tamaño 1–3 con testigos en estados
 Ruta de formalización que sugiere: `PieceLocal` = H9 + «en una pieza donde `Q` es clique poseída por un nodo del
 paso nuevo, hay testigos en todos los pasos salvo `L3` anteriores» + la elección de pieza en esos `L3`.
 
+### 4.2δ La frontera del join (`PieceJoin.lean`, parte nueva)
+
+Sonda (`piece_learn_probe.jl`, H13–H15, 3,5 M cliques):
+* **H15 siempre**: un testigo del paso `n` vive en una sola pieza. **Demostrado** (`mid_key`, `mid_one_source`).
+* Con `top_one_source` (paso `n+1`): **`frontier_owns`**: los dos testigos frontera poseen la clique entera
+  dentro de su única pieza.
+* **H14 siempre**: alguna pieza contiene un testigo de cada paso frontera y es buena. **H13 falla** (13 847): no
+  basta cualquier pieza con ambos.
+
+**Abierto:** el lema 1 (H9: la clique es clique en alguna pieza) para tamaño ≥ 3. Los testigos frontera fijan
+la pieza de sus propias entradas, pero las entradas entre miembros pueden venir de la otra pieza (E1 falla).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

@@ -104,6 +104,17 @@ function probe(path; k3 = false)
                 bump(Set(good) == Set(topP) ? "  H7 ok: buena ⇔ contiene un top que posee Q en P" : "  H7 FALLA")
                 bump(issubset(Set(topP), Set(good)) ? "  H8 ok: top que posee Q en P ⇒ buena" : "  H8 FALLA")
                 ct = intersect(cliq, topP)
+                # frontera: testigos del paso anterior (s1-1) y del nuevo (s1), y en qué piezas son nodos
+                mids = [r for r in get(B, s1 - 1, PathNodeId[]) if all(q -> owns(U, r, q), Q)]
+                pw = unique([i for w in tops for i in eachindex(Up) if haskey(Up[i], w)])
+                pr = unique([i for r in mids for i in eachindex(Up) if haskey(Up[i], r)])
+                both = intersect(pw, pr)
+                bump(isempty(both) ? "  H13: ninguna pieza tiene ambos testigos frontera" : "  H13: alguna pieza tiene ambos")
+                if !isempty(both)
+                    bump(issubset(Set(both), Set(good)) ? "  H13 ok: pieza con ambos testigos frontera ⇒ buena" : "  H13 FALLA")
+                    bump(!isempty(intersect(both, good)) ? "  H14 ok: alguna pieza con ambos es buena" : "  H14 FALLA")
+                end
+                bump(all(r -> count(i -> haskey(Up[i], r), eachindex(Up)) == 1, mids) ? "  H15 ok: testigo frontera n en una sola pieza" : "  H15 FALLA")
                 bump(Set(good) == Set(ct) ? "  H10 ok: buena ⇔ clique en P y top que posee Q en P" : "  H10 FALLA")
                 # H11: pieza donde Q es clique Y cada miembro posee, en P, a un top que posee Q en P
                 cw = [i for i in cliq if any(w -> haskey(Up[i], w) && all(q -> owns(Up[i], w, q) && owns(Up[i], q, w), Q), get(B, s1, PathNodeId[]))]

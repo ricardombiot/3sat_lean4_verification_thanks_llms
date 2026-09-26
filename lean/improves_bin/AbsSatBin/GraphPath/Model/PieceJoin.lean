@@ -208,6 +208,81 @@ theorem mapCert_join (n : Nat) (hPL : PieceLocal φ n)
   refine ⟨sel, ChainSound_of_grown hgr sel hs, hon, fun m hm h0 h1 => hR m hm h0 ?_⟩
   have := hgr.step_eq; simp only at h1; omega
 
+-- ============================================================
+-- The frontier: witnesses at steps `n` and `n+1` own the clique inside one piece
+-- ============================================================
+
+section frontier
+variable (hbd : Bounded φ) (n : Nat)
+include hbd
+
+/-- **A node of step `n` of a piece names the key of its source.** -/
+theorem mid_key (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId) (hd : d ∈ sonsOfMap φ kv.1)
+    (hv : isValid (upF φ kv.2 d) = true) (r : PathNodeId) (nr : PNodeM) (hr : (upF φ kv.2 d).node? r = some nr)
+    (hrs : r.id.step = (n : Int)) : r.id = kv.1 := by
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  have hb := KernelIff.below_filterAll_self kv.2 hnd (reqOf φ d)
+  obtain ⟨nF, hnF, _⟩ := upF_old φ kv.2 d hdst c hv r nr hr (by omega)
+  obtain ⟨nJ, hnJ, hoJ, _, _⟩ := hb.node r nF hnF
+  exact top_entry_key φ hbd n kv hkv r nJ hnJ r (hoJ r (TriPinCut.self_own_pc c.pc r nF hnF)) hrs
+
+/-- **The frontier rule at step `n`** (measured `H15`, never fails): every entry of a node of step `n` of a
+state of line `n+1` comes from the same source — the one whose key is the node. -/
+theorem mid_one_source (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) (r : PathNodeId) (nr : PNodeM)
+    (hr : kv'.2.node? r = some nr) (hrs : r.id.step = (n : Int)) :
+    ∃ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 ∧ isValid (upF φ kv.2 kv'.1) = true ∧ r.id = kv.1 ∧
+      ∀ v ∈ nr.owners, ∃ n', (upF φ kv.2 kv'.1).node? r = some n' ∧ v ∈ n'.owners := by
+  have hkv'' := hkv'
+  rw [line_succ] at hkv''
+  obtain ⟨kv, hkv, hd, hv, n0, hn0⟩ := (src_pureAdvance φ (line φ n) kv' hkv'').1 r nr hr
+  have hk := mid_key φ hbd n kv hkv kv'.1 hd hv r n0 hn0 hrs
+  refine ⟨kv, hkv, hd, hv, hk, fun v hv' => ?_⟩
+  obtain ⟨kv2, hkv2, hd2, hv2, n2, hn2, hvn2⟩ := (src_pureAdvance φ (line φ n) kv' hkv'').2 r nr hr v hv'
+  have hk2 := mid_key φ hbd n kv2 hkv2 kv'.1 hd2 hv2 r n2 hn2 hrs
+  have hsame : kv2 = kv := key_inj (line φ n) (lineOk φ n).1 kv2 hkv2 kv hkv (by rw [← hk2, hk])
+  subst hsame
+  exact ⟨n2, hn2, hvn2⟩
+
+/-- **Both frontier witnesses own the whole clique inside their own piece.** A node of step `n` or `n+1`
+that owns `Q` in a state of line `n+1` owns `Q` in the one piece it belongs to. -/
+theorem frontier_owns (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) (r : PathNodeId) (nr : PNodeM)
+    (hr : kv'.2.node? r = some nr) (hrs : r.id.step = (n : Int) ∨ r.id.step = (n : Int) + 1)
+    (Q : List PathNodeId) (hQ : ∀ q ∈ Q, q ∈ nr.owners) :
+    ∃ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 ∧ isValid (upF φ kv.2 kv'.1) = true ∧
+      ∃ n', (upF φ kv.2 kv'.1).node? r = some n' ∧ ∀ q ∈ Q, q ∈ n'.owners := by
+  have pick : ∀ kv : NodeId × GPathM, (∀ v ∈ nr.owners, ∃ n', (upF φ kv.2 kv'.1).node? r = some n' ∧ v ∈ n'.owners) →
+      (upF φ kv.2 kv'.1).node? r ≠ none →
+      ∃ n', (upF φ kv.2 kv'.1).node? r = some n' ∧ ∀ q ∈ Q, q ∈ n'.owners := by
+    intro kv hsrc hne
+    obtain ⟨n', hn'⟩ := Option.ne_none_iff_exists'.mp hne
+    refine ⟨n', hn', fun q hq => ?_⟩
+    obtain ⟨n'', hn'', hqn⟩ := hsrc q (hQ q hq)
+    rw [hn'] at hn''; cases hn''; exact hqn
+  have hkv'' := hkv'
+  rw [line_succ] at hkv''
+  rcases hrs with hrs | hrs
+  · obtain ⟨kv, hkv, hd, hv, hkr, hsrc⟩ := mid_one_source φ hbd n kv' hkv' r nr hr hrs
+    refine ⟨kv, hkv, hd, hv, pick kv hsrc ?_⟩
+    -- the node is in the piece of its own source
+    obtain ⟨kv1, hkv1, hd1, hv1, n1, hn1⟩ := (src_pureAdvance φ (line φ n) kv' hkv'').1 r nr hr
+    have hk1 := mid_key φ hbd n kv1 hkv1 kv'.1 hd1 hv1 r n1 hn1 hrs
+    have : kv1 = kv := key_inj (line φ n) (lineOk φ n).1 kv1 hkv1 kv hkv (by rw [← hk1]; exact hkr)
+    rw [← this, hn1]; simp
+  · obtain ⟨kv, hkv, hd, hv, hpk, hsrc⟩ := StateGrow.top_one_source φ hbd n kv' hkv' r nr hr hrs
+    obtain ⟨kv1, hkv1, hd1, hv1, n1, hn1⟩ := (src_pureAdvance φ (line φ n) kv' hkv'').1 r nr hr
+    have hpk1 := StateGrow.row_parent_key φ hbd n kv1 hkv1 kv'.1 hd1 hv1 r n1 hn1 hrs
+    have : kv1 = kv := key_inj (line φ n) (lineOk φ n).1 kv1 hkv1 kv hkv
+      (by rw [hpk] at hpk1; exact (Option.some.inj hpk1).symm)
+    refine ⟨kv, hkv, hd, hv, pick kv hsrc ?_⟩
+    rw [← this, hn1]; simp
+
+end frontier
+
+/-- info: 'AbsSatBin.GraphPath.Model.PieceJoin.frontier_owns' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms frontier_owns
+
 /-- info: 'AbsSatBin.GraphPath.Model.PieceJoin.piece_grown' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms piece_grown
