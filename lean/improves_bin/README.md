@@ -48,6 +48,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `KernelIff` | — | nuevo | el review nunca añade hijos (`sonsSub_review`); `below_filterAll_self`; `kernelSplit_iff_noDeadEnd` |
 | `TriPinCore` | — | nuevo | un miembro exclusivo del pin cierra el trío (`tri_of_exclusive`); `TriPin ⇐ AmbTri` (solo parejas ambiguas) |
 | `AmbTriCore` | — | nuevo | bajo la elección el camino está fijado (`gowner_eq`); la ventana hace exclusivos los nodos de `k…k+2` (`excl_near`); `AmbTri ⇐ AmbFar` (parejas ambiguas fuera de la ventana, pasos `l > k`) |
+| `AmbHighCore` | — | nuevo | un nodo bajo la elección está en todas las tablas y posee a todos (`forced_owns_all`); `AmbFar ⇐ AmbHigh` (ambos miembros en pasos `≥ k+3`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
@@ -61,8 +62,8 @@ Cada módulo que entra se registra aquí con su procedencia:
   filtro de un solo valor dos pasos por debajo de la cima: la misma forma que los filtros de
   `HardStepExact` en los pasos `L`.
 - Ruta alternativa (v194): `soundness_of_noDeadEnd` da la solidez **sin `ClauseStepExact`** con
-  `NoDeadEnd` + `RootValid`; y `NoDeadEnd ⇔ KernelSplit ⇐ TriPin ⇐ AmbTri ⇐ AmbFar` (parejas ambiguas
-  fuera de la ventana `k…k+2`, pasos por encima de la elección), la única pieza abierta del lector.
+  `NoDeadEnd` + `RootValid`; y `NoDeadEnd ⇔ KernelSplit ⇐ TriPin ⇐ AmbTri ⇐ AmbFar ⇐ AmbHigh` (parejas
+  ambiguas con ambos miembros en pasos `≥ k+3`, pasos por encima de la elección), la única pieza abierta del lector.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa

@@ -1,6 +1,6 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`, hasta el commit `4914f15`.
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`, hasta el commit de `AmbHighCore` (peldaño 10).
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
 > Informe de referencia: `docs/bitacora/verificacion_inseguridad_autor_v194.md` (hasta `TriPin`/`AmbTri`).
@@ -57,6 +57,7 @@ Cada flecha es un teorema. Todas están **demostradas**. Cada peldaño tiene su
 | 7 | ⇐ `TriPin` | `KernelSplit` | regla de parejas con el pin como tercer miembro fijo ⇒ `restrictPin g x` es ese kernel |
 | 8 | ⇐ `AmbTri` | `TriPinCore` | si uno de los dos nodos es exclusivo de `x`, el trío siempre comparte |
 | 9 | ⇐ `AmbFar` | `AmbTriCore` (nuevo, `4914f15`) | prefijo fijado + ventana de tres pasos (§3) |
+| 10 | ⇐ `AmbHigh` | `AmbHighCore` (nuevo) | los nodos forzados poseen a todos (§4.1) |
 
 Piezas auxiliares que sostienen la escalera (todas **demostradas**):
 
@@ -120,9 +121,9 @@ vez para el bit 0 y para el bit 1, en el mismo estado.
 
 ## 4. Propuestas para seguir
 
-### 4.1 Recortar `AmbFar` a nodos altos (siguiente paso formal, barato)
+### 4.1 Recortar `AmbFar` a nodos altos — **hecho** (`AmbHighCore.lean`)
 
-**Deducido, sin formalizar.**
+**Demostrado** (`forced_in_all`, `forced_owns_all`, `ambFar_of_ambHigh`, `readerVerdictW_iff_of_ambHigh`).
 * Un nodo `y` en un paso `s < k` es el único nodo vivo de su paso, por `gowner_eq`.
 * Todo nodo vivo tiene una entrada en `s` (validez), y esa entrada es `y`. Así que **`y` está en todas
   las tablas**, y por simetría **la tabla de `y` contiene a todos los nodos vivos**: los nodos forzados
@@ -133,9 +134,12 @@ Consecuencias:
 * **`y` bajo `k` y `w` por encima**: la regla de parejas de `(w, x)` da `r` en `l`, y `y` lo posee
   automáticamente.
 
-Queda **`AmbHigh g k x`**: los dos nodos en pasos `≥ k+3`, con `l > k`. Es una prueba corta con lo que ya
-hay en `AmbTriCore` (`gowner_eq`, `entry_at`, `ker.sym`, `ker.pair`). La propongo como siguiente paso
-formal: deja el núcleo en su forma más limpia, **tríos enteramente por encima del prefijo**.
+Queda **`AmbHigh g k x`**, el único enunciado abierto del lector:
+
+> para `y`, `w` ambiguos respecto a `x`, que se poseen, **ambos en pasos `≥ k+3`**, en cada paso `l` con
+> `k < l < current_step` hay una entrada común a `y`, `w` y `x`.
+
+El núcleo queda en su forma más limpia: **tríos enteramente por encima del prefijo fijado**.
 
 ### 4.2 Medir `AmbHigh` / `AmbFar` (pendiente de confirmación)
 
@@ -199,7 +203,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
-1. §4.1: `AmbFar ⇐ AmbHigh`, en Lean. Corto, seguro, y limpia el enunciado.
+1. ~~§4.1: `AmbFar ⇐ AmbHigh`~~ — hecho.
 2. §4.2: medir `AmbHigh` en Julia. Decide entre §4.3 y §4.4: si nunca falla, buscar el invariante; si
    falla para un bit pero no para los dos, el invariante tiene que ser por bit; si falla para los dos,
    la máquina actual no basta y toca §4.4.
@@ -220,5 +224,6 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `KernelSplit.lean` | `TriPin`, `PinCtx`, `restrictPin`, `restrict_kernel`, `parent_of_owner`, `TriPinReader` |
 | `TriPinCore.lean` | `Exclusive`, `excl`, `tri_of_exclusive`, `AmbTri`, `triPin_of_ambTri` |
 | `AmbTriCore.lean` | `ACtx`, `gowner_eq`, `share_below`, `excl_near`, `AmbFar`, `ambTri_of_ambFar`, `readerVerdictW_iff_of_ambFar` |
+| `AmbHighCore.lean` | `forced_in_all`, `forced_owns_all`, `AmbHigh`, `ambFar_of_ambHigh`, `readerVerdictW_iff_of_ambHigh` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`).
