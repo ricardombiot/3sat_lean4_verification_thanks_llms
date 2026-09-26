@@ -728,6 +728,56 @@ tablas no guardan tras una unión: qué rama respalda cada pertenencia. Cualquie
 obtenerla de forma global, a partir de cómo se construyeron las dos ramas antes de unirse (desde el paso
 `f` hasta la unión en `f+1` o `f+3`), no del estado unido.
 
+### 4.2r Las dos líneas: historia de una unión y ventana saltada (`CertMachine.lean`)
+
+**A. Historia de una unión.**
+
+**Lo que muestra el código.** Los dos lados de un `join` en el paso `f+1` descienden del **mismo**
+estado anterior `J_e` (paso `f−1`) por pins complementarios sobre la variable del literal:
+`Sᵢ = up (filterAll J_e [x_u = vᵢ]) cᵢ`. Sobre los nodos comunes, la unión de los dos pins de un estado
+exacto reconstruye ese estado. Ahí la mezcla desaparece: un certificado de `J_e` lleva su propio valor
+de `x_u`, y ese valor elige la rama.
+
+**`CertClique` es monótono, y con él se puede seguir la máquina sin el sándwich del lector.**
+Demostrado:
+* **El filtro por requisito lo conserva** si el nodo requerido tiene un único nodo de camino vivo
+  (`certClique_filter_unique`). Todo nodo lo posee tras el filtro, así que una clique `Q` con testigos
+  da `x :: Q` con testigos antes, y su certificado cumple el requisito.
+* **`addNode` sin fusiones lo conserva** (`certClique_addNode_old`, `certClique_addNode_single`):
+  * las cliques de nodos viejos extienden su certificado por su propio último nodo;
+  * una clique con un nodo nuevo `z` pasa a su único padre, porque los testigos que poseen `z` poseen a
+    ese padre.
+* El review lo conserva (`certClique_filterAll_nil`, ya demostrado).
+
+**Idea para fusiones y `join` a la vez** (propuesta, sin formalizar). Enrutar el certificado del
+ancestro común por las claves `cᵢ → b → a → d`, eligiendo `i` por su propio `x_u`. La rama la decide el
+certificado, así que da igual de qué rama viniera cada testigo. Hace falta:
+1. que la clique posterior, con los nodos requeridos por `b`, `a` y `d` añadidos, tenga testigos en el
+   ancestro;
+2. que esos requisitos no sean disyuntivos.
+
+El obstáculo restante es el punto 2. Un nodo requerido en un paso de variable tiene dos nodos de
+camino, según la variable anterior, así que la disyunción vuelve a nivel de ventana.
+
+**B. Ventana saltada** (antigua `SkipExact`). Demostrado:
+* `SkipChoice`: una clique de nodos viejos con testigos tras la fila está en un certificado previo cuya
+  extensión no está prohibida. `certThrough_addNode_skip`: con esa condición, la fila con ventana
+  saltada conserva los certificados, y el review posterior también.
+* `skipChoice_of_parent`: basta, junto con `CertClique` previo, que la clique tenga testigos **a través
+  de un padre de un nodo permitido de la fila**.
+
+En bin, en el tercer literal de una cláusula con valor `0`, eso es un padre con `(L1, L2) ≠ (0, 0)`: una
+**disyunción de tres ventanas**, la propia cláusula.
+
+**Conclusión de las dos líneas.**
+* Todo lo que no es una unión está demostrado para `CertClique`: review, filtro con un único nodo de
+  camino y `addNode` sin fusión.
+* Lo que queda son disyunciones, cuatro en total: la fusión de ventana (dos padres), el `join` de
+  historias, el requisito con dos ventanas y la cláusula (tres ventanas).
+* En las tres primeras, la rama la fija el valor de una variable que el certificado ya lleva. La
+  propuesta de enrutado explota eso.
+* La cuarta, la cláusula, es la disyunción propia de la fórmula.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
