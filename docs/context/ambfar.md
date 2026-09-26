@@ -1022,6 +1022,14 @@ un paso de cláusula, cuya ventana ve a la vez dos miembros de la clique.**
 * **`witness_fixes_clique`**: un testigo en `L_p` fija el valor de todo miembro de la clique en las
   variables de los literales `p` y `p-1`.
 
+**Dos casos cerrados con la regla** (opciones de literal ampliadas con los valores de variable que hacen
+cierto cada literal, `keyOpts`):
+* `clauseKey_trueVar`: la clique contiene un valor que hace cierto un literal de la cláusula; todos los
+  testigos lo poseen.
+* `clauseKey_allFalse`: la clique contiene los tres valores que hacen falsos los literales; el testigo de
+  `L2` tendría ventana `00` (`owns_window_req`), no cabe en una pieza de clave `0` (`no00_key0`) y en una de
+  clave `1` el filtro no deja el valor falso del tercer literal: no hay testigo, caso vacío.
+
 **Abierto:** componer esta regla hasta `ClauseKey` en general. En el ejemplo actúa el testigo de **otra**
 cláusula anterior, así que la composición es global (cadenas de cláusulas), no local al `L3`.
 

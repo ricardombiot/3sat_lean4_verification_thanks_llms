@@ -153,10 +153,11 @@ theorem semConcl_low (hbd : Bounded φ) (n : Nat) (ih : SemCert φ n) (Q : List 
 -- The clause by keys
 -- ============================================================
 
-/-- The three ways a piece of `L3` fixes a true literal, as constraints below `L3`: `L2 = 1`, `L1 = 1`, or
-the variable value that makes the third literal true (the requirement of `L3 = 1`). -/
+/-- The ways a piece of `L3` fixes a true literal, as constraints below `L3`: `L2 = 1`, `L1 = 1`, or the
+variable value that makes one of the three literals true (the requirement of `Lp = 1`). -/
 def keyOpts (n : Nat) : List (List NodeId) :=
-  [[⟨(n : Int), 1⟩], [⟨(n : Int) - 1, 1⟩], reqOf φ ⟨(n : Int) + 1, 1⟩]
+  [[⟨(n : Int), 1⟩], [⟨(n : Int) - 1, 1⟩], reqOf φ ⟨(n : Int) + 1, 1⟩, reqOf φ ⟨(n : Int), 1⟩,
+    reqOf φ ⟨(n : Int) - 1, 1⟩]
 
 /-- **The clause by keys**: at the third literal of a clause, a clique with witnesses and no member at
 that step admits one of the three true literals, owned by witnesses at every step below. -/
@@ -186,27 +187,33 @@ theorem notProh_of_opt (hbd : Bounded φ) (a : Assign) (n : Nat) (hL3 : isL3 φ 
     isProhibited φ (pidOfAssign φ a ((n : Int) + 1)) = false := by
   have hn := one_le_of_isL3 φ n hL3
   simp only [keyOpts, List.mem_cons, List.not_mem_nil, or_false] at hE
-  rcases hE with e | e | e
-  · rw [e] at hsel
-    exact notProh_of_true φ a n hn _ (by simp [trueLits]) (hsel _ List.mem_cons_self)
-  · rw [e] at hsel
-    exact notProh_of_true φ a n hn _ (by simp [trueLits]) (hsel _ List.mem_cons_self)
-  · rw [e] at hsel
-    obtain ⟨_, h1, _⟩ := l3_facts φ n hL3
-    have htop : selOfAssign φ a ((n : Int) + 1) = ⟨(n : Int) + 1, 1⟩ :=
-      selOfAssign_of_req φ hbd a _ _ (by omega) (by rw [mapNodes_l3 φ n hL3]; simp)
-        (fun v hv e => by rw [e] at h1; simp only [midFusion, varStep] at h1; omega) hsel
-    exact notProh_of_true φ a n hn ⟨(n : Int) + 1, 1⟩ (by simp [trueLits]) htop
+  obtain ⟨_, h1, _⟩ := l3_facts φ n hL3
+  have hm0 : (0 : Int) < midFusion φ := by simp only [midFusion]; omega
+  -- a requirement of `Lp = 1` sets `Lp = 1`
+  have viaReq : ∀ k : Int, midFusion φ < k → k ≤ (n : Int) + 1 →
+      (∀ m ∈ reqOf φ ⟨k, 1⟩, selOfAssign φ a m.step = m) → selOfAssign φ a k = ⟨k, 1⟩ := by
+    intro k hk1 hk2 hs
+    have hmn : mapNodes φ k = [⟨k, 0⟩, ⟨k, 1⟩] := by
+      obtain ⟨_, _, h3⟩ := l3_facts φ n hL3
+      exact mapNodes_two φ k (by omega) (by omega) (by omega)
+    exact selOfAssign_of_req φ hbd a _ _ (by omega) (by rw [hmn]; simp)
+      (fun v hv e => by rw [e] at hk1; simp only [midFusion, varStep] at hk1; omega) hs
+  rcases hE with e | e | e | e | e <;> rw [e] at hsel
+  · exact notProh_of_true φ a n hn _ (by simp [trueLits]) (hsel _ List.mem_cons_self)
+  · exact notProh_of_true φ a n hn _ (by simp [trueLits]) (hsel _ List.mem_cons_self)
+  · exact notProh_of_true φ a n hn ⟨(n : Int) + 1, 1⟩ (by simp [trueLits]) (viaReq ((n : Int) + 1) (by omega) (by omega) hsel)
+  · exact notProh_of_true φ a n hn ⟨(n : Int), 1⟩ (by simp [trueLits]) (viaReq (n : Int) (by omega) (by omega) hsel)
+  · exact notProh_of_true φ a n hn ⟨(n : Int) - 1, 1⟩ (by simp [trueLits]) (viaReq ((n : Int) - 1) (by omega) (by omega) hsel)
 
 theorem opt_steps (hbd : Bounded φ) (n : Nat) (hL3 : isL3 φ ((n : Int) + 1) = true) (E : List NodeId)
     (hE : E ∈ keyOpts φ n) : ∀ m ∈ E, 0 ≤ m.step ∧ m.step ≤ (n : Int) := by
   have hn := one_le_of_isL3 φ n hL3
   simp only [keyOpts, List.mem_cons, List.not_mem_nil, or_false] at hE
   intro m hm
-  rcases hE with e | e | e <;> rw [e] at hm
+  rcases hE with e | e | e | e | e <;> rw [e] at hm
   · rw [List.mem_singleton.mp hm]; constructor <;> simp only <;> omega
   · rw [List.mem_singleton.mp hm]; constructor <;> simp only <;> omega
-  · exact ⟨reqOf_nonneg φ hbd _ m hm, by have := reqOf_backward φ hbd _ m hm; simp only at this; omega⟩
+  all_goals exact ⟨reqOf_nonneg φ hbd _ m hm, by have := reqOf_backward φ hbd _ m hm; simp only at this; omega⟩
 
 /-- **`ClauseKey ⇒ ClauseChoice`**: the true literal is one more map constraint, and it forces an allowed
 window. -/
@@ -266,6 +273,70 @@ theorem owns_parent_map (r q : PathNodeId) (h : Owns φ (n + 1) r q) (hr : r.id.
   rw [node?_id_eq _ q nq hnq, hqb] at hpm
   obtain ⟨nJ, hnJ, hoJ, _, _⟩ := hb.node r nF hnF
   exact ⟨kv, hkv, nJ, hnJ, e, hoJ e he, Option.some.inj hpm⟩
+
+/-- **A node of `L2` with window `00` is in no piece of key `L3 = 0`.** Its only child there would be
+`000`: the `UP` skips it, the node has no entry at the new step, and the review removes it. -/
+theorem no00_key0 (hL3 : isL3 φ ((n : Int) + 1) = true) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n)
+    (d : NodeId) (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true)
+    (hd0 : d = ⟨(n : Int) + 1, 0⟩) (q : PathNodeId) (nq' : PNodeM) (hqG : (upF φ kv.2 d).node? q = some nq')
+    (hqid : q.id = ⟨(n : Int), 0⟩) (hqpar : q.parent_id = some ⟨(n : Int) - 1, 0⟩) : False := by
+  obtain ⟨hn, _, _⟩ := l3_facts φ n hL3
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  have hk := c.pc.ker
+  have hb := KernelIff.below_filterAll_self kv.2 hnd (reqOf φ d)
+  have hFcs : (filterAll kv.2 (reqOf φ d)).current_step = (n : Int) + 1 := by rw [← hb.step, hcs]
+  have hqs : q.id.step = (n : Int) := by rw [hqid]
+  obtain ⟨nq, hnq, _⟩ := upF_old φ kv.2 d hdst c hv q nq' hqG (by omega)
+  have hforb : isProhibited φ (shiftPid q d) = true := by
+    unfold isProhibited shiftPid
+    rw [hd0, hqid, hqpar, show (n : Int) + 1 - 1 = n by omega, show (n : Int) + 1 - 2 = n - 1 by omega]
+    simp only [Bool.and_eq_true]
+    exact ⟨⟨⟨hL3, beq_iff_eq.mpr rfl⟩, beq_iff_eq.mpr rfl⟩, beq_iff_eq.mpr rfl⟩
+  have hskip : skipsWindow (filterAll kv.2 (reqOf φ d)) d (isProhibited φ) = true := by
+    unfold skipsWindow
+    refine List.any_eq_true.mpr ⟨shiftPid q d, ?_, hforb⟩
+    unfold shiftRowIds
+    rw [if_pos (by rw [hFcs]; omega)]
+    refine (mem_dedupPids _ _).mpr (List.mem_map_of_mem ?_)
+    unfold newParents
+    rw [if_pos (by rw [hFcs]; omega)]
+    exact mem_line_of_node? _ q nq hnq _ (by rw [hFcs, hqs]; omega)
+  have hG : upF φ kv.2 d = review (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ)) := by
+    show up (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ) = _
+    unfold up; rw [if_pos hvF, if_pos hskip]
+  have hvG : isValid (review (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ))) = true := by
+    rw [← hG]; exact hv
+  have hcsG : (review (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ))).current_step =
+      (n : Int) + 2 := by
+    have := (pruned_review (addNode (filterAll kv.2 (reqOf φ d)) d "" (isProhibited φ))).step_eq
+    rw [addNode_current, hFcs] at this; omega
+  have hqR := hqG
+  rw [hG] at hqR
+  have hval := ((isValidNode_iff _ nq').mp (review_node_valid _ hvG q nq' hqR)).1
+  rw [hcsG] at hval
+  obtain ⟨z, hz, hzs'⟩ := List.any_eq_true.mp
+    (List.all_eq_true.mp hval ((n : Int) + 1) (mem_intRange (by omega) (by omega)))
+  have hzs : z.id.step = (n : Int) + 1 := eq_of_beq hzs'
+  obtain ⟨nFq, hnFq, hznew, hqrow⟩ :=
+    upF_owner_new φ kv.2 d hdst c hv q nq' hqG (by omega) z hz (by omega)
+  rcases (mem_rowOwners_iff _ _ z q).mp hqrow with ⟨hu, _⟩ | he
+  · obtain ⟨p, hp, np, hnp, hqp'⟩ := KernelReader.mem_unionOwnersOf_inv _ _ q hu
+    have hps := (rowParent_node _ d (by omega) hp).2
+    rw [hFcs] at hps
+    have hpq : p ∈ nFq.owners := hk.sym p np q nFq hnp hnFq hqp'
+    obtain ⟨nJq, hnJq, hoJq, _, _⟩ := hb.node q nFq hnFq
+    have hown : Owns φ n q p := ⟨kv, hkv, nJq, hnJq, hoJq p hpq⟩
+    -- at its own step, a top node of line `n` owns only itself
+    have hpeq : p = q := by
+      obtain ⟨k, rfl⟩ : ∃ k, n = k + 1 := ⟨n - 1, by omega⟩
+      push_cast at hqs hps
+      exact top_owns_self φ hbd k q p hown hqs (by omega)
+    have hzq : shiftPid q d = z := by rw [← hpeq]; exact eq_of_beq (List.mem_filter.mp hp).2
+    have := not_forb_of_mem_newRowIds _ _ _ z hznew
+    rw [← hzq, hforb] at this
+    cases this
+  · rw [he] at hqs; omega
 
 /-- **The skipped window decides the piece.** A node that owns a node of `L2` with window `(L1, L2) = 00`
 sits in a piece of key `L3 = 1`: in a piece of key `0` the only child of that node would be `000`, the
@@ -355,31 +426,8 @@ theorem owns_mid00 (hL3 : isL3 φ ((n : Int) + 1) = true) (r q : PathNodeId) (h 
     obtain ⟨m, hm, hmid'⟩ := cr.gn q hqg
     have hnqG : (review (addNode (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 "" (isProhibited φ))).node? q = some m := by
       rw [← hmid']; exact node?_of_mem cr.nodup m hm
-    have hval := ((isValidNode_iff _ m).mp (review_node_valid _ hvG q m hnqG)).1
-    rw [hcsG] at hval
-    obtain ⟨z, hz, hzs'⟩ := List.any_eq_true.mp
-      (List.all_eq_true.mp hval ((n : Int) + 1) (mem_intRange (by omega) (by omega)))
-    have hzs : z.id.step = (n : Int) + 1 := eq_of_beq hzs'
     rw [← hG] at hnqG
-    obtain ⟨nFq, hnFq, hznew, hqrow⟩ :=
-      upF_owner_new φ kv.2 kv'.1 hdst c hv q m hnqG (by omega) z hz (by omega)
-    rcases (mem_rowOwners_iff _ _ z q).mp hqrow with ⟨hu, _⟩ | he
-    · obtain ⟨p, hp, np, hnp, hqp'⟩ := KernelReader.mem_unionOwnersOf_inv _ _ q hu
-      have hps := (rowParent_node _ kv'.1 (by omega) hp).2
-      rw [hFcs] at hps
-      have hpq : p ∈ nFq.owners := hk.sym p np q nFq hnp hnFq hqp'
-      obtain ⟨nJq, hnJq, hoJq, _, _⟩ := hb.node q nFq hnFq
-      have hown : Owns φ n q p := ⟨kv, hkv, nJq, hnJq, hoJq p hpq⟩
-      -- at its own step, a top node of line `n` owns only itself
-      have hpeq : p = q := by
-        obtain ⟨k, rfl⟩ : ∃ k, n = k + 1 := ⟨n - 1, by omega⟩
-        push_cast at hqs hps
-        exact top_owns_self φ hbd k q p hown hqs (by omega)
-      have hzq : shiftPid q kv'.1 = z := by rw [← hpeq]; exact eq_of_beq (List.mem_filter.mp hp).2
-      have := not_forb_of_mem_newRowIds _ _ _ z hznew
-      rw [← hzq, hforb] at this
-      cases this
-    · rw [he] at hqs; omega
+    exact no00_key0 φ hbd n hL3 kv hkv kv'.1 hd hv e0 q m hnqG hqid hqpar
   · -- key `1`: the requirement filter keeps the true value
     have hreq' : req ∈ reqOf φ kv'.1 := by rw [e1]; exact hreq
     have h0 := reqOf_nonneg φ hbd _ req hreq'
