@@ -21,10 +21,13 @@ namespace AbsSatBin.GraphPath.Model.PieceJoin
 open AbsSatBin.Utils.Alias
 open AbsSatBin.Cnf
 open AbsSatBin.GraphMap.CnfMapBin
+open AbsSatBin.GraphMap.CnfSelBin
 open AbsSatBin.GraphPath.Model
 open AbsSatBin.GraphPath.Model.GPathM
 open AbsSatBin.GraphPath.Model.PureDriver
 open AbsSatBin.GraphPath.Model.LineSem
+open AbsSatBin.GraphPath.Model.PrefixCarry
+open AbsSatBin.GraphPath.Model.MapReachable
 open AbsSatBin.GraphPath.Model.CliqueTri (Clique)
 open AbsSatBin.GraphPath.Model.MapCert (MapCert WitR CertR)
 
@@ -225,6 +228,56 @@ theorem join_no_new (n : Nat) (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (
     fun r nr h q hq => (src_pureAdvance φ (line φ n) kv' hkv'').2 r nr h q hq⟩
 
 -- ============================================================
+-- The union invents no chain
+-- ============================================================
+
+/-- **The union invents no chain** (measured `P3`, and proved): a certificate of a state of line `n+1` is a
+certificate of one of its pieces — the piece coming from its own key at step `n`. The chain decodes to a
+partial solution (`PrefixDecode`), which the machine carries along its own keys (`PrefixCarry`) into that
+piece, where it is the same chain. -/
+theorem chain_in_piece (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 < stepCount φ)
+    (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) (sel : Int → PathNodeId) (hs : ChainSound kv'.2 sel) :
+    ∃ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 ∧ isValid (upF φ kv.2 kv'.1) = true ∧
+      ∃ sel', ChainSound (upF φ kv.2 kv'.1) sel' ∧
+        ∀ k, 0 ≤ k → k < (n : Int) + 2 → sel' k = sel k := by
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hcs' : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hzero : (0 : Int) < stepCount φ := by simp only [stepCount]; omega
+  obtain ⟨hpre, hpid⟩ := PrefixDecode.decode_prefix φ kv'.2 sel hbd (by rw [hcs']; omega) hok'.reach hs
+  rw [hcs'] at hpre
+  let a := CnfChain.decode sel
+  -- the state of line `n` at the chain's key carries it
+  obtain ⟨_, g, hmem, hal, hgcs⟩ := carries_pre φ a hbd ((n : Int) + 2) hpre hzero n (by omega) (by omega)
+  obtain ⟨hson, hal', hval'⟩ := advance_target_pre φ a hbd ((n : Int) + 2) hpre hzero n (by omega) (by omega)
+    (by omega) g hal hgcs
+  -- the chain's top names the key of `kv'`
+  have htop : selOfAssign φ a ((n : Int) + 1) = kv'.1 := by
+    have e := hpid ((n : Int) + 1) (by omega) (by rw [hcs']; omega)
+    obtain ⟨hsome, hstep⟩ := hs.chain.1.1 ((n : Int) + 1) (by omega) (by rw [hcs']; omega)
+    obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp hsome
+    have hself := hs.self_owned ((n : Int) + 1) (by omega) (by rw [hcs']; omega)
+    simp only [ownersOf, hnr] at hself
+    have hk := top_entry_key φ hbd (n + 1) kv' hkv' _ nr hnr _ hself (by rw [hstep]; push_cast; omega)
+    rw [← hk, ← e]; rfl
+  have hpiece : upFiltering g (reqOf φ (selOfAssign φ a ((n : Int) + 1))) (selOfAssign φ a ((n : Int) + 1)) ""
+      (isProhibited φ) = upF φ g kv'.1 := by rw [htop]
+  refine ⟨(selOfAssign φ a n, g), hmem, by rw [← htop]; exact hson, by rw [← hpiece]; exact hval', ?_⟩
+  -- the carried chain, and it is the same chain
+  have hcsP : (upF φ g kv'.1).current_step = (n : Int) + 2 := by
+    rw [← hpiece, Conservation.current_step_upFiltering _ _ _ _ _ (isValid_filterAll_of_sent φ g _ hval'), hgcs]
+    omega
+  obtain ⟨sel', hs', hids⟩ := chainSound_along_pre φ a hbd ((n : Int) + 2) hpre hzero _ hal' (by
+    rw [hpiece, hcsP]; exact Int.le_refl _)
+  rw [hpiece] at hs' hids
+  have hreachP := reachable_of_mapReachable φ hbd _ (StateOk_sent φ n (selOfAssign φ a n, g)
+    ((lineOk φ n).2 _ hmem) (selOfAssign φ a ((n : Int) + 1)) hson hval').reach
+  rw [hpiece] at hreachP
+  refine ⟨sel', hs', fun k h0 h1 => ?_⟩
+  have e1 := chain_eq_pid φ _ sel' a hs'.chain.1 (ParentId.PMP_reachable (reqOf φ) (isProhibited φ) _ hreachP)
+    (ParentId.GPMP_reachable (reqOf φ) (isProhibited φ) _ hreachP) hs'.root_shape.1 hids k h0 (by rw [hcsP]; exact h1)
+  rw [e1]; exact hpid k h0 (by rw [hcs']; exact h1)
+
+-- ============================================================
 -- The frontier: witnesses at steps `n` and `n+1` own the clique inside one piece
 -- ============================================================
 
@@ -306,5 +359,9 @@ end frontier
 /-- info: 'AbsSatBin.GraphPath.Model.PieceJoin.mapCert_join' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms mapCert_join
+
+/-- info: 'AbsSatBin.GraphPath.Model.PieceJoin.chain_in_piece' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_in_piece
 
 end AbsSatBin.GraphPath.Model.PieceJoin

@@ -1153,6 +1153,13 @@ pieza sin solución pierde testigos.
     dos a dos, una configuración real— es cadena dentro de una sola pieza.** Es la frase del usuario en su
     forma exacta: la unión no inventa caminos válidos.
 
+**Demostrado** (`PieceJoin.chain_in_piece`): toda cadena (certificado) de un estado unido es cadena de la pieza
+que viene de su propia clave. La cadena se decodifica en una solución parcial (`PrefixDecode`) y la máquina la
+lleva por sus claves hasta esa pieza (`PrefixCarry`), donde es la misma cadena.
+
+Consecuencia: `PieceLocal` equivale a que toda clique con testigos del estado unido tenga certificado en él (si lo
+tiene, `chain_in_piece` lo pone en una pieza, con la clique y sus testigos dentro).
+
 El lector necesita la versión para cliques con testigos (`PieceLocal`), porque `MapCert` habla de cliques. P3 es
 su caso de cliques completas.
 
