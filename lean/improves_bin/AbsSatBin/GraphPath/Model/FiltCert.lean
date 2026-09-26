@@ -291,6 +291,49 @@ theorem cert_piece_low (hn1 : 1 ≤ n) (kv : NodeId × GPathM) (hkv : kv ∈ lin
 -- ============================================================
 
 omit hbd in
+/-- **A node with one parent hands its clique with witnesses to the parent** (in any kernel with the pin context).
+`nbrP` puts every owner of `w` in the table of a parent; with one parent `cp`, `cp` owns all of `w`'s table, and
+symmetry gives the rest: the members own `cp`, and a witness owns `w`, so `w` owns it, so `cp` owns it. -/
+theorem single_parent {g : GPathM} (pc : KernelSplit.PinCtx g) (w : PathNodeId) (nw : PNodeM)
+    (hnw : g.node? w = some nw) (hw1 : 1 ≤ w.id.step) (cp : PathNodeId) (hone : ∀ c' ∈ nw.parents, c' = cp)
+    (Q0 : List PathNodeId) (hQ : Clique g (w :: Q0)) (hW : Wit g (w :: Q0)) :
+    Clique g (cp :: Q0) ∧ Wit g (cp :: Q0) := by
+  have hto : ∀ v ∈ nw.owners, ∃ nc, g.node? cp = some nc ∧ v ∈ nc.owners := by
+    intro v hv
+    obtain ⟨c', hc', nc, hnc, hvc⟩ := pc.ker.nbrP w nw hnw hw1 v hv
+    rw [hone c' hc'] at hnc
+    exact ⟨nc, hnc, hvc⟩
+  obtain ⟨nw', hnw', hwall⟩ := hQ w List.mem_cons_self
+  rw [hnw] at hnw'; cases hnw'
+  obtain ⟨nc, hnc, _⟩ := hto w (TriPinCut.self_own_pc pc w nw hnw)
+  have hcown : ∀ v ∈ nw.owners, v ∈ nc.owners := fun v hv => by
+    obtain ⟨nc', hnc', h⟩ := hto v hv
+    rw [hnc] at hnc'; cases hnc'; exact h
+  refine ⟨fun p hp => ?_, fun l h0 h1 => ?_⟩
+  · rcases List.mem_cons.mp hp with e | hp
+    · rw [e]
+      refine ⟨nc, hnc, fun s hs => ?_⟩
+      rcases List.mem_cons.mp hs with e' | hs
+      · rw [e']; exact TriPinCut.self_own_pc pc cp nc hnc
+      · exact hcown s (hwall s (List.mem_cons_of_mem _ hs))
+    · obtain ⟨np, hnp, hpall⟩ := hQ p (List.mem_cons_of_mem _ hp)
+      refine ⟨np, hnp, fun s hs => ?_⟩
+      rcases List.mem_cons.mp hs with e' | hs
+      · rw [e']; exact pc.ker.sym cp nc p np hnc hnp (hcown p (hwall p (List.mem_cons_of_mem _ hp)))
+      · exact hpall s (List.mem_cons_of_mem _ hs)
+  · obtain ⟨r, nr, hnr, hrs, hrall⟩ := hW l h0 h1
+    refine ⟨r, nr, hnr, hrs, fun s hs => ?_⟩
+    rcases List.mem_cons.mp hs with e' | hs
+    · rw [e']
+      have hrw : r ∈ nw.owners := pc.ker.sym r nr w nw hnr hnw (hrall w List.mem_cons_self)
+      exact pc.ker.sym cp nc r nr hnc hnr (hcown r hrw)
+    · exact hrall s (List.mem_cons_of_mem _ hs)
+
+/-- info: 'AbsSatBin.GraphPath.Model.FiltCert.single_parent' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms single_parent
+
+omit hbd in
 /-- **`TopParent n`**: in a filtered piece of line `n+1`, a clique with witnesses with a member `w` at the top gives,
 for some parent `c` of `w`, a clique with witnesses with `c` in place of `w`. With two parents (a merge) the members
 below may split between them; the choice is the whole clique's. -/
@@ -302,6 +345,49 @@ def TopParent : Prop :=
         w.id.step = (n : Int) + 1 → (∀ q ∈ Q0, q.id.step ≤ n) →
         ∃ c nw, (filterAll (upF φ kv.2 d) ps).node? w = some nw ∧ c ∈ nw.parents ∧
           Clique (filterAll (upF φ kv.2 d) ps) (c :: Q0) ∧ Wit (filterAll (upF φ kv.2 d) ps) (c :: Q0)
+
+omit hbd in
+/-- **`TopMerge n`**: `TopParent` only where the top member comes from a merge (two different parents). -/
+def TopMerge : Prop :=
+  ∀ kv ∈ line φ n, ∀ d ∈ sonsOfMap φ kv.1, isValid (upF φ kv.2 d) = true →
+    ∀ ps : List NodeId, (∀ p ∈ ps, 0 ≤ p.step ∧ p.step < (upF φ kv.2 d).current_step) →
+      isValid (filterAll (upF φ kv.2 d) ps) = true →
+      ∀ w Q0, Clique (filterAll (upF φ kv.2 d) ps) (w :: Q0) → Wit (filterAll (upF φ kv.2 d) ps) (w :: Q0) →
+        w.id.step = (n : Int) + 1 → (∀ q ∈ Q0, q.id.step ≤ n) →
+        ∀ nw, (filterAll (upF φ kv.2 d) ps).node? w = some nw →
+        (∃ c₁ ∈ nw.parents, ∃ c₂ ∈ nw.parents, c₁ ≠ c₂) →
+        ∃ c ∈ nw.parents, Clique (filterAll (upF φ kv.2 d) ps) (c :: Q0) ∧ Wit (filterAll (upF φ kv.2 d) ps) (c :: Q0)
+
+/-- **`TopParent` without a merge is proved**: it reduces to `TopMerge`. A top node has a parent (it is not the root
+and it is valid); if all its parents are one node, `single_parent`. -/
+theorem topParent_of_topMerge (hTM : TopMerge φ n) : TopParent φ n := by
+  intro kv hkv d hd hv ps hps hvP w Q0 hQ hW hws hlow
+  obtain ⟨hok, _, hcs, _, _, _⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
+  have cQ := filt_ctx φ hbd _ (d, upF φ kv.2 d) hP ps hvP
+  obtain ⟨nw, hnw, _⟩ := hQ w List.mem_cons_self
+  have hwmem := List.mem_of_find?_eq_some hnw
+  have hwid : nw.id = w := node?_id_eq _ w nw hnw
+  by_cases hm : ∃ c₁ ∈ nw.parents, ∃ c₂ ∈ nw.parents, c₁ ≠ c₂
+  · obtain ⟨cp, hcp, hQc, hWc⟩ := hTM kv hkv d hd hv ps hps hvP w Q0 hQ hW hws hlow nw hnw hm
+    exact ⟨cp, nw, hnw, hcp, hQc, hWc⟩
+  · -- one parent
+    have hnr : nw.id.parent_id ≠ none := cQ.rc.shape.notroot nw hwmem (by rw [hwid, hws]; omega)
+    obtain ⟨cp, hcp⟩ : ∃ cp, cp ∈ nw.parents := by
+      rcases ((Kernel.isValidNode_iff _ nw).mp (cQ.pc.ker.valid w nw hnw)).2.1 with h' | h'
+      · exact absurd (Option.isNone_iff_eq_none.mp h') hnr
+      · exact List.exists_mem_of_ne_nil _ h'
+    have hone : ∀ c' ∈ nw.parents, c' = cp := by
+      intro c' hc'
+      by_cases e : c' = cp
+      · exact e
+      · exact absurd ⟨c', hc', cp, hcp, e⟩ hm
+    obtain ⟨hQc, hWc⟩ := single_parent cQ.pc w nw hnw (by rw [hws]; omega) cp hone Q0 hQ hW
+    exact ⟨cp, nw, hnw, hcp, hQc, hWc⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.FiltCert.topParent_of_topMerge' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topParent_of_topMerge
 
 /-- **`PieceF` from `TopParent`.** Below the top, `cert_piece_low`. With a member `w` at the top (the only one: two
 nodes of one step do not own each other), `TopParent` gives a parent `c`; the certificate through `c` and the members
@@ -429,5 +515,16 @@ theorem readerVerdictW_iff_of_topParent (hPL : ∀ n : Nat, (n : Int) + 1 < step
 /-- info: 'AbsSatBin.GraphPath.Model.FiltCert.readerVerdictW_iff_of_topParent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_topParent
+
+/-- **The reader decides `φ` under `PieceLocalF` at every join and `TopMerge` (the top member of a merge) from line 1
+on.** -/
+theorem readerVerdictW_iff_of_topMerge (hPL : ∀ n : Nat, (n : Int) + 1 < stepCount φ → PieceLocalF φ n)
+    (hTM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMerge φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_topParent φ hbd hPL (fun n hn1 hn => topParent_of_topMerge φ hbd n (hTM n hn1 hn))
+
+/-- info: 'AbsSatBin.GraphPath.Model.FiltCert.readerVerdictW_iff_of_topMerge' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_topMerge
 
 end AbsSatBin.GraphPath.Model.FiltCert
