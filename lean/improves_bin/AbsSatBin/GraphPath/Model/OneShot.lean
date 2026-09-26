@@ -108,6 +108,139 @@ theorem cx_unique_son {g : GPathM} (c : PinCtx g) (x : PathNodeId) (nx : PNodeM)
   exact ⟨t, hsub t ht, ht, htx, hts⟩
 
 -- ============================================================
+-- How compatibility moves along the links
+-- ============================================================
+
+/-- **Compatibility is monotone in the far end's table**: a link to `r` that is `x`-compatible stays
+`x`-compatible when `r` is replaced by a node `r'` whose table contains `r`'s. -/
+theorem cx_mono {g : GPathM} (c : PinCtx g) (x : PathNodeId) (y : PathNodeId) (ny : PNodeM)
+    (hy : g.node? y = some ny) (r : PathNodeId) (r' : PathNodeId) (nr' : PNodeM) (hnr' : g.node? r' = some nr')
+    (hsub : ∀ nr, g.node? r = some nr → ∀ v ∈ nr.owners, v ∈ nr'.owners) (h : Cx g x ny r) :
+    Cx g x ny r' := by
+  obtain ⟨nr, nx, hnr, hx, hry, hl⟩ := h
+  have hyr : y ∈ nr.owners := c.ker.sym y ny r nr hy hnr hry
+  refine ⟨nr', nx, hnr', hx, c.ker.sym r' nr' y ny hnr' hy (hsub nr hnr y hyr), fun l h0 h1 => ?_⟩
+  obtain ⟨s, hs, hsr, hsx, hss⟩ := hl l h0 h1
+  exact ⟨s, hs, hsub nr hnr s hsr, hsx, hss⟩
+
+/-- The table of a node with a single parent lies inside the parent's. -/
+theorem table_sub_unique_parent {g : GPathM} (c : PinCtx g) (r : PathNodeId) (nr : PNodeM)
+    (hnr : g.node? r = some nr) (h1 : 1 ≤ r.id.step) (r' : PathNodeId) (nr' : PNodeM)
+    (hnr' : g.node? r' = some nr') (huniq : ∀ c' ∈ nr.parents, c' = r') :
+    ∀ v ∈ nr.owners, v ∈ nr'.owners := by
+  intro v hv
+  obtain ⟨c', hc', nc', hnc', hvc⟩ := c.ker.nbrP r nr hnr h1 v hv
+  rw [huniq c' hc', hnr'] at hnc'; cases hnc'
+  exact hvc
+
+/-- **Compatibility climbs to a single parent**: if `r` has a single parent `r'`, every link to `r` that
+is `x`-compatible gives an `x`-compatible link to `r'`. Read backwards: **a cut at `r'` propagates to
+its single-parent sons.** -/
+theorem cx_to_unique_parent {g : GPathM} (c : PinCtx g) (x : PathNodeId) (y : PathNodeId) (ny : PNodeM)
+    (hy : g.node? y = some ny) (r : PathNodeId) (nr : PNodeM) (hnr : g.node? r = some nr)
+    (h1 : 1 ≤ r.id.step) (r' : PathNodeId) (nr' : PNodeM) (hnr' : g.node? r' = some nr')
+    (huniq : ∀ c' ∈ nr.parents, c' = r') (h : Cx g x ny r) : Cx g x ny r' :=
+  cx_mono c x y ny hy r r' nr' hnr' (fun nr₀ hnr₀ => by
+    rw [hnr] at hnr₀; cases hnr₀
+    exact table_sub_unique_parent c r nr hnr h1 r' nr' hnr' huniq) h
+
+-- ============================================================
+-- Localization: `TriPin₁` can only fail across merges
+-- ============================================================
+
+/-- `a` is reached from `y` by going down through single parents. -/
+inductive UDesc (g : GPathM) : PathNodeId → PathNodeId → Prop where
+  | refl (y : PathNodeId) : UDesc g y y
+  | step (y r a : PathNodeId) (nr : PNodeM) : UDesc g y r → g.node? r = some nr → 1 ≤ r.id.step →
+      a ∈ nr.parents → (∀ c' ∈ nr.parents, c' = a) → UDesc g y a
+
+section
+variable {g : GPathM} (c : PinCtx g)
+include c
+
+theorem udesc_node {y a : PathNodeId} (h : UDesc g y a) (ny : PNodeM) (hy : g.node? y = some ny) :
+    ∃ na, g.node? a = some na := by
+  induction h with
+  | refl => exact ⟨ny, hy⟩
+  | step r a nr _ hnr _ ha _ _ =>
+    obtain ⟨_, na, hna, _⟩ := c.ker.linkP r nr hnr a ha
+    exact ⟨na, hna⟩
+
+/-- Going down through single parents, tables only grow. -/
+theorem udesc_sub {y a : PathNodeId} (h : UDesc g y a) (ny : PNodeM) (hy : g.node? y = some ny)
+    (na : PNodeM) (hna : g.node? a = some na) : ∀ v ∈ ny.owners, v ∈ na.owners := by
+  induction h generalizing na with
+  | refl => rw [hy] at hna; cases hna; exact fun v hv => hv
+  | step r a nr hd hnr h1 ha hu ih =>
+    exact fun v hv => table_sub_unique_parent c r nr hnr h1 a na hna hu v (ih nr hnr v hv)
+
+/-- The entry of `y`'s table at the step of `a` is `a` itself. -/
+theorem udesc_entry {y a : PathNodeId} (h : UDesc g y a) (ny : PNodeM) (hy : g.node? y = some ny)
+    (na : PNodeM) (hna : g.node? a = some na) (e : PathNodeId) (he : e ∈ ny.owners)
+    (hes : e.id.step = a.id.step) : e = a := by
+  have hea := udesc_sub c h ny hy na hna e he
+  have hid : na.id = a := node?_id_eq g a na hna
+  have := c.oos na (List.mem_of_find?_eq_some hna) e hea (by rw [hid, hes])
+  rw [hid] at this; exact this
+
+/-- **Below a node, along single parents, its ancestor is a good witness.** -/
+theorem tri_below (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx) (y : PathNodeId)
+    (ny : PNodeM) (hy : g.node? y = some ny) (hxy : x ∈ ny.owners) (w : PathNodeId) (nw : PNodeM)
+    (hw : g.node? w = some nw) (hC : Cx g x ny w) (a : PathNodeId) (hd : UDesc g y a)
+    (h0 : 0 ≤ a.id.step) (h1 : a.id.step < g.current_step) :
+    a ∈ ny.owners ∧ a ∈ nw.owners ∧ a ∈ nx.owners ∧ Cx g x ny a ∧ Cx g x nw a := by
+  obtain ⟨na, hna⟩ := udesc_node c hd ny hy
+  have hsub := udesc_sub c hd ny hy na hna
+  have hCyw := cx_symm c hy hw hC
+  obtain ⟨nw₁, nx₁, hw₁, hx₁, _, hl⟩ := hC
+  rw [hw] at hw₁; cases hw₁
+  rw [hx] at hx₁; cases hx₁
+  obtain ⟨e, he, hew, hex, hes⟩ := hl a.id.step h0 h1
+  have hea : e = a := udesc_entry c hd ny hy na hna e he hes
+  rw [hea] at he hew hex
+  have hsub' : ∀ nr, g.node? y = some nr → ∀ v ∈ nr.owners, v ∈ na.owners := by
+    intro nr hnr; rw [hy] at hnr; cases hnr; exact hsub
+  exact ⟨he, hew, hex, cx_mono c x y ny hy y a na hna hsub' (cx_self c hx hy hxy),
+    cx_mono c x w nw hw y a na hna hsub' hCyw⟩
+
+/-- **Above two nodes, a witness that goes down through single parents to both is good.** -/
+theorem tri_above (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx) (y : PathNodeId)
+    (ny : PNodeM) (hy : g.node? y = some ny) (w : PathNodeId) (nw : PNodeM) (hw : g.node? w = some nw)
+    (e : PathNodeId) (ne : PNodeM) (hne : g.node? e = some ne) (hey : e ∈ ny.owners) (hew : e ∈ nw.owners)
+    (hex : e ∈ nx.owners) (hdy : UDesc g e y) (hdw : UDesc g e w) : Cx g x ny e ∧ Cx g x nw e := by
+  have hk := c.ker
+  have hxe : x ∈ ne.owners := hk.sym x nx e ne hx hne hex
+  have sy := udesc_sub c hdy ne hne ny hy
+  have sw := udesc_sub c hdw ne hne nw hw
+  refine ⟨⟨ne, nx, hne, hx, hey, fun l h0 h1 => ?_⟩, ⟨ne, nx, hne, hx, hew, fun l h0 h1 => ?_⟩⟩
+  · obtain ⟨s, hs, hsx, hss⟩ := hk.pair e ne x nx hne hx hxe l h0 h1
+    exact ⟨s, sy s hs, hs, hsx, hss⟩
+  · obtain ⟨s, hs, hsx, hss⟩ := hk.pair e ne x nx hne hx hxe l h0 h1
+    exact ⟨s, sw s hs, hs, hsx, hss⟩
+
+/-- **A failure of `TriPin₁` is separated by merges from both ends**: if no good witness exists for the
+pair `(y, w)` at step `l`, then neither `y` nor `w` goes down through single parents to step `l`, and no
+`x`-witness at `l` goes down through single parents to both. -/
+theorem fail_is_merge_separated (x : PathNodeId) (nx : PNodeM) (hx : g.node? x = some nx) (y : PathNodeId)
+    (ny : PNodeM) (hy : g.node? y = some ny) (hxy : x ∈ ny.owners) (w : PathNodeId) (nw : PNodeM)
+    (hw : g.node? w = some nw) (hxw : x ∈ nw.owners) (hC : Cx g x ny w) (l : Int) (h0 : 0 ≤ l)
+    (h1 : l < g.current_step)
+    (hfail : ¬ ∃ r ∈ ny.owners, r ∈ nw.owners ∧ r ∈ nx.owners ∧ r.id.step = l ∧ Cx g x ny r ∧ Cx g x nw r) :
+    (∀ a, a.id.step = l → ¬ UDesc g y a) ∧ (∀ a, a.id.step = l → ¬ UDesc g w a) ∧
+      (∀ e, e.id.step = l → e ∈ ny.owners → e ∈ nw.owners → e ∈ nx.owners → ¬ (UDesc g e y ∧ UDesc g e w)) := by
+  refine ⟨fun a has hd => hfail ?_, fun a has hd => hfail ?_, fun e hes hey hew hex ⟨hdy, hdw⟩ => hfail ?_⟩
+  · obtain ⟨hay, haw, hax, cy, cw⟩ := tri_below c x nx hx y ny hy hxy w nw hw hC a hd
+      (by rw [has]; exact h0) (by rw [has]; exact h1)
+    exact ⟨a, hay, haw, hax, has, cy, cw⟩
+  · obtain ⟨haw, hay, hax, cw, cy⟩ := tri_below c x nx hx w nw hw hxw y ny hy (cx_symm c hy hw hC) a hd
+      (by rw [has]; exact h0) (by rw [has]; exact h1)
+    exact ⟨a, hay, haw, hax, has, cy, cw⟩
+  · obtain ⟨ne, hne⟩ := c.ker.isNode_owner y ny hy e hey
+    obtain ⟨cy, cw⟩ := tri_above c x nx hx y ny hy w nw hw e ne hne hey hew hex hdy hdw
+    exact ⟨e, hey, hew, hex, hes, cy, cw⟩
+end
+
+-- ============================================================
 -- With the reader
 -- ============================================================
 
@@ -142,6 +275,10 @@ theorem readerVerdictW_iff_of_oneShot (hbd : Bounded φ)
 /-- info: 'AbsSatBin.GraphPath.Model.OneShot.cx_unique_parent' does not depend on any axioms -/
 #guard_msgs in
 #print axioms cx_unique_parent
+
+/-- info: 'AbsSatBin.GraphPath.Model.OneShot.fail_is_merge_separated' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms fail_is_merge_separated
 
 /-- info: 'AbsSatBin.GraphPath.Model.OneShot.readerVerdictW_iff_of_oneShot' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

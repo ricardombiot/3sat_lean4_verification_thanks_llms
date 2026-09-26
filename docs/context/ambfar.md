@@ -472,6 +472,43 @@ pinchado, que es un kernel válido, **contenga** el subkernel cortado `restrictP
   historia de la máquina da esa condición en los estados de partida. La tabla de `z` se construyó como
   la unión exacta de las de sus padres (`rowOwners`), y el review posterior es monótono.
 
+### 4.2k Los dos pasos (formales)
+
+**Paso 1: ¿toda cascada se reduce a fusiones?** Sí, en el siguiente sentido (**demostrado**,
+`OneShot.lean`):
+* `cx_mono`: la compatibilidad es monótona en la tabla del extremo lejano. `cx_to_unique_parent`: la
+  compatibilidad **sube** a un padre único. Leído al revés, un corte en un padre baja a sus hijos de
+  padre único.
+* `UDesc g y a`: se llega de `y` a `a` bajando por padres únicos. `udesc_sub`: al bajar así, las tablas
+  solo crecen. `udesc_entry`: la entrada de `y` en el paso de `a` es `a`.
+* `tri_below`: si `y` (o `w`) baja por padres únicos hasta el paso `l`, su antepasado es un testigo
+  bueno. `tri_above`: un testigo en `l` que baja por padres únicos hasta `y` y hasta `w` es bueno.
+* **`fail_is_merge_separated`**: si `TriPin₁` falla en `(y, w, l)`, ni `y` ni `w` bajan por padres
+  únicos hasta `l`, y ningún testigo en `l` baja por padres únicos a ambos. Está enunciado por
+  contrarrecíproco, sin `Classical`.
+
+**Alcance, con honestidad.**
+* En bin, los padres únicos son escasos (§4.2h): los pasos de negación y el primer literal tras `F`.
+  Por encima del prefijo fijado, casi todo trío que abarque dos o más pasos cruza una fusión, así que la
+  localización reduce poco.
+* Por debajo del prefijo todo está forzado, y ahí ya lo cubría `share_below`.
+* Lo que sí aporta es la forma del obstáculo: **toda cascada nace en fusiones que separan el paso del
+  testigo de los dos extremos.**
+
+**Paso 2: ¿qué da la historia en una fusión `z` con padres `p₁`, `p₂`?**
+* Al nacer, `T(z) = (T(p₁) ∪ T(p₂)) ∩ gowners ∪ {z}` (`rowOwners`). Después todo review solo encoge, y en
+  todo kernel `T(z) ⊆ T(p₁) ∪ T(p₂)` (cláusula de vecinos).
+* Para un enlace `z–w` compatible con `x`, el testigo en el paso `s−1` es un padre `pᵢ`
+  (`parent_of_owner`). Lo que evitaría la cascada es que ese `pᵢ` sea compatible con `x` con `z` y con
+  `w`.
+* Escribiendo `Bᵢ = T(z) ∩ T(pᵢ) ∩ T(x)` para la rama `i` de la sección de `x`:
+  * `Cx(z, pᵢ)` equivale a que `Bᵢ` tenga entrada en cada paso;
+  * `Cx(w, pᵢ)` pide lo mismo para `T(w) ∩ T(pᵢ) ∩ T(x)`.
+* **No está demostrado.** La unión al nacer es exacta, pero el review posterior encoge `T(z)`, `T(pᵢ)` y
+  `T(w)` por separado, y nada de lo demostrado liga lo que quita en `T(z)` con la rama de la que venía.
+* **El lema que falta** es una afirmación sobre el review en fusiones: **lo que el review quita de la
+  tabla de una fusión lo quita rama a rama** (llenura de ramas). Es el siguiente objetivo formal.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
