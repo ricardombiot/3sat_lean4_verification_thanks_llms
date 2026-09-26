@@ -1098,6 +1098,21 @@ tamaño 1–3 con testigos en estados unidos; **todas** son clique con testigos 
 paso nuevo viene de un solo origen). Falta que los testigos de los pasos inferiores y las entradas entre
 miembros puedan tomarse en esa misma pieza.
 
+### 4.2γ Sonda para formalizar `PieceLocal` (`piece_learn_probe.jl`)
+
+Corpus pequeño completo, 3,5 M cliques de tamaño 1–3 con testigos en estados unidos:
+* **E1 falla** (20 304): si `r` y `q` son nodos de una pieza y `r` posee `q` en el estado unido, `r` no tiene por
+  qué poseerlo en esa pieza: el join sí añade entradas cruzadas.
+* **La pieza de un testigo cualquiera del paso nuevo no siempre sirve** (E4 falla 25 873 veces).
+* **H9 vale siempre**: toda clique con testigos del estado unido es clique en alguna pieza.
+* **H12 vale siempre**: la pieza buena contiene un nodo del paso nuevo que posee `Q` en ella.
+* **H10**: «clique en `P` y un nodo del paso nuevo de `P` la posee en `P`» ⇒ `P` buena, salvo **160 casos**, y en
+  todos falta **solo el testigo de un `L3` anterior** (p. ej. `clause_mix_sep`, paso 32, `Q = {x=1, c=1, b=1}`,
+  falta el paso 22 = `L3` de `a∧b → ¬x`); otra pieza sí lo tiene.
+
+Ruta de formalización que sugiere: `PieceLocal` = H9 + «en una pieza donde `Q` es clique poseída por un nodo del
+paso nuevo, hay testigos en todos los pasos salvo `L3` anteriores» + la elección de pieza en esos `L3`.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
