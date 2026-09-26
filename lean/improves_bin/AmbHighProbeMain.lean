@@ -3,7 +3,7 @@ import AbsSatBin.GraphPath.Model.TriPinCut
 import AbsSatBin.GraphPath.Model.DriverBin
 import AbsSatBin.Cnf.Dimacs
 
-/-! `lake exe ambhigh-probe [--cap N] f1.cnf …` — measures `AmbHigh` (and `TriPin`) on the states the
+/-! `lake exe ambhigh-probe [--all] [--cap N] f1.cnf …` — measures `AmbHigh` (and `TriPin`) on the states the
 reader can visit.
 
 From each starting state `filterAll kv.2 []` it walks **every** `ReadFirst` branch (every valid pin at
@@ -76,6 +76,10 @@ def tri1Check (g : GPathM) (x : PathNodeId) (k : Int) : Option Fail := Id.run do
   return none
 
 structure Stats where
+  allX : Nat := 0
+  allXFail : Nat := 0
+  allStatesFail : Nat := 0
+  firstAll : Option String := none
   tri1Fail : Nat := 0
   tri1FailAlive : Nat := 0
   tri1Both : Nat := 0
@@ -100,10 +104,22 @@ def showFail : Option Fail → String
   | none => "-"
   | some f => s!"k={f.k} x={f.x} y@{f.ys} w@{f.ws} l={f.l} cs={f.cs} pinVivo={f.alive}"
 
-partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
+partial def explore (allMode : Bool) (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
   if st.states ≥ cap then return { st with capped := true }
   let mut st := { st with states := st.states + 1 }
   if !isValid g then return st
+  if allMode then
+    -- `AllTriPin₁`: `TriPin₁ g x` for every live node `x`
+    let kk := (firstChoice g).getD (-1)
+    let mut bad := false
+    for nx in g.nodes do
+      st := { st with allX := st.allX + 1 }
+      if let some f := tri1Check g nx.id kk then
+        bad := true
+        let msg := s!"k={kk} x@{nx.id.id.step}.{nx.id.id.index} y@{f.ys} w@{f.ws} l={f.l} cs={f.cs}"
+        let fa := st.firstAll.orElse (fun _ => some msg)
+        st := { st with allXFail := st.allXFail + 1, firstAll := fa }
+    if bad then st := { st with allStatesFail := st.allStatesFail + 1 }
   match firstChoice g with
   | none => return st
   | some k =>
@@ -147,11 +163,11 @@ partial def explore (cap : Nat) (g : GPathM) (st : Stats) : Stats := Id.run do
       let g' := filterAll g [d]
       if isValid g' then
         alive := true
-        st := explore cap g' st
+        st := explore allMode cap g' st
     if !alive then st := { st with dead := st.dead + 1 }
     return st
 
-def checkOne (cap : Nat) (path : String) : IO Nat := do
+def checkOne (allMode : Bool) (cap : Nat) (path : String) : IO Nat := do
   let lines := (← IO.FS.lines path).toList
   let name := (System.FilePath.mk path).fileName.getD path
   match Dimacs.parse lines with
@@ -163,17 +179,19 @@ def checkOne (cap : Nat) (path : String) : IO Nat := do
     let t1 ← IO.monoMsNow
     let mut st : Stats := {}
     for kv in r do
-      st := explore cap (filterAll kv.2 []) st
+      st := explore allMode cap (filterAll kv.2 []) st
     let t2 ← IO.monoMsNow
-    IO.println s!"{name}\tstarts={r.length}\tstates={st.states}\tchoice={st.choiceStates}\txs={st.xs}\thighPairs={st.highPairs}\ttriFail={st.triFail}\thighFail={st.highFail}\thighFailVivo={st.highFailAlive}\ttriBoth={st.triBoth}\thighBoth={st.highBoth}\ttri1Fail={st.tri1Fail}\ttri1FailVivo={st.tri1FailAlive}\ttri1Both={st.tri1Both}\ttriOkDead={st.triOkDead}\ttri1OkDead={st.tri1OkDead}\tdead={st.dead}\tcapped={st.capped}\tfirstTri={showFail st.firstTri}\tfirstHigh={showFail st.firstHigh}\tfirstTri1={showFail st.firstTri1}\tmachine_ms={t1 - t0}\tprobe_ms={t2 - t1}"
+    IO.println s!"{name}\tstarts={r.length}\tstates={st.states}\tchoice={st.choiceStates}\txs={st.xs}\thighPairs={st.highPairs}\ttriFail={st.triFail}\thighFail={st.highFail}\thighFailVivo={st.highFailAlive}\ttriBoth={st.triBoth}\thighBoth={st.highBoth}\ttri1Fail={st.tri1Fail}\ttri1FailVivo={st.tri1FailAlive}\ttri1Both={st.tri1Both}\ttriOkDead={st.triOkDead}\ttri1OkDead={st.tri1OkDead}\tdead={st.dead}\tallX={st.allX}\tallXFail={st.allXFail}\tallStatesFail={st.allStatesFail}\tfirstAll={st.firstAll.getD "-"}\tcapped={st.capped}\tfirstTri={showFail st.firstTri}\tfirstHigh={showFail st.firstHigh}\tfirstTri1={showFail st.firstTri1}\tmachine_ms={t1 - t0}\tprobe_ms={t2 - t1}"
     return st.highBoth
 
 def main (args : List String) : IO UInt32 := do
+  let allMode := args.contains "--all"
+  let args := args.filter (· != "--all")
   let (cap, files) := match args with
     | "--cap" :: n :: rest => (n.toNat!, rest)
     | rest => (2000, rest)
   let mut bad := 0
   for f in files do
-    bad := bad + (← checkOne cap f)
+    bad := bad + (← checkOne allMode cap f)
   IO.println s!"estados sin ningún x que cumpla AmbHigh = {bad}"
   return 0

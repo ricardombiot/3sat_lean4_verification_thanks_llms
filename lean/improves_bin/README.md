@@ -51,6 +51,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `AmbHighCore` | — | nuevo | un nodo bajo la elección está en todas las tablas y posee a todos (`forced_owns_all`); `AmbFar ⇐ AmbHigh` (ambos miembros en pasos `≥ k+3`) |
 | `TriPinCut` | — | nuevo | `TriPin₁`: regla de parejas tras una ronda de cortes de enlaces incompatibles con el pin (`Cx`); `TriPin ⇒ TriPin₁`; subkernel cortado `restrictPin₁` (`restrict₁_kernel`); `KernelSplit ⇐ TriPin₁` |
 | `TriPinAll` | — | nuevo | invariante `AllTriPin₁` (`TriPin₁` para todo nodo vivo) ⇒ todo pin en la primera elección sobrevive (`allPinsAlive_reader`) y el lector decide (`readerVerdictW_iff_of_allTriPin₁`) |
+| `CliqueTri` | — | nuevo | `TriP g P` (regla de parejas relativa a una clique `P`), `CliqueTri` (para toda clique) ⇒ `AllTriPin₁`; **el pin es el subkernel cortado** (`pin_eq_cut`); **el pin conserva `CliqueTri`** (`cliqueTri_pin`); el lector decide si `CliqueTri` vale en los estados de partida (`readerVerdictW_iff_of_cliqueTri`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
@@ -68,7 +69,8 @@ Cada módulo que entra se registra aquí con su procedencia:
   ambiguas con ambos miembros en pasos `≥ k+3`, pasos por encima de la elección), la única pieza abierta del lector.
   `TriPin` se midió falso en un pin que sobrevive (`ambhigh-dump`); rama más débil: `KernelSplit ⇐ TriPin₁`
   (`TriPinCut`), una ronda de cortes de enlaces incompatibles con el pin. Invariante candidato:
-  `AllTriPin₁` (`TriPinAll`), abierto.
+  `AllTriPin₁` (`TriPinAll`); su forma cerrada `CliqueTri` se conserva con cada pin del lector
+  (`CliqueTri`), así que basta en los estados de partida: **abierto** que la máquina lo construya.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa

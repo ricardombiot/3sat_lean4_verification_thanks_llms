@@ -204,6 +204,59 @@ tablas lo registran por parejas, y una ronda de cortes basta para leer los certi
   construyan `addNode` y `join` y que lo conserven el review y el pin. **Sin medir** para `x` fuera de la
   primera elección (solo se midió en `firstChoice`).
 
+### 4.2d `CliqueTri`: la forma cerrada, y el pin la conserva — **demostrado** (`CliqueTri.lean`)
+
+**Por qué `AllTriPin₁` no basta como invariante.**
+* Tras pinchar `x`, `x` queda en todas las tablas. `TriPin₁` para el siguiente `x'` habla de `x` y `x'`
+  juntos en el estado anterior: cada pin sube un orden.
+* En `addNode` ocurre lo mismo: un nodo nuevo hereda la unión de las tablas de sus padres, y la
+  compatibilidad en el paso nuevo pide cuatro nodos en la fila anterior.
+
+**Definiciones.**
+* `TriP g P`, relativo a un conjunto `P` de nodos:
+  * se restringe a los nodos que poseen todo `P`;
+  * un enlace es `P`-compatible (`CxP`) si en cada paso tiene un testigo que posee `P`;
+  * sobre los enlaces `P`-compatibles vale la regla de parejas, con testigos `P`-compatibles.
+* `CliqueTri g`: `TriP g P` para toda clique `P` (nodos que se poseen dos a dos).
+* Extremos: `TriP g []` es la regla de parejas del kernel (`triP_nil`), y `TriP g [x]` da
+  `TriPin₁ g x` (`triPin₁_of_triP`). Por tanto `CliqueTri ⇒ AllTriPin₁`.
+
+**Demostrado:**
+1. **El pin es el subkernel cortado** (`pin_eq_cut`). Con `TriPin₁ g x` en un estado del lector, el
+   estado pinchado y `restrictPin₁ g x` están cada uno dentro del otro: tienen las mismas tablas.
+   * Una inclusión es `below_filterAll`: el review nunca baja de un kernel.
+   * La otra (`below_cut_pin`): todo nodo del estado pinchado posee `x` (`pin_owns_x`, porque con el
+     prefijo fijado `x` es la única entrada de su paso), y todo enlace del estado pinchado tiene sus
+     testigos dentro, que poseen `x`, así que es `x`-compatible en `g`.
+   * **El paso del lector es exactamente una ronda de cortes.**
+2. **El pin conserva `CliqueTri`** (`cliqueTri_pin`, vía `cliqueTri_of_cut`).
+   * Una clique `P` del estado pinchado es la clique `x :: P` de `g`.
+   * `TriP g (x :: P)` se aplica dos veces: una para el testigo, y otra para los testigos de los
+     enlaces del testigo, que es la compatibilidad anidada que exige el corte.
+3. **Solo importan los estados de partida** (`cliqueTri_reader`, `readerVerdictW_iff_of_cliqueTri`).
+   * Si `CliqueTri` vale en los estados de partida válidos `filterAll kv.2 []`, vale en todo estado
+     del lector.
+   * Por tanto el lector decide `φ` y **todo** pin sobrevive.
+
+**Lo que queda (abierto): `CliqueTri` en la salida de la máquina.** Es un enunciado sobre la máquina
+sola, sin lector. Lo explorado:
+* **No es un invariante de cada operación.** El review quita testigos al quitar entradas, así que solo
+  cabe pedirlo en los puntos fijos. Igual que la regla de parejas.
+* **Helly no sirve.** Si las tablas fueran proyecciones por parejas de un conjunto de certificados con
+  la propiedad de Helly (toda clique tiene un certificado común), `TriP` sería trivial. Pero
+  `TriPin` (sin cortes) falla en `simple3sat_v3_c2`, así que Helly falla en la máquina. `CliqueTri` es
+  estrictamente intermedio: los cortes descartan justo los enlaces sin certificado común.
+* **`addNode`.** Una clique con nodos de la fila nueva se traduce a una clique con sus padres. El
+  obstáculo es que un nodo nuevo `z` hereda la **unión** de las tablas de sus padres. En bin, los
+  padres de `z` comparten `id` y `parent_id` y solo difieren en `gparent_id`, lo que acota la unión a
+  como mucho dos padres.
+* **`join`.** Une las tablas de dos estados con la misma clave. Aparecen enlaces cruzados sin testigos
+  comunes, que solo el review posterior puede cortar. Tiene que razonarse sobre el punto fijo.
+* **Ruta propuesta.** Una caracterización del punto fijo del review en términos de certificados: que
+  las tablas cortadas relativas a una clique sean exactamente las proyecciones de los certificados que
+  pasan por la clique. De ahí `CliqueTri` saldría por los certificados de la propia clique. Es la
+  versión en tablas de la visión de subconjuntos de caminos.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
