@@ -1000,6 +1000,31 @@ afirmación que se sigue: **toda entrada de una tabla es co-ocurrencia en un cam
   (`SemCert`) y la pareja es su primer caso; y en el tercer literal esas restricciones de mapa pueden
   venir de piezas distintas, que es el mismo punto abierto que `ClauseKey`.
 
+### 4.2y La sonda Julia y la regla de los testigos de cláusula — **formalizada** (`ClauseWitness.lean`)
+
+**Sonda** (`julia/improves_bin/test_3sat/probes/clause_mix_probe.jl`, 8 s; la de Lean tarda >1 h). Instancia
+`cnf/crafted/clause_mix_sep.cnf` (`a∧b → ¬x`, `b∧c → ¬y`, `a∧c → ¬z`, `x ∨ y ∨ z`, con variables
+separadoras), `Q = {a=1, b=1, c=1}`:
+* hasta el paso 30, `Q` es clique con testigos en todos los pasos (correcto: aún vale `x = y = z = 0`);
+* en el paso 31 (`L3` de `x ∨ y ∨ z`) **falta el testigo en el paso 21**, por entradas y en cada estado;
+  sigue faltando en el estado final.
+
+El paso 21 es el `L2` de `a∧b → ¬x`. Un nodo ahí que posea `a=1` y `b=1` tiene ventana `(¬a, ¬b) = (0, 0)`:
+su identidad lleva `a = b = 1` (y `x = 0` por su único hijo). Para ser testigo tendría que poseer `c = 1`
+en alguna pieza, y el `L3` de `x ∨ y ∨ z` no lo deja en ninguna. **La mezcla de piezas la mata un testigo de
+un paso de cláusula, cuya ventana ve a la vez dos miembros de la clique.**
+
+**Formalizado:**
+* `req_in_table`, `parent_req_in_table`: un nodo posee, en el paso del requisito propio y en el del
+  requisito de su padre, solo el nodo de camino que su ventana nombra (`ReqFiltered` + regla de parejas +
+  enlace de padre).
+* `owns_window_req`: lo mismo en la línea (entradas de cualquier estado).
+* **`witness_fixes_clique`**: un testigo en `L_p` fija el valor de todo miembro de la clique en las
+  variables de los literales `p` y `p-1`.
+
+**Abierto:** componer esta regla hasta `ClauseKey` en general. En el ejemplo actúa el testigo de **otra**
+cláusula anterior, así que la composición es global (cadenas de cláusulas), no local al `L3`.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
