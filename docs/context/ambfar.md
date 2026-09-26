@@ -578,6 +578,42 @@ enlace nuevo viene de un solo padre.
 requisitos que miran allí. Queda ver si `PairExactRel` en el estado anterior, aplicada a cada padre, más
 la estructura del paso `s−3`, basta para reconstruir un certificado a través de uno de ellos.
 
+### 4.2n El caso de la fusión — **reducido a una condición local** (`BranchRel.lean`)
+
+**Demostrado:**
+* `ShOK g d forb q q̂`: `q̂` es una sombra válida de `q`. Es el propio `q` si ya existía, o **alguno** de
+  sus padres si es nuevo.
+* `cert_of_shadows`: si las sombras de `x`, `y` y `w` forman un enlace compatible con `x̂` en el estado
+  anterior, el certificado por las sombras se extiende a uno por `x`, `y` y `w` en el estado nuevo.
+* **`ShadowChoice`**, la condición local: para todo enlace compatible del estado nuevo se pueden elegir
+  sombras así.
+* `pairExactRelAll_addNode_of_choice`: con `ShadowChoice`, `addNode` conserva `PairExactRelAll`, fusiones
+  incluidas.
+* `shadowChoice_of_single`: sin fusiones, `ShadowChoice` se cumple siempre.
+
+**Lo que queda.**
+* Solo los tríos que contienen un nodo nuevo `z` con dos padres `p₁ = (a,b,c₁)` y `p₂ = (a,b,c₂)`. Entre
+  `x`, `y` y `w` hay como mucho un nodo nuevo distinto, porque dos nodos nuevos distintos no se poseen.
+* Hay que elegir un `pᵢ` tal que el enlace, con `z` sustituido por `pᵢ`, sea compatible en el estado
+  anterior. El testigo en el paso `s−1` ya es un padre `pⱼ` (sus entradas en ese paso son sus padres),
+  pero los testigos de otros pasos pueden estar en la rama contraria.
+
+**¿Sale de `PairExactRelAll` en el estado anterior?** No en abstracto (deducido, modelo de
+restricciones, no una instancia de la máquina).
+* Basta que en un paso `l₁` los nodos que poseen a `x` y a `w` solo sean compatibles con `c₂`, y en otro
+  paso `l₂` solo con `c₁`.
+* Si el par `x–w` tuviera un certificado **por la ventana `(a,b)`**, ese certificado fijaría la misma
+  rama en todos los pasos y no habría mezcla. Pero la exactitud por parejas del estado anterior solo
+  garantiza **algún** certificado por `x` y `w`, que puede pasar por otra ventana `(a′,b′)`.
+* La obligación exacta es, por tanto: **si `x` y `w` son compatibles con la ventana `(a,b)` en cada
+  paso, lo son con una misma rama `cᵢ`.** Es una afirmación sobre el paso `s−3`, lo que la fusión olvida.
+
+**Siguiente**: ver si la estructura bin la da. En los pasos de cláusula, `cᵢ` es un bit de literal fijado
+por un requisito sobre una variable `x_u`, y la tabla recuerda `x_u` en la sección de variables. Una
+mezcla necesitaría un nodo compatible con `x`, `w` y `x_u = v₁` en un paso, y otro compatible con `x`, `w`
+y `x_u = v₂` en otro. Hay que ver si el filtro por requisito sobre `x_u`, aplicado cuando se creó el
+literal `cᵢ`, lo impide.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

@@ -275,6 +275,112 @@ theorem pairExactRelAll_addNode (h : PairExactRelAll g) : PairExactRelAll (addNo
       (hon _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self)))
 end
 
+-- ============================================================
+-- Merges: the choice of shadows
+-- ============================================================
+
+section
+variable (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+
+/-- `qh` is a valid shadow of the node `q` of `addNode g d …`: itself if old, one of its parents if new. -/
+def ShOK (q qh : PathNodeId) : Prop :=
+  (q.id.step < g.current_step ∧ qh = q) ∨
+    (q ∈ newRowIds g d forb ∧ q.id.step = g.current_step ∧ qh ∈ rowParents g d q)
+
+/-- **The local condition at merges**: every `x`-compatible link of the new state has shadows that form an
+`xh`-compatible link of the old one. -/
+def ShadowChoice : Prop :=
+  ∀ x nx y ny w nw, (addNode g d title forb).node? x = some nx →
+    (addNode g d title forb).node? y = some ny → (addNode g d title forb).node? w = some nw →
+    x ∈ ny.owners → x ∈ nw.owners → Cx (addNode g d title forb) x ny w →
+    ∃ xh yh wh nxh nyh nwh, ShOK g d forb x xh ∧ ShOK g d forb y yh ∧ ShOK g d forb w wh ∧
+      g.node? xh = some nxh ∧ g.node? yh = some nyh ∧ g.node? wh = some nwh ∧
+      xh ∈ nyh.owners ∧ xh ∈ nwh.owners ∧ Cx g xh nyh wh
+
+variable (hd : d.step = g.current_step) (hpos : 0 < g.current_step)
+  (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step) (hmok : MachineOk g) (hnd : NodupIds g)
+  (hownb : SelfOwn.OwnBelow g) (hself : ∀ p np, g.node? p = some np → p ∈ np.owners)
+  (hsym : ∀ a na b nb, g.node? a = some na → g.node? b = some nb → b ∈ na.owners → a ∈ nb.owners)
+  (hnf : ∀ pid ∈ shiftRowIds g d, forb pid = false)
+
+include hpos in
+theorem extend_shadow (q qh : PathNodeId) (hq : ShOK g d forb q qh) (sel : Int → PathNodeId)
+    (hon : sel qh.id.step = qh) : extend g d sel q.id.step = q := by
+  rcases hq with ⟨hs, e⟩ | ⟨_, hs, hp⟩
+  · rw [extend_below g d sel q.id.step hs]; rw [e] at hon; exact hon
+  · obtain ⟨_, hps⟩ := rowParent_node g d hpos hp
+    have hz : shiftPid qh d = q := eq_of_beq (List.mem_filter.mp hp).2
+    rw [hs, extend_top]
+    unfold extendPid; rw [if_pos hpos]
+    have : sel (g.current_step - 1) = qh := by rw [← hps]; exact hon
+    rw [this, hz]
+
+include hd hpos hbelow hmok hnf in
+/-- **Shadows that form a compatible link give a certificate in the new state.** -/
+theorem cert_of_shadows (h : PairExactRelAll g) (x y w xh yh wh : PathNodeId) (nxh nyh nwh : PNodeM)
+    (hx : ShOK g d forb x xh) (hy : ShOK g d forb y yh) (hw : ShOK g d forb w wh)
+    (hnx : g.node? xh = some nxh) (hny : g.node? yh = some nyh) (hnw : g.node? wh = some nwh)
+    (hxy : xh ∈ nyh.owners) (hxw : xh ∈ nwh.owners) (hC : Cx g xh nyh wh) :
+    CertThrough (addNode g d title forb) [x, y, w] := by
+  obtain ⟨sel, hs, hon⟩ := h xh nxh hnx yh nyh wh nwh hny hnw hxy hxw hC
+  refine ⟨extend g d sel, ChainSound_addNode g d title forb hd hbelow hmok sel hs
+    (hnf _ (extendPid_mem_shiftRowIds g d sel hs.chain.1)), fun q hq => ?_⟩
+  rcases List.mem_cons.mp hq with e | hq
+  · rw [e]; exact extend_shadow g d forb hpos x xh hx sel (hon _ List.mem_cons_self)
+  rcases List.mem_cons.mp hq with e | hq
+  · rw [e]; exact extend_shadow g d forb hpos y yh hy sel (hon _ (List.mem_cons_of_mem _ List.mem_cons_self))
+  · rw [List.mem_singleton.mp hq]
+    exact extend_shadow g d forb hpos w wh hw sel
+      (hon _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self)))
+
+include hd hpos hbelow hmok hnf in
+/-- **With the local condition at merges, `addNode` keeps exactness relative to every node.** -/
+theorem pairExactRelAll_addNode_of_choice (h : PairExactRelAll g) (hch : ShadowChoice g d title forb) :
+    PairExactRelAll (addNode g d title forb) := by
+  intro x nx hx y ny w nw hy hw hxy hxw hC
+  obtain ⟨xh, yh, wh, nxh, nyh, nwh, sx, sy, sw, hnx, hny, hnw, hxy', hxw', hC'⟩ :=
+    hch x nx y ny w nw hx hy hw hxy hxw hC
+  exact cert_of_shadows g d title forb hd hpos hbelow hmok hnf h x y w xh yh wh nxh nyh nwh sx sy sw hnx hny hnw
+    hxy' hxw' hC'
+
+include hd hpos hbelow hnd hownb hself hsym in
+/-- **Without merges the local condition holds**: the shadow of a new node is its only parent. -/
+theorem shadowChoice_of_single
+    (hsingle : ∀ z ∈ newRowIds g d forb, ∀ q ∈ rowParents g d z, ∀ q' ∈ rowParents g d z, q = q') :
+    ShadowChoice g d title forb := by
+  intro x nx y ny w nw hx hy hw hxy hxw hC
+  have shok : ∀ q nq, (addNode g d title forb).node? q = some nq → ShOK g d forb q (sh g d q) := by
+    intro q nq hq
+    rcases node_cases g d title forb hd hbelow hnd q nq hq with ⟨_, _, _, hs⟩ | ⟨hn, _, hs⟩
+    · exact Or.inl ⟨hs, sh_old g d q hs⟩
+    · exact Or.inr ⟨hn, hs, sh_new g d forb hpos q hn hs⟩
+  obtain ⟨ny₀, hny₀, hxy₀⟩ := sh_link g d title forb hd hpos hbelow hnd hownb hself hsym hsingle y ny hy x nx hx hxy
+  obtain ⟨nw₀, hnw₀, hxw₀⟩ := sh_link g d title forb hd hpos hbelow hnd hownb hself hsym hsingle w nw hw x nx hx hxw
+  have hwy : w ∈ ny.owners := by obtain ⟨_, _, _, _, h, _⟩ := hC; exact h
+  obtain ⟨ny₁, hny₁, hwy₀⟩ := sh_link g d title forb hd hpos hbelow hnd hownb hself hsym hsingle y ny hy w nw hw hwy
+  rw [hny₀] at hny₁; cases hny₁
+  have hxx : x ∈ nx.owners := by
+    rcases node_cases g d title forb hd hbelow hnd x nx hx with ⟨n, hn', hEq, _⟩ | ⟨_, hEq, _⟩
+    · rw [hEq, upMap_owners]; exact List.mem_append_left _ (hself x n hn')
+    · rw [hEq, rowNode_owners]; exact (mem_rowOwners_iff g d x x).mpr (Or.inr rfl)
+  obtain ⟨nx₀, hnx₀, _⟩ := sh_link g d title forb hd hpos hbelow hnd hownb hself hsym hsingle x nx hx x nx hx hxx
+  refine ⟨sh g d x, sh g d y, sh g d w, nx₀, ny₀, nw₀, shok x nx hx, shok y ny hy, shok w nw hw, hnx₀, hny₀,
+    hnw₀, hxy₀, hxw₀, ?_⟩
+  obtain ⟨nw', nx', hw', hx', _, hl⟩ := hC
+  rw [hw] at hw'; cases hw'
+  rw [hx] at hx'; cases hx'
+  refine ⟨nw₀, nx₀, hnw₀, hnx₀, hwy₀, fun l h0 h1 => ?_⟩
+  obtain ⟨r, hr, hrw, hrx, hrs⟩ := hl l h0 (by rw [addNode_current]; omega)
+  have hl' : r.id.step < g.current_step := by rw [hrs]; exact h1
+  obtain ⟨a, ha, hra⟩ := sh_entry g d title forb hd hpos hbelow hnd hsingle y ny hy r hr hl'
+  obtain ⟨b, hb, hrb⟩ := sh_entry g d title forb hd hpos hbelow hnd hsingle w nw hw r hrw hl'
+  obtain ⟨e, he, hre⟩ := sh_entry g d title forb hd hpos hbelow hnd hsingle x nx hx r hrx hl'
+  rw [hny₀] at ha; cases ha
+  rw [hnw₀] at hb; cases hb
+  rw [hnx₀] at he; cases he
+  exact ⟨r, hra, hrb, hre, hrs⟩
+end
+
 /-- info: 'AbsSatBin.GraphPath.Model.BranchRel.triPin₁_of_pairExactRel' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms triPin₁_of_pairExactRel
@@ -282,5 +388,13 @@ end
 /-- info: 'AbsSatBin.GraphPath.Model.BranchRel.pairExactRelAll_addNode' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms pairExactRelAll_addNode
+
+/-- info: 'AbsSatBin.GraphPath.Model.BranchRel.pairExactRelAll_addNode_of_choice' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms pairExactRelAll_addNode_of_choice
+
+/-- info: 'AbsSatBin.GraphPath.Model.BranchRel.shadowChoice_of_single' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms shadowChoice_of_single
 
 end AbsSatBin.GraphPath.Model.BranchRel
