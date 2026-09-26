@@ -635,6 +635,41 @@ def GLF : Prop :=
     ∃ kv ∈ line φ n, isValid (filterAll kv.2 (ps kv.1)) = true ∧
       Clique (filterAll kv.2 (ps kv.1)) Q ∧ WitR (filterAll kv.2 (ps kv.1)) Q R
 
+/-- **An entry below the top of a piece is an entry of its source, pinned by `pinsW`**: through the filter when
+it skips no window, through the truncated piece when it does. -/
+theorem pieceF (hn1 : 1 ≤ n) (d : NodeId) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n)
+    (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true) (r : PathNodeId) (n' : PNodeM)
+    (hn' : (upF φ kv.2 d).node? r = some n') (hrs : r.id.step ≤ n) :
+    ∃ nX, (filterAll kv.2 (pinsW φ n d kv.1)).node? r = some nX ∧
+      ∀ v ∈ n'.owners, v.id.step ≤ n → v ∈ nX.owners := by
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  cases hsk : skipsWindow (filterAll kv.2 (reqOf φ d)) d (isProhibited φ) with
+  | false =>
+    have hps : pinsW φ n d kv.1 = reqOf φ d := by
+      unfold pinsW
+      rw [if_neg]
+      intro h
+      obtain ⟨kv2, hkv2, h2⟩ := List.any_eq_true.mp h
+      simp only [Bool.and_eq_true, beq_iff_eq] at h2
+      have he : kv2 = kv := key_inj _ (lineOk φ n).1 kv2 hkv2 kv hkv h2.1
+      rw [he, hsk] at h2; exact absurd h2.2 (by decide)
+    rw [hps]
+    obtain ⟨nF, hnF, ho⟩ := upF_old φ kv.2 d hdst c hv r n' hn' (by rw [hcs]; omega)
+    exact ⟨nF, hnF, fun v hv hvs => ho v hv (by rw [hcs]; omega)⟩
+  | true =>
+    have hps : pinsW φ n d kv.1 = reqOf φ d ++ [⟨(n : Int) - 1, 1⟩] := by
+      unfold pinsW
+      rw [if_pos (List.any_eq_true.mpr ⟨kv, hkv, by simp [hsk]⟩)]
+    rw [hps]
+    have hB := skip_trunc_below φ n hbd hn1 kv hkv d hd hv hsk
+    have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
+    have hPcs : (upF φ kv.2 d).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+    have hT := Trunc.trunc_node?_of _ r n' hn' (by rw [hPcs]; omega)
+    obtain ⟨nX, hnX, hoX, _, _⟩ := hB.node r _ hT
+    refine ⟨nX, hnX, fun v hv hvs => hoX v ((Trunc.mem_cutTop_owners _ _ v).mpr ⟨hv, ?_⟩)⟩
+    rw [hPcs]; omega
+
 /-- **A node of a state of line `n+1` below the top is a node of a pinned source, with its entries below the top.**
 For the source whose filter skips the window, through the truncated piece (`skip_trunc_below`). -/
 theorem ownsF_of_join (hn1 : 1 ≤ n) (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) (r : PathNodeId)
@@ -644,35 +679,8 @@ theorem ownsF_of_join (hn1 : 1 ≤ n) (kv' : NodeId × GPathM) (hkv' : kv' ∈ l
   have tr : ∀ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 → isValid (upF φ kv.2 kv'.1) = true →
       ∀ n', (upF φ kv.2 kv'.1).node? r = some n' →
         ∃ nX, (filterAll kv.2 (pinsW φ n kv'.1 kv.1)).node? r = some nX ∧
-          ∀ v ∈ n'.owners, v.id.step ≤ n → v ∈ nX.owners := by
-    intro kv hkv hd hv n' hn'
-    obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv kv'.1 hd hv
-    have c := filt_ctx φ hbd n kv hok (reqOf φ kv'.1) hvF
-    cases hsk : skipsWindow (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 (isProhibited φ) with
-    | false =>
-      have hps : pinsW φ n kv'.1 kv.1 = reqOf φ kv'.1 := by
-        unfold pinsW
-        rw [if_neg]
-        intro h
-        obtain ⟨kv2, hkv2, h2⟩ := List.any_eq_true.mp h
-        simp only [Bool.and_eq_true, beq_iff_eq] at h2
-        have he : kv2 = kv := key_inj _ (lineOk φ n).1 kv2 hkv2 kv hkv h2.1
-        rw [he, hsk] at h2; exact absurd h2.2 (by decide)
-      rw [hps]
-      obtain ⟨nF, hnF, ho⟩ := upF_old φ kv.2 kv'.1 hdst c hv r n' hn' (by rw [hcs]; omega)
-      exact ⟨nF, hnF, fun v hv hvs => ho v hv (by rw [hcs]; omega)⟩
-    | true =>
-      have hps : pinsW φ n kv'.1 kv.1 = reqOf φ kv'.1 ++ [⟨(n : Int) - 1, 1⟩] := by
-        unfold pinsW
-        rw [if_pos (List.any_eq_true.mpr ⟨kv, hkv, by simp [hsk]⟩)]
-      rw [hps]
-      have hB := skip_trunc_below φ n hbd hn1 kv hkv kv'.1 hd hv hsk
-      have hP : StateOk φ ((n : Int) + 1) (kv'.1, upF φ kv.2 kv'.1) := StateOk_sent φ n kv hok kv'.1 hd hv
-      have hPcs : (upF φ kv.2 kv'.1).current_step = (n : Int) + 2 := by rw [hP.step]; omega
-      have hT := Trunc.trunc_node?_of _ r n' hn' (by rw [hPcs]; omega)
-      obtain ⟨nX, hnX, hoX, _, _⟩ := hB.node r _ hT
-      refine ⟨nX, hnX, fun v hv hvs => hoX v ((Trunc.mem_cutTop_owners _ _ v).mpr ⟨hv, ?_⟩)⟩
-      rw [hPcs]; omega
+          ∀ v ∈ n'.owners, v.id.step ≤ n → v ∈ nX.owners :=
+    fun kv hkv hd hv n' hn' => pieceF φ n hbd hn1 kv'.1 kv hkv hd hv r n' hn' hrs
   refine ⟨?_, fun v hv hvs => ?_⟩
   · obtain ⟨kv, hkv, hd, hvp, n', hn'⟩ := (PieceJoin.join_no_new φ n kv' hkv').1 r nr hr
     obtain ⟨nX, hnX, _⟩ := tr kv hkv hd hvp n' hn'
@@ -846,6 +854,258 @@ theorem certR_low_of_GLF (hn1 : 1 ≤ n) (hGLF : GLF φ n) (hM : ∀ kv ∈ line
 /-- info: 'AbsSatBin.GraphPath.Model.LineUnion.certR_low_of_GLF' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms certR_low_of_GLF
+
+/-- **A witness of a node `w` of the top owns the keys of `w`'s window, in the pinned sources.** As
+`wit_owns_window`, but inside the piece (a kernel with `PMP`), so that its entries reach the pinned source
+(`pieceF`). -/
+theorem wit_owns_windowF (hn1 : 1 ≤ n) (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1))
+    (w : PathNodeId) (hws : w.id.step = (n : Int) + 1) (r : PathNodeId) (nr : PNodeM)
+    (hr : kv'.2.node? r = some nr) (hrs : r.id.step ≤ n) (hwr : w ∈ nr.owners) :
+    ∃ x y, OwnsF φ n (pinsW φ n kv'.1) r x ∧ OwnsF φ n (pinsW φ n kv'.1) r y ∧ w.parent_id = some x.id ∧
+      w.gparent_id = some y.id ∧ x.id.step = (n : Int) ∧ y.id.step = (n : Int) - 1 := by
+  obtain ⟨kv, hkv, hd, hvp, n', hn', hwn'⟩ := (PieceJoin.join_no_new φ n kv' hkv').2 r nr hr w hwr
+  obtain ⟨hok, hdst, hcs, _, hvF, _⟩ := src_ctx φ hbd n kv hkv kv'.1 hd hvp
+  have c := filt_ctx φ hbd n kv hok (reqOf φ kv'.1) hvF
+  have hP : StateOk φ ((n : Int) + 1) (kv'.1, upF φ kv.2 kv'.1) := StateOk_sent φ n kv hok kv'.1 hd hvp
+  have cP := KernelUp.aCtx_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hP.reach) hvp
+  have hPcs : (upF φ kv.2 kv'.1).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  have hFcs : (filterAll kv.2 (reqOf φ kv'.1)).current_step = (n : Int) + 1 := by
+    rw [(pruned_filterAll kv.2 (reqOf φ kv'.1)).step_eq, hcs]
+  obtain ⟨nwP, hnwP⟩ := cP.pc.ker.isNode_owner r n' hn' w hwn'
+  obtain ⟨x, hxr, hxw, hxs⟩ := cP.pc.ker.pair r n' w nwP hn' hnwP hwn' n (by omega) (by rw [hPcs]; omega)
+  obtain ⟨_, hsub⟩ := upF_new φ kv.2 kv'.1 hdst c hvp w nwP hnwP (by rw [hcs]; exact hws)
+  have hne : x ≠ w := by intro e; rw [e, hws] at hxs; omega
+  obtain ⟨q, hq, nq, hnq, hxq⟩ := KernelUp.inherit_inv kv'.1 w x (hsub x hxw) hne
+  have hqs := (rowParent_node _ kv'.1 (by rw [hFcs]; omega) hq).2
+  have hqid : nq.id = q := node?_id_eq _ q nq hnq
+  have hxq' : x = q := by
+    have := c.pc.oos nq (List.mem_of_find?_eq_some hnq) x hxq (by rw [hqid, hqs, hxs, hFcs]; omega)
+    rw [hqid] at this; exact this
+  subst hxq'
+  have hsh := shiftPid_of_mem_rowParents _ kv'.1 w x hq
+  -- a parent of `x`, in the piece, owning the witness
+  obtain ⟨nx, hnx⟩ := cP.pc.ker.isNode_owner r n' hn' x hxr
+  have hrx : r ∈ nx.owners := cP.pc.ker.sym r n' x nx hn' hnx hxr
+  obtain ⟨cp, hcp, ncp, hncp, hrcp⟩ := cP.pc.ker.nbrP x nx hnx (by rw [hxs]; omega) r hrx
+  have hcpr : cp ∈ n'.owners := cP.pc.ker.sym cp ncp r n' hncp hn' hrcp
+  have hnxid := node?_id_eq _ x nx hnx
+  have hpmp := cP.rc.pmp nx (List.mem_of_find?_eq_some hnx) cp hcp
+  rw [hnxid] at hpmp
+  have hcps := cP.pc.pb nx (List.mem_of_find?_eq_some hnx) cp hcp
+  rw [hnxid, hxs] at hcps
+  -- to the pinned source
+  obtain ⟨nX, hnX, hoX⟩ := pieceF φ n hbd hn1 kv'.1 kv hkv hd hvp r n' hn' hrs
+  refine ⟨x, cp, ⟨kv, hkv, nX, hnX, hoX x hxr (by omega)⟩, ⟨kv, hkv, nX, hnX, hoX cp hcpr (by omega)⟩,
+    ?_, ?_, hxs, hcps⟩
+  · rw [← hsh]; rfl
+  · rw [← hsh]; exact hpmp.symm
+
+/-- info: 'AbsSatBin.GraphPath.Model.LineUnion.wit_owns_windowF' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms wit_owns_windowF
+
+/-- **The join step for a clique with a member `w` at the top, from `GLF`.** -/
+theorem certR_top_of_GLF (hn1 : 1 ≤ n) (hGLF : GLF φ n) (hM : ∀ kv ∈ line φ n, MapCert kv.2)
+    (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) (Q : List PathNodeId) (R : List NodeId)
+    (hQ : Clique kv'.2 Q) (hW : WitR kv'.2 Q R) (w : PathNodeId) (hwQ : w ∈ Q)
+    (hws : w.id.step = (n : Int) + 1) : CertR kv'.2 Q R := by
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hcs' : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hdm : kv'.1 ∈ mapNodes φ ((n : Int) + 1) := by have := hok'.onMap; push_cast at this; exact this
+  have hds : kv'.1.step = (n : Int) + 1 := mapNodes_step φ _ kv'.1 hdm
+  have cJ := KernelUp.aCtx_line φ hbd (n + 1) kv' hkv'
+  obtain ⟨nw, hnw, hwQ'⟩ := hQ w hwQ
+  have hwid : w.id = kv'.1 :=
+    top_entry_key φ hbd (n + 1) kv' hkv' w nw hnw w (hwQ' w hwQ) (by rw [hws]; push_cast; rfl)
+  have htop : ∀ q ∈ Q, n < q.id.step → q = w := by
+    intro q hq hqs
+    obtain ⟨nq, hnq, _⟩ := hQ q hq
+    have hr := CertFix.step_range cJ.pc q nq hnq
+    have := cJ.pc.oos nw (List.mem_of_find?_eq_some hnw) q (hwQ' q hq)
+      (by rw [node?_id_eq _ w nw hnw, hws]; rw [hcs'] at hr; omega)
+    rwa [node?_id_eq _ w nw hnw] at this
+  -- the keys of `w`'s window
+  obtain ⟨r0, nr0, hnr0, hr0s, hr0Q, _⟩ := hW 0 (by omega) (by rw [hcs']; omega)
+  obtain ⟨x0, y0, _, _, hwx, hwy, hx0s, hy0s⟩ :=
+    wit_owns_windowF φ n hbd hn1 kv' hkv' w hws r0 nr0 hnr0 (by omega) (hr0Q w hwQ)
+  let Ql := Q.filter (fun q : PathNodeId => decide (q.id.step ≤ (n : Int)))
+  let Rl := R.filter (fun m : NodeId => decide (m.step ≤ (n : Int)))
+  have hQl : ∀ q ∈ Ql, q ∈ Q ∧ q.id.step ≤ n := fun q hq =>
+    ⟨(List.mem_filter.mp hq).1, of_decide_eq_true (List.mem_filter.mp hq).2⟩
+  -- in the union of the pinned sources
+  obtain ⟨kv, hkv, hvF', hQF, hWF⟩ := hGLF (pinsW φ n kv'.1) Ql (Rl ++ [x0.id, y0.id])
+    (fun p hp s hs => by
+      obtain ⟨np, hnp, hpQ⟩ := hQ p (hQl p hp).1
+      exact (ownsF_of_join φ n hbd hn1 kv' hkv' p np hnp (hQl p hp).2).2 s (hpQ s (hQl s hs).1) (hQl s hs).2)
+    (fun l h0 h1 => by
+      obtain ⟨r, nr, hnr, hrs, hrQ, hrR⟩ := hW l h0 (by rw [hcs']; omega)
+      have hrl : r.id.step ≤ n := by omega
+      obtain ⟨hnode, hown⟩ := ownsF_of_join φ n hbd hn1 kv' hkv' r nr hnr hrl
+      obtain ⟨x, y, hx, hy, hwx', hwy', _, _⟩ :=
+        wit_owns_windowF φ n hbd hn1 kv' hkv' w hws r nr hnr hrl (hrQ w hwQ)
+      refine ⟨r, hrs, hnode, fun q hq => hown q (hrQ q (hQl q hq).1) (hQl q hq).2, fun m hm => ?_⟩
+      rcases List.mem_append.mp hm with hm | hm
+      · obtain ⟨hmR, hms⟩ := List.mem_filter.mp hm
+        obtain ⟨p, hp, hpm⟩ := hrR m hmR
+        exact ⟨p, hown p hp (by rw [hpm]; exact of_decide_eq_true hms), hpm⟩
+      · rcases List.mem_cons.mp hm with rfl | hm
+        · refine ⟨x, hx, ?_⟩; rw [hwx] at hwx'; exact (Option.some.inj hwx').symm
+        · rw [List.mem_singleton.mp hm]
+          refine ⟨y, hy, ?_⟩; rw [hwy] at hwy'; exact (Option.some.inj hwy').symm)
+  -- down to the source, with the pins as constraints
+  have hok : StateOk φ n kv := (lineOk φ n).2 kv hkv
+  have hcs : kv.2.current_step = (n : Int) + 1 := hok.step
+  have hkey : kv.1.step = (n : Int) := mapNodes_step φ n kv.1 hok.onMap
+  have hnd := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) kv.2
+    (MapReachable.reachable_of_mapReachable φ hbd kv.2 hok.reach)
+  have cF' := filt_ctx φ hbd n kv hok (pinsW φ n kv'.1 kv.1) hvF'
+  have hbF' := KernelIff.below_filterAll_self kv.2 hnd (pinsW φ n kv'.1 kv.1)
+  have hF'cs : (filterAll kv.2 (pinsW φ n kv'.1 kv.1)).current_step = (n : Int) + 1 := by
+    rw [← hbF'.step, hcs]
+  have hpins : ∀ m ∈ pinsW φ n kv'.1 kv.1, 0 ≤ m.step ∧ m.step < (n : Int) + 1 := by
+    intro m hm
+    have hm' : m ∈ reqOf φ kv'.1 ++ [(⟨(n : Int) - 1, 1⟩ : NodeId)] := by
+      unfold pinsW at hm
+      cases hc : (line φ n).any (fun kv₂ => kv₂.1 == kv.1 && skipsWindow (filterAll kv₂.2 (reqOf φ kv'.1)) kv'.1
+          (isProhibited φ)) <;> rw [hc] at hm
+      · rw [if_neg (by decide)] at hm; exact List.mem_append_left _ hm
+      · rw [if_pos rfl] at hm; exact hm
+    rcases List.mem_append.mp hm' with hm | hm
+    · exact ⟨reqOf_nonneg (φ := φ) hbd kv'.1 m hm, by have := reqOf_backward φ hbd kv'.1 m hm; omega⟩
+    · rw [List.mem_singleton.mp hm]
+      exact ⟨show (0 : Int) ≤ (n : Int) - 1 by omega, show (n : Int) - 1 < (n : Int) + 1 by omega⟩
+  have hQX : Clique kv.2 Ql := fun p hp => by
+    obtain ⟨np, hnp, hpQ⟩ := hQF p hp
+    obtain ⟨nx, hnx, ho, _, _⟩ := hbF'.node p np hnp
+    exact ⟨nx, hnx, fun s hs => ho s (hpQ s hs)⟩
+  have hWX : WitR kv.2 Ql ((Rl ++ [x0.id, y0.id]) ++ pinsW φ n kv'.1 kv.1) := by
+    intro l h0 h1
+    obtain ⟨r, nr, hnr, hrs, hrQ, hrR⟩ := hWF l h0 (by rw [hF'cs]; rw [hcs] at h1; exact h1)
+    obtain ⟨nx, hnx, ho, _, _⟩ := hbF'.node r nr hnr
+    refine ⟨r, nx, hnx, hrs, fun s hs => ho s (hrQ s hs), fun m hm => ?_⟩
+    rcases List.mem_append.mp hm with hm | hm
+    · obtain ⟨p, hp, hpm⟩ := hrR m hm; exact ⟨p, ho p hp, hpm⟩
+    · obtain ⟨hall, _, _⟩ := (Kernel.isValidNode_iff _ nr).mp (cF'.pc.ker.valid r nr hnr)
+      obtain ⟨e, he, hes⟩ := List.any_eq_true.mp (List.all_eq_true.mp hall m.step
+        (mem_intRange_zero _ _ (hpins m hm).1 (by rw [hF'cs]; exact (hpins m hm).2)))
+      exact ⟨e, ho e he, gowner_pinned kv.2 _ e (cF'.pc.ker.own r nr hnr e he) m hm (eq_of_beq hes)⟩
+  obtain ⟨sel, hs, hon, hR⟩ := hM kv hkv Ql _ hQX hWX
+  have hwin : ∀ m ∈ [x0.id, y0.id], m ∈ (Rl ++ [x0.id, y0.id]) ++ pinsW φ n kv'.1 kv.1 :=
+    fun m hm => List.mem_append_left _ (List.mem_append_right _ hm)
+  have hsx : (sel n).id = x0.id := by
+    have := hR x0.id (hwin _ List.mem_cons_self) (by rw [hx0s]; omega) (by rw [hx0s, hcs]; omega)
+    rwa [hx0s] at this
+  have hsy : (sel ((n : Int) - 1)).id = y0.id := by
+    have := hR y0.id (hwin _ (List.mem_cons_of_mem _ List.mem_cons_self)) (by rw [hy0s]; omega)
+      (by rw [hy0s, hcs]; omega)
+    rwa [hy0s] at this
+  have hsn : (sel n).id = kv.1 := by
+    obtain ⟨hsome, hstep⟩ := hs.chain.1.1 n (by omega) (by rw [hcs]; omega)
+    obtain ⟨nr, hnr⟩ := Option.isSome_iff_exists.mp hsome
+    have hself := hs.self_owned n (by omega) (by rw [hcs]; omega)
+    simp only [ownersOf, hnr] at hself
+    exact top_entry_key φ hbd n kv hkv _ nr hnr _ hself hstep
+  have hreqPins : ∀ req ∈ reqOf φ kv'.1, req ∈ pinsW φ n kv'.1 kv.1 := by
+    intro req hreq; unfold pinsW; split
+    · exact List.mem_append_left _ hreq
+    · exact hreq
+  have hreqs : ∀ req ∈ reqOf φ kv'.1, 0 ≤ req.step → req.step < kv.2.current_step →
+      (sel req.step).id = req := fun req hreq h0 h1 => hR req (List.mem_append_right _ (hreqPins req hreq)) h0 h1
+  have hson : kv'.1 ∈ sonsOfMap φ kv.1 := by
+    refine son_of_req φ n kv.1 kv'.1 hok.onMap hdm (fun req hreq hst => ?_)
+    have h0 := reqOf_nonneg (φ := φ) hbd kv'.1 req hreq
+    rw [← hreqs req hreq h0 (by rw [hcs, hst, hkey]; omega), hst, hkey, hsn]
+  -- it survives the filter and climbs to `w`
+  have hsF := ChainSound_filterAll kv.2 (reqOf φ kv'.1) sel hs hreqs
+  have hvF : isValid (filterAll kv.2 (reqOf φ kv'.1)) = true := PickInduction.isValid_of_ChainG _ sel hsF.chain
+  have c := filt_ctx φ hbd n kv hok (reqOf φ kv'.1) hvF
+  have hFcs : (filterAll kv.2 (reqOf φ kv'.1)).current_step = (n : Int) + 1 := by
+    rw [(pruned_filterAll kv.2 (reqOf φ kv'.1)).step_eq, hcs]
+  have hdF : kv'.1.step = (filterAll kv.2 (reqOf φ kv'.1)).current_step := by
+    rw [hFcs, mapNodes_step φ _ kv'.1 hdm]
+  have hmok : MachineOk (filterAll kv.2 (reqOf φ kv'.1)) :=
+    MachineOk_of_pruned (pruned_filterAll _ _) (Certifies.MachineOk_reachable (reqOf φ) (isProhibited φ) _
+      (MapReachable.reachable_of_mapReachable φ hbd kv.2 hok.reach))
+  have hpar : (sel n).parent_id = some y0.id := by
+    have hl := hsF.chain.1.2 ((n : Int) - 1) (by omega) (by rw [hFcs]; omega)
+    rw [show (n : Int) - 1 + 1 = n by omega] at hl
+    obtain ⟨nsn, hnsn⟩ := Option.isSome_iff_exists.mp (hsF.chain.1.1 n (by omega) (by rw [hFcs]; omega)).1
+    rw [hnsn] at hl
+    have hpmp := c.rc.pmp nsn (List.mem_of_find?_eq_some hnsn) _ hl
+    rw [node?_id_eq _ _ nsn hnsn, hsy] at hpmp
+    exact hpmp.symm
+  have hext : extendPid (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel = w := by
+    unfold extendPid
+    rw [if_pos (by rw [hFcs]; omega), show (filterAll kv.2 (reqOf φ kv'.1)).current_step - 1 = (n : Int) by
+      rw [hFcs]; omega]
+    exact ParentId.pathNodeId_ext (by rw [hwid]; rfl) (by rw [hwx, ← hsx]; rfl) (by rw [hwy, ← hpar]; rfl)
+  have hf : isProhibited φ w = false := by
+    obtain ⟨kv2, hkv2, hd2, hv2, n2, hn2⟩ := (PieceJoin.join_no_new φ n kv' hkv').1 w nw hnw
+    obtain ⟨hok2, hdst2, hcs2, _, hvF2, _⟩ := src_ctx φ hbd n kv2 hkv2 kv'.1 hd2 hv2
+    have c2 := filt_ctx φ hbd n kv2 hok2 (reqOf φ kv'.1) hvF2
+    obtain ⟨hrow, _⟩ := upF_new φ kv2.2 kv'.1 hdst2 c2 hv2 w n2 hn2 (by rw [hcs2]; exact hws)
+    exact not_forb_of_mem_newRowIds _ _ _ w hrow
+  have hsA := ChainSound_addNode _ kv'.1 "" (isProhibited φ) hdF c.pc.below hmok sel hsF (by rw [hext]; exact hf)
+  have hsP : ChainSound (upF φ kv.2 kv'.1) (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel) := by
+    show ChainSound (up (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 "" (isProhibited φ)) _
+    unfold up; rw [if_pos hvF]
+    split
+    · exact ChainSound_review _ _ hsA
+    · exact hsA
+  have hvP : isValid (upF φ kv.2 kv'.1) = true := PickInduction.isValid_of_ChainG _ _ hsP.chain
+  obtain ⟨h, hmem, hgr⟩ := PieceJoin.piece_grown φ n kv hkv kv'.1 hson hvP
+  have he : (kv'.1, h) = kv' := key_inj _ (lineOk φ (n + 1)).1 _ hmem kv' hkv' rfl
+  rw [← he]
+  refine ⟨_, ChainSound_of_grown hgr _ hsP, fun q hq => ?_, fun m hm h0 h1 => ?_⟩
+  · by_cases hqs : q.id.step ≤ (n : Int)
+    · rw [extend_below _ _ _ _ (by rw [hFcs]; omega)]
+      exact hon q (List.mem_filter.mpr ⟨hq, decide_eq_true hqs⟩)
+    · have hqw := htop q hq (by omega)
+      subst hqw
+      rw [show q.id.step = (filterAll kv.2 (reqOf φ kv'.1)).current_step by rw [hFcs, hws], extend_top, hext]
+  · have hcsh : h.current_step = (n : Int) + 2 := by
+      have := congrArg (fun x => x.2.current_step) he; simp only at this; rw [this, hcs']
+    rw [hcsh] at h1
+    rcases Int.lt_or_le m.step ((n : Int) + 1) with hlt | hge
+    · rw [extend_below _ _ _ _ (by rw [hFcs]; exact hlt)]
+      exact hR m (List.mem_append_left _ (List.mem_append_left _
+        (List.mem_filter.mpr ⟨hm, decide_eq_true (by omega)⟩))) h0 (by rw [hcs]; exact hlt)
+    · have hmt : m.step = (n : Int) + 1 := by omega
+      rw [hmt, ← hFcs, extend_top, hext, hwid]
+      obtain ⟨r, nr, hnr, _, _, hrR⟩ := hW m.step h0 (by rw [hcs']; omega)
+      obtain ⟨p, hp, hpm⟩ := hrR m hm
+      rw [← hpm]
+      exact (top_entry_key φ hbd (n + 1) kv' hkv' r nr hnr p hp (by rw [hpm, hmt]; push_cast; rfl)).symm
+
+/-- info: 'AbsSatBin.GraphPath.Model.LineUnion.certR_top_of_GLF' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms certR_top_of_GLF
+
+/-- **`MapCert` of the next line from `GLF` alone.** -/
+theorem mapCert_next_F (hn1 : 1 ≤ n) (hGLF : GLF φ n) (hM : ∀ kv ∈ line φ n, MapCert kv.2)
+    (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) : MapCert kv'.2 := by
+  intro Q R hQ hW
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hcs' : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have cJ := KernelUp.aCtx_line φ hbd (n + 1) kv' hkv'
+  cases e : Q.find? (fun q => decide ((n : Int) < q.id.step)) with
+  | some w =>
+    have hwQ := List.mem_of_find?_eq_some e
+    have hwn := of_decide_eq_true (List.find?_some (p := fun q : PathNodeId => decide ((n : Int) < q.id.step)) e)
+    obtain ⟨nw, hnw, _⟩ := hQ w hwQ
+    have := (CertFix.step_range cJ.pc w nw hnw).2
+    rw [hcs'] at this
+    exact certR_top_of_GLF φ n hbd hn1 hGLF hM kv' hkv' Q R hQ hW w hwQ (by omega)
+  | none =>
+    refine certR_low_of_GLF φ n hbd hn1 hGLF hM kv' hkv' Q R hQ hW (fun q hq => ?_)
+    have := List.find?_eq_none.mp e q hq
+    simp only [decide_eq_true_eq] at this
+    omega
+
+/-- info: 'AbsSatBin.GraphPath.Model.LineUnion.mapCert_next_F' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mapCert_next_F
 
 /-- **`MapCert` of the next line, with no window hypothesis**: `GL`, `GLF` and `MapCert` on line `n` give `MapCert`
 on every state of line `n+1` — a clique with a member at the top by `certR_top_of_GL`, one without by
