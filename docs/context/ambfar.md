@@ -1221,6 +1221,12 @@ Lectura. Por D1, `J = join (filterAll J [k_A]) (filterAll J [k_B])`: es la forma
 testigos del estado unido tiene cadena (Helly en la unión). D1 dice que la unión no pierde ni mezcla
 información; lo que falta es que la review de las piezas (ventana saltada en `L3`) baste para decidir la pieza.
 
+**Demostrado (`PieceFilter.piece_survives_filter`)**: la pieza revisada queda por debajo de `filter(J, {k})`. La
+pieza revisada es un kernel, está por debajo de `J` y en el paso `n` solo nombra `k`; la review nunca baja de un
+kernel. Queda abierta la otra mitad, `filter(J, {k}) ⊆ A`: que el filtro no deje ninguna entrada de la otra
+pieza. Equivale a que toda entrada que deja el filtro esté en una cadena por `k` (la forma por entradas de
+`NoDeadEnd`).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
