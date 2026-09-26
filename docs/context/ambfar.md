@@ -911,7 +911,10 @@ la fórmula, y es lo único que queda.
   elementos (`HellyTwo.share3_of_two`).
 
 **Qué pide `ClauseChoice`.**
-* La solución parcial de la hipótesis de inducción puede tener los tres literales de la cláusula a 0.
+* Ninguna solución de 3-SAT tiene los tres literales de una cláusula a 0. Pero la solución parcial que da
+  la hipótesis de inducción solo está comprobada hasta `L2`: con `L1 = L2 = 0` sigue siendo válida ahí, y si
+  la variable del tercer literal (ya asignada) lo pone a 0, necesitaría la ventana `000`, que la máquina no
+  crea. Esa solución parcial no se extiende; hay que encontrar otra dentro de la clique.
 * Cada testigo de un paso inferior posee algún nodo superior permitido: todo nodo de un estado de
   `L3` tiene entrada en ese paso (en `L3 = 0` por el review; en `L3 = 1` porque su padre tiene hijo).
 * Pero testigos de pasos distintos pueden apoyarse en **literales distintos**. Helly-2 actúa dentro
@@ -934,6 +937,39 @@ superiores, y `ClauseLocal` pide que los testigos de una clique puedan elegirse 
 esos nodos**. El candidato natural es el testigo superior `w`, que ya posee la clique. Falta que en cada
 paso inferior haya un nodo que posea la clique **y** `w`. Es una condición de un solo paso de la máquina
 (el `UP` del tercer literal: `addNode` más el review de la ventana saltada) sobre los estados de la línea.
+
+### 4.2w La cláusula por claves: los testigos eligen un literal cierto — **reducido** (`ClauseKey.lean`)
+
+**Cómo trabaja la máquina en `L3`** (paso `n+1`; fuentes de la línea `n`: `A` con clave `L2 = 0`, `B` con
+`L2 = 1`). Cuatro piezas, cada una fija un **literal cierto** que poseen todos sus nodos:
+* `(A, 1)` y `(B, 1)`: el filtro de requisito deja solo el valor de la variable que hace cierto el tercer
+  literal. No se salta nada. Literal: `⟨n+1, 1⟩`.
+* `(B, 0)`: toda ventana `(·, 1, 0)` está permitida. No se salta nada. Literal: `⟨n, 1⟩` (la clave de `B`).
+* `(A, 0)`: se salta `000`; el review deja solo lo que pasa por `L1 = 1`, la ventana `(1, 0, 0)`.
+  Literal: `⟨n-1, 1⟩`.
+
+**Demostrado:**
+* `notProh_of_true`: una solución parcial que pasa por un literal cierto (`trueLits n`) tiene ventana
+  permitida en `L3`.
+* `semConcl_low`: el paso de `semCert_succ` sin la cláusula: basta con que toda asignación que respete las
+  restricciones de mapa tenga ventana permitida.
+* **`ClauseKey n`**: una clique con testigos admite un literal cierto `t` que los testigos poseen también
+  (`LWit (n+1) Q (t :: R)`). `clauseChoice_of_key` y **`readerVerdictW_iff_of_clauseKey`**.
+
+**Lo que falta.** Cada testigo, por separado, posee el literal de su pieza. Falta que testigos de pasos
+distintos coincidan en el literal. `ClauseKey` equivale a `ClauseChoice` (la solución, que la máquina
+lleva por `PrefixCarry`, da testigos que poseen su literal), así que no es más débil: es la misma
+condición dicha con las piezas de la máquina.
+
+**Riesgo detectado (sin verificar).** `Owns` es existencial por hecho: cada entrada puede venir de una
+pieza distinta, y la línea `n+2` une las piezas de `L3 = 0` y `L3 = 1` en un solo estado. Escenario:
+cláusulas previas `a∧b → ¬x`, `b∧c → ¬y`, `a∧c → ¬z` y la cláusula `x ∨ y ∨ z`; `Q = {a=1, b=1, c=1}`.
+Cada pareja de `Q` está en una solución real (con literales ciertos distintos); el testigo superior `w`
+de `(A, 0)` posee los tres; toda solución por los tres pone `x = y = z = 0`. Si la sobreaproximación de
+las tablas mantiene testigos en todos los pasos (en particular en el `L3` de `a∧b → ¬x`, donde ninguna
+solución real da uno), `ClauseChoice` es falso aunque la máquina acierte: el lector repasa el estado tras
+cada pin, y ese repaso mata la clique. Entonces el invariante correcto no es `SemCert` para cliques
+arbitrarias del estado original, sino algo que lleve el pin (ruta `PrefixTri`, §4.2l).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 

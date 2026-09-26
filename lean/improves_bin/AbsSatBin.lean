@@ -84,6 +84,7 @@ import AbsSatBin.GraphPath.Model.MapCert
 import AbsSatBin.GraphPath.Model.PrefixCarry
 import AbsSatBin.GraphPath.Model.PrefixDecode
 import AbsSatBin.GraphPath.Model.LineSem
+import AbsSatBin.GraphPath.Model.ClauseKey
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs
