@@ -1337,6 +1337,16 @@ FU a las piezas filtradas, por la truncación a las fuentes fijadas, y GLF\*(n))
 fijado es un kernel. **`filter_union`** (FU): con `MapCert` de un estado de la línea `n+1`, toda entrada del estado
 filtrado por `ps` es entrada de una de sus piezas filtrada por `ps`.
 
+**Bajada fijada (`piece_pinned_below`, demostrado).** Una pieza filtrada por fijaciones cualesquiera `ps`, sin su fila de
+arriba, queda por debajo de su fuente filtrada por `pinsW` y por las fijaciones de `ps` bajo la cima. Con FU, toda
+entrada bajo la cima de un estado de la línea `n+1` fijado es entrada de una fuente de la línea `n` fijada.
+
+**Lo que queda del paso 3: elegir el miembro.** Si `Q` tiene un miembro en la cima o `R` fija un nodo de la cima, el
+miembro que da GLF\*(n) tiene que subir a ese destino y cumplir las fijaciones de ese miembro de la línea `n+1`. Las
+entradas de los testigos pueden venir de miembros con destinos distintos, y GLF\*(n) no dice de cuál sale. Es otra
+forma del mismo núcleo de Helly (la selección de destino, como Wd), ahora con todos los testigos poseyendo la cima.
+
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
