@@ -1,0 +1,10 @@
+c x1 xor x2 xor x3 = 1 y x2 xor x3 xor x4 = 0 (x1 = x4 xor 1... cadena de paridades)
+p cnf 4 8
+1 2 3 0
+1 -2 -3 0
+-1 2 -3 0
+-1 -2 3 0
+-2 3 4 0
+2 -3 4 0
+2 3 -4 0
+-2 -3 -4 0

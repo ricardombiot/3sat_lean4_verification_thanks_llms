@@ -1,0 +1,8 @@
+c x2 forzada (cuatro cláusulas sobre x3,x4) y x2 -> x1: x1 forzada en dos pasos
+p cnf 4 6
+2 3 4 0
+2 3 -4 0
+2 -3 4 0
+2 -3 -4 0
+1 -2 3 0
+1 -2 -3 0

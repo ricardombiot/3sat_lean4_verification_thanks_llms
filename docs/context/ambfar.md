@@ -190,6 +190,20 @@ con el pin muerto, como exigen los teoremas. **Límite**: en estas instancias **
 (`otherbit-probe`: `pins = valid`), así que aún no se ha visto a `TriPin₁` separar un pin vivo de uno
 muerto. **Medido, sin valor estadístico.**
 
+### 4.2c El invariante `AllTriPin₁` — **formalizado** (`TriPinAll.lean`)
+
+La máquina guarda exactamente el conjunto de certificados: en todo lo medido (6 pequeñas, 6 construidas
+a mano, 20 aleatorias de 4 variables) **ningún pin muere** y todo estado visitado tiene solución. Las
+tablas lo registran por parejas, y una ronda de cortes basta para leer los certificados que pasan por `x`.
+
+* `AllTriPin₁ g`: `TriPin₁ g x` para **todo** nodo vivo `x`. Uniforme en `x`: la forma de un invariante.
+* `allPinsAlive_reader`: bajo él, **todo** pin en la primera elección sobrevive (más fuerte que
+  `NoDeadEnd`, que pide uno). **Demostrado.**
+* `readerVerdictW_iff_of_allTriPin₁`. **Demostrado.**
+* **Abierto**: que `AllTriPin₁` valga en los estados del lector (`AllTriPin₁Reader`). Ruta: que lo
+  construyan `addNode` y `join` y que lo conserven el review y el pin. **Sin medir** para `x` fuera de la
+  primera elección (solo se midió en `firstChoice`).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

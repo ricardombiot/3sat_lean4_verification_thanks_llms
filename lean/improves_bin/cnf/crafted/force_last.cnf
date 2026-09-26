@@ -1,0 +1,6 @@
+c x3 forzada a verdadero
+p cnf 3 4
+3 1 2 0
+3 1 -2 0
+3 -1 2 0
+3 -1 -2 0

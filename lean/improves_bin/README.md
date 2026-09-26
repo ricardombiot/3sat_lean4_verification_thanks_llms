@@ -50,6 +50,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `AmbTriCore` | — | nuevo | bajo la elección el camino está fijado (`gowner_eq`); la ventana hace exclusivos los nodos de `k…k+2` (`excl_near`); `AmbTri ⇐ AmbFar` (parejas ambiguas fuera de la ventana, pasos `l > k`) |
 | `AmbHighCore` | — | nuevo | un nodo bajo la elección está en todas las tablas y posee a todos (`forced_owns_all`); `AmbFar ⇐ AmbHigh` (ambos miembros en pasos `≥ k+3`) |
 | `TriPinCut` | — | nuevo | `TriPin₁`: regla de parejas tras una ronda de cortes de enlaces incompatibles con el pin (`Cx`); `TriPin ⇒ TriPin₁`; subkernel cortado `restrictPin₁` (`restrict₁_kernel`); `KernelSplit ⇐ TriPin₁` |
+| `TriPinAll` | — | nuevo | invariante `AllTriPin₁` (`TriPin₁` para todo nodo vivo) ⇒ todo pin en la primera elección sobrevive (`allPinsAlive_reader`) y el lector decide (`readerVerdictW_iff_of_allTriPin₁`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
@@ -66,7 +67,8 @@ Cada módulo que entra se registra aquí con su procedencia:
   `NoDeadEnd` + `RootValid`; y `NoDeadEnd ⇔ KernelSplit ⇐ TriPin ⇐ AmbTri ⇐ AmbFar ⇐ AmbHigh` (parejas
   ambiguas con ambos miembros en pasos `≥ k+3`, pasos por encima de la elección), la única pieza abierta del lector.
   `TriPin` se midió falso en un pin que sobrevive (`ambhigh-dump`); rama más débil: `KernelSplit ⇐ TriPin₁`
-  (`TriPinCut`), una ronda de cortes de enlaces incompatibles con el pin.
+  (`TriPinCut`), una ronda de cortes de enlaces incompatibles con el pin. Invariante candidato:
+  `AllTriPin₁` (`TriPinAll`), abierto.
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa
