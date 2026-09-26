@@ -1298,7 +1298,12 @@ certificado, si ninguna ventana de su clave está prohibida. El filtro se resuel
 comparten requisitos, y un kernel filtrado posee en un paso fijado solo el nodo fijado (`req_of_join`); la clique,
 con los requisitos añadidos a `R`, tiene testigos en la unión de las fuentes (`owns_of_join`); `GL` la lleva a una
 fuente cuya cadena pasa por el requisito (`son_of_req`: su clave es padre del destino), sobrevive al filtro y sube.
-Quedan: miembros en la cima, la ventana prohibida, y GL(n+1).
+**Miembro en la cima (`certR_top_of_GL`, demostrado, sin hipótesis de ventana).** Los testigos poseen las claves de
+la ventana de `w` (`wit_owns_window`: la regla de parejas en la pieza de `w` da un padre `x` de `w`; el apoyo por
+padres del kernel da un padre de `x` que posee al testigo, con el id que dice `PMP`). La cadena de la fuente acaba
+justo debajo de `w` y sube a `w`, que existe: su ventana no está prohibida. **`mapCert_next_of_GL`**: GL y `MapCert`
+en la línea `n` dan `MapCert` en todo estado de la línea `n+1` cuya clave no tenga ventana prohibida. Quedan: la
+ventana prohibida para cliques sin miembro en la cima, y GL(n+1).
 
 **Qué decide el destino bueno (`dest_probe.jl --k3`, 26 M pares clique–destino).** B1, 0 fallos: el destino es bueno
 ⇔ `Q` es clique en `J_d` con testigos en todos los `L3`. De los malos, 12,13 M fallan por no ser clique en `J_d` y solo
