@@ -1291,6 +1291,19 @@ de un testigo cualquiera de la cima no sirve. Pero siempre hay algún destino bu
 0,31 M. El filtro por destino no se puede elegir desde un testigo suelto; hay que elegir el destino con la clique
 entera, como la pieza buena (H19).
 
+**El paso del join desde GL, un destino (`LineUnion.lean`, demostrado).** `GL φ n` (la unión de la línea no crea
+cliques con testigos, con restricciones `R`) es la hipótesis. **`certR_low_of_GL`**: bajo `GL` y `MapCert` en la
+línea `n`, toda clique con testigos de un estado de la línea `n+1` con miembros por debajo de la cima tiene
+certificado, si ninguna ventana de su clave está prohibida. El filtro se resuelve: las piezas de un destino
+comparten requisitos, y un kernel filtrado posee en un paso fijado solo el nodo fijado (`req_of_join`); la clique,
+con los requisitos añadidos a `R`, tiene testigos en la unión de las fuentes (`owns_of_join`); `GL` la lleva a una
+fuente cuya cadena pasa por el requisito (`son_of_req`: su clave es padre del destino), sobrevive al filtro y sube.
+Quedan: miembros en la cima, la ventana prohibida, y GL(n+1).
+
+**Qué decide el destino bueno (`dest_probe.jl --k3`, 26 M pares clique–destino).** B1, 0 fallos: el destino es bueno
+⇔ `Q` es clique en `J_d` con testigos en todos los `L3`. De los malos, 12,13 M fallan por no ser clique en `J_d` y solo
+184 por testigos en una cláusula (`L1+L2+L3`). La compatibilidad con los requisitos (B3) no basta (91 796 fallos).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
