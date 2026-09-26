@@ -168,6 +168,21 @@ servir de oráculo en instancias de 3 variables. Sin lanzar hasta que lo confirm
     `y–w` es legítimo por parejas, pero no es compatible con `x`;
   * al pinchar `x`, el review corta `w` de la tabla de `y` y el estado sigue válido.
 
+### 4.2b `TriPin₁`: debilitar `TriPin` por la estructura — **hecho** (`TriPinCut.lean`)
+
+**Demostrado.**
+* `Cx g x y w`: el enlace `y–w` tiene, en cada paso, un testigo que `x` también posee.
+* `restrictPin₁ g x`: los nodos que poseen `x`, con tablas y enlaces restringidos a entradas `Cx`.
+* `TriPin₁ g x`: regla de parejas dentro de `restrictPin₁`. Es una ronda de cortes, sin cascada.
+* `triPin₁_of_triPin`: es más débil que `TriPin`.
+* `restrict₁_kernel`: bajo `TriPin₁`, `restrictPin₁` es un kernel válido bajo `g` que fija `x`.
+* `kernelSplit_of_triPin₁`, `readerVerdictW_iff_of_triPin₁`.
+
+La escalera tiene ahora una rama paralela: `KernelSplit ⇐ TriPin₁ ⇐ TriPin ⇐ AmbTri ⇐ AmbFar ⇐ AmbHigh`.
+En el caso medido, el enlace `y–w` no es `Cx`, así que `TriPin₁` no lo exige. Falta medir si
+`TriPin₁` vale en los pins que sobreviven, y si hacen falta más rondas (`TriPinₙ`, cuyo límite es
+`NoDeadEnd`).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
