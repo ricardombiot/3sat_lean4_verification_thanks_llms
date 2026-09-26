@@ -60,6 +60,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `BranchFull` | — | nuevo | ramas llenas: `FullBranch`/`CommonBranch` ⇐ `TriPin₁` (necesarias); `FullBranch` ⇐ `PairExact` (todo enlace en un certificado); **`PairExact` se conserva por el review, `join` y `addNode` sin ventana saltada, fusiones incluidas** (`pairExact_filterAll_nil`, `pairExact_join`, `pairExact_addNode`) |
 | `BranchRel` | — | nuevo | exactitud relativa a `x` (`PairExactRel`: todo enlace compatible con `x` está, con `x`, en un certificado) ⇒ `TriPin₁`, `CommonBranch`; se conserva por el review y por `addNode` **sin fusiones** (sombras: `pairExactRelAll_addNode`); en fusiones: `ShadowChoice` (elegir un padre por nodo nuevo) basta (`pairExactRelAll_addNode_of_choice`, `cert_of_shadows`) y vale sin fusiones (`shadowChoice_of_single`); en `join`: `JoinChoice` (cada enlace compatible lo es ya en un lado) basta (`pairExactRelAll_join`) |
 | `ReqFilter` | — | nuevo | el filtro por requisito es un pin sobre un nodo de mapa: con exactitud relativa previa y `FilterChoice` da exactitud por parejas (`pairExact_filter_of_choice`); `FilterChoice` vale si el nodo requerido tiene un único nodo de camino vivo (`filterChoice_of_unique`) |
+| `HellyTwo` | — | nuevo | Helly con número 2 (`helly2`); en un paso con a lo sumo dos nodos de camino vivos, tres nodos que se poseen comparten entrada (`share3_of_two`) |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales

@@ -695,6 +695,39 @@ En otro caso el filtro es un **pin disyuntivo**: otra unión.
   coherencia de rama en las uniones de dos elementos, que en bin siempre difieren en un solo paso de
   ventana: el olvidado.
 
+### 4.2q Ataque a la coherencia de rama — **no demostrada; una palanca demostrada** (`HellyTwo.lean`)
+
+**Forma común de las tres condiciones.** Se unen dos ramas que solo difieren en el paso olvidado `f`.
+* En la rama `i`, todas las tablas ven en `f` solo nodos `cᵢ`: en el estado de clave `cᵢ` no hay otros
+  nodos en ese paso, y la validez obliga a tener entrada ahí.
+* Tras la unión, la tabla de un nodo antiguo es `T₁ ∪ T₂`.
+* La regla de parejas en `f` obliga a que dos nodos enlazados compartan algún `cᵢ`, pero la tabla no
+  registra **qué rama respalda cada pertenencia**.
+
+**La palanca de bin: Helly con número 2** (demostrado).
+* `helly2`: en un dominio de dos valores, tres conjuntos que se cortan dos a dos tienen un punto común.
+* `share3_of_two`: en un paso con a lo sumo dos nodos de camino vivos, tres nodos que se poseen dos a dos
+  comparten entrada. La regla de parejas basta para el testigo de un trío. Depende solo de `propext`.
+
+**Hasta dónde llega** (deducido):
+* **A las ramas.** Las dos ramas son un dominio de dos valores. Cada pertenencia que necesita la
+  condición está respaldada por un subconjunto no vacío de `{1, 2}`. Por Helly-2, basta que **cada dos**
+  pertenencias compartan rama para que haya una rama común a todas, es decir, la coherencia. La
+  coherencia de rama se reduce así a **coherencia por parejas de pertenencias**.
+* **Por qué no cierra.**
+  * La coherencia por parejas tampoco se lee de las tablas, porque no llevan la rama.
+  * Los testigos se eligen paso a paso, y eso añade un cuantificador que Helly no absorbe.
+  * `share3_of_two` da solo la primera capa de `TriPin` (entrada común), no la segunda (compatibilidad de
+    los enlaces del testigo).
+  * Con ventanas de tres pasos, un paso puede tener hasta cuatro nodos de camino por encima del prefijo
+    fijado, así que la hipótesis de «dos vivos» solo se da donde la ventana ya está determinada.
+
+**Diagnóstico honesto.** Tras reducir todo a la coherencia de rama en uniones de dos, no he encontrado
+una derivación a partir de las invariantes locales de la máquina. Lo que falta es información que las
+tablas no guardan tras una unión: qué rama respalda cada pertenencia. Cualquier prueba tendrá que
+obtenerla de forma global, a partir de cómo se construyeron las dos ramas antes de unirse (desde el paso
+`f` hasta la unión en `f+1` o `f+3`), no del estado unido.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
