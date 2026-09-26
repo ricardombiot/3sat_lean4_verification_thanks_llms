@@ -94,6 +94,7 @@ import AbsSatBin.GraphPath.Model.StateLine
 import AbsSatBin.GraphPath.Model.ChainRoute
 import AbsSatBin.GraphPath.Model.PieceFilter
 import AbsSatBin.GraphPath.Model.GrowCert
+import AbsSatBin.GraphPath.Model.KernelUp
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs
