@@ -152,6 +152,15 @@ Mejor en Julia: el modelo Lean en listas tarda unos 100 s de máquina en `v4_c12
 `otherbit-probe` no terminó en más de 18 min. La sonda Lean existente (`OtherBitProbeMain.lean`) puede
 servir de oráculo en instancias de 3 variables. Sin lanzar hasta que lo confirmes.
 
+**Primera medida (Lean, `lake exe ambhigh-probe`, 6 instancias pequeñas, todas las ramas del lector).**
+* `highBoth = 0`: en cada estado con elección, algún bit cumple `AmbHigh`. `dead = 0`.
+* **Un fallo de un solo bit** en `simple3sat_v3_c2` (4 variables): en `k=1`, el bit 0 falla `AmbHigh`
+  y `TriPin`. Los nodos son `y` en el paso 9 y `w` en el 5, y falla en `l=7`. **El pin de ese bit
+  sobrevive.** Así que `TriPin` es estrictamente más fuerte que la supervivencia: no se puede pedir para
+  todo `x`, solo para uno. Eso descarta un invariante que dé `TriPin` para todos los bits (como la
+  versión «para todo `x`» de `SecPair` en §4.3, o la regla de tríos de §4.4 como invariante de la
+  máquina actual). **Medido, sin valor estadístico.**
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

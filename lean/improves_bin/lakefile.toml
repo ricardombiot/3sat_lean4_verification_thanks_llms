@@ -23,3 +23,8 @@ root = "DriverBinCheckMain"
 [[lean_exe]]
 name = "otherbit-probe"
 root = "OtherBitProbeMain"
+
+# Probe: AmbHigh / TriPin on every ReadFirst branch of the reader (read-only).
+[[lean_exe]]
+name = "ambhigh-probe"
+root = "AmbHighProbeMain"
