@@ -201,8 +201,10 @@ tablas lo registran por parejas, y una ronda de cortes basta para leer los certi
   `NoDeadEnd`, que pide uno). **Demostrado.**
 * `readerVerdictW_iff_of_allTriPin₁`. **Demostrado.**
 * **Abierto**: que `AllTriPin₁` valga en los estados del lector (`AllTriPin₁Reader`). Ruta: que lo
-  construyan `addNode` y `join` y que lo conserven el review y el pin. **Sin medir** para `x` fuera de la
-  primera elección (solo se midió en `firstChoice`).
+  construyan `addNode` y `join` y que lo conserven el review y el pin.
+* **Medido** (`ambhigh-probe --all`, 12 instancias pequeñas: las 6 de `example_cnf` más las 6
+  construidas a mano, todas las ramas del lector): `AllTriPin₁` vale en **todos** los estados válidos,
+  para **todo** nodo vivo `x` (3427 comprobaciones, 0 fallos). Sin valor estadístico.
 
 ### 4.2d `CliqueTri`: la forma cerrada, y el pin la conserva — **demostrado** (`CliqueTri.lean`)
 
