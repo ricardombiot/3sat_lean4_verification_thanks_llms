@@ -65,6 +65,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `CertRoute` | — | nuevo | **la unión de pins complementarios de un estado exacto es exacta** (`certClique_join_pins`): el certificado elige la rama |
 | `MapCert` | — | nuevo | certificados con restricciones a nivel de nodo de mapa (`MapCert` ⇒ `CertClique`); **lo conservan el review, todo filtro por requisito (con cualquier número de ventanas), `addNode` con fusiones y la unión de pins complementarios** (`mapCert_filterAll_nil`, `mapCert_filter`, `mapCert_addNode`, `mapCert_join_pins`) |
 | `PrefixCarry` | — | nuevo | **la máquina conserva toda solución parcial** (`PreSat`: ventanas permitidas antes de `T`) en el estado de su nodo de mapa (`chainSound_along_pre`, `run_ok_pre`, `cert_of_prefix`); generaliza `pureRun_carries`, donde `Sat` solo entraba por la ventana |
+| `PrefixDecode` | — | nuevo | **paso 1**: una cadena de un estado de la máquina es una solución parcial (`decode_prefix`: `PreSat` de la asignación decodificada y su ventana es la cadena); versiones de prefijo de `selOfAssign_decode`, `litVal_of_node` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
