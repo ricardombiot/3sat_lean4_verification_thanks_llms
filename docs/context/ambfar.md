@@ -1,9 +1,11 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en §4.2κ (sesión 2026-09-26).
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2λ** (sesión 2026-09-27; §4.2κ es la
+> sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
-> Informe de referencia: `docs/bitacora/verificacion_inseguridad_autor_v194.md` (hasta `TriPin`/`AmbTri`).
+> Informes de referencia: `docs/bitacora/verificacion_inseguridad_autor_v194.md` (hasta `TriPin`/`AmbTri`) y `…_v195.md`
+> (de `AmbTri` a `PieceLocalF` + `MergeSplit`).
 > Este documento añade el peldaño `AmbTri ⇐ AmbFar` y las propuestas para seguir.
 
 ---
@@ -1203,6 +1205,10 @@ de mapa, la de caminos pasa el join porque la unión no inventa cadenas.
 
 **Abierto, único:** `PieceLocal` (equivalente a `MapCert` del estado unido). Medido: 3,5 M cliques sin excepción.
 
+> ⚠ **Corrección (§4.2λ):** esa medida solo cubría `R = ∅`. Con una restricción en el paso `n`, `MapCert` del estado
+> unido y `PieceLocal` son **falsos** (`certj_probe.jl`). `combined_invariant` sigue siendo una equivalencia correcta,
+> pero entre dos enunciados falsos. El sustituto es `FCert` (§4.2λ).
+
 ### 4.2κ Después del invariante combinado: el join, los kernels y la unión de línea (sesión 2026-09-26)
 
 **Resumen de estado.**
@@ -1214,7 +1220,7 @@ de mapa, la de caminos pasa el join porque la unión no inventa cadenas.
 | FU: filtrar el estado unido cabe en la unión de sus piezas filtradas, bajo `MapCert J` | **demostrado** |
 | Bajada fijada: pieza fijada sin cima ⊆ fuente fijada; truncar un kernel da un kernel | **demostrado** |
 | `MapCert` de la línea `n+1` desde GL/GLF de la línea `n` | **demostrado como implicación**; su hipótesis es **falsa** en 20 casos (restricción en la cima) |
-| `PieceLocal` (≡ `MapCert` del estado unido ≡ X1 en el estado unido) | **abierto**; medido sin fallos |
+| `PieceLocal` (≡ `MapCert` del estado unido ≡ X1 en el estado unido) | ⚠ **falso** con restricción en el paso `n` (§4.2λ); sustituido por `FCert` |
 
 Lo único que falta para que el lector decida sigue siendo `PieceLocal`. Esta sesión lo ha reducido y medido desde varios
 lados; el núcleo que queda en todas las formas es el mismo: **elegir, con la clique entera, la pieza (o el destino)
@@ -1306,13 +1312,105 @@ cadenas de la unión no son cadena de ningún miembro (mezclan versiones fijadas
 
 #### 4.2κ.8 Qué queda y repaso
 
-* **Abierto, único**: `PieceLocal` (≡ X1 en el estado unido). En cada reformulación reaparece la misma selección: la
+* ⚠ **Superado por §4.2λ**: `PieceLocal` y `MapCert` del estado unido son falsos con restricción en el paso `n`.
+* **Abierto, único** (antes de §4.2λ): `PieceLocal` (≡ X1 en el estado unido). En cada reformulación reaparece la misma selección: la
   pieza (o el destino) buena la fija la clique entera con sus testigos en los `L3` (H19, B1), no una entrada, un
   testigo suelto ni la posesión de la cima.
 * **Siguiente candidato**: GL/GLF con restricciones solo por debajo de la cima (sonda en curso) y tratar la clave de la
   cima como miembro de `Q` en vez de restricción; o un invariante que lleve la selección por cláusulas (`L3`).
 * **Reejecución pendiente** con la review corregida: `decompress_probe.jl`, `lift_probe.jl`, `grow_step_probe.jl`
   (medidos antes de f463d92/e1acfd4).
+
+### 4.2λ `MapCert` es falso en el estado unido; el sustituto `FCert` (sesión 2026-09-27, `FiltCert.lean`)
+
+**Resumen de estado.**
+
+| pieza | estado |
+|---|---|
+| `MapCert`/`PieceLocal` en el estado unido | **falso** (4 cliques en `clause_mix.cnf`, paso 26) |
+| `FCert` (todo filtro válido tiene `CertClique`): base, join desde `PieceLocalF`, lector | **demostrado** |
+| Pieza sin miembro en la cima (`cert_piece_low`) | **demostrado**, sin hipótesis nuevas |
+| Pieza con miembro en la cima sin fusión (`single_parent`) | **demostrado** |
+| Pieza con miembro en la cima fusionado | reducido a `MergeSplit` (**demostrado** `topMerge_of_mergeSplit`) |
+| `PieceLocalF` | **abierto**; medido 66,9 M sin fallos |
+| `MergeSplit` | **abierto**; sonda en curso |
+
+> **`readerVerdictW_iff_of_mergeSplit`: el lector decide `φ` bajo `PieceLocalF` en cada join y `MergeSplit` en cada
+> pieza.** Las dos dicen lo mismo: una clique con testigos se queda en un lado de dos fijaciones complementarias.
+
+#### 4.2λ.1 El contraejemplo (`twenty_probe.jl`, `certj_probe.jl`)
+
+En `clause_mix.cnf`, paso 26 (estado unido `J`, piezas de claves `25:0` y `25:1`), hay cliques `Q` como
+`{21:1, 5:0}` tales que:
+* `Q` es clique en `J` y en cada paso hay un testigo que posee `Q` y un nodo `25:0` (`WitR J Q [25:0]`);
+* **no hay ninguna cadena de `J` que pase por `Q` y por un nodo `25:0`** (búsqueda exhaustiva, 4 casos de 4).
+
+Así que `MapCert J` es falso, y con él `PieceLocal` (un nodo `25:0` solo existe en la pieza `25:0`, donde `Q` no es
+buena). La sonda antigua de `PieceLocal` (3,5 M) y la de crecer (X1, 48 M) solo miraban `R = ∅`. La causa es la de
+§4.2κ.7: `WitR` pide la restricción solo a los testigos, y cada testigo toma `Q` de una pieza y `25:0` de la otra.
+
+No afecta al lector: una restricción `25:0` solo aparece cuando la máquina filtra `J` por `25:0`, y ese filtro es la
+pieza `25:0` (D1), donde `Q` ya no es clique con testigos. **La máquina aplica las restricciones filtrando.**
+
+#### 4.2λ.2 Lo que sí vale (medido, review corregida)
+
+| medida | sonda | casos | fallos |
+|---|---|---|---|
+| GLJ: cada testigo posee `Q` y `R` dentro de un mismo estado (`R` ∅ / cima / bajo) | `joint_probe.jl` | 52,9 M | 0 |
+| DJ con `R = ∅`: `Q` buena en `J` ⇒ testigos por pieza | `joint_probe.jl` | 1,94 M | 0 |
+| DJ con `R = [k_i]` | `joint_probe.jl` | 2,26 M | **20** (el contraejemplo) |
+| GLK/GLKs: en cada paso, un testigo coherente con su propia clave; GLKany: una sola pieza | `key_probe.jl` | 1,55 M | 0 |
+| `CertClique` sin filtro, estados de línea / piezas | `fcert_probe.jl` | 2,1 M / 2,6 M | 0 |
+| **`PieceLocalF`** (filtro vacío, de un nodo, de 2–4 al azar) | `djf_probe.jl` | 66,9 M | **0** |
+| `FCert` con filtros arbitrarios | `fcert_any_probe.jl` | en curso | |
+| `TopParent`, `CertClique` de piezas filtradas | `toppar_probe.jl` | en curso | |
+| `MergeSplit` | `mergesplit_probe.jl` | en curso | |
+
+Reejecución con la review corregida de las sondas anteriores a f463d92/e1acfd4: `decompress` igual (D1 4 094/4 094; FP y
+H21 fallan 20, el contraejemplo); `lift` casi igual (FW 0 fallos; SL 4 302, SLa 3 392, PL 5 530); `grow_step` igual (X1,
+X3, X4 sin fallos; X2 falla 318 k).
+
+#### 4.2λ.3 El invariante `FCert` (**demostrado**)
+
+* **`FCert g`**: todo filtro válido `filterAll g R`, con pins dentro de los pasos, cumple `CertClique`.
+* `chain_pins`: una cadena de un estado filtrado pasa por sus pins. `certThrough_grown`: un certificado de un estado
+  filtrado sube al mismo filtro de un estado que lo contiene.
+* **`fCert_of_mapCert`**: `MapCert` da `FCert` (base: semilla y piezas de la línea 0).
+* **`PieceLocalF n`**: una clique con testigos de un estado de la línea `n+1` filtrado por `R` lo es de una pieza
+  filtrada por `R`. **`fCert_join`**: con `PieceLocalF`, el join conserva `FCert`.
+* **`readerVerdictW_iff_of_fCert`**: `FCert` en la última línea basta al lector (con `R = []` es `CertClique` del estado
+  de partida).
+* **`fCert_line`**, **`readerVerdictW_iff_of_pieceLocalF`**: bajo `PieceLocalF` y `PieceF` (una pieza de un estado con
+  `FCert` tiene `FCert`), toda la máquina.
+
+#### 4.2λ.4 La pieza (**demostrado**, salvo la fusión)
+
+* **`cert_piece_low`**: una clique con testigos de una pieza filtrada, sin miembro en la cima, está en un certificado
+  cuyo nodo de la cima es la extensión de su nodo del paso `n`. La pieza filtrada sin su cima queda bajo la fuente
+  fijada por `pinsW` y por los pins bajo la cima (`piece_pinned_below`). `FCert` de la fuente da el certificado allí.
+  El certificado pasa por los requisitos y por `L1 = 1` cuando se salta la ventana, así que su extensión está
+  permitida. Sube por el `up` (`ChainSound_upFiltering`) y sobrevive a los pins (el pin de la cima solo puede ser
+  `d`). La fuente fijada es válida porque cada paso tiene un testigo.
+* **`single_parent`** (en cualquier kernel): si `w` tiene un solo padre `c`, `nbrP` pone toda la tabla de `w` en la de
+  `c`, y la simetría hace el resto. Así `w :: Q₀` con testigos da `c :: Q₀` con testigos.
+* **`topParent_of_topMerge`**: todo nodo de la cima tiene padre (validez y `NotRoot`). Si todos sus padres son uno,
+  `single_parent`. Queda **`TopMerge`**, las cimas con dos padres.
+* **`pieceF_of_topParent`**: con miembro `w` en la cima (el único: dos nodos de un paso no se poseen), el padre `c`
+  sustituye a `w`. El certificado por `c` y los miembros de abajo se extiende en la cima por el desplazamiento de `c`,
+  que es `w` (mismo id, padre y abuelo, por `PMP`/`GPMP`).
+* **`gparent_owner`**: un nodo solo posee, dos pasos más abajo, a su abuelo.
+* **`topMerge_of_mergeSplit`**: los dos padres de una fusión comparten id y padre, y solo difieren en el abuelo (un
+  nodo de mapa en el paso `n-2`). Fijando uno de los dos abuelos, `w` se queda con un solo padre y aplica
+  `single_parent`; la pieza fijada queda bajo la pieza sin fijar (`below_filterAll`).
+
+**Abierto**:
+* **`PieceLocalF`**: la clique con testigos de un estado unido filtrado vive en una pieza filtrada.
+* **`MergeSplit`**: la clique con testigos con cima fusionada sobrevive al filtro por uno de los dos abuelos.
+
+Las dos tienen la misma forma: **una clique con testigos se queda en un lado de dos fijaciones complementarias**. En
+el join las fijaciones son la clave del paso `n`; en la fusión, el abuelo del paso `n-2`. Es un hecho de tres
+miembros: la tabla unida no guarda qué lado respalda cada entrada, así que no sale de las reglas por parejas. Es el
+núcleo de siempre (§4.2q), ahora en una forma que sí está medida sin fallos (`PieceLocalF`).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1365,10 +1463,13 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
-1. Reejecutar con la review corregida las sondas anteriores a f463d92/e1acfd4 (§4.2κ.8).
-2. Decidir la forma corregida del invariante de línea: restricciones solo bajo la cima (medir) o la clave de la cima
-   como miembro de `Q`; adaptar `LineUnion` en consecuencia.
-3. Atacar `PieceLocal` por la selección por cláusulas (`L3`, H19/B1): es lo que decide la pieza/destino bueno.
+1. Esperar `fcert_any_probe.jl`, `toppar_probe.jl` y `mergesplit_probe.jl` (§4.2λ.2). Si `MergeSplit` falla, volver a
+   `TopMerge` (más débil) o a `TopParent`.
+2. Atacar `PieceLocalF` y `MergeSplit` como un solo enunciado: «una clique con testigos se queda en un lado de dos
+   fijaciones complementarias» (en el join: la clave; en la fusión: el abuelo). La selección la hace la clique entera
+   (H19/B1: los testigos de los `L3`).
+3. Las reducciones antiguas bajo `MapCert` (`LineUnion`, `FilterUnion.filter_union`, `GrowCert`) siguen siendo
+   implicaciones correctas, pero su hipótesis es falsa en el estado unido; no construir encima.
 
 ## 6. Mapa de ficheros (todos en `lean/improves_bin/AbsSatBin/GraphPath/Model/`)
 
@@ -1394,7 +1495,9 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `Trunc.lean` | `trunc`, `kernel_trunc` |
 | `LineUnion.lean` | `GL`, `GLF` (⚠ refutados con restricción en la cima), `certR_top_of_GLF`, `certR_low_of_GLF`, `mapCert_next_F` |
 | `FilterUnion.lean` | `mapCert_filter_pins`, `filter_union`, `piece_pinned_below` |
+| `FiltCert.lean` | `FCert`, `fCert_join`, `PieceLocalF`, `cert_piece_low`, `single_parent`, `gparent_owner`, `TopParent`, `TopMerge`, `MergeSplit`, `readerVerdictW_iff_of_mergeSplit` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
-`glfstar`, `select`, `gltop`, `verdict_brute`, `supported`).
+`glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
+`djf`, `toppar`, `mergesplit`).
