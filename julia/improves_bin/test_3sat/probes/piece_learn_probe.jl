@@ -130,6 +130,16 @@ function probe(path; k3 = false)
                 cw = [i for i in cliq if any(w -> haskey(Up[i], w) && all(q -> owns(Up[i], w, q) && owns(Up[i], q, w), Q), get(B, s1, PathNodeId[]))]
                 bump(Set(good) == Set(cw) ? "  H11 ok" : "  H11 FALLA")
                 bump(issubset(Set(good), Set(ct)) ? "  H12 ok: buena ⇒ clique y top en P" : "  H12 FALLA")
+                kindof(l) = l == 0 ? "raíz" : l <= 2nv ? "var" : l == 2nv + 1 ? "mid" : l == s1 ? "nuevo" : "L$((l - (2nv + 2)) % 3 + 1)"
+                for i in cliq
+                    misses = [l for l in 0:s1 if !any(r -> all(q -> owns(Up[i], r, q), Q), get(Bp[i], l, PathNodeId[]))]
+                    ks = Set(kindof(l) for l in misses)
+                    bump("  H18 pieza-clique: pasos sin testigo = $(isempty(ks) ? "ninguno" : join(sort(collect(ks)), "+"))")
+                end
+                # H19: la pieza buena, ¿es la única que tiene testigo en todos los L3 anteriores?
+                l3s = [l for l in 0:s1-1 if kindof(l) == "L3"]
+                allL3 = [i for i in cliq if all(l -> any(r -> all(q -> owns(Up[i], r, q), Q), get(Bp[i], l, PathNodeId[])), l3s)]
+                bump(Set(allL3) == Set(good) ? "  H19 ok: buena ⇔ clique con testigos en todos los L3" : "  H19 FALLA")
                 for i in setdiff(cliq, good)
                     miss = first(l for l in 0:s1 if !any(r -> all(q -> owns(Up[i], r, q), Q), get(Bp[i], l, PathNodeId[])))
                     kind = miss == 0 ? "raíz" : miss <= 2nv ? "var" : miss == 2nv + 1 ? "mid" : "L$((miss - (2nv + 2)) % 3 + 1)"

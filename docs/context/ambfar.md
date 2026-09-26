@@ -1129,6 +1129,19 @@ local a la pieza; falla 10 338) y **H16** (la clique es clique en la pieza de ca
 **Abierto:** el lema 1 (H9: la clique es clique en alguna pieza) para tamaño ≥ 3. Los testigos frontera fijan
 la pieza de sus propias entradas, pero las entradas entre miembros pueden venir de la otra pieza (E1 falla).
 
+### 4.2ε Qué decide la pieza buena: los pasos de cláusula (`piece_learn_probe.jl`, H18–H19)
+
+* **H18**: en una pieza donde `Q` (con testigos en el estado unido) es clique, o no falta ningún testigo, o faltan
+  **solo pasos de cláusula** (`L1`, `L2` y `L3` a la vez: 160 casos). Nunca falta un testigo de un paso de
+  variable, de fusión ni del paso nuevo.
+* **H19 siempre**: pieza buena ⇔ `Q` es clique en ella y tiene testigo en todos los `L3` anteriores.
+* Ejemplo (`clause_mix_sep`, paso 32, `Q = {x=0, c=1, b=1}`): en la pieza `z = 0` es clique pero no tiene
+  testigos en los pasos de `a∧b → ¬x`; con `z = 0`, `x = 0` y `b = c = 1` (que fuerza `y = 0`) no se cumple
+  `x ∨ y ∨ z`. En la pieza `z = 1` hay solución (`a = 0`) y testigos en todos los pasos.
+
+Lectura: la pieza buena es la que contiene una solución por `Q`; las cláusulas son los únicos pasos donde una
+pieza sin solución pierde testigos.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
