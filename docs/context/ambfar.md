@@ -984,6 +984,22 @@ solución real da uno), `ClauseChoice` es falso aunque la máquina acierte: el l
 cada pin, y ese repaso mata la clique. Entonces el invariante correcto no es `SemCert` para cliques
 arbitrarias del estado original, sino algo que lleve el pin (ruta `PrefixTri`, §4.2l).
 
+### 4.2x «Ninguna entrada es inventada» — **formalizado** (`NoInvent.lean`)
+
+La máquina elimina conjuntos enteros que se invalidan antes de llegar a un destino, une en el destino
+solo conjuntos válidos, y su `UP` crea un nodo por hoja salvo la ventana que sabe incorrecta. La
+afirmación que se sigue: **toda entrada de una tabla es co-ocurrencia en un camino real hasta ese paso.**
+
+* **`NoInvent g n`**: si `r` posee `q` en `g`, hay una solución parcial (`PreSat` hasta `n+1`) que pasa
+  por los dos.
+* **`noInvent_of_semCert`**: en todo estado revisado de la línea, `SemCert` la da. La pareja `{r, q}` es
+  clique y la regla de parejas del kernel da sus testigos.
+* **`filter_entry_req`**: tras el filtro de requisito, cada entrada `r → q` lleva un tercer nodo (un nodo
+  de camino del requisito en las dos tablas). Para llevar la entrada al paso siguiente hace falta una
+  solución por los tres. Por eso la forma que se conserva paso a paso es la de cliques con testigos
+  (`SemCert`) y la pareja es su primer caso; y en el tercer literal esas restricciones de mapa pueden
+  venir de piezas distintas, que es el mismo punto abierto que `ClauseKey`.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
