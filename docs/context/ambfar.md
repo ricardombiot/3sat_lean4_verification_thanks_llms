@@ -1040,6 +1040,29 @@ pin del lector), pero su prueba es la composición global: en el ejemplo, el tes
 otra cláusula. En el ejemplo actúa el testigo de **otra**
 cláusula anterior, así que la composición es global (cadenas de cláusulas), no local al `L3`.
 
+### 4.2z Sonda `ExtAt` en Julia: la versión por entradas es falsa, la versión por estado vale
+
+Sonda `julia/improves_bin/test_3sat/probes/extat_probe.jl` (cliques de tamaño 1–3 con testigos, en cada `L3`
+y en la línea final; `--state` = dentro de un solo estado) y `trace_clique.jl` (traza de una clique).
+Corpus: `cnf/crafted`, `cnf/random_small` y los ejemplos pequeños de Julia.
+
+* **Por entradas de la línea (como `LineSem.Owns`)**: 16 cliques de tamaño 3 con testigos y **sin solución**, y
+  64 fallos de `ExtAt`, todos en `rand3sat_v8_c10`, paso 38 (`L3` de la cláusula 7). Ejemplo:
+  `Q = {v1=0, v3=0, (v4=1, v7=1)}`: la cláusula 1 (`¬4 ∨ ¬7 ∨ ¬2`) fuerza `v2 = 0` y la 7 (`3 ∨ 1 ∨ 2`) pide
+  `v2 = 1`. **`SemCert`/`ClauseChoice`/`ClauseKey`/`ExtAt` tal como están enunciados (por entradas) son
+  falsos.**
+* **Por estado**: 0 fallos semánticos y 0 fallos de `ExtAt` en todo el corpus (1,3 M cliques, 13 M
+  ampliaciones). La traza muestra que la clique del ejemplo **no es clique en ningún estado** del paso 38, y
+  en el paso 39, tras el join, le falta el testigo del paso nuevo (39): el testigo superior vive en una sola
+  pieza, que viene de un solo estado de origen, y no posee la mezcla.
+* Los candidatos descartados tienen siempre testigos por parejas con cada miembro; les falta el testigo del
+  trío, casi siempre en un paso `L2`.
+
+**Consecuencia**: la máquina no se equivoca; el invariante tiene que ser **por estado**, no por entradas de la
+línea. Regla observada para el join: **el testigo del paso nuevo fija la pieza (y el estado de origen)**.
+Los módulos `LineSem`/`ClauseKey`/`ClauseWitness` siguen siendo correctos como implicaciones, pero su
+hipótesis (por entradas) no se cumple; hay que reenunciar `SemCert` por estado.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
