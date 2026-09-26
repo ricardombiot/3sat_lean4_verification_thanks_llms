@@ -1333,6 +1333,10 @@ es una clique de dos con testigos; su cadena vive en una pieza y sobrevive a su 
 FU a las piezas filtradas, por la truncación a las fuentes fijadas, y GLF\*(n)). Detalles pendientes: restricciones
 `R` en la cima (cada miembro tiene su destino) y el caso base.
 
+**Paso 2 demostrado (`FilterUnion.lean`).** `mapCert_filter_pins`: las fijaciones conservan `MapCert` cuando el estado
+fijado es un kernel. **`filter_union`** (FU): con `MapCert` de un estado de la línea `n+1`, toda entrada del estado
+filtrado por `ps` es entrada de una de sus piezas filtrada por `ps`.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
