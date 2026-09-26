@@ -1309,6 +1309,11 @@ ventana prohibida para cliques sin miembro en la cima, y GL(n+1).
 ⇔ `Q` es clique en `J_d` con testigos en todos los `L3`. De los malos, 12,13 M fallan por no ser clique en `J_d` y solo
 184 por testigos en una cláusula (`L1+L2+L3`). La compatibilidad con los requisitos (B3) no basta (91 796 fallos).
 
+**GL con fijaciones (sonda `glpin_probe.jl`, 0 fallos).** GLW (ventana: fuente `L2 = 1` filtrada por los requisitos
+de `d = L3 0`; fuente `L2 = 0` filtrada además por `L1 = 1`): 251 076 cliques con testigos, todas en un estado. GLP
+(cada estado de la línea filtrado por un nodo de mapa al azar, 3 sorteos por paso): 2,83 M, todas en un estado. El
+invariante natural es GLF: la unión de estados de la línea, cada uno filtrado por sus fijaciones, es local.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
