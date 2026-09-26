@@ -1322,6 +1322,17 @@ salta cualquier extensión está permitida. **`certR_low_of_GLF`** (sin hipótes
 `GL`, `GLF` y `MapCert` en la línea `n` dan `MapCert` en todo estado de la línea `n+1`. Queda la inducción del propio
 invariante: GL(n+1) y GLF(n+1) desde la línea `n`.
 
+**Unificado en GLF (`mapCert_next_F`, demostrado).** El caso con miembro en la cima se rehízo dentro de la pieza
+(`wit_owns_windowF`: kernel con `PMP`) y sus entradas llegan a la fuente fijada por `pieceF`; basta GLF.
+
+**Inducción de GLF (sonda `glfstar_probe.jl`, 0 fallos).** GLF\* (familias de 3–4 estados de la línea, con pins al
+azar, un estado puede repetirse con pins distintos): 4,29 M cliques con testigos, todas en un miembro. FU (filtrar
+el estado unido por pins al azar cabe, entrada a entrada, en la unión de sus piezas filtradas): 5 337, sin fallo.
+Plan: GLF\*(n) ⇒ `MapCert` de la línea `n+1` (`mapCert_next_F`) ⇒ FU(n+1) (una entrada del estado unido filtrado
+es una clique de dos con testigos; su cadena vive en una pieza y sobrevive a su filtro) ⇒ GLF\*(n+1) (bajando por
+FU a las piezas filtradas, por la truncación a las fuentes fijadas, y GLF\*(n)). Detalles pendientes: restricciones
+`R` en la cima (cada miembro tiene su destino) y el caso base.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
