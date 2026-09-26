@@ -956,7 +956,20 @@ paso inferior haya un nodo que posea la clique **y** `w`. Es una condición de u
 * **`ClauseKey n`**: una clique con testigos admite un literal cierto `t` que los testigos poseen también
   (`LWit (n+1) Q (t :: R)`). `clauseChoice_of_key` y **`readerVerdictW_iff_of_clauseKey`**.
 
-**Lo que falta.** Cada testigo, por separado, posee el literal de su pieza. Falta que testigos de pasos
+**Actualización.** `ClauseKey` se enuncia ahora con los literales como restricciones **por debajo** de
+`L3` (`keyOpts`: `L2 = 1`, `L1 = 1`, o el valor de variable que hace cierto el tercer literal), poseídas
+por los testigos en la línea `n` (`OldWit`); `semConcl_low` admite esas restricciones extra.
+
+**Demostrado: el caso con un nodo en `L2`** (`clauseKey_mid`). Si la clique tiene un nodo `q` en `L2`, su
+ventana elige el literal para **todos** los testigos:
+* `q` con `L2 = 1`: todo testigo posee `q`;
+* `q` con `L1 = 1`: todo testigo posee el padre de `q` (regla de parejas en la fuente, `owns_parent_map`);
+* `q` con ventana `00` (`owns_mid00`): en una pieza de clave `0` el único hijo de `q` sería `000`; el `UP`
+  lo salta, el review elimina `q` y el corte lo quita de toda tabla. Así que todo testigo que posee `q`
+  está en una pieza de clave `1` y posee el valor que hace cierto el tercer literal. Es exactamente el
+  review de la ventana saltada.
+
+**Lo que falta.** Cliques sin nodo en `L2` (ni en `L3`). Cada testigo, por separado, posee el literal de su pieza. Falta que testigos de pasos
 distintos coincidan en el literal. `ClauseKey` equivale a `ClauseChoice` (la solución, que la máquina
 lleva por `PrefixCarry`, da testigos que poseen su literal), así que no es más débil: es la misma
 condición dicha con las piezas de la máquina.
