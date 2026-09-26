@@ -878,6 +878,148 @@ theorem semCert_succ (hbd : Bounded φ) (n : Nat) (ih : SemCert φ n)
         exact finish a hpre hQa (fun m hm => hRa m (List.mem_append_left _ hm)) a' hloc (notProh a')
           (fun h => absurd h noTopQ) (fun _ => htop)
 
+/-- **A clique with a member at the new step is passed by a partial solution** (no hypothesis). -/
+theorem semConcl_of_top (hbd : Bounded φ) (n : Nat) (ih : SemCert φ n) (Q : List PathNodeId) (R : List NodeId)
+    (hQ : LClique φ (n + 1) Q) (hW : LWit φ (n + 1) Q R)
+    (htop : Q.any (fun q => q.id.step == (n : Int) + 1) = true) : SemConcl φ (n + 1) Q R := by
+  let Qo := Q.filter (fun q => decide (q.id.step ≤ (n : Int)))
+  let Ro := R.filter (fun m => decide (m.step ≤ (n : Int)))
+  have memQo : ∀ q, q ∈ Qo ↔ q ∈ Q ∧ q.id.step ≤ (n : Int) := by
+    intro q; rw [List.mem_filter]; exact ⟨fun ⟨a, b⟩ => ⟨a, of_decide_eq_true b⟩, fun ⟨a, b⟩ => ⟨a, decide_eq_true b⟩⟩
+  have memRo : ∀ m, m ∈ Ro ↔ m ∈ R ∧ m.step ≤ (n : Int) := by
+    intro m; rw [List.mem_filter]; exact ⟨fun ⟨a, b⟩ => ⟨a, of_decide_eq_true b⟩, fun ⟨a, b⟩ => ⟨a, decide_eq_true b⟩⟩
+  have qstep : ∀ q ∈ Q, q.id.step ≤ (n : Int) + 1 := fun q hq => by
+    have := owns_step φ hbd (n + 1) q q (hQ q hq q hq); push_cast at this; omega
+  have hQo : LClique φ n Qo := by
+    intro q hq s hs
+    obtain ⟨hqQ, hqs⟩ := (memQo q).mp hq
+    obtain ⟨hsQ, hss⟩ := (memQo s).mp hs
+    exact owns_old φ hbd n q s (hQ q hqQ s hsQ) hqs hss
+  -- a witness below the top, with extra map constraints
+  have witOld : ∀ (E : List NodeId), (∀ r, r.id.step ≤ (n : Int) → Node φ (n + 1) r → (∀ q ∈ Q, Owns φ (n + 1) r q) →
+      (∀ m ∈ R, OwnsMap φ (n + 1) r m) → ∀ m ∈ E, OwnsMap φ n r m) → LWit φ n Qo (Ro ++ E) := by
+    intro E hE l h0 hl
+    obtain ⟨r, hrs, hrn, hrQ, hrR⟩ := hW l h0 (by push_cast; omega)
+    refine ⟨r, hrs, node_old φ hbd n r hrn (by omega), fun q hq => ?_, fun m hm => ?_⟩
+    · obtain ⟨hqQ, hqs⟩ := (memQo q).mp hq
+      exact owns_old φ hbd n r q (hrQ q hqQ) (by omega) hqs
+    · rcases List.mem_append.mp hm with hm | hm
+      · obtain ⟨hmR, hms⟩ := (memRo m).mp hm
+        exact ownsMap_old φ hbd n r m (hrR m hmR) (by omega) hms
+      · exact hE r (by omega) hrn hrQ hrR m hm
+  -- the top witness pins every top constraint and every top member
+  obtain ⟨w, hws, hwn, hwQ, hwR⟩ := hW ((n : Int) + 1) (by omega) (by push_cast; omega)
+  have topR : ∀ m ∈ R, m.step = (n : Int) + 1 → m = w.id := by
+    intro m hm hms
+    obtain ⟨kv, hkv, nr, hnr, p, hp, hpm⟩ := hwR m hm
+    have := top_owns_self φ hbd n w p ⟨kv, hkv, nr, hnr, hp⟩ hws (by rw [hpm]; exact hms)
+    rw [← hpm, this]
+  have topQ : ∀ q ∈ Q, q.id.step = (n : Int) + 1 → q = w :=
+    fun q hq hqs => top_owns_self φ hbd n w q (hwQ q hq) hws hqs
+  obtain ⟨hwf, hwm, pw, hpws, hwpar, hwgp, hwb1, hwb0⟩ := top_node φ hbd n w hwn hws
+  -- a partial solution with the old part, extended to the top, gives the conclusion
+  have finish : ∀ a, PreSat φ a ((n : Int) + 1) → (∀ q ∈ Qo, pidOfAssign φ a q.id.step = q) →
+      (∀ m ∈ Ro, 0 ≤ m.step → m.step ≤ (n : Int) → selOfAssign φ a m.step = m) →
+      ∀ a', (∀ k, k ≤ (n : Int) → pidOfAssign φ a' k = pidOfAssign φ a k ∧ selOfAssign φ a' k = selOfAssign φ a k) →
+      isProhibited φ (pidOfAssign φ a' ((n : Int) + 1)) = false →
+      ((∃ q ∈ Q, q.id.step = (n : Int) + 1) → pidOfAssign φ a' ((n : Int) + 1) = w) →
+      ((∃ m ∈ R, m.step = (n : Int) + 1) → selOfAssign φ a' ((n : Int) + 1) = w.id) →
+      SemConcl φ (n + 1) Q R := by
+    intro a hpre hQa hRa a' hloc hf htq htr
+    refine ⟨a', fun k hk => ?_, fun q hq => ?_, fun m hm h0 h1 => ?_⟩
+    · push_cast at hk
+      rcases Int.lt_or_le k ((n : Int) + 1) with h | h
+      · rw [(hloc k (by omega)).1]; exact hpre k h
+      · rw [show k = (n : Int) + 1 by omega]; exact hf
+    · rcases Int.lt_or_le q.id.step ((n : Int) + 1) with h | h
+      · rw [(hloc _ (by omega)).1]; exact hQa q ((memQo q).mpr ⟨hq, by omega⟩)
+      · have hqs : q.id.step = (n : Int) + 1 := by have := qstep q hq; omega
+        rw [hqs, htq ⟨q, hq, hqs⟩, topQ q hq hqs]
+    · push_cast at h1
+      rcases Int.lt_or_le m.step ((n : Int) + 1) with h | h
+      · rw [(hloc _ (by omega)).2]; exact hRa m ((memRo m).mpr ⟨hm, by omega⟩) h0 (by omega)
+      · have hms : m.step = (n : Int) + 1 := by omega
+        rw [hms, htr ⟨m, hm, hms⟩, topR m hm hms]
+  -- the window of `w` is its parent's, and not prohibited
+  have pidw : ∀ a a', (∀ k, k ≤ (n : Int) → pidOfAssign φ a' k = pidOfAssign φ a k ∧
+      selOfAssign φ a' k = selOfAssign φ a k) → selOfAssign φ a' ((n : Int) + 1) = w.id →
+      selOfAssign φ a pw.id.step = pw.id → (∀ b, pw.parent_id = some b → selOfAssign φ a b.step = b) →
+      pidOfAssign φ a' ((n : Int) + 1) = w := by
+    intro a a' hloc htop hpa hpb
+    apply ParentId.pathNodeId_ext
+    · show selOfAssign φ a' ((n : Int) + 1) = w.id; exact htop
+    · show (if 0 < (n : Int) + 1 then some (selOfAssign φ a' ((n : Int) + 1 - 1)) else none) = w.parent_id
+      rw [if_pos (by omega), show (n : Int) + 1 - 1 = n by omega, (hloc n (Int.le_refl _)).2, ← hpws, hpa, hwpar]
+    · show (if 1 < (n : Int) + 1 then some (selOfAssign φ a' ((n : Int) + 1 - 2)) else none) = w.gparent_id
+      by_cases h1 : 1 ≤ n
+      · obtain ⟨b, hb, hbs⟩ := hwb1 h1
+        rw [if_pos (by omega), show (n : Int) + 1 - 2 = n - 1 by omega, (hloc (n - 1) (by omega)).2, ← hbs,
+          hpb b hb, hwgp, hb]
+      · have h0 : n = 0 := by omega
+        have hc : ¬ (1 < (n : Int) + 1) := by rw [h0]; decide
+        rw [if_neg hc, hwgp, hwb0 h0]
+  cases hz : Q.any (fun q => q.id.step == (n : Int) + 1) with
+  | true =>
+    obtain ⟨z, hzQ, hzs'⟩ := List.any_eq_true.mp hz
+    have hzs : z.id.step = (n : Int) + 1 := eq_of_beq hzs'
+    have hzw : z = w := topQ z hzQ hzs
+    let E : List NodeId := [pw.id] ++ pw.parent_id.toList ++ (reqOf φ w.id).filter (fun r => decide (0 ≤ r.step))
+    have hW' : LWit φ n Qo (Ro ++ E) := witOld E (fun r hrs _ hrQ _ m hm => by
+      have hrz := hrQ z hzQ
+      rw [hzw] at hrz
+      obtain ⟨hpar, hgp, hrq⟩ := owns_top φ hbd n r w hrz hrs hws
+      rcases List.mem_append.mp hm with hm | hm
+      · rcases List.mem_append.mp hm with hm | hm
+        · rw [List.mem_singleton.mp hm]; exact hpar pw.id hwpar
+        · have hb : pw.parent_id = some m := Option.mem_toList.mp hm
+          have h1 : 1 ≤ n := by
+            by_cases h1 : 1 ≤ n
+            · exact h1
+            · rw [hwb0 (by omega)] at hb; cases hb
+          exact hgp h1 m (by rw [hwgp, hb])
+      · obtain ⟨hmr, hm0⟩ := List.mem_filter.mp hm
+        exact hrq m hmr (of_decide_eq_true hm0) (by have := reqOf_backward φ hbd w.id m hmr; omega))
+    obtain ⟨a, hpre, hQa, hRa⟩ := ih Qo (Ro ++ E) hQo hW'
+    have hreq : ∀ req ∈ reqOf φ w.id, selOfAssign φ a req.step = req := by
+      intro req hr
+      have h0 := reqOf_nonneg φ hbd w.id req hr
+      exact hRa req (List.mem_append_right _ (List.mem_append_right _ (List.mem_filter.mpr ⟨hr, decide_eq_true h0⟩)))
+        h0 (by have := reqOf_backward φ hbd w.id req hr; omega)
+    obtain ⟨a', hloc, htop⟩ := extend_to φ hbd n a w.id hwm hreq
+    have hpa : selOfAssign φ a pw.id.step = pw.id :=
+      hRa pw.id (List.mem_append_right _ (List.mem_append_left _ (List.mem_append_left _ List.mem_cons_self)))
+        (by omega) (by omega)
+    have hpb : ∀ b, pw.parent_id = some b → selOfAssign φ a b.step = b := by
+      intro b hb
+      have h1 : 1 ≤ n := by
+        by_cases h1 : 1 ≤ n
+        · exact h1
+        · rw [hwb0 (by omega)] at hb; cases hb
+      obtain ⟨b', hb', hbs⟩ := hwb1 h1
+      rw [hb] at hb'; cases hb'
+      exact hRa b (List.mem_append_right _ (List.mem_append_left _ (List.mem_append_right _ (Option.mem_toList.mpr hb))))
+        (by omega) (by omega)
+    have hpid := pidw a a' hloc htop hpa hpb
+    exact finish a hpre (fun q hq => hQa q hq) (fun m hm => hRa m (List.mem_append_left _ hm)) a' hloc
+      (by rw [hpid]; exact hwf) (fun _ => hpid) (fun _ => htop)
+  | false => rw [htop] at hz; cases hz
+
+/-- **The clause, on the tables**: at the third literal of a clause, a clique with witnesses and no
+member at that step extends by a top node — an allowed window of the clause — keeping its witnesses. -/
+def ClauseLocal (n : Nat) : Prop :=
+  isL3 φ ((n : Int) + 1) = true → ∀ Q R, LClique φ (n + 1) Q → LWit φ (n + 1) Q R →
+    (∀ q ∈ Q, q.id.step ≤ (n : Int)) →
+    ∃ z : PathNodeId, z.id.step = (n : Int) + 1 ∧ LClique φ (n + 1) (z :: Q) ∧ LWit φ (n + 1) (z :: Q) R
+
+/-- **`ClauseChoice ⇐ ClauseLocal`**: the extended clique has a member at the new step. -/
+theorem clauseChoice_of_local (hbd : Bounded φ) (n : Nat) (ih : SemCert φ n) (h : ClauseLocal φ n) :
+    ClauseChoice φ n := by
+  intro hL3 Q R hQ hW hlow
+  obtain ⟨z, hzs, hQz, hWz⟩ := h hL3 Q R hQ hW hlow
+  obtain ⟨a, hpre, hQa, hRa⟩ := semConcl_of_top φ hbd n ih (z :: Q) R hQz hWz
+    (List.any_eq_true.mpr ⟨z, List.mem_cons_self, beq_iff_eq.mpr hzs⟩)
+  exact ⟨a, hpre, fun q hq => hQa q (List.mem_cons_of_mem _ hq), hRa⟩
+
 -- ============================================================
 -- Conclusion: the reader
 -- ============================================================
@@ -996,5 +1138,30 @@ theorem readerVerdictW_iff_of_clauseChoice (hbd : Bounded φ)
 /-- info: 'AbsSatBin.GraphPath.Model.LineSem.readerVerdictW_iff_of_clauseChoice' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_clauseChoice
+
+/-- **The reader decides `φ` when every third literal of a clause satisfies `ClauseLocal`** — a statement
+about the tables only. -/
+theorem readerVerdictW_iff_of_clauseLocal (hbd : Bounded φ)
+    (hloc : ∀ n : Nat, (n : Int) + 1 < stepCount φ → ClauseLocal φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  have hsem : ∀ n : Nat, (n : Int) < stepCount φ → SemCert φ n := by
+    intro n
+    induction n with
+    | zero => intro _; exact semCert_zero φ
+    | succ m ih =>
+      intro hm
+      push_cast at hm
+      have ihm := ih (by omega)
+      exact semCert_succ φ hbd m ihm (clauseChoice_of_local φ hbd m ihm (hloc m hm))
+  refine CertFix.readerVerdictW_iff_of_certLink φ hbd (fun kv hkv hv => ?_)
+  have hzero : (0 : Int) < stepCount φ := by simp only [stepCount]; omega
+  have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by omega
+  have hmap := mapCert_start φ hbd _ hN (hsem _ hN) kv hkv hv
+  have c := AmbTriCore.aCtx_readPins φ hbd kv hkv [] _ OtherBitSem.ReadPins.start hv
+  exact CertInvariant.certLink_of_certClique c (MapCert.certClique_of_mapCert hmap)
+
+/-- info: 'AbsSatBin.GraphPath.Model.LineSem.readerVerdictW_iff_of_clauseLocal' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_clauseLocal
 
 end AbsSatBin.GraphPath.Model.LineSem

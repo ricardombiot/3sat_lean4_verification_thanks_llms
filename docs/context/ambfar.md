@@ -897,6 +897,44 @@ estado unión.
 sin miembro en ese paso, y con testigos, la atraviesa una solución parcial. Es la disyunción propia de
 la fórmula, y es lo único que queda.
 
+### 4.2v `ClauseChoice`: el diseño de las cláusulas y la versión en tablas — **reducido** (`LineSem.lean`)
+
+**El diseño** (v193, `CnfMapBin`):
+* Cada cláusula `j` son tres pasos seguidos, `L1`, `L2` y `L3`, con 2 nodos por paso. El nodo `Lp = b`
+  requiere que el literal `p` valga `b`, así que el bit de cada paso de cláusula es el valor de un
+  literal, fijado por una variable anterior.
+* **La ventana mide lo mismo que la cláusula.** En `L3`, el nodo de camino `(L3, L2, L1)` es la
+  asignación completa de la cláusula.
+* La disyunción no está en las tablas, sino en la **existencia de nodos**: la ventana `000` no se crea.
+  En la clave `L3 = 0` el `UP` salta esa ventana y revisa. En `L3 = 1` no salta nada.
+* La intención del diseño es que cada paso tenga 2 nodos, para que el Helly de un paso sea el de dos
+  elementos (`HellyTwo.share3_of_two`).
+
+**Qué pide `ClauseChoice`.**
+* La solución parcial de la hipótesis de inducción puede tener los tres literales de la cláusula a 0.
+* Cada testigo de un paso inferior posee algún nodo superior permitido: todo nodo de un estado de
+  `L3` tiene entrada en ese paso (en `L3 = 0` por el review; en `L3 = 1` porque su padre tiene hijo).
+* Pero testigos de pasos distintos pueden apoyarse en **literales distintos**. Helly-2 actúa dentro
+  de un paso, no entre pasos.
+* A diferencia de las uniones de §4.2g–s, aquí la rama no es el valor de una variable, sino **cuál de
+  los tres literales es cierto**: la disyunción de la fórmula.
+
+**Demostrado:**
+* `semConcl_of_top`: una clique con miembro en el paso nuevo la atraviesa una solución parcial, sin
+  hipótesis (el caso ya demostrado dentro de `semCert_succ`, extraído).
+* **`ClauseLocal n`**: en el tercer literal, toda clique con testigos y sin miembro en ese paso se
+  amplía con un nodo superior (una ventana permitida de la cláusula) conservando los testigos. Es
+  **solo de tablas**.
+* `clauseChoice_of_local`: `ClauseLocal ⇒ ClauseChoice`.
+* **`readerVerdictW_iff_of_clauseLocal`**: el lector decide `φ` suponiendo solo `ClauseLocal` en cada
+  tercer literal.
+
+**Lo que dice `ClauseLocal` en términos del diseño.** La disyunción vive en la existencia de los nodos
+superiores, y `ClauseLocal` pide que los testigos de una clique puedan elegirse **a través de uno de
+esos nodos**. El candidato natural es el testigo superior `w`, que ya posee la clique. Falta que en cada
+paso inferior haya un nodo que posea la clique **y** `w`. Es una condición de un solo paso de la máquina
+(el `UP` del tercer literal: `addNode` más el review de la ventana saltada) sobre los estados de la línea.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
