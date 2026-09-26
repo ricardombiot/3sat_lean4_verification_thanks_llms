@@ -1293,6 +1293,14 @@ y las restricciones de `R` en el paso `n` son restricciones en la cima de la lí
 `mapCert_next(_F)` son **implicaciones correctas con hipótesis falsa**; los resultados de 4.2κ.4 y las piezas FU/bajada
 no dependen de ella.
 
+**Los 20 casos (`twenty_probe.jl`)**: todos en `clause_mix.cnf`, paso 26. Un testigo `r` posee `Q` por la pieza buena
+(clave `25:1`) y el nodo `25:0` por la otra pieza; ningún camino pasa por `Q` y `25:0` a la vez. Ninguna entrada es falsa
+(cada una la respalda un camino real): **no lo arregla una regla de review** (borraría información verdadera); falla el
+hecho de tres miembros «`r` con `Q` y con `k` a la vez», que las tablas por parejas no guardan. El defecto está en
+GL/GLF, que dejan que cada entrada de un testigo venga de un estado distinto. Con restricciones solo por debajo de la
+cima también falla: 76 de 37,8 M (`gltop_probe.jl`, GLtop-below). Corrección candidata: cada testigo posee `Q` y `R`
+dentro de un mismo estado.
+
 Selección de miembro en familias fijadas: WL falla 319 575, WL1 y CL 1 610 de 5,19 M. Vía de cadenas: 519 de 61 108
 cadenas de la unión no son cadena de ningún miembro (mezclan versiones fijadas de un mismo estado).
 
