@@ -33,3 +33,8 @@ root = "AmbHighProbeMain"
 [[lean_exe]]
 name = "ambhigh-dump"
 root = "AmbHighDumpMain"
+
+# LineSem clique test at the third literal of a clause (read-only).
+[[lean_exe]]
+name = "clausemix-probe"
+root = "ClauseMixProbeMain"

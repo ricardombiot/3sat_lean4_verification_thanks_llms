@@ -1,0 +1,7 @@
+c como clause_mix, con variables separadoras para que las ventanas no liguen a,b,c
+c a=1,s=2,b=3,t=4,c=5,u=6,x=7,y=8,z=9: a&b->-x, b&c->-y, a&c->-z y x|y|z
+p cnf 9 4
+-1 -3 -7 0
+-3 -5 -8 0
+-1 -5 -9 0
+7 8 9 0

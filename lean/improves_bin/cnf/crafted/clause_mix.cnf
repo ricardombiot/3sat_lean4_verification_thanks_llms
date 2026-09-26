@@ -1,0 +1,7 @@
+c a=1,b=2,c=3,x=4,y=5,z=6: a&b->-x, b&c->-y, a&c->-z y la cláusula x|y|z
+c toda solución con a=b=c=1 pone x=y=z=0 y viola la última cláusula
+p cnf 6 4
+-1 -2 -4 0
+-2 -3 -5 0
+-1 -3 -6 0
+4 5 6 0
