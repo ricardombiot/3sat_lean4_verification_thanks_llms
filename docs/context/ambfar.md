@@ -1223,9 +1223,12 @@ información; lo que falta es que la review de las piezas (ventana saltada en `L
 
 **Demostrado (`PieceFilter.piece_survives_filter`)**: la pieza revisada queda por debajo de `filter(J, {k})`. La
 pieza revisada es un kernel, está por debajo de `J` y en el paso `n` solo nombra `k`; la review nunca baja de un
-kernel. Queda abierta la otra mitad, `filter(J, {k}) ⊆ A`: que el filtro no deje ninguna entrada de la otra
-pieza. Equivale a que toda entrada que deja el filtro esté en una cadena por `k` (la forma por entradas de
-`NoDeadEnd`).
+kernel. **Reducido (`PieceFilter.filter_in_piece`)**: la otra mitad, `filter(J, {k}) ⊆ A`, sale si toda entrada que
+deja el filtro está en una cadena (`EntryOnChain`). La cadena sube a `J`, baja a la pieza de su clave en el paso
+`n` (`chain_in_piece`), y esa clave es la fijada. La review calcula el mayor kernel (`below_review`), y un kernel
+solo tiene apoyo local: `EntryOnChain` del estado filtrado es la forma por entradas de `NoDeadEnd`, el núcleo
+abierto. Medido: toda entrada de todo estado de línea y de lector está en una cadena (`supported_probe.jl`,
+74 k estados, 0 fallos).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
