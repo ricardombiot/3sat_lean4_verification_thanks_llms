@@ -56,6 +56,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `CertDescent` | — | nuevo | `CliqueTri ⇒ CertLink` haciendo crecer una clique con testigos hasta un certificado (`grow`, `cover`, `chain_of_cover`); `certLink_iff_cliqueTri` |
 | `CertInvariant` | — | nuevo | `CertClique` (toda clique con testigos está en un certificado) ⇔ `CertLink`; **el review lo conserva** (`certClique_filterAll_nil`); basta en la salida cruda de la máquina (`readerVerdictW_iff_of_certClique`) |
 | `PrefixTri` | — | nuevo | el lector solo necesita cliques **prefijo** (un nodo por paso `0…k`): `PrefixTri` ⇐ `CliqueTri`; da `TriPin₁` en la primera elección; el pin lo conserva (`prefixTri_pin`); basta en los estados de partida (`readerVerdictW_iff_of_prefixTri`) |
+| `OneShot` | — | nuevo | **`TriPin₁` ⇔ el review tras el pin es de una sola ronda** (`triPin₁_iff_oneShot`: el estado pinchado contiene el subkernel cortado, sin cascada); en un nodo con un único padre el corte no toca ese enlace (`cx_unique_parent`, `cx_unique_son`): los cortes solo actúan en las fusiones |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales

@@ -442,6 +442,36 @@ pasos intermedios, y en una clique prefijo todos los pasos hasta `k` están fija
 
 **Siguiente**: `PrefixTri` en la salida de la máquina, siguiendo la corrida.
 
+### 4.2j `PrefixTri` en la salida: forma operativa — **demostrado** (`OneShot.lean`)
+
+Por `prefixTri_pin`, `PrefixTri` en un estado de partida equivale a tener `TriPin₁` en la primera
+elección de **toda** rama del lector.
+
+**`triPin₁_iff_oneShot`** (demostrado): en un estado del lector, `TriPin₁ g x` equivale a que el estado
+pinchado, que es un kernel válido, **contenga** el subkernel cortado `restrictPin₁ g x`.
+* La inclusión contraria vale siempre (`below_cut_pin`).
+* Así, `TriPin₁` significa que **el review tras el pin es de una sola ronda**: quita los nodos que no
+  poseen `x` y los enlaces no compatibles con `x`, y nada más. **No hay cascada.**
+* `readerVerdictW_iff_of_oneShot`: si en cada estado visitado algún pin sobrevive con un review de una
+  ronda, el lector decide.
+
+**Dónde puede actuar el corte** (demostrado):
+* `cx_unique_parent`: un nodo con un único padre conserva el enlace con él. Su tabla está dentro de la
+  del padre (cláusula de vecinos del kernel), así que la regla de parejas con `x` ya da testigos
+  compatibles.
+* `cx_unique_son`: lo mismo para el hijo de un único padre.
+* **Los enlaces padre–hijo solo pueden cortarse en las fusiones** (nodos con dos padres, §4.2h).
+
+**Lo que queda.** En una fusión `z` con padres `p₁`, `p₂`, se tiene `T(z) ⊆ T(p₁) ∪ T(p₂)`.
+* El corte puede quitar `z–p₁` si los testigos compatibles con `x` de `z` pasan todos por `p₂`. Eso es
+  legítimo: las continuaciones de `x` por `z` vienen de `p₂`.
+* **La condición local que impediría la cascada:** si `w` es compatible con `z` relativo a `x`, algún
+  padre `pᵢ` de `z` es compatible con `z` y con `w`. En el paso `s−1`, el testigo del enlace `z–w` tiene
+  que ser un padre de `z`.
+* Siguiente paso: ver si todo fallo de un solo paso se reduce a esa condición en fusiones, y si la
+  historia de la máquina da esa condición en los estados de partida. La tabla de `z` se construyó como
+  la unión exacta de las de sus padres (`rowOwners`), y el review posterior es monótono.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
