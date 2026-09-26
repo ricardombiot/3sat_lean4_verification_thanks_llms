@@ -545,6 +545,37 @@ de tres nodos (§4.2g). El siguiente paso es la versión relativa de estos mismo
 `addNode` conserva «todo enlace compatible con `x` está en un certificado por `x`», usando que cada
 enlace nuevo viene de un solo padre.
 
+### 4.2m Versión relativa a `x` — **formalizada**, conservada sin fusiones (`BranchRel.lean`)
+
+**`PairExactRel g x`**: todo enlace `y–w` compatible con `x` está, junto con `x`, en un certificado. Es
+`CertLink` para la clique `[x]`. **`PairExactRelAll`**: para todo nodo vivo `x`.
+
+**Demostrado:**
+* `triPin₁_of_pairExactRel` (y por tanto `commonBranch_of_pairExactRel`): el testigo en cada paso es el
+  nodo del certificado, y sus enlaces son compatibles por el mismo certificado (`cx_of_cert3`).
+* `pairExactRelAll_filterAll_nil`: **el review la conserva**.
+* `pairExactRelAll_addNode`: **`addNode` la conserva cuando ningún nodo nuevo fusiona**, es decir, cuando
+  cada nodo nuevo tiene un solo padre.
+  * Cada nodo del estado nuevo tiene una **sombra** en el anterior (`sh`): él mismo si es viejo, su padre
+    si es nuevo.
+  * Las entradas por debajo del paso nuevo pasan a la sombra (`sh_entry`), y los enlaces también
+    (`sh_link`).
+  * El certificado por las sombras se extiende por los nodos nuevos (`sh_extend`).
+
+**Dónde puede romperse, con precisión.** En las fusiones (dos padres) y en `join`:
+* La versión por parejas sobrevive porque un enlace viene de **un** lado.
+* La relativa necesita testigos en **cada** paso, y en una unión esos testigos pueden venir de lados
+  distintos en pasos distintos.
+* Es exactamente el mecanismo de mezcla de §4.2g. Con los lemas de sombra, la prueba de `addNode` falla
+  en un único punto: `sh_entry` para un nodo nuevo con dos padres, donde una entrada viene de un padre u
+  otro según el paso.
+
+**Siguiente, dentro del diseño actual.** En una fusión `z = (d, a, b)`, los dos padres `(a, b, c₁)` y
+`(a, b, c₂)` solo difieren en el paso `s−3`. Un certificado relativo a `x` que pasa por `z` elige un
+`cᵢ`, y las entradas de `z` que dependen de esa elección están en el paso `s−3` o las fijan los
+requisitos que miran allí. Queda ver si `PairExactRel` en el estado anterior, aplicada a cada padre, más
+la estructura del paso `s−3`, basta para reconstruir un certificado a través de uno de ellos.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
