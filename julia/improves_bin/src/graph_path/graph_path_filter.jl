@@ -20,16 +20,46 @@ function make_review_owners!(gpath :: GPath)
         if PAIR_MODE[] == :on
             pair_consistency_after_clean!(gpath)
         end
-        
+        LINK_MODE[] == :on && prune_stale_links!(gpath)
+
         review_owners_coherence_with_its_parents_sons!(gpath)
 
         #agressive_consistence_filter!(gpath)
         chain_consistence_filter!(gpath)
+        LINK_MODE[] == :on && prune_stale_links!(gpath)
 
         if gpath.review_owners
             make_review_owners!(gpath)
         end
     end
+end
+
+# Enlaces caducados (26-sept-2026). Quitar un dueño (corte, parejas, espejo, regla de la cadena) puede
+# dejar un enlace padre–hijo entre dos nodos que ya no se poseen: ninguna cadena lo puede usar. El modelo
+# Lean los quita (`unlinkIncompatible`, `cutNode`: un enlace sobrevive si cada extremo posee al otro);
+# con :on (por defecto) Julia hace lo mismo. Solo quita enlaces (no dueños); si quita alguno, pide otra vuelta de review
+# (un nodo sin padres o sin hijos lo elimina la purga siguiente).
+const LINK_MODE = Ref(:on)
+const LINK_PRUNED = Ref(0)
+
+function prune_stale_links!(gpath :: GPath)
+    gpath.is_valid || return
+    #! [fn-iter] $ O(S*7*7*7) $
+    PathCollectionLines.for_each(gpath.table_lines, function (node)
+        for (links, back) in ((node.parents, :sons), (node.sons, :parents))
+            #! [for] $ O(7) $
+            for c_id in collect(links)
+                node_c = PathCollectionLines.get_node(gpath.table_lines, c_id)
+                if node_c === nothing || !(PathDocumentOwners.is_owner(node.owners, c_id) &&
+                                           PathDocumentOwners.is_owner(node_c.owners, node.id))
+                    delete!(links, c_id)
+                    node_c !== nothing && delete!(getfield(node_c, back), node.id)
+                    LINK_PRUNED[] += 1
+                    gpath.review_owners = true
+                end
+            end
+        end
+    end)
 end
 
 # Interruptor de clean_invalid_nodes! (informe v181, §6):
