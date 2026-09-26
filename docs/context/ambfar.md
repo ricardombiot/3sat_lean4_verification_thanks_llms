@@ -509,6 +509,42 @@ pinchado, que es un kernel válido, **contenga** el subkernel cortado `restrictP
 * **El lema que falta** es una afirmación sobre el review en fusiones: **lo que el review quita de la
   tabla de una fusión lo quita rama a rama** (llenura de ramas). Es el siguiente objetivo formal.
 
+### 4.2l Llenura de ramas — **formalizada**; exactitud por parejas a lo largo de la máquina — **en parte demostrada** (`BranchFull.lean`)
+
+**Qué es una rama.** Relativo al pin `x`, la rama del padre `p` de `z` es `T(z) ∩ T(p) ∩ T(x)`. Está
+llena cuando tiene entrada en cada paso, es decir, `Cx g x nz p`.
+* `FullBranch g x`: todo nodo que posee `x` tiene una rama llena.
+* `CommonBranch g x`: todo enlace `z–w` compatible con `x` tiene un padre de `z` que es rama llena de
+  ambos extremos.
+* **Necesarias** (demostrado): `commonBranch_of_triPin₁`, `fullBranch_of_triPin₁`. Son `TriPin₁` un paso
+  por debajo del nodo.
+* `fullBranch_of_pairExact` (demostrado): la exactitud por parejas (`PairExact`: todo enlace de tabla
+  está en un certificado) da ramas llenas. El certificado del enlace `z–x` pasa por un padre y llena
+  su rama.
+
+**`PairExact` a lo largo de la máquina** (demostrado):
+
+| operación | ¿conserva `PairExact`? |
+|---|---|
+| review | **sí** (`pairExact_filterAll_nil`): los enlaces solo desaparecen y los certificados sobreviven |
+| `join` / `doJoin` | **sí** (`pairExact_join`): un enlace del join viene de un lado, y su certificado también |
+| `addNode` sin ventana saltada | **sí, fusiones incluidas** (`pairExact_addNode`): la unión se toma enlace a enlace, cada enlace nuevo viene de **un** padre, y el certificado por ese padre se extiende por el nodo nuevo |
+| filtro por requisito | abierto |
+| review tras ventana saltada | abierto (es la antigua `SkipExact`) |
+
+**Lectura.**
+* Las fusiones **no** rompen la exactitud por parejas: una pareja nunca necesita dos ramas.
+* Lo que queda para `PairExact` son exactamente **las dos operaciones que imponen la fórmula**: los
+  requisitos (literal ↔ variable) y la ventana prohibida `000` (la cláusula).
+* Es el mismo sitio donde estaban `HardStepExact` y `SkipExact` en la ruta original de la solidez: las
+  dos líneas de trabajo convergen.
+
+**Lo que `PairExact` no da.** `CommonBranch` para parejas `z–w` relativas a `x` necesita un certificado
+por `x`, `z` y `w` a la vez (la versión relativa, `CertLink [x]`). Las fusiones sí afectan a esa versión
+de tres nodos (§4.2g). El siguiente paso es la versión relativa de estos mismos lemas: ver si
+`addNode` conserva «todo enlace compatible con `x` está en un certificado por `x`», usando que cada
+enlace nuevo viene de un solo padre.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
