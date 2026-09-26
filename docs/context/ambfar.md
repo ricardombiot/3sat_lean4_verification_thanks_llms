@@ -1142,6 +1142,20 @@ la pieza de sus propias entradas, pero las entradas entre miembros pueden venir 
 Lectura: la pieza buena es la que contiene una solución por `Q`; las cláusulas son los únicos pasos donde una
 pieza sin solución pierde testigos.
 
+### 4.2ζ «La unión no inventa caminos» (`paths_probe.jl`, `PieceJoin.join_no_new`)
+
+* **Entrada a entrada, demostrado** (`join_no_new`): todo nodo y toda entrada de un estado unido vienen de una de
+  sus piezas.
+* **Caminos, medido** (1,25 M caminos completos enlazados por padres en estados unidos):
+  * **P1 falla** (932 867): un camino enlazado puede mezclar piezas; pero esos caminos no son cadenas (sus
+    nodos no se poseen todos entre sí).
+  * **P3 vale siempre** (20 296 cadenas): **toda cadena del estado unido —camino enlazado cuyos nodos se poseen
+    dos a dos, una configuración real— es cadena dentro de una sola pieza.** Es la frase del usuario en su
+    forma exacta: la unión no inventa caminos válidos.
+
+El lector necesita la versión para cliques con testigos (`PieceLocal`), porque `MapCert` habla de cliques. P3 es
+su caso de cliques completas.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,

@@ -209,6 +209,22 @@ theorem mapCert_join (n : Nat) (hPL : PieceLocal φ n)
   have := hgr.step_eq; simp only at h1; omega
 
 -- ============================================================
+-- The union invents nothing, entry by entry
+-- ============================================================
+
+/-- **The union invents nothing**: every node of a state of line `n+1` is a node of one of its pieces, and
+every entry of its table is an entry of the same node in one of its pieces. -/
+theorem join_no_new (n : Nat) (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ (n + 1)) :
+    (∀ r nr, kv'.2.node? r = some nr → ∃ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 ∧
+      isValid (upF φ kv.2 kv'.1) = true ∧ ∃ n', (upF φ kv.2 kv'.1).node? r = some n') ∧
+    (∀ r nr, kv'.2.node? r = some nr → ∀ q ∈ nr.owners, ∃ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 ∧
+      isValid (upF φ kv.2 kv'.1) = true ∧ ∃ n', (upF φ kv.2 kv'.1).node? r = some n' ∧ q ∈ n'.owners) := by
+  have hkv'' := hkv'
+  rw [line_succ] at hkv''
+  exact ⟨fun r nr h => (src_pureAdvance φ (line φ n) kv' hkv'').1 r nr h,
+    fun r nr h q hq => (src_pureAdvance φ (line φ n) kv' hkv'').2 r nr h q hq⟩
+
+-- ============================================================
 -- The frontier: witnesses at steps `n` and `n+1` own the clique inside one piece
 -- ============================================================
 
