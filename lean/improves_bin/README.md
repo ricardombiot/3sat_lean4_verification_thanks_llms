@@ -53,6 +53,7 @@ Cada módulo que entra se registra aquí con su procedencia:
 | `TriPinAll` | — | nuevo | invariante `AllTriPin₁` (`TriPin₁` para todo nodo vivo) ⇒ todo pin en la primera elección sobrevive (`allPinsAlive_reader`) y el lector decide (`readerVerdictW_iff_of_allTriPin₁`) |
 | `CliqueTri` | — | nuevo | `TriP g P` (regla de parejas relativa a una clique `P`), `CliqueTri` (para toda clique) ⇒ `AllTriPin₁`; **el pin es el subkernel cortado** (`pin_eq_cut`); **el pin conserva `CliqueTri`** (`cliqueTri_pin`); el lector decide si `CliqueTri` vale en los estados de partida (`readerVerdictW_iff_of_cliqueTri`) |
 | `CertFix` | — | nuevo | caracterización del punto fijo por certificados (`ChainSound`): `CertLink` (todo enlace compatible relativo a una clique está, con ella, en un certificado); `cxP_of_cert` (converso, siempre); `cutTable_iff_cert`; `CertLink ⇒ CliqueTri`; `readerVerdictW_iff_of_certLink` |
+| `CertDescent` | — | nuevo | `CliqueTri ⇒ CertLink` haciendo crecer una clique con testigos hasta un certificado (`grow`, `cover`, `chain_of_cover`); `certLink_iff_cliqueTri` |
 | `SymReview`, `Fabric` | — | **no portados** | fuera del cierre de constantes de `completeness_pure`/`soundness_pure` |
 
 ## Estado de los teoremas finales
@@ -71,8 +72,8 @@ Cada módulo que entra se registra aquí con su procedencia:
   `TriPin` se midió falso en un pin que sobrevive (`ambhigh-dump`); rama más débil: `KernelSplit ⇐ TriPin₁`
   (`TriPinCut`), una ronda de cortes de enlaces incompatibles con el pin. Invariante candidato:
   `AllTriPin₁` (`TriPinAll`); su forma cerrada `CliqueTri` se conserva con cada pin del lector
-  (`CliqueTri`), así que basta en los estados de partida: **abierto** que la máquina lo construya. Condición
-  suficiente por certificados: `CertLink` (`CertFix`).
+  (`CliqueTri`), así que basta en los estados de partida: **abierto** que la máquina lo construya. Forma
+  equivalente por certificados: `CertLink ⇔ CliqueTri` (`CertFix`, `CertDescent`).
 - `sorry` restantes: 0. `warningAsError = true`.
 
 ## Diferencial del mapa

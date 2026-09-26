@@ -70,6 +70,7 @@ import AbsSatBin.GraphPath.Model.TriPinCut
 import AbsSatBin.GraphPath.Model.TriPinAll
 import AbsSatBin.GraphPath.Model.CliqueTri
 import AbsSatBin.GraphPath.Model.CertFix
+import AbsSatBin.GraphPath.Model.CertDescent
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs

@@ -282,9 +282,17 @@ un certificado. La cadena queda así:
 **Abierto:**
 * **`CertLink` en la salida de la máquina.** Es el enunciado semántico de que la máquina guarda
   exactamente los certificados, en su forma de tablas.
-* **Conjetura: `CliqueTri ⇒ CertLink`, por descenso.** Relativo a `y :: w :: P`, se pincha nodo a nodo
-  dentro del subkernel cortado, con `cliqueTri_pin` como paso, hasta un estado sin elecciones, que
-  contiene una cadena. Si sale, las dos son equivalentes y el núcleo tiene una sola forma. **Propuesto.**
+* ~~Conjetura~~ **`CliqueTri ⇒ CertLink`: demostrado** (`CertDescent.lean`, `certLink_iff_cliqueTri`).
+  No hacen falta ni pins ni restricciones: el certificado se hace crecer como una clique.
+  * **Invariante** `Wit g Q`: `Q` es clique y en cada paso algún nodo vivo posee todo `Q`.
+  * **Arranque**: `y :: w :: P`, cuyos testigos son los del enlace `P`-compatible.
+  * **Crecimiento** (`grow`): `TriP g Q` sobre la pareja `(q, q)` da un nodo `r` en el paso deseado,
+    con un enlace `Q`-compatible desde `q`. Sus testigos poseen `Q` y `r`.
+  * **Cierre** (`chain_of_cover`): una clique con un nodo en cada paso tiene exactamente uno por paso
+    (`OOS`) y es un certificado. Las entradas de los pasos vecinos son padre e hijo, y el nodo del
+    paso 0 es la raíz.
+  * **En los estados del lector, `CliqueTri` y `CertLink` son el mismo enunciado.** El núcleo tiene
+    una sola forma: la máquina guarda exactamente los certificados, leídos por las tablas cortadas.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
