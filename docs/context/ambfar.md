@@ -822,6 +822,41 @@ certificado el que elige la ventana.**
 **Medida `v4_c12`** (lanzada antes, `--cap 100`, 40 min por instancia): solo terminaron 3 de 15, con 1
 estado o 3 estados y 0 fallos. No es informativa: el modelo Lean en listas no llega.
 
+### 4.2t Cobertura por enrutado para el `join` real — **herramienta demostrada; arquitectura fijada** (`PrefixCarry.lean`)
+
+**El obstáculo de «pureza».** Un certificado de la unión de dos estados no es en general un certificado
+de uno de ellos: sus pertenencias pueden venir de tablas de lados distintos. Así que el certificado que
+da `MapCert` de un ancestro no se puede meter con `ChainSound_upFiltering` en el estado concreto de una
+clave. Pero **semánticamente** es una solución parcial:
+* sus nodos de literal solo poseen, en el paso de su variable, el valor requerido (la tabla nació
+  filtrada);
+* sus ventanas existen, así que no están prohibidas.
+
+Y la máquina conserva toda solución parcial en el estado de su propia clave. Eso es lo que falta
+enchufar.
+
+**Demostrado:**
+* `PreSat φ a T`: las ventanas de la asignación antes de `T` están permitidas, es decir, las cláusulas
+  cerradas antes de `T` se satisfacen. `preSat_of_sat`.
+* `chainSound_along_pre`, `isValid_along_pre`, `advance_target_pre`, `sons_fold_establish_pre`,
+  `Carries_pureAdvance_pre`, `run_ok_pre`: la cadena de `pureRun_carries` con `PreSat` en lugar de `Sat`.
+  `Sat` solo entraba por `pidOfAssign_not_prohibited`.
+* **`cert_of_prefix`**: en cada paso `t < T`, la línea tiene, en el nodo de mapa de la asignación, un
+  estado que contiene su cadena como certificado.
+
+**Arquitectura resultante para `MapCert` a lo largo de la máquina** (por formalizar):
+1. **Decodificación de prefijos** (L1): una cadena de un estado de la máquina, o de la unión de estados
+   de una línea, decodifica a una asignación con `PreSat` cuya selección coincide con la cadena. Hay
+   que generalizar `NoDeadEnd.selOfAssign_decode`, hoy solo para el estado final.
+2. **Inducción sobre la línea unida** `U_t`. Una clique con testigos en el estado de clave `d` en `t+1`
+   tiene testigos, con el requisito de `d` y las restricciones de ventana, en `U_t`. `MapCert(U_t)` da
+   una cadena, L1 la hace solución parcial, y `cert_of_prefix` la lleva al estado de clave `d`.
+3. **Los pasos de cláusula** (tercer literal). Allí la solución parcial puede morir, con ventana `000`,
+   y hay que elegir otra: es `SkipChoice`, la disyunción de la cláusula.
+
+Si 1 y 2 salen, **toda la ruta del lector queda reducida a los pasos de cláusula**: lo único abierto
+sería la disyunción propia de la fórmula.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
