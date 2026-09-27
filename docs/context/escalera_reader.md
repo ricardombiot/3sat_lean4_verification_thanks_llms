@@ -1846,6 +1846,19 @@ filtradas F_j, y su fila n solo tiene nodos de k.
    La inducción baja fila a fila hasta el paso 0, donde todo está fijado. **Solo queda como hipótesis CoverSplit en
    cada fila.**
 
+**Pasos 1 y 2, demostrados** (`M1bSrc.lean`, solo `[propext, Quot.sound]`):
+* **`key_reqs`** (paso 1): J fijado en k :: R respeta los requisitos de k. Usa `node_in_piece` (todo nodo de K hasta la
+  fila de claves es nodo de la pieza y de la fuente filtrada) y `line_node_req` (un nodo de un estado de línea, en el
+  paso de un requisito de su clave, nombra el requisito).
+* **`m1_of_src`** (paso 2): **`M1aAll ∧ M1bSrc ⇒ M1`**. `M1bSrc` pide que las tablas de las filas de abajo de K (con
+  entradas hasta la fila de claves) sean tablas de la fuente X_k. Entonces K sin la cima es un kernel por debajo de
+  X_k que respeta `pinsW` (requisitos de d, y `L1 = 1` si hay ventana saltada) y los pins de R bajo la cima. X_k fijado
+  ahí es válido, y M3w (`piece_of_src`) sube a la pieza.
+* **`readerVerdictW_iff_of_src`**: el lector decide bajo `M1aAll` y `M1bSrc` en cada join.
+
+Frente a `M1bLowOwn`, `M1bSrc` compara con la fuente sin filtrar, y la pieza la pone la prueba. Es la forma que admite la
+inducción hacia abajo con CoverSplit.
+
 **Medido sin fallos** (`clause_mix`, `clause_mix_sep` y 6 de `random_small`):
 
 | enunciado | casos | fallos |
@@ -1973,6 +1986,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `KeyCone.lean` | `CxPull`, `cx_up`, `triPin₁_of_below`, `KeySplit`, `keyTri₁_of_split`, `readerVerdictW_iff_of_split` |
 | `KeyRules.lean` (⚠ retirado; en la historia, `82c121f`) | `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`, `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel` |
 | `KFixCore.lean` | `KFixLow`, `witness_key`, `pure_link`, `kFix_of_low`, `readerVerdictW_iff_of_kFixLow` |
+| `M1bSrc.lean` | `M1bSrc`, `line_node_req`, `node_in_piece`, `key_reqs`, `line_pinCtx`, `m1_of_src`, `readerVerdictW_iff_of_src` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
