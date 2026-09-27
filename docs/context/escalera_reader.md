@@ -1859,6 +1859,25 @@ filtradas F_j, y su fila n solo tiene nodos de k.
 Frente a `M1bLowOwn`, `M1bSrc` compara con la fuente sin filtrar, y la pieza la pone la prueba. Es la forma que admite la
 inducción hacia abajo con CoverSplit.
 
+**Paso 3, primer nivel, demostrado** (`M1bDeep.lean`, solo `[propext, Quot.sound]`): **`m1bSrc_of_cover`**:
+`CoverSplit ∧ M1bDeep ⇒ M1bSrc`, y `readerVerdictW_iff_of_cover` (el lector decide bajo `M1aAll`, CoverSplit y
+`M1bDeep`).
+* `CoverSplit` (versión formal): toda entrada (p, v) de K con p por debajo de la fila n-1 y v por debajo de la fila n
+  está en J fijado en k :: i :: R, con esa fijación válida, para alguna clave i de la fila n-1.
+* **`M1bDeep`**: en J fijado en k :: i :: R, las entradas (p por debajo de la fila n-1, v por debajo de la fila n)
+  son entradas de la pieza Q_{k,i} = `upF` W_i k, la de la línea anterior que entró en X_k. Es `M1bSrc` una fila más
+  abajo. **Medido sin fallos:** 11.281.468 entradas (`m1bdeep_probe.jl`; `clause_mix` y 6 de `random_small`).
+* La prueba separa (p, v) en tres casos:
+  * v en la fila n: nodo de la clave, puro, así que su tabla es la de la fuente;
+  * p por debajo de n-1: CoverSplit y `M1bDeep`, y después Q_{k,i} está por debajo de X_k (`piece_grown`);
+  * p en la fila n-1: v = p, o la entrada simétrica (v, p).
+
+**Siguiente nivel** (propuesto): `M1bDeep` ⇐ CoverSplit en la fila n-2 ∧ el mismo enunciado con tres claves ∧ subir de
+W_i a Q_{k,i}. Subir de W_i a Q_{k,i} usa `key_reqs` para los requisitos de k, y el argumento de la fila nueva del `up`:
+un nodo nuevo posee la unión de las tablas de sus padres. A diferencia del primer nivel, las filas bajas de J no son
+puras, así que la entrada hacia la fila nueva tiene que salir del kernel y no de la pureza. Iterado hasta la fila 0,
+donde todo está fijado, deja **`M1aAll` y CoverSplit en cada fila** como únicas hipótesis.
+
 **Medido sin fallos** (`clause_mix`, `clause_mix_sep` y 6 de `random_small`):
 
 | enunciado | casos | fallos |
@@ -1987,6 +2006,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `KeyRules.lean` (⚠ retirado; en la historia, `82c121f`) | `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`, `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel` |
 | `KFixCore.lean` | `KFixLow`, `witness_key`, `pure_link`, `kFix_of_low`, `readerVerdictW_iff_of_kFixLow` |
 | `M1bSrc.lean` | `M1bSrc`, `line_node_req`, `node_in_piece`, `key_reqs`, `line_pinCtx`, `m1_of_src`, `readerVerdictW_iff_of_src` |
+| `M1bDeep.lean` | `CoverSplit`, `M1bDeep`, `m1bSrc_of_cover`, `readerVerdictW_iff_of_cover` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
