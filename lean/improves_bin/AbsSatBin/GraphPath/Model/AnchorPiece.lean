@@ -15,7 +15,7 @@ piece where `w` lives — with no step missing, clause steps included (S2, 2.5 M
 * **`pieceLocalF_of_anchor`**: both give `PieceLocalF`. With a member at the top, S2; without, A1 anchors the clique
   and S2 puts the anchored clique in one piece. The source of `w` is found by `top_one_source`.
 * **`readerVerdictW_iff_of_anchor`**: the reader decides under A1, S2 and `MergeSplit`.
-* **S2 from the line union** (`topPieceF_of_lua`, line `n ≥ 1`): the top member `w` gives its place to a parent `c`
+* **S2 from the line union** (`topPieceF_of_luaJ`, `luaJ_of_lua`, line `n ≥ 1`): the top member `w` gives its place to a parent `c`
   (`single_parent`, or `TopMergeJ` at a merge); the filtered joined state without its top row is a kernel inside the
   union of the sources, pinned by the destination's requirements and by `R` below the top; **LUA** (anchored locality of
   the line union: measured on the unfiltered union, 179 k, no failure) puts `c :: Q₀` in the source of `c`, filtered
@@ -32,6 +32,9 @@ piece where `w` lives — with no step missing, clause steps included (S2, 2.5 M
   is one of some pinned source (ULUA, the unanchored line union), the source's certificate climbs to its piece and to
   the joined state, and its top node anchors the clique. At line 0, `anchorF_zero`. **`readerVerdictW_iff_of_ulua`**:
   the reader decides under ULUA, LUA, `MergeSplitJ` and AF in the pieces.
+* **LUA from ULUA** (`luaJ_of_ulua`): S2 only uses LUA on the truncated filtered joined state (`LUAJ`); there ULUA's
+  source holds `c`, so it is `c`'s, and fewer pins keep the clique. **`readerVerdictW_iff_of_ulua_only`**: the reader
+  decides under ULUA, `MergeSplitJ` and AF in the pieces.
 -/
 
 namespace AbsSatBin.GraphPath.Model.AnchorPiece
@@ -290,13 +293,104 @@ def LUA : Prop :=
     ∀ kv ∈ line φ n, kv.1 = c.id →
       isValid (filterAll kv.2 S) = true ∧ Clique (filterAll kv.2 S) (c :: Q0) ∧ Wit (filterAll kv.2 S) (c :: Q0)
 
-/-- **S2 from LUA** (line `n ≥ 1`). The top member `w` gives its place to a parent `c` (`single_parent`, or
+omit hbd in
+/-- **LUAJ n**: LUA in the one form S2 uses. A clique with witnesses `c :: Q0` of a filtered joined state of line
+`n+1` without its top row, with `c` at step `n`, is one of the source of `c`'s key filtered by the destination's
+requirements and by `R` below the top. -/
+def LUAJ : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ R : List NodeId, (∀ p ∈ R, 0 ≤ p.step ∧ p.step < kv'.2.current_step) →
+    isValid (filterAll kv'.2 R) = true → ∀ c Q0, Clique (Trunc.trunc (filterAll kv'.2 R)) (c :: Q0) →
+      Wit (Trunc.trunc (filterAll kv'.2 R)) (c :: Q0) → c.id.step = n → (∀ q ∈ Q0, q.id.step ≤ n) →
+      ∀ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 → isValid (upF φ kv.2 kv'.1) = true → kv.1 = c.id →
+        isValid (filterAll kv.2 (reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))))) = true ∧
+        Clique (filterAll kv.2 (reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))))) (c :: Q0) ∧
+        Wit (filterAll kv.2 (reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))))) (c :: Q0)
+
+/-- **LUA gives LUAJ**: the truncated filtered joined state is a kernel whose entries are entries of the sources, pinned
+by the destination's requirements and by `R` below the top. -/
+theorem luaJ_of_lua (hL : LUA φ n) : LUAJ φ n := by
+  intro kv' hkv' R hR hv cp Q0 hQK hWK hcps _ kv hkv _ _ hkey
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hreach' := MapReachable.reachable_of_mapReachable φ hbd _ hok'.reach
+  have hnd' := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreach'
+  have cF := filt_ctx φ hbd _ kv' hok' R hv
+  have hbJ := KernelIff.below_filterAll_self kv'.2 hnd' R
+  have hcsJ : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hFcs : (filterAll kv'.2 R).current_step = (n : Int) + 2 := by rw [← hbJ.step, hcsJ]
+  have hkT := Trunc.kernel_trunc cF.pc.ker cF.pc.pb cF.pc.sa cF.pc.below
+  have hKcs : (Trunc.trunc (filterAll kv'.2 R)).current_step = (n : Int) + 1 := by
+    show (filterAll kv'.2 R).current_step - 1 = _; rw [hFcs]; omega
+  obtain ⟨kvd, hkvd, hdd, hvd, _⟩ : ∃ kv0 ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv0.1 ∧
+      isValid (upF φ kv0.2 kv'.1) = true ∧ True := by
+    obtain ⟨nc, hnc, _⟩ := hQK cp List.mem_cons_self
+    obtain ⟨nF, hnF, _, _⟩ := Trunc.trunc_node?_some _ cp nc hnc
+    obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node cp nF hnF
+    obtain ⟨kv0, hkv0, hd0, hv0, _⟩ := (PieceJoin.join_no_new φ n kv' hkv').1 cp nJ hnJ
+    exact ⟨kv0, hkv0, hd0, hv0, trivial⟩
+  obtain ⟨_, hdst, hcs, _, _, _⟩ := src_ctx φ hbd n kvd hkvd kv'.1 hdd hvd
+  -- a node of the joined state below the top lives in a source, with its entries below the top
+  have toSrc : ∀ p nJ, kv'.2.node? p = some nJ → p.id.step ≤ n → ∀ v ∈ nJ.owners, v.id.step ≤ n →
+      ∃ kv0 ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv0.1 ∧ isValid (upF φ kv0.2 kv'.1) = true ∧
+        ∃ nF0, (filterAll kv0.2 (reqOf φ kv'.1)).node? p = some nF0 ∧ v ∈ nF0.owners := by
+    intro p nJ hnJ hps v hv hvs
+    obtain ⟨kv0, hkv0, hd0, hv0, n', hn', hvn'⟩ := (PieceJoin.join_no_new φ n kv' hkv').2 p nJ hnJ v hv
+    obtain ⟨hok0, hdst0, hcs0, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
+    have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
+    obtain ⟨nF0, hnF0, ho0⟩ := upF_old φ kv0.2 kv'.1 hdst0 c0 hv0 p n' hn' (by rw [hcs0]; omega)
+    exact ⟨kv0, hkv0, hd0, hv0, nF0, hnF0, ho0 v hvn' (by rw [hcs0]; omega)⟩
+  have hunion : ∀ p nk, (Trunc.trunc (filterAll kv'.2 R)).node? p = some nk → ∀ v ∈ nk.owners,
+      ∃ kv0 ∈ line φ n, ∃ nx, kv0.2.node? p = some nx ∧ v ∈ nx.owners := by
+    intro p nk hnk v hv
+    obtain ⟨nF, hnF, hps, rfl⟩ := Trunc.trunc_node?_some _ p nk hnk
+    obtain ⟨hvF', hvs⟩ := (Trunc.mem_cutTop_owners _ _ v).mp hv
+    have hpr := CertFix.step_range cF.pc p nF hnF
+    rw [hFcs] at hpr hps hvs
+    obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp (cF.pc.ker.gn v (cF.pc.ker.own p nF hnF v hvF'))
+    have hvr := CertFix.step_range cF.pc v nv hnv
+    rw [hFcs] at hvr
+    obtain ⟨nJ, hnJ, hoJ, _, _⟩ := hbJ.node p nF hnF
+    obtain ⟨kv0, hkv0, _, _, nF0, hnF0, hvo⟩ := toSrc p nJ hnJ (by omega) v (hoJ v hvF') (by omega)
+    have hnd0 := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+      (MapReachable.reachable_of_mapReachable φ hbd _ ((lineOk φ n).2 kv0 hkv0).reach)
+    obtain ⟨nx, hnx, hox, _, _⟩ := (KernelIff.below_filterAll_self kv0.2 hnd0 (reqOf φ kv'.1)).node p nF0 hnF0
+    exact ⟨kv0, hkv0, nx, hnx, hox v hvo⟩
+  have hreqr : ∀ r ∈ reqOf φ kv'.1, 0 ≤ r.step ∧ r.step ≤ n := fun r hr =>
+    ⟨reqOf_nonneg φ hbd kv'.1 r hr, by have := reqOf_backward φ hbd kv'.1 r hr; rw [hdst, hcs] at this; omega⟩
+  have hSr : ∀ p ∈ reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))), 0 ≤ p.step ∧ p.step ≤ n := by
+    intro p hp
+    rcases List.mem_append.mp hp with hp | hp
+    · exact hreqr p hp
+    · obtain ⟨hp, hle⟩ := List.mem_filter.mp hp
+      exact ⟨(hR p hp).1, of_decide_eq_true hle⟩
+  have hpinK : ∀ r ∈ reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))),
+      ∀ q ∈ (Trunc.trunc (filterAll kv'.2 R)).gowners, q.id.step = r.step → q.id = r := by
+    intro r hr q hq hqs
+    have hqF : q ∈ (filterAll kv'.2 R).gowners := (List.mem_filter.mp hq).1
+    rcases List.mem_append.mp hr with hr | hr
+    · obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (cF.pc.ker.gn q hqF)
+      obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node q nq hnq
+      have hqs' : q.id.step ≤ n := by rw [hqs]; exact (hreqr r hr).2
+      obtain ⟨kv0, hkv0, hd0, hv0, nF0, hnF0, _⟩ := toSrc q nJ hnJ hqs' q
+        (by obtain ⟨nJ', hnJ', hoJ, _, _⟩ := hbJ.node q nq hnq
+            rw [hnJ] at hnJ'; cases hnJ'
+            exact hoJ q (TriPinCut.self_own_pc cF.pc q nq hnq)) hqs'
+      obtain ⟨hok0, _, _, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
+      have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
+      exact LineUnion.pinned_entry φ kv0.2 kv'.1 q (c0.pc.ker.gow q nF0 hnF0) r hr hqs
+    · exact LineUnion.gowner_pinned kv'.2 R q hqF r (List.mem_filter.mp hr).1 hqs
+  exact hL _ hSr _ hkT hKcs hunion hpinK cp _ hQK hWK hcps kv hkv hkey
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.luaJ_of_lua' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms luaJ_of_lua
+
+/-- **S2 from LUAJ** (line `n ≥ 1`). The top member `w` gives its place to a parent `c` (`single_parent`, or
 `TopMergeJ` at a merge). The joined state filtered by `R`, without its top row, is a kernel whose entries are entries of
 the sources and which is pinned by the requirements of the destination and by `R` below the top; LUA puts `c :: Q₀` in
 the source of `c`'s key filtered so. There `FCert` gives a certificate; it climbs through `up` with `w` (the shift of
 `c`, not prohibited since `w` exists) and survives `R`, and a certificate through `w :: Q` makes it a clique with
 witnesses of the filtered piece. -/
-theorem topPieceF_of_lua (hn1 : 1 ≤ n) (hL : LUA φ n) (hTM : TopMergeJ φ n)
+theorem topPieceF_of_luaJ (hn1 : 1 ≤ n) (hL : LUAJ φ n) (hTM : TopMergeJ φ n)
     (hX : ∀ kv ∈ line φ n, FCert kv.2) : TopPieceF φ n := by
   intro kv' hkv' R hR hv w Q hQ hW hws kv hkv hd hvp hpar
   have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
@@ -363,32 +457,6 @@ theorem topPieceF_of_lua (hn1 : 1 ≤ n) (hL : LUA φ n) (hTM : TopMergeJ φ n)
     obtain ⟨r, nr, hnr, hrs, ho⟩ := hWc l h0 (by rw [hFcs]; omega)
     exact ⟨r, _, toK r nr hnr (by omega), hrs, fun s hs =>
       (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hFcs]; have := hlowc s hs; omega⟩⟩
-  -- a node of the joined state below the top lives in a source, with its entries below the top
-  have toSrc : ∀ p nJ, kv'.2.node? p = some nJ → p.id.step ≤ n → ∀ v ∈ nJ.owners, v.id.step ≤ n →
-      ∃ kv0 ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv0.1 ∧ isValid (upF φ kv0.2 kv'.1) = true ∧
-        ∃ nF0, (filterAll kv0.2 (reqOf φ kv'.1)).node? p = some nF0 ∧ v ∈ nF0.owners := by
-    intro p nJ hnJ hps v hv hvs
-    obtain ⟨kv0, hkv0, hd0, hv0, n', hn', hvn'⟩ := (PieceJoin.join_no_new φ n kv' hkv').2 p nJ hnJ v hv
-    obtain ⟨hok0, hdst0, hcs0, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
-    have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
-    obtain ⟨nF0, hnF0, ho0⟩ := upF_old φ kv0.2 kv'.1 hdst0 c0 hv0 p n' hn' (by rw [hcs0]; omega)
-    exact ⟨kv0, hkv0, hd0, hv0, nF0, hnF0, ho0 v hvn' (by rw [hcs0]; omega)⟩
-  have hunion : ∀ p nk, (Trunc.trunc (filterAll kv'.2 R)).node? p = some nk → ∀ v ∈ nk.owners,
-      ∃ kv0 ∈ line φ n, ∃ nx, kv0.2.node? p = some nx ∧ v ∈ nx.owners := by
-    intro p nk hnk v hv
-    obtain ⟨nF, hnF, hps, rfl⟩ := Trunc.trunc_node?_some _ p nk hnk
-    obtain ⟨hvF', hvs⟩ := (Trunc.mem_cutTop_owners _ _ v).mp hv
-    have hpr := CertFix.step_range cF.pc p nF hnF
-    rw [hFcs] at hpr hps hvs
-    obtain ⟨nv, hnv⟩ := Option.isSome_iff_exists.mp (cF.pc.ker.gn v (cF.pc.ker.own p nF hnF v hvF'))
-    have hvr := CertFix.step_range cF.pc v nv hnv
-    rw [hFcs] at hvr
-    obtain ⟨nJ, hnJ, hoJ, _, _⟩ := hbJ.node p nF hnF
-    obtain ⟨kv0, hkv0, _, _, nF0, hnF0, hvo⟩ := toSrc p nJ hnJ (by omega) v (hoJ v hvF') (by omega)
-    have hnd0 := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
-      (MapReachable.reachable_of_mapReachable φ hbd _ ((lineOk φ n).2 kv0 hkv0).reach)
-    obtain ⟨nx, hnx, hox, _, _⟩ := (KernelIff.below_filterAll_self kv0.2 hnd0 (reqOf φ kv'.1)).node p nF0 hnF0
-    exact ⟨kv0, hkv0, nx, hnx, hox v hvo⟩
   -- the pins: the requirements of the destination and `R` below the top
   have hreqr : ∀ r ∈ reqOf φ kv'.1, 0 ≤ r.step ∧ r.step ≤ n := fun r hr =>
     ⟨reqOf_nonneg φ hbd kv'.1 r hr, by have := reqOf_backward φ hbd kv'.1 r hr; rw [hdst, hcs] at this; omega⟩
@@ -398,24 +466,8 @@ theorem topPieceF_of_lua (hn1 : 1 ≤ n) (hL : LUA φ n) (hTM : TopMergeJ φ n)
     · exact hreqr p hp
     · obtain ⟨hp, hle⟩ := List.mem_filter.mp hp
       exact ⟨(hR p hp).1, of_decide_eq_true hle⟩
-  have hpinK : ∀ r ∈ reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))),
-      ∀ q ∈ (Trunc.trunc (filterAll kv'.2 R)).gowners, q.id.step = r.step → q.id = r := by
-    intro r hr q hq hqs
-    have hqF : q ∈ (filterAll kv'.2 R).gowners := (List.mem_filter.mp hq).1
-    rcases List.mem_append.mp hr with hr | hr
-    · obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (cF.pc.ker.gn q hqF)
-      obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node q nq hnq
-      have hqs' : q.id.step ≤ n := by rw [hqs]; exact (hreqr r hr).2
-      obtain ⟨kv0, hkv0, hd0, hv0, nF0, hnF0, _⟩ := toSrc q nJ hnJ hqs' q
-        (by obtain ⟨nJ', hnJ', hoJ, _, _⟩ := hbJ.node q nq hnq
-            rw [hnJ] at hnJ'; cases hnJ'
-            exact hoJ q (TriPinCut.self_own_pc cF.pc q nq hnq)) hqs'
-      obtain ⟨hok0, _, _, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
-      have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
-      exact LineUnion.pinned_entry φ kv0.2 kv'.1 q (c0.pc.ker.gow q nF0 hnF0) r hr hqs
-    · exact LineUnion.gowner_pinned kv'.2 R q hqF r (List.mem_filter.mp hr).1 hqs
-  -- LUA puts the clique in the source of `cp`'s key, pinned
-  obtain ⟨hvG, hQG, hWG⟩ := hL _ hSr _ hkT hKcs hunion hpinK cp _ hQK hWK hcps kv hkv hkey
+  -- LUAJ puts the clique in the source of `cp`'s key, pinned
+  obtain ⟨hvG, hQG, hWG⟩ := hL kv' hkv' R hR hv cp _ hQK hWK hcps hlow0 kv hkv hd hvp hkey
   have hSr' : ∀ p ∈ reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))),
       0 ≤ p.step ∧ p.step < kv.2.current_step := fun p hp => ⟨(hSr p hp).1, by rw [hcs]; have := (hSr p hp).2; omega⟩
   obtain ⟨sel, hsG, hon⟩ := hX kv hkv _ hSr' hvG _ hQG hWG
@@ -491,9 +543,9 @@ theorem topPieceF_of_lua (hn1 : 1 ≤ n) (hL : LUA φ n) (hTM : TopMergeJ φ n)
         rw [hwid] at this; exact this
       rw [hqw, hws]; exact ⟨by omega, by omega, htop⟩
 
-/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.topPieceF_of_lua' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.topPieceF_of_luaJ' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms topPieceF_of_lua
+#print axioms topPieceF_of_luaJ
 
 omit n in
 /-- **The reader decides `φ` under A1 and S2 at every join and `MergeSplit` from line 1 on.** -/
@@ -867,6 +919,48 @@ theorem anchorF_of_ulua (hn1 : 1 ≤ n) (hU : ULUA φ n) (hX : ∀ kv ∈ line �
 #guard_msgs in
 #print axioms anchorF_of_ulua
 
+/-- **ULUA gives LUAJ**: the source ULUA finds holds `c`, a node of step `n`, so its key is `c`'s id; and a clique with
+witnesses of the source pinned by `pinsW` (more pins) is one of the source pinned by the requirements alone. -/
+theorem luaJ_of_ulua (hU : ULUA φ n) : LUAJ φ n := by
+  intro kv' hkv' R hR hv c Q0 hQK hWK hcs0 hlow kv hkv _ _ hkey
+  obtain ⟨kv0, hkv0, _, _, hvG, hQG, hWG⟩ := hU kv' hkv' R hR hv (c :: Q0) hQK hWK (fun q hq => by
+    rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hcs0]; exact Int.le_refl _
+    · exact hlow q hq)
+  have hok0 : StateOk φ n kv0 := (lineOk φ n).2 kv0 hkv0
+  have hnd0 := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hok0.reach)
+  -- the source is the one of `c`'s key
+  obtain ⟨nc, hnc, hcown⟩ := hQG c List.mem_cons_self
+  obtain ⟨nx, hnx, hox, _, _⟩ := (KernelIff.below_filterAll_self kv0.2 hnd0 _).node c nc hnc
+  have hk0 := top_entry_key φ hbd n kv0 hkv0 c nx hnx c (hox c (hcown c List.mem_cons_self)) hcs0
+  have he : kv0 = kv := key_inj _ (lineOk φ n).1 kv0 hkv0 kv hkv (hk0.symm.trans hkey.symm)
+  subst he
+  -- fewer pins: the more pinned state sits inside the less pinned one
+  have cG := filt_ctx φ hbd n kv0 hok0 _ hvG
+  have hB : Kernel.Below (filterAll kv0.2 (reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int)))))
+      (filterAll kv0.2 (LineUnion.pinsW φ n kv'.1 kv0.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))))) := by
+    refine Kernel.below_filterAll cG.pc.ker (KernelIff.below_filterAll_self kv0.2 hnd0 _) _ (fun r hr q hq hqs => ?_)
+    rcases List.mem_append.mp hr with hr | hr
+    · exact LineUnion.gowner_pinned _ _ q hq r (List.mem_append_left _ (reqOf_sub_pinsW φ n kv'.1 kv0.1 r hr)) hqs
+    · exact LineUnion.gowner_pinned _ _ q hq r (List.mem_append_right _ hr) hqs
+  refine ⟨?_, fun p hp => ?_, fun l h0 h1 => ?_⟩
+  · unfold isValid
+    rw [hB.step]
+    refine List.all_eq_true.mpr (fun l hl => ?_)
+    obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp (List.all_eq_true.mp hvG l hl)
+    exact List.any_eq_true.mpr ⟨q, hB.gow q hq, hqs⟩
+  · obtain ⟨np, hnp, ho⟩ := hQG p hp
+    obtain ⟨nx, hnx, hox, _, _⟩ := hB.node p np hnp
+    exact ⟨nx, hnx, fun s hs => hox s (ho s hs)⟩
+  · obtain ⟨r, nr, hnr, hrs, ho⟩ := hWG l h0 (by rw [← hB.step]; exact h1)
+    obtain ⟨nx, hnx, hox, _, _⟩ := hB.node r nr hnr
+    exact ⟨r, nx, hnx, hrs, fun s hs => hox s (ho s hs)⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.luaJ_of_ulua' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms luaJ_of_ulua
+
 omit n in
 /-- **A1 at line 0**: a state of line 1 is its piece, which has `FCert` (from `MapCert`); the certificate's top node
 anchors the clique. -/
@@ -908,7 +1002,7 @@ induction hypothesis), then `PieceLocalF` from A1 and S2, and the pieces from `T
 `topPieceF_zero`. -/
 theorem fCert_line_lua
     (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → (∀ kv ∈ line φ n, FCert kv.2) → AnchorF φ n)
-    (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
+    (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUAJ φ n)
     (hTM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
     (hTP : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopParent φ n) :
     ∀ n : Nat, (n : Int) < stepCount φ → ∀ kv ∈ line φ n, FCert kv.2 := by
@@ -925,7 +1019,7 @@ theorem fCert_line_lua
     have hS : TopPieceF φ m := by
       by_cases hm0 : m = 0
       · subst hm0; exact topPieceF_zero φ
-      · exact topPieceF_of_lua φ m hbd (by omega) (hL m (by omega) hm) (hTM m (by omega) hm)
+      · exact topPieceF_of_luaJ φ m hbd (by omega) (hL m (by omega) hm) (hTM m (by omega) hm)
           (fun kv hkv => ih (by omega) kv hkv)
     refine fCert_join φ hbd m (pieceLocalF_of_anchor φ m hbd (hA m hm (fun kv hkv => ih (by omega) kv hkv)) hS)
       (fun kv hkv d hd hv => ?_)
@@ -944,7 +1038,7 @@ theorem readerVerdictW_iff_of_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount �
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  exact fCert_line_lua φ hbd (fun n hn _ => hA n hn) hL hTM (fun n hn1 hn =>
+  exact fCert_line_lua φ hbd (fun n hn _ => hA n hn) (fun n hn1 hn => luaJ_of_lua φ n hbd (hL n hn1 hn)) hTM (fun n hn1 hn =>
     topParent_of_topMerge φ hbd n (topMerge_of_mergeSplit φ hbd n (hMS n hn1 hn))) _ hN kv hkv
 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua' depends on axioms: [propext, Quot.sound] -/
@@ -977,7 +1071,8 @@ theorem readerVerdictW_iff_of_afp (hA : ∀ n : Nat, (n : Int) + 1 < stepCount �
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  exact fCert_line_lua φ hbd (fun n hn _ => hA n hn) hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
+  exact fCert_line_lua φ hbd (fun n hn _ => hA n hn) (fun n hn1 hn => luaJ_of_lua φ n hbd (hL n hn1 hn))
+    (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
     (fun n hn1 hn => topParent_of_afp φ n hbd hn1 (hAF n hn1 hn)) _ hN kv hkv
 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_afp' depends on axioms: [propext, Quot.sound] -/
@@ -994,7 +1089,8 @@ theorem readerVerdictW_iff_of_ulua (hU : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  refine fCert_line_lua φ hbd (fun n hn hX => ?_) hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
+  refine fCert_line_lua φ hbd (fun n hn hX => ?_) (fun n hn1 hn => luaJ_of_lua φ n hbd (hL n hn1 hn))
+    (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
     (fun n hn1 hn => topParent_of_afp φ n hbd hn1 (hAF n hn1 hn)) _ hN kv hkv
   by_cases h0 : n = 0
   · subst h0; exact anchorF_zero φ hbd
@@ -1003,5 +1099,25 @@ theorem readerVerdictW_iff_of_ulua (hU : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_ulua' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_ulua
+
+omit n in
+/-- **The reader decides `φ` under ULUA, `MergeSplitJ` and AF in the pieces.** ULUA gives both A1
+(`anchorF_of_ulua`) and the form of LUA that S2 uses (`luaJ_of_ulua`). -/
+theorem readerVerdictW_iff_of_ulua_only (hU : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → ULUA φ n)
+    (hMJ : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplitJ φ n)
+    (hAF : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → AFP φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
+  have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
+  refine fCert_line_lua φ hbd (fun n hn hX => ?_) (fun n hn1 hn => luaJ_of_ulua φ n hbd (hU n hn1 hn))
+    (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
+    (fun n hn1 hn => topParent_of_afp φ n hbd hn1 (hAF n hn1 hn)) _ hN kv hkv
+  by_cases h0 : n = 0
+  · subst h0; exact anchorF_zero φ hbd
+  · exact anchorF_of_ulua φ n hbd (by omega) (hU n (by omega) hn) hX
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_ulua_only' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_ulua_only
 
 end AbsSatBin.GraphPath.Model.AnchorPiece
