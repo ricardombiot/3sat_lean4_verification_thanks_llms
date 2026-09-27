@@ -25,7 +25,7 @@ theorem Shrinks.trans {a b c : GPathB} (hab : Shrinks a b) (hbc : Shrinks b c) :
 
 /-- Cambiar `dirty` no cambia nada de lo que se mide. -/
 theorem shrinks_dirty (g : GPathB) (b : Bool) : Shrinks { g with dirty := b } g :=
-  ⟨⟨rfl, fun _ h => h, fun _ _ h => h, fun n hn => ⟨n, hn, rfl, fun _ h => h, fun _ h => h⟩⟩, Nat.le_refl _⟩
+  ⟨⟨rfl, rfl, fun _ h => h, fun _ _ h => h, fun n hn => ⟨n, hn, rfl, fun _ h => h, fun _ h => h⟩⟩, Nat.le_refl _⟩
 
 theorem shrinks_of_dirty {h g : GPathB} (b : Bool) (hs : Shrinks h g) : Shrinks { h with dirty := b } g :=
   (shrinks_dirty h b).trans hs
@@ -114,7 +114,7 @@ theorem shrinks_cleanPair (g : GPathB) : Shrinks g.cleanPair g :=
 theorem shrinks_pruneLinks (g : GPathB) : Shrinks g.pruneLinks g := by
   unfold pruneLinks
   split
-  · refine ⟨⟨rfl, fun _ h => h, fun _ _ h => h, ?_⟩, ?_⟩
+  · refine ⟨⟨rfl, rfl, fun _ h => h, fun _ _ h => h, ?_⟩, ?_⟩
     · intro n hn
       obtain ⟨m, hm, rfl⟩ := List.mem_map.mp hn
       exact ⟨m, hm, rfl, fun _ h => (List.mem_filter.mp h).1, fun _ h => (List.mem_filter.mp h).1⟩

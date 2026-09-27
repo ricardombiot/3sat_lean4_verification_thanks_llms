@@ -24,6 +24,8 @@ compilan los módulos que se importan.
 | `Model/Keeps` | L6 | **el review conserva toda camarilla llevada** (`carried_review`), y el filtro por requisitos que concuerdan (`carried_filterAll`), regla a regla |
 | `Model/Reader` | L6 | `AliveDocs` (lo conserva el filtro); un pin en un paso con elección baja la medida; **`readG_isSome_of_noZombie`**: si ningún estado que el lector visita es un zombi, el lector termina |
 | `Model/Rule` | L6 | el marco: `Rule` = `apply` + `shrinks` + `keeps` + `docs`; `comp`, `fuel`; las reglas de hoy como instancias (`purge`, `pairs`, `links`, `parents`, `sons`, `pass`, `review`) |
+| `Model/Grow` | L6b | el join conserva la camarilla por cualquiera de los dos lados (`carried_join_left/right`); **el UP la alarga** (`carried_addNode`, `carried_up`) |
+| `Model/Machine` | L6b | inducción sobre las líneas (`LineOk`, `Has`, `StateOk`); **`run_carries`**: la línea final lleva la camarilla de toda solución; `machineVerdict_of_sat`; **`readerVerdict_of_sat_noZombie`** |
 | `Exe/Dump` | L3 | volcado en el formato de `dump_final.jl` |
 | `Model/GPathB` | L1 | `PNodeB`, `GPathB`; `Adj`/`adj_symm`, `neighborsAt`, `ownersOk`, `isValid`, `isValidNode`, `measure`; primitivas `removeEdge`, `addEdge`, `killVertex`, `removeNode`; `Sub` (refl, trans, y para cada primitiva); lo que se va (`not_adj_removeEdge`, `not_adj_killVertex`); la medida baja (`measure_removeEdge_lt`, `measure_removeNode_lt`) |
 
@@ -41,8 +43,13 @@ compilan los módulos que se importan.
   todo vivo tiene documento y **todo estado que visita cumple `NoZombie`** (válido ⇒ lleva una camarilla). Es la
   completitud del lector con una sola hipótesis, sobre los estados.
 * **`carried_review`, `carried_filterAll`** (`Model/Keeps`): ninguna regla del review pierde una camarilla llevada.
-* Pendiente (L6b): la completitud de la máquina (φ satisfacible ⇒ la línea final lleva la camarilla de una
-  solución: UP y join), y la solidez del lector (L7, puente estructural).
+* **`run_carries`** (`Model/Machine`): si `a` satisface `φ`, el estado de la línea final en la clave de `a` lleva
+  la camarilla de `a` (`pidOfAssign φ a`). **`machineVerdict_of_sat`**: la máquina dice SAT en toda fórmula
+  satisfacible (solo con `Bounded`).
+* **`readerVerdict_of_sat_noZombie`**: si `φ` es satisfacible y ningún estado que el lector visita desde la línea
+  final es un zombi, el lector dice SAT. **La única hipótesis abierta del lector es `NoZombie`.**
+* Pendiente: la solidez del lector (si termina, lo leído es una solución; L7, puente estructural con
+  `improves_bin`).
 * 0 `sorry`. Axiomas: `propext`, `Classical.choice`, `Quot.sound` (el `Classical.choice` viene de tácticas; se puede
   limpiar).
 

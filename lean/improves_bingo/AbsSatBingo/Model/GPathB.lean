@@ -192,17 +192,18 @@ def removeNode (g : GPathB) (id : PathNodeId) : GPathB :=
 Toda regla del review cumple `Sub (regla g) g` (plan L6, `Rule.defl`). -/
 structure Sub (h g : GPathB) : Prop where
   step  : h.current_step = g.current_step
+  mp    : h.map_parent = g.map_parent
   alive : ∀ q ∈ h.alive, q ∈ g.alive
   adj   : ∀ x w, h.Adj x w → g.Adj x w
   nodes : ∀ n ∈ h.nodes, ∃ m ∈ g.nodes, m.id = n.id ∧
             (∀ p ∈ n.parents, p ∈ m.parents) ∧ (∀ s ∈ n.sons, s ∈ m.sons)
 
 theorem Sub.refl (g : GPathB) : Sub g g :=
-  ⟨rfl, fun _ h => h, fun _ _ h => h,
+  ⟨rfl, rfl, fun _ h => h, fun _ _ h => h,
    fun n hn => ⟨n, hn, rfl, fun _ h => h, fun _ h => h⟩⟩
 
 theorem Sub.trans {a b c : GPathB} (hab : Sub a b) (hbc : Sub b c) : Sub a c := by
-  refine ⟨hab.step.trans hbc.step, fun q hq => hbc.alive q (hab.alive q hq),
+  refine ⟨hab.step.trans hbc.step, hab.mp.trans hbc.mp, fun q hq => hbc.alive q (hab.alive q hq),
     fun x w h => hbc.adj x w (hab.adj x w h), ?_⟩
   intro n hn
   obtain ⟨m, hm, hid, hp, hs⟩ := hab.nodes n hn
@@ -218,18 +219,18 @@ theorem adj_mono {h g : GPathB} (ha : ∀ q ∈ h.alive, q ∈ g.alive)
   · exact Or.inr ⟨e, he e he', hj⟩
 
 theorem sub_removeEdge (g : GPathB) (x w : PathNodeId) : Sub (g.removeEdge x w) g :=
-  ⟨rfl, fun _ h => h,
+  ⟨rfl, rfl, fun _ h => h,
    adj_mono (fun _ h => h) (fun _ he => (List.mem_filter.mp he).1),
    fun n hn => ⟨n, hn, rfl, fun _ h => h, fun _ h => h⟩⟩
 
 theorem sub_killVertex (g : GPathB) (id : PathNodeId) : Sub (g.killVertex id) g :=
-  ⟨rfl, fun _ h => (List.mem_filter.mp h).1,
+  ⟨rfl, rfl, fun _ h => (List.mem_filter.mp h).1,
    adj_mono (fun _ h => (List.mem_filter.mp h).1) (fun _ he => (List.mem_filter.mp he).1),
    fun n hn => ⟨n, hn, rfl, fun _ h => h, fun _ h => h⟩⟩
 
 theorem sub_removeNode (g : GPathB) (id : PathNodeId) : Sub (g.removeNode id) g := by
   have hk := sub_killVertex g id
-  refine ⟨rfl, hk.alive, hk.adj, ?_⟩
+  refine ⟨rfl, rfl, hk.alive, hk.adj, ?_⟩
   intro n hn
   simp only [removeNode, killVertex, List.mem_map, List.mem_filter] at hn
   obtain ⟨m, ⟨hm, _⟩, rfl⟩ := hn
