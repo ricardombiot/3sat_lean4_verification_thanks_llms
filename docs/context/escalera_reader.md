@@ -1829,6 +1829,39 @@ M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
   pieza k. Truncando la cima (`Trunc.kernel_trunc`) es un kernel por debajo de la unión de las fuentes filtradas F_j,
   cuya fila de arriba solo tiene nodos de F_k. La pregunta es si está por debajo de F_k.
 
+**La forma truncada de `M1bLowOwn`: se reduce a partir el kernel por la fila de debajo** (deducido;
+`split_probe.jl`). Sea K = J fijado en k :: R, sin la cima. K es un kernel por debajo de la unión de las fuentes
+filtradas F_j, y su fila n solo tiene nodos de k.
+1. **K respeta los requisitos de k.** Un nodo de K en el paso de un requisito de k posee un nodo de k de la fila n, que
+   es puro. Así que el primero está en la fuente X_k, donde ese paso solo tiene el nodo requerido. K también respeta los
+   requisitos del destino d.
+2. **Basta que las tablas de abajo de K estén en X_k** (`M1bSrc`). Por `below_filterAll`, K queda entonces por debajo de
+   F_k, y con la cima pura por debajo de la pieza P_k.
+3. **X_k es la unión de las piezas Q_{k,i}** de la línea anterior, una por clave i de la fila n-1. Todas salen del mismo
+   estado W_i y solo difieren en el filtro de requisitos. Así que el paso 2 pide dos cosas:
+   * **CoverSplit(n-1):** K es la unión de sus fijaciones por la fila n-1: todo enlace de K está en K_{k,i} = J fijado en
+     k :: i :: R, para alguna clave i.
+   * **El mismo enunciado un nivel más abajo**, con dos claves fijadas: las tablas bajo la fila n-1 de K_{k,i} están en
+     W_i. Después, por el paso 1 con los requisitos de k, están en Q_{k,i} ⊆ X_k.
+   La inducción baja fila a fila hasta el paso 0, donde todo está fijado. **Solo queda como hipótesis CoverSplit en
+   cada fila.**
+
+**Medido sin fallos** (`clause_mix`, `clause_mix_sep` y 6 de `random_small`):
+
+| enunciado | casos | fallos |
+|---|---|---|
+| LinkSplit: todo enlace de filas bajas de K es compatible con algún nodo de la fila n-1 | 20.262.014 | 0 |
+| **CoverSplit**: todo enlace de filas bajas de K está en K_{k,i} para alguna clave i | 23.310.243 | 0 |
+| PartValid: fijar además cualquier clave viva de la fila n-1 deja el estado válido | 32.360 | 0 |
+
+**Lectura.** Todas las rutas acaban en el mismo núcleo: **el kernel de un estado fijado es la unión de sus fijaciones
+por cualquier fila de claves** (exactitud de la unión, fila a fila).
+* CoverSplit en la fila n es M1 en forma de enlaces.
+* CoverSplit en todas las filas lo da `PairExact` con pins: un enlace que está en una cadena elige un nodo en cada fila.
+* `M1aAll` es la parte de validez: si K tiene enlaces, CoverSplit da una fijación válida.
+
+`M1bLowOwn` pide CoverSplit en las filas de abajo; `M1aAll`, en la fila de claves.
+
 **Las reglas de la fila de claves** (v196; `KeyRules.lean`, solo `[propext, Quot.sound]`; ⚠ retirado del código, queda en la historia: commit `82c121f`, merge `e0be7a3`). Etiqueta de clave
 (`restrictTo` con la pieza) y comprobación de claves (`reviewKC`), como operaciones nuevas del modelo; filtro
 `filterKC`. Implementadas en Julia en la rama `julia_key_rules`.
