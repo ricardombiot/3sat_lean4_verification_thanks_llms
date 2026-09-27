@@ -121,18 +121,21 @@ def cutSupport (g : GPathB) (x : PathNodeId) (sup : List PathNodeId) : GPathB ×
   let drop := g.alive.filter (fun w => w != x && g.adjb x w && !sup.any (fun p => g.adjb p w))
   (drop.foldl (fun h w => h.removeEdge x w) g, !drop.isEmpty)
 
-/-- Un nodo de una pasada: si es válido, su corte; después, fuera si ya no es válido. -/
+/-- El corte de un nodo válido, activando `dirty` si quita algo. -/
+def cutStep (sel : PNodeB → List PathNodeId) (g : GPathB) (n : PNodeB) : GPathB :=
+  if g.isValidNode n then
+    let r := g.cutSupport n.id (sel n)
+    if r.2 then { r.1 with dirty := true } else r.1
+  else g
+
+/-- Un nodo de una pasada: si es válido, su corte; después, fuera si ya no es válido (el corte solo quita
+aristas: el documento de `n` es el mismo). -/
 def reviewNode (sel : PNodeB → List PathNodeId) (g : GPathB) (id : PathNodeId) : GPathB :=
   match g.node? id with
   | none => g
   | some n =>
-    let g :=
-      if g.isValidNode n then
-        let r := g.cutSupport id (sel n)
-        if r.2 then { r.1 with dirty := true } else r.1
-      else g
-    -- el corte solo quita aristas: el documento de `n` es el mismo
-    if g.isValidNode n then g else { g.removeNode id with dirty := true }
+    let g' := cutStep sel g n
+    if g'.isValidNode n then g' else { g'.removeNode id with dirty := true }
 
 def reviewLine (sel : PNodeB → List PathNodeId) (g : GPathB) (k : Int) : GPathB :=
   ((g.line k).map (·.id)).foldl (reviewNode sel) g
