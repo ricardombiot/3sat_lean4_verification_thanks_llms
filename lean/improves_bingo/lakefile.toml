@@ -1,0 +1,16 @@
+name = "abs-sat-bingo"
+version = "0.1.0"
+defaultTargets = ["AbsSatBingo"]
+
+[leanOptions]
+warningAsError = true
+
+# La capa de base (Cnf, mapa bin, ids, utilidades de GPathM) viene de lean/improves_bin: mismos tipos,
+# sin copiar (plan docs/plans/lean_bingo.md, decisión 1). Solo se compilan los módulos que se importan.
+[[require]]
+name = "abs-sat-bin"
+path = "../improves_bin"
+
+[[lean_lib]]
+name = "AbsSatBingo"
+root = "AbsSatBingo"

@@ -1,6 +1,6 @@
 # Plan: `lean/improves_bingo`, el espejo Lean de `julia/improves_bingo`
 
-27-sept-2026. Rama `graph_owners`. Estado: **plan, sin empezar**; cada fase espera el ok.
+27-sept-2026. Rama `graph_owners`. Estado: **L0 y L1 hechos**; L2 en adelante, pendiente del ok. Decisiones: (1) `require` de `improves_bin`, (2) aristas en una orientación con `Adj` simétrica por definición, (3) rama `graph_owners`.
 
 ## Objetivo
 
