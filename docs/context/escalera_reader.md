@@ -1783,7 +1783,19 @@ un nodo por debajo del paso n es un enlace de la pieza k.
 `KFix` habla solo de J fijado en R y de las piezas, sin el review del estado fijado en k: es la forma coinductiva de
 «la unión de piezas es exacta por debajo de la clave».
 
-**Abierto**: `M1aAll` (vía `KeyTri₁`) y `M1bLowOwn` (vía `KFix`, medido sin fallos; `KTri` y `KTriK` falsos).
+**`KeyTri₁ ⇐ KeyExact`** (`M1Parts.keyTri₁_of_keyExact`, vía `BranchRel.triPin₁_of_pairExactRel`). `KeyExact`: en J
+fijado en R válido, cada clave viva tiene un nodo x tal que todo enlace y–w x-compatible está, con x, en una cadena
+(una solución parcial) de J fijado. **Medido sin fallos** (`keyexact_probe.jl`, búsqueda de cadena por nodos poseídos
+dos a dos): 25.242.784 enlaces en `clause_mix*` con x en la clave; en `clause_mix`, 3.822.073 con x en la cima,
+4.235.930 dos pasos por debajo y 4.114.163 tres pasos por debajo. **La posición de la clave no es lo decisivo**: todo
+apunta a `PairExactRel` para todo x en los estados unidos fijados. No choca con los 20 tríos sin cadena de §4.2ο:
+allí los testigos no los posee también x.
+
+Demostrar `KeyExact` pide exactitud por cadenas a través del join con pins: los testigos de un enlace x-compatible de
+J fijado pueden venir de piezas distintas, y la cadena tiene que estar en una sola (`chain_in_piece`). Es el núcleo de
+M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
+
+**Abierto**: `M1aAll` (vía `KeyTri₁ ⇐ KeyExact`) y `M1bLowOwn` (vía `KFix`, medido sin fallos; `KTri` y `KTriK` falsos).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1889,4 +1901,4 @@ Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--cha
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`, `m1split`, `keytri`, `m1aall`, `ktri`, `keycut_trace`, `kfix`).
+`fextind`, `m1split`, `keytri`, `m1aall`, `keyexact`, `ktri`, `keycut_trace`, `kfix`).
