@@ -5,14 +5,13 @@ module GraphPathVisual
 
     using Main.AbsSat.Alias: Step, NodeId, PathNodeId, SetPathNodesId
     using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode
-    using Main.AbsSat.DBDocuments.PathDocumentOwners: PathDocOwners
     using Main.AbsSat.DBCollections.PathCollectionNodes: PathColNodesLine
     using Main.AbsSat.DBCollections.PathCollectionLines: PathColLines
 
 
     using Main.AbsSat.Alias
     using Main.AbsSat.DBDocuments.PathDocumentNode
-    using Main.AbsSat.DBDocuments.PathDocumentOwners
+    using Main.AbsSat.DBDocuments.PathOwnersGraph
     using Main.AbsSat.DBCollections.PathCollectionNodes
     using Main.AbsSat.DBCollections.PathCollectionLines
 
@@ -89,36 +88,25 @@ module GraphPathVisual
         #node_label_html *= "<BR /><FONT POINT-SIZE=\"8\">Sons: $sons_nodes_txt</FONT>"
         #node_label_html *= owners_html
 
-        #node_label_html *= draw_owners(node)
+        #node_label_html *= draw_owners(diagram.graph, node)
         node_label_html *= ">"
 
         diagram.dot_txt *=  "$key_node [label=$node_label_html]"
     end
 
 
-    function draw_owners(node :: PathDocNode) :: String
+    function draw_owners(gpath :: GPath, node :: PathDocNode) :: String
         owners_text = ""
-        for step in 0:node.owners.max_step
+        PathOwnersGraph.is_alive(gpath.og, node.id) || return "<BR /><FONT POINT-SIZE=\"10\">  DEAD</FONT>"
+        for step in 0:gpath.og.nsteps-1
             owners_text *= "<BR /><FONT POINT-SIZE=\"10\">  $step :"
-            if haskey(node.owners.table, step)
-                set_owners_line_a = PathDocumentOwners.get(node.owners, step)
-                for node_id in set_owners_line_a
-                    key_node = Alias.as_key(node_id)
-                    owners_text *= "$key_node,"
-                end
+            ws = PathOwnersGraph.neighbors(gpath.og, node.id, step)
+            for node_id in ws
+                owners_text *= "$(Alias.as_key(node_id)),"
             end
+            isempty(ws) && (owners_text *= " INVALID")
             owners_text *= "</FONT>"
         end
-
-        empty_steps = node.owners.empty_steps
-        if !isempty(empty_steps)
-            owners_text *= "<BR /><FONT POINT-SIZE=\"10\">  INVALID STEPS:"
-            for step in node.owners.empty_steps
-                owners_text *= "$step,"
-            end
-            owners_text *= "</FONT>"
-        end
-
         return owners_text
     end
 

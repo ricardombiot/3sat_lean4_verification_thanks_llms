@@ -1,21 +1,21 @@
 module GraphPath
     using Main.AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
     using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode
-    using Main.AbsSat.DBDocuments.PathDocumentOwners: PathDocOwners
+    using Main.AbsSat.DBDocuments.PathOwnersGraph: OwnersGraph
     using Main.AbsSat.DBCollections.PathCollectionNodes: PathColNodesLine
     using Main.AbsSat.DBCollections.PathCollectionLines: PathColLines
 
 
     using Main.AbsSat.Alias
     using Main.AbsSat.DBDocuments.PathDocumentNode
-    using Main.AbsSat.DBDocuments.PathDocumentOwners
+    using Main.AbsSat.DBDocuments.PathOwnersGraph
     using Main.AbsSat.DBCollections.PathCollectionNodes
     using Main.AbsSat.DBCollections.PathCollectionLines
 
 
     mutable struct GPath
         table_lines :: PathColLines
-        owners :: PathDocOwners
+        og :: OwnersGraph                 # grafo de owners (plan docs/plans/graph_owners.md)
         current_step :: Step
         map_parent_id :: Union{NodeId,Nothing}
         review_owners :: Bool

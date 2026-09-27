@@ -4,7 +4,7 @@ function do_join!(gpath :: GPath, gpath_inmutable :: GPath)
         gpath_inmutable = deepcopy(gpath_inmutable)
 
         PathCollectionLines.union!(gpath.table_lines, gpath_inmutable.table_lines)
-        PathDocumentOwners.union!(gpath.owners, gpath_inmutable.owners)
+        PathOwnersGraph.union!(gpath.og, gpath_inmutable.og)
     end
 end
 

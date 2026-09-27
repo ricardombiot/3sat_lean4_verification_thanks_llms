@@ -99,7 +99,14 @@ module PathOwnersGraph
         ws === nothing || delete!(ws, w)
     end
 
-    has_edge(g, x, w) = x == w ? is_alive(g, x) : haskey(g.edges, edge_key(x, w))
+    # Por la incidencia (una búsqueda en Dict y otra en Set), sin construir la clave de la arista:
+    # es la consulta más frecuente del review. La incidencia y `edges` coinciden (check_invariants).
+    function has_edge(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId) :: Bool
+        inc = get(g.inc, x, nothing)
+        inc === nothing && return false
+        ws = get(inc, step_of(w), nothing)
+        return ws !== nothing && w in ws
+    end
     get_edge(g, x, w) = get(g.edges, edge_key(x, w), nothing)
 
     neighbors(g, x, step) = get(g.inc[x], step, SetPathNodesId())
@@ -123,10 +130,12 @@ module PathOwnersGraph
     # ---------- UP: nodo nuevo desde sus padres ----------
     # tabla(n) = (∪ tablas de padres) ∩ vivos, más n mismo; simétrica al construirla
     # (sustituye a create_node_from_parents! + its_owners_are_owned_by_me!).
+    # Solo pasos anteriores al de n: un hermano ya registrado está en la tabla del padre común, pero
+    # hoy los hermanos nunca se poseen (se crean todos antes de registrar ninguno).
     function create_from_parents!(g :: OwnersGraph, n :: PathNodeId, parents)
         register!(g, n)
-        for p in parents, w in neighbors_all(g, p)
-            is_alive(g, w) && add_edge!(g, n, w)
+        for p in parents, w in collect(neighbors_all(g, p))
+            step_of(w) < step_of(n) && is_alive(g, w) && add_edge!(g, n, w)
         end
     end
 
@@ -155,6 +164,19 @@ module PathOwnersGraph
         end
         ga.nsteps = max(ga.nsteps, gb.nsteps)
     end
+
+    # ---------- copia ----------
+    # El grafo solo guarda ids (inmutables) en Dicts y Sets, sin referencias cruzadas: se copia por
+    # estructura, sin el IdDict del deepcopy genérico. Es la copia de cada UP (sat_machine.jl, send_to_destine!).
+    function copy_graph(g :: OwnersGraph) :: OwnersGraph
+        alive = Dict{Step, SetPathNodesId}(k => copy(v) for (k, v) in g.alive)
+        edges = Dict{EdgeKey, Edge}(k => Edge(e.a, e.b, e.born) for (k, e) in g.edges)
+        inc = Dict{PathNodeId, Inc}(x => Inc(s => copy(ws) for (s, ws) in r) for (x, r) in g.inc)
+        return OwnersGraph(alive, edges, inc, g.nsteps, g.valid, copy(g.removed_by))
+    end
+
+    Base.deepcopy_internal(g :: OwnersGraph, stackdict :: IdDict) =
+        get!(() -> copy_graph(g), stackdict, g)
 
     # ---------- invariantes ----------
     # La primera violación encontrada, o nothing. Para tests y asserts:

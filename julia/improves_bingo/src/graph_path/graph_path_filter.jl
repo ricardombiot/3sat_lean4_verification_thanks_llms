@@ -10,11 +10,14 @@ end
 # Contador de vueltas del review (solo para medir; no cambia nada).
 const REVIEW_ROUNDS = Ref(0)
 
+# Comprobación de los invariantes del grafo de owners al final de cada review (plan
+# docs/plans/graph_owners.md, F2). Solo para tests y diferenciales: con :on es lento.
+const CHECK_OG = Ref(:off)
+
 function make_review_owners!(gpath :: GPath)
     #! [recursive-if] $ O(S*7*7) $
     if gpath.is_valid && gpath.review_owners
         REVIEW_ROUNDS[] += 1
-        #println("make Review_owners")
         gpath.review_owners = false
         clean_invalid_nodes!(gpath)
         if PAIR_MODE[] == :on
@@ -26,17 +29,23 @@ function make_review_owners!(gpath :: GPath)
 
         LINK_MODE[] == :on && prune_stale_links!(gpath)
 
+        if CHECK_OG[] == :on
+            v = PathOwnersGraph.invariant_violation(gpath.og)
+            v === nothing || error("grafo de owners: $v")
+        end
+
         if gpath.review_owners
             make_review_owners!(gpath)
         end
     end
 end
 
-# Enlaces caducados (26-sept-2026). Quitar un dueño (corte, parejas, espejo, regla de la cadena) puede
-# dejar un enlace padre–hijo entre dos nodos que ya no se poseen: ninguna cadena lo puede usar. El modelo
-# Lean los quita (`unlinkIncompatible`, `cutNode`: un enlace sobrevive si cada extremo posee al otro);
-# con :on (por defecto) Julia hace lo mismo. Solo quita enlaces (no dueños); si quita alguno, pide otra vuelta de review
-# (un nodo sin padres o sin hijos lo elimina la purga siguiente).
+# Enlaces caducados (26-sept-2026). Quitar un dueño (corte, parejas, regla de la cadena) puede dejar un
+# enlace padre–hijo entre dos nodos que ya no se poseen: ninguna cadena lo puede usar. El modelo Lean los
+# quita (`unlinkIncompatible`, `cutNode`: un enlace sobrevive si cada extremo posee al otro); con :on (por
+# defecto) Julia hace lo mismo. Con el grafo de owners la posesión es simétrica: basta mirar la arista.
+# Solo quita enlaces (no aristas); si quita alguno, pide otra vuelta de review (un nodo sin padres o sin
+# hijos lo elimina la purga siguiente).
 const LINK_MODE = Ref(:on)
 const LINK_PRUNED = Ref(0)
 
@@ -48,8 +57,7 @@ function prune_stale_links!(gpath :: GPath)
             #! [for] $ O(7) $
             for c_id in collect(links)
                 node_c = PathCollectionLines.get_node(gpath.table_lines, c_id)
-                if node_c === nothing || !(PathDocumentOwners.is_owner(node.owners, c_id) &&
-                                           PathDocumentOwners.is_owner(node_c.owners, node.id))
+                if node_c === nothing || !PathOwnersGraph.has_edge(gpath.og, node.id, c_id)
                     delete!(links, c_id)
                     node_c !== nothing && delete!(getfield(node_c, back), node.id)
                     LINK_PRUNED[] += 1
@@ -60,49 +68,21 @@ function prune_stale_links!(gpath :: GPath)
     end)
 end
 
-# Interruptor de clean_invalid_nodes! (informe v181, §6):
-#   :two_phase  — (por defecto) primero eliminar hasta que la global se estabilice, después un
-#                 solo corte. Mismos veredictos, vueltas y estados finales que la secuencial en
-#                 test_window y test_3sat, con un +1,3 % de tiempo en test_window.
-#   :sequential — la de antes: nodo a nodo, cada tabla cortada con la global de ese momento.
-const CLEAN_MODE = Ref(:two_phase)
-
+# cleanInvalid (v181, §6). Se eliminan los nodos cuya tabla no es válida, y se repite hasta que no se
+# elimina nada (eliminar un nodo puede dejar a un vecino sin padres, sin hijos, o con un paso sin
+# owners). Con el grafo de owners ya no hay segunda fase: al eliminar un nodo se van sus aristas, así
+# que ninguna tabla guarda ids de nodos muertos y el resultado no depende del orden del recorrido.
 function clean_invalid_nodes!(gpath :: GPath)
-    if CLEAN_MODE[] == :two_phase
-        clean_invalid_nodes_two_phase!(gpath)
-    else
-        clean_invalid_nodes_sequential!(gpath)
-    end
-end
-
-function clean_invalid_nodes_sequential!(gpath :: GPath)
-    # For every step  O(S) we have at worst O(7*7) nodes, then:
-    #! [fn-iter] $ O(S*7*7) $
-    PathCollectionLines.filter!(gpath.table_lines, function (map_node)
-        PathDocumentOwners.intersect!(map_node.owners, gpath.owners)
-        return remove_if_invalid_node!(gpath, map_node)
-    end)
-end
-
-# cleanInvalid en dos fases (v181, §6), 24-sept-2026.
-# Fase 1: se eliminan los nodos cuya tabla, cortada con la global ACTUAL, no es válida, sin tocar
-#         todavía ninguna tabla; se repite hasta que no se elimina nada (eliminar un nodo puede dejar
-#         a un vecino sin padres o sin hijos, o encoger la global).
-# Fase 2: un solo corte de todas las tablas con la global FINAL. Así ninguna tabla guarda ids de
-#         nodos eliminados y el resultado no depende del orden en que se recorren los nodos.
-function clean_invalid_nodes_two_phase!(gpath :: GPath)
     #! [while] $ O(N) $ vueltas como mucho: cada vuelta que sigue ha eliminado al menos un nodo
     changed = true
     while changed && gpath.is_valid && gpath.table_lines.is_valid
         changed = false
         #! [fn-iter] $ O(S*7*7) $
         PathCollectionLines.filter!(gpath.table_lines, function (path_node)
-            #! [fixed] $ O(S*7) $ sin copiar la tabla: basta un id común por paso
-            owners_ok = PathDocumentOwners.is_valid_intersect(path_node.owners, gpath.owners)
-            if is_valid_node_by(gpath, path_node, owners_ok)
+            if is_valid_node(gpath, path_node)
                 return false
             else
-                remove_node_owner!(gpath, path_node.id)
+                remove_node_owner!(gpath, path_node.id; rule = :clean)
                 clean_links!(gpath, path_node)
                 gpath.review_owners = true
                 changed = true
@@ -110,33 +90,12 @@ function clean_invalid_nodes_two_phase!(gpath :: GPath)
             end
         end)
     end
-
-    #! [fn-iter] $ O(S*7*7) $
-    PathCollectionLines.for_each(gpath.table_lines, function (path_node)
-        if SYM_MODE[] == :on
-            # Tras la purga todo nodo vivo está en la global, así que este corte solo quita ids
-            # muertos y no hay espejo que escribir (plan A3, nota). Se comprueba con el contador.
-            # (en un grafo inválido la purga se para antes: ahí puede haber vivos fuera de la global,
-            # pero ese grafo se descarta)
-            removed = PathDocumentOwners.intersect_removed!(path_node.owners, gpath.owners)
-            if gpath.is_valid && gpath.table_lines.is_valid
-                #! [for] $ O(S*7) $
-                for w_id in removed
-                    CLEAN_CUT_LIVE[] += PathCollectionLines.get_node(gpath.table_lines, w_id) !== nothing
-                end
-            end
-        else
-            PathDocumentOwners.intersect!(path_node.owners, gpath.owners)
-        end
-    end)
 end
-#! [fixed] $ O(S*7*7*S*7*7) $
-#! [fixed] $ O(S*7*7*7*7) $
 
 function remove_if_invalid_node!(gpath :: GPath, path_node :: PathDocNode) :: Bool
     is_valid = is_valid_node(gpath, path_node)
     if !is_valid
-        remove_node_owner!(gpath, path_node.id)
+        remove_node_owner!(gpath, path_node.id; rule = :clean)
 
         clean_links!(gpath, path_node)
         gpath.review_owners = true
@@ -159,48 +118,20 @@ function clean_links!(gpath :: GPath, path_node :: PathDocNode)
     end
 end
 
-# Review simétrico (docs/plans/review_simetrico.md, A2). Cuando el review quita w de la tabla de x
-# afirma «ninguna solución pasa a la vez por x y por w»; la frase es simétrica, así que con :on se
-# borra también el espejo: x sale de la tabla de w si w sigue vivo.
-#   :on  — (por defecto desde el 24-sept-2026) las pasadas de padres y de hijos escriben el espejo.
-#          compare_sym.jl: 80 instancias, mismos veredictos, estados finales y vueltas que :off,
-#          +0,2 % de tiempo; la rama «asymmetric» del filtro agresivo deja de dispararse.
-#   :off — la máquina de antes: el corte solo se escribe en la tabla de x.
-const SYM_MODE = Ref(:on)
-
-# Contadores (solo para medir; no cambian nada).
-const MIRROR_REMOVED = Ref(0)   # entradas espejo borradas
-const CLEAN_CUT_LIVE = Ref(0)   # ids de nodos VIVOS quitados por el corte de clean (debería ser 0)
-
-# El corte de la tabla de x en una pasada, con espejo si SYM_MODE[] == :on.
-function cut_owners!(gpath :: GPath, path_node :: PathDocNode, owners_cut :: PathDocOwners)
-    if SYM_MODE[] == :on
-        removed = PathDocumentOwners.intersect_removed!(path_node.owners, owners_cut)
-        mirror_remove!(gpath, path_node.id, removed)
-    else
-        PathDocumentOwners.intersect!(path_node.owners, owners_cut)
-    end
-end
-
-# x perdió estos owners: cada uno que siga vivo pierde a x. w no se valida aquí: si queda inválido
-# lo elimina la propia pasada cuando lo procese o la purga de la vuelta siguiente.
-function mirror_remove!(gpath :: GPath, x_id :: PathNodeId, removed :: Vector{PathNodeId})
-    #! [for] $ O(S*7) $
-    for w_id in removed
-        node_w = PathCollectionLines.get_node(gpath.table_lines, w_id)
-        if node_w !== nothing && PathDocumentOwners.is_owner(node_w.owners, x_id)
-            PathDocumentNode.remove_owner!(node_w, x_id)
-            MIRROR_REMOVED[] += 1
-            gpath.review_owners = true
-        end
+# El corte de la tabla de x en una pasada: se quita la arista (x,w) si ningún nodo de `supports`
+# tiene la arista (·,w). Es el corte con la unión de sus tablas, sin copiarlas, y con el espejo incluido
+# (la arista es una sola). Si quita alguna, pide otra vuelta de review.
+function cut_owners!(gpath :: GPath, path_node :: PathDocNode, supports :: SetPathNodesId, rule :: Symbol)
+    if PathOwnersGraph.cut_by_support!(gpath.og, path_node.id, supports; rule) > 0
+        gpath.review_owners = true
     end
 end
 
 function review_owners_coherence_with_its_parents_sons!(gpath :: GPath)
-    # hago la union de los owners de mis padres y la intersectiono conmigo
+    # corto mi tabla con la unión de las de mis padres
     review_owners_parents_sons!(gpath)
 
-    # hago la union de los owners de mis hijos y la intersectiono conmigo
+    # corto mi tabla con la unión de las de mis hijos
     review_owners_sons_parents!(gpath)
 end
 
@@ -208,7 +139,7 @@ end
 Los owners deben ser coherentes con sus padres e hijos
 
 # Top to down
-# hago la union de los owners de mis padres y la intersectiono conmigo
+# w sigue en mi tabla si algún padre mío tiene a w
 =#
 function review_owners_parents_sons!(gpath :: GPath)
     if gpath.is_valid && gpath.review_owners
@@ -219,25 +150,11 @@ function review_owners_parents_sons!(gpath :: GPath)
 
             #! [fn-iter] $ O(7*7) $
             PathCollectionNodes.filter!(col_nodes, function (path_node)
-                is_valid = is_valid_node(gpath, path_node)
-                if is_valid
-                    owners_union_parents = nothing
-                    #! [for] $ O(7*7) $
-                    for node_id_parent in path_node.parents
-                        node_parent = PathCollectionLines.get_node(gpath.table_lines, node_id_parent)
-
-                        if owners_union_parents == nothing
-                            owners_union_parents = deepcopy(node_parent.owners)
-                        else
-                            PathDocumentOwners.union!(owners_union_parents, node_parent.owners)
-                        end
-                    end
-
-                    cut_owners!(gpath, path_node, owners_union_parents)
-                    return remove_if_invalid_node!(gpath, path_node)
-                else
-                    return remove_if_invalid_node!(gpath, path_node)
+                if is_valid_node(gpath, path_node)
+                    #! [for] $ O(S*7*7*7) $
+                    cut_owners!(gpath, path_node, path_node.parents, :parents)
                 end
+                return remove_if_invalid_node!(gpath, path_node)
             end)
 
             PathCollectionLines.check_if_valid_line!(gpath.table_lines, step)
@@ -254,10 +171,8 @@ end
 #=
 Los owners deben ser coherentes con sus padres e hijos
 
-down to top: union de owners de mis hijos intersect with me...
-
 # Down to top
-# hago la union de los owners de mis hijos y la intersectiono conmigo
+# w sigue en mi tabla si algún hijo mío tiene a w
 =#
 function review_owners_sons_parents!(gpath :: GPath)
     if gpath.is_valid && gpath.review_owners
@@ -267,26 +182,11 @@ function review_owners_sons_parents!(gpath :: GPath)
 
             #! [fn-iter] $ O(7*7) $
             PathCollectionNodes.filter!(col_nodes, function (path_node)
-                is_valid = is_valid_node(gpath, path_node)
-
-                if is_valid
-                    owners_union_sons = nothing
-                    #! [for] $ O(7*7) $
-                    for node_id_son in path_node.sons
-                        node_son = PathCollectionLines.get_node(gpath.table_lines, node_id_son)
-
-                        if owners_union_sons == nothing
-                            owners_union_sons = deepcopy(node_son.owners)
-                        else
-                            PathDocumentOwners.union!(owners_union_sons, node_son.owners)
-                        end
-                    end
-
-                    cut_owners!(gpath, path_node, owners_union_sons)
-                    return remove_if_invalid_node!(gpath, path_node)
-                else
-                    return remove_if_invalid_node!(gpath, path_node)
+                if is_valid_node(gpath, path_node)
+                    #! [for] $ O(S*7*7*7) $
+                    cut_owners!(gpath, path_node, path_node.sons, :sons)
                 end
+                return remove_if_invalid_node!(gpath, path_node)
             end)
 
             PathCollectionLines.check_if_valid_line!(gpath.table_lines, step)
@@ -309,7 +209,7 @@ function filter_require!(gpath :: GPath, map_node_id_req :: NodeId)
         for node_id in nodes_ids
             is_required = node_id.id == map_node_id_req
             if !is_required
-                remove_node_owner!(gpath, node_id)
+                remove_node_owner!(gpath, node_id; rule = :require)
 
                 gpath.review_owners = true
             end
@@ -319,24 +219,25 @@ function filter_require!(gpath :: GPath, map_node_id_req :: NodeId)
     end
 end
 
-function remove_node_owner!(gpath :: GPath, path_node_id :: PathNodeId)
-    PathDocumentOwners.remove!(gpath.owners, path_node_id)
+# El nodo sale del grafo de owners con todas sus aristas. Su documento sigue en table_lines hasta que
+# la purga lo encuentra (is_valid_node lo ve muerto).
+function remove_node_owner!(gpath :: GPath, path_node_id :: PathNodeId; rule :: Symbol = :node)
+    PathOwnersGraph.remove_node!(gpath.og, path_node_id; rule)
     check_if_graph_valid!(gpath)
 end
 
 function check_if_graph_valid!(gpath :: GPath)
-    gpath.is_valid = PathDocumentOwners.is_valid(gpath.owners)
+    gpath.is_valid = gpath.og.valid
 end
 
+# La tabla de un nodo es válida si el nodo sigue en el grafo y tiene algún owner vivo en cada paso.
+function is_owners_valid(gpath :: GPath, path_node :: PathDocNode) :: Bool
+    return PathOwnersGraph.is_alive(gpath.og, path_node.id) &&
+           PathOwnersGraph.is_valid_owners(gpath.og, path_node.id)
+end
 
 function is_valid_node(gpath :: GPath, path_node :: PathDocNode) :: Bool
-    return is_valid_node_with_owners(gpath, path_node, path_node.owners)
-end
-
-# La validez de un nodo evaluada con una tabla de owners dada (la suya u otra), sin modificarlo.
-function is_valid_node_with_owners(gpath :: GPath, path_node :: PathDocNode,
-                                   owners :: PathDocOwners) :: Bool
-    return is_valid_node_by(gpath, path_node, PathDocumentOwners.is_valid(owners))
+    return is_valid_node_by(gpath, path_node, is_owners_valid(gpath, path_node))
 end
 
 # Las reglas de validez de un nodo, con la validez de su tabla ya calculada.
@@ -349,17 +250,13 @@ function is_valid_node_by(gpath :: GPath, path_node :: PathDocNode, is_owners_va
 
     if is_root_node
         if is_in_last_step
-            #println("Filter ROOT by owners")
             return is_owners_valid
         else
-            #println("Filter ROOT by owners OR sons $(gpath.current_step)")
             return is_owners_valid && have_sons
         end
     elseif is_in_last_step
-        #println("Filter Hoja by owners, parents")
         return is_owners_valid && have_parents
     else
-        #println("Filter by owners, parents or sons")
         return is_owners_valid && have_parents && have_sons
     end
 end

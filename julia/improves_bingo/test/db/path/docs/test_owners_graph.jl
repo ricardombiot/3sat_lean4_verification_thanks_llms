@@ -129,6 +129,19 @@ end
     @test OG.check_invariants(g)
 end
 
+@testset "OwnersGraph: create_from_parents!, hermanos con padre común" begin
+    a, b, c = og_id(0, 0), og_id(1, 0), og_id(1, 1)
+    g = og_with_steps(1)
+    OG.register!(g, a)
+    OG.add_step!(g)
+    OG.create_from_parents!(g, b, [a])
+    OG.create_from_parents!(g, c, [a])       # a ya tiene a b como vecino
+    @test !OG.has_edge(g, b, c)
+    @test Set(OG.neighbors_all(g, c)) == Set([a, c])
+    @test Set(OG.neighbors_all(g, a)) == Set([a, b, c])
+    @test OG.check_invariants(g)
+end
+
 @testset "OwnersGraph: cut_by_support!" begin
     g, (a, a2, b, c, d) = og_diamond()
     @test OG.cut_by_support!(g, d, [b, c]; rule = :parents) == 0   # todo apoyado
@@ -197,4 +210,16 @@ end
         end
         @test ok
     end
+end
+
+@testset "OwnersGraph: deepcopy por estructura" begin
+    g, (a, a2, b, c, d) = og_diamond()
+    h = deepcopy(g)
+    @test OG.check_invariants(h)
+    @test h.edges == g.edges || Set(keys(h.edges)) == Set(keys(g.edges))
+    @test h.inc == g.inc && h.alive == g.alive && h.nsteps == g.nsteps
+    OG.remove_node!(h, d)                       # la copia es independiente
+    @test OG.is_alive(g, d) && OG.has_edge(g, d, a)
+    @test OG.check_invariants(g) && OG.check_invariants(h)
+    @test OG.get_edge(h, a, b) !== OG.get_edge(g, a, b)
 end

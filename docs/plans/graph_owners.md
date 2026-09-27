@@ -86,6 +86,32 @@ diferencia.
 o si una línea queda vacía; `is_valid_owners` exige una línea no vacía en cada paso `0:nsteps-1`.
 Son lo mismo si ninguna tabla tiene huecos intermedios. Se comprueba con un assert en F2.
 
+**Hecho (F2).** `GPath.og`; `PathDocNode` sin owners; `PathDocumentOwners`, `clean` fase 2,
+`CLEAN_MODE`, `SYM_MODE` y el espejo, fuera. `CHECK_OG[] = :on` comprueba los invariantes tras cada
+review. `create_from_parents!` solo enlaza con pasos anteriores (dos hermanos con padre común no se
+poseen, como antes). `has_edge` mira la incidencia. `deepcopy` del grafo por estructura (`copy_graph`).
+
+Prueba de humo sobre el corpus (81 instancias; `simple_v3_c2.cnf` no es 3-SAT y el importador la
+rechaza en las dos máquinas), contra `improves_bin`:
+
+| | improves_bin | bingo |
+|---|---|---|
+| veredictos (= exhaustivo) | 80/80 | 80/80, iguales a bin en 81/81 |
+| soluciones del lector que pasan el checker | todas | todas |
+| vueltas del review | 24.882 | 24.882 (iguales instancia a instancia) |
+| tiempo | 87,4 s | 41,4 s |
+| invariantes con `CHECK_OG = :on` | — | sin violaciones |
+
+El desfase de ids muertos no cambia ni la traza: las vueltas coinciden una a una.
+
+Sobre el tiempo: el perfil de bingo antes de `copy_graph` daba un 77 % en el `deepcopy` del UP
+(`sat_machine.jl:110`) y un 13 % en el review; con el `deepcopy` genérico bingo tardaba 104,5 s (más que
+bin). La ganancia viene sobre todo de copiar por estructura, algo que las tablas de `improves_bin`
+también podrían hacer: la comparación justa de representaciones es F5.
+
+Rotos hasta F3: `test_pair_mode`, `test_clean_invalid_two_phase`, `test_graph_path` y los tests de
+`test/db/path` que leen `node.owners` o `gpath.owners`.
+
 ### F3 — accesorio de compatibilidad y visual
 
 - `GraphPath.owners_table(gpath, id) :: Dict{Step, Set{PathNodeId}}` = `as_table`, para tests y

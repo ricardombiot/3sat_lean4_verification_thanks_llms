@@ -2,14 +2,12 @@ module PathExpReader
 
     using Main.AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
     using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode
-    using Main.AbsSat.DBDocuments.PathDocumentOwners: PathDocOwners
     using Main.AbsSat.DBCollections.PathCollectionNodes: PathColNodesLine
     using Main.AbsSat.DBCollections.PathCollectionLines: PathColLines
 
 
     using Main.AbsSat.Alias
     using Main.AbsSat.DBDocuments.PathDocumentNode
-    using Main.AbsSat.DBDocuments.PathDocumentOwners
     using Main.AbsSat.DBCollections.PathCollectionNodes
     using Main.AbsSat.DBCollections.PathCollectionLines
 

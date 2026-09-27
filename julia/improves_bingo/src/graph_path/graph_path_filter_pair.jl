@@ -17,51 +17,50 @@
 const PAIR_MODE = Ref(:on)
 
 # Contadores (solo para medir; no cambian nada).
-const PAIR_REMOVED = Ref(0)     # parejas deshechas (cada pareja mutua cuenta dos veces: (x,w) y (w,x))
+const PAIR_REMOVED = Ref(0)     # parejas deshechas (cada arista cuenta una vez)
 const PAIR_ROUNDS  = Ref(0)     # vueltas regla + purga
-const PAIR_MAXSTEP = Ref(0)     # parejas comparadas con max_step distinto (debería ser 0)
+
+# ¿Comparten las tablas de x y w al menos una entrada en cada paso que tienen las dos?
+# (antes PathDocumentOwners.shares_every_step; una línea vacía cuenta como paso sin entrada común)
+function shares_every_step(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId) :: Bool
+    inc_w = g.inc[w]
+    #! [for] $ O(S) $
+    for (step, set_x) in g.inc[x]
+        set_w = get(inc_w, step, nothing)
+        set_w === nothing && continue
+        short, long = length(set_x) <= length(set_w) ? (set_x, set_w) : (set_w, set_x)
+        #! [fixed] $ O(7) $
+        any(id -> id in long, short) || return false
+    end
+    return true
+end
 
 function pair_consistency_after_clean!(gpath :: GPath)
+    og = gpath.og
     changed = true
     #! [while] $ O(N*7) $ vueltas como mucho: cada vuelta que sigue ha deshecho al menos una pareja
     while changed && gpath.is_valid && gpath.table_lines.is_valid
         changed = false
         PAIR_ROUNDS[] += 1
 
-        # Fase 1: las parejas malas, contra el estado de ahora.
+        # Fase 1: las parejas malas, contra el estado de ahora. Cada arista se mira una vez.
         bad = Tuple{PathNodeId, PathNodeId}[]
-        #! [fn-iter] $ O(S*7*7) $
-        PathCollectionLines.for_each(gpath.table_lines, function (node_x)
-            #! [for] $ O(S) $
-            for (_, ids_w) in node_x.owners.table
-                #! [for] $ O(7*7) $
-                for node_id_w in ids_w
-                    node_id_w == node_x.id && continue
-                    node_w = PathCollectionLines.get_node(gpath.table_lines, node_id_w)
-                    node_w === nothing && continue      # id muerto: lo quita el corte de clean
-                    PAIR_MAXSTEP[] += node_w.owners.max_step != node_x.owners.max_step
-                    #! [fixed] $ O(S*7) $
-                    if !PathDocumentOwners.shares_every_step(node_x.owners, node_w.owners)
-                        push!(bad, (node_x.id, node_id_w))
-                    end
-                end
-            end
-        end)
+        #! [for] $ O(|E|*S*7) $
+        for e in values(og.edges)
+            shares_every_step(og, e.a, e.b) || push!(bad, (e.a, e.b))
+        end
 
-        # Fase 2: se quitan todas, en las dos direcciones (quitar un id que ya no está es inocuo).
+        # Fase 2: se quitan todas.
         #! [for] $ O(|bad|) $
         for (x_id, w_id) in bad
-            node_x = PathCollectionLines.get_node(gpath.table_lines, x_id)
-            node_w = PathCollectionLines.get_node(gpath.table_lines, w_id)
-            node_x !== nothing && PathDocumentNode.remove_owner!(node_x, w_id)
-            node_w !== nothing && PathDocumentNode.remove_owner!(node_w, x_id)
+            PathOwnersGraph.remove_edge!(og, x_id, w_id; rule = :pair)
             PAIR_REMOVED[] += 1
             changed = true
         end
 
         if changed
             gpath.review_owners = true
-            # purga + corte con la global final: deshacer una pareja puede dejar un paso vacío
+            # purga: deshacer una pareja puede dejar un paso vacío
             clean_invalid_nodes!(gpath)
         end
     end
