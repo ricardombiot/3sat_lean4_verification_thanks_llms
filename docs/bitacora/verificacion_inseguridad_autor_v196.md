@@ -20,13 +20,18 @@ cambios. El detalle técnico está en `docs/context/escalera_reader.md` §4.2ο.
   clave viva se fija en una copia, y la que no sobrevive se quita. Da `M1aAll` por construcción. **Con las dos
   reglas, M1 sale entero (deducido)**. Cuesta hasta ×3 en cada review de un estado unido del mapa bin.
 * **El riesgo (§3.5):** toda la prueba del lector se apoya en que el review nunca baja de un kernel, y la comprobación
-  de claves puede romper ese lema. Hay una salida probable (kernels cerrados por claves), sin intentar. Hasta que
-  salga, las dos reglas no dan el veredicto del lector.
+  de claves puede romper ese lema. La revisión del otro agente (§5.2) da un argumento corto para kernels cerrados por
+  claves. Sigue sin formalizar: hasta que lo esté, las dos reglas no dan el veredicto del lector.
+* **Implementadas y medidas en Julia (§5.1)**, en la rama `julia_key_rules`, apagadas por defecto. En 76 instancias,
+  los cuatro modos aciertan todos los veredictos, el lector sin retroceso acierta siempre y las soluciones leídas son
+  las mismas. **La comprobación no quita ninguna clave.** Las etiquetas son exactas en las dos direcciones (999.222
+  entradas). Coste en tiempo: +55 % cada regla, +121 % las dos.
 
 Cada afirmación lleva su estado: **demostrado** (teorema Lean), **medido** (sonda), **deducido** (argumento sin
 formalizar), **falso** (contraejemplo), **propuesto** o **abierto**.
 
-Commits de esta sesión: `5a79e8a`, `06b91fc`, `65bb769` y `c3089d5`, en la rama `lean_improves_bin`.
+Commits de esta sesión: `5a79e8a`, `06b91fc`, `65bb769` y `c3089d5`, en la rama `lean_improves_bin`; la
+implementación en Julia, `aeeb001` y `cac23ff`, en la rama `julia_key_rules`.
 
 ---
 
@@ -385,11 +390,11 @@ Las dos lecturas son correctas. La segunda es la que hay que tener presente al d
 ## 4. Qué haría a continuación
 
 Si decides probarlas:
-1. Implementarlas en Julia detrás de `KEY_MODE` y `KEYCHECK_MODE`, sin tocar nada con `:off`.
-2. Medir veredictos, tamaños, vueltas de review y los contadores `KEYCHECK_REMOVED` y `KEYCHECK_COPIES`, en las cuatro
-   combinaciones de `:on` y `:off` (`compare_*.jl`, `test_3sat`, `test_window`).
-3. Repetir `m1split_probe.jl` con las dos en `:on`: M1b-entradas y M1a-todas deberían valer por construcción.
-4. En Lean, **primero el lema de riesgo**: `below_review` con la comprobación de claves, sobre kernels cerrados por
+1. ~~Implementarlas en Julia detrás de `KEY_MODE` y `KEYCHECK_MODE`.~~ **Hecho** (§5.1).
+2. ~~Medir veredictos, tamaños, vueltas de review y los contadores.~~ **Hecho** en 76 instancias (§5.1). Falta el
+   corpus grande de `test_window` y `test_3sat/output*`.
+3. ~~Comprobar M1b-entradas con las dos reglas.~~ **Hecho** (§5.1, 24.501 sin fallos).
+4. En Lean, **primero el lema de riesgo**, con el argumento de §5.2: `below_review` con la comprobación de claves, sobre kernels cerrados por
    claves. Si no sale, lo demás no vale la pena.
 5. Después, portar las etiquetas y `filterRequire`, demostrar la exactitud de las etiquetas, el lema del orden de los
    pins y `completeness_pure` con las reglas nuevas.
@@ -398,7 +403,85 @@ Si prefieres no tocar la máquina, el camino es demostrar `KFix` por inducción 
 nada de lo medido, pero no tengo todavía el argumento de historia que lo cierre. Lo más natural es intentar un
 `KFix` en la línea `n` que implique el de la línea `n+1`, siguiendo `X_k` como unión de piezas de la línea anterior.
 
-Sin la comprobación de claves, `M1aAll` sigue abierto por su lado (`KeyTri₁`, `KeyExact`).
+Sin la comprobación de claves, `M1aAll` sigue abierto por su lado (`KeyTri₁`, `KeyExact`). La otra alternativa sin
+cambios es `PairExact` con pins, que da M1 entero (§5.2, punto 3).
+
+## 5. La implementación y la revisión
+
+### 5.1 Medido en Julia (rama `julia_key_rules`)
+
+El código de §3.2 y §3.5 está en `julia/improves_bin/src/graph_path/graph_path_key.jl`, con los enganches en
+`do_up!`, `do_join!`, `filter_require!` y `make_review_owners!`. Las dos reglas están apagadas por defecto
+(`KEY_MODE`, `KEYCHECK_MODE`), así que con `:off` la máquina es la de siempre. El lector sin retroceso fija sus pins
+con `GraphPath.filter!`, así que las reglas también actúan en él.
+
+**Diferencial** (`test_3sat/compare_key.jl`). 76 instancias (ejemplos, `test_window`, `crafted` y `random_small` del
+proyecto Lean), mapa bin, cuatro modos:
+
+| modo | veredictos | lector sin retroceso | tiempo | vueltas de review | pico de nodos | actividad de las reglas |
+|---|---|---|---|---|---|---|
+| ninguna | 76 / 76 | 76 bien | 193,6 s | 15.088 | 314 | — |
+| etiqueta | 76 / 76 | 76 bien | 299,3 s | 15.088 | 314 | 4.019 joins etiquetados; 4 fijaciones de clave en la máquina (740 entradas cortadas) |
+| comprobación | 76 / 76 | 76 bien | 302,1 s | 29.948 | 314 | 7.430 copias; **0 claves quitadas** |
+| las dos | 76 / 76 | 76 bien | 427,2 s | 29.948 | 314 | 7.434 fijaciones (casi todas en las copias), 8,7 M entradas cortadas; 0 claves quitadas |
+
+* Todos los veredictos coinciden con el exhaustivo, y el lector exponencial lee **las mismas soluciones** en los cuatro
+  modos. Una instancia (`simple_v3_c2`) se salta porque el exhaustivo no la acepta.
+* La etiqueta sola solo actúa dentro de la máquina en dos instancias (`v5_c20_i2`, `v5_c20_i4`): un filtro de
+  requisito llega a la fila de claves y corta 370 entradas. No cambia ni el veredicto ni el pico. Es el cambio de
+  conducta de §3.3, y es pequeño.
+* Las vueltas de review se duplican con la comprobación porque el contador incluye las copias.
+
+**Exactitud de las etiquetas** (`test_3sat/probes/keytags_probe.jl`, con las dos reglas; `clause_mix`,
+`clause_mix_sep` y 6 de `random_small`). Toda entrada (p, v) de un nodo por debajo de la fila de claves y toda clave k
+cumplen «etiqueta k ⇔ v está en la tabla de p en `P_k`»: **999.222 entradas, 0 fallos**. Con las dos reglas,
+M1b-entradas vale en los 24.501 estados fijados medidos, como debía, por construcción.
+
+**Lectura.** Las dos reglas no cambian nada de lo que la máquina decide en este corpus, y la comprobación de claves no
+llega a actuar nunca. Es coherente con que `M1aAll` no fallara en ninguna sonda. Eso tiene dos caras:
+* En la práctica, la comprobación es una red de seguridad que no cuesta ninguna solución ni ningún veredicto; solo
+  tiempo.
+* En la prueba, justo por eso, «la máquina nueva decide» solo dice algo de la máquina de siempre si se demuestra que
+  la comprobación nunca actúa. Y eso es `M1aAll` otra vez.
+
+### 5.2 La revisión del otro agente
+
+Otra sesión (la que lleva `KeyTri₁`, `KeyExact` y `KeyCone`) revisó este informe. Recojo sus cuatro puntos con mi
+valoración.
+
+**1. El riesgo de `below_review` es menor de lo que dice §3.5.** Su argumento: sea h un kernel cerrado por claves por
+debajo del estado actual g′ del review, y k una clave viva de h.
+* h fijado en k es un kernel válido (`kernel_of_review`), por debajo de g′ y que respeta k.
+* Por el `below_review` actual, g′ fijado en k es válido, así que la comprobación nunca quita k.
+* La copia tiene una sola clave viva, así que en ella el review nuevo es el de siempre, sin recursión.
+* Las claves que sí se quitan no están en h, así que `Below g′ h` se conserva.
+
+**De acuerdo; es más corto que mi propuesta de inducción sobre el fuel.** Añado una precisión: el argumento hay que
+aplicarlo a cada kernel que llega a `isValid_filterAll_of_kernel`, y comprobar que tiene una sola clave o es cerrado
+por claves.
+* En la ruta de M1 creo que todos tienen una sola clave en su fila de claves: las piezas, J fijado en k y los de
+  `lExt_succ`, que quedan por debajo de una pieza. Eso incluye M3w, cuyo kernel está por debajo de la fuente X, un
+  estado unido.
+* Los de `restrictPin` en un paso cualquiera pueden tener dos claves, pero esa ruta (`KeyTri`, `TriPin`) es la que
+  sustituye la comprobación.
+
+**2. Basta una dirección de la exactitud de las etiquetas.** «Etiqueta k en (p, v) ⇒ v está en la tabla de p en
+`P_k`» basta para `M1bLowOwn`. **De acuerdo, con una precisión:** la dirección contraria («entrada de `P_k` ⇒ lleva la
+etiqueta k») la necesita `completeness_pure` con las reglas nuevas, porque asegura que fijar la clave no quita
+entradas de la pieza y por tanto no pierde soluciones. Las dos salen de la construcción del join. En Julia están
+medidas las dos (§5.1).
+
+**3. Una alternativa sin tocar la máquina: `PairExact` con pins.** Todo enlace de J fijado en R está en una cadena que
+respeta R. Lo midió en 5,4 M enlaces sin fallos. Implica `CertPin`, y con ello M1 entero (`m1_of_certPin`). **De
+acuerdo en citarlo**, con el mismo estado que `KFix`: medido y abierto.
+* La ventaja: es un solo enunciado, y es un invariante sobre la máquina, no sobre el lector, así que podría romper el
+  círculo de §4.2ο.2 (M1 ⇐ `CertPin` ⇐ `LExt` de J ⇐ M1).
+* La reserva: es del tipo de enunciado semántico que más ha costado. `CertClique` y `FCert` de estados de línea
+  resultaron falsos, aunque aquellos eran de tríos, no de enlaces.
+
+**4. La lectura de diseño es la correcta.** Con la comprobación, el mérito pasa a ser «esta máquina, con esta regla,
+decide», no «la máquina de siempre decide». De acuerdo. Su propuesta de medir `KEYCHECK_REMOVED` ya tiene respuesta:
+0 en todo el corpus (§5.1).
 
 ---
 
@@ -409,3 +492,5 @@ Sin la comprobación de claves, `M1aAll` sigue abierto por su lado (`KeyTri₁`,
   `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix`.
 * Sondas en `julia/improves_bin/test_3sat/probes/`: `keytri_common.jl`, `keytri_probe.jl`, `m1aall_probe.jl`,
   `ktri_probe.jl`, `keycut_trace.jl`, `kfix_probe.jl`.
+* Rama `julia_key_rules`: `julia/improves_bin/src/graph_path/graph_path_key.jl` (las dos reglas), los enganches,
+  `test_3sat/compare_key.jl` y `test_3sat/probes/keytags_probe.jl`.
