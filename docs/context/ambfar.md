@@ -1,7 +1,7 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2ο** (las cliques de nodos de camino fallan
-> en el join; el lector decide bajo `KExt`, la versión al grano del mapa; inducción en curso), §4.2ξ (ruta de `CliqueTri`,
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2ο.1** (**el lector decide bajo M1**, un solo
+> enunciado sobre el join; §4.2ο: las cliques de nodos de camino fallan en el join), §4.2ξ (ruta de `CliqueTri`,
 > ⚠ hipótesis falsa), §4.2ν (línea global: empalme) y §4.2μ (núcleo en cinco hipótesis locales). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
 > sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
@@ -1639,6 +1639,25 @@ El esquema de la inducción:
 En Lean, el camino es transportar kernels fijados: `isValid_filterAll_of_kernel`, `kernel_up`, `kernel_trunc` y
 `kernel_join` ya están demostrados. M1 es el global (la mezcla de piezas).
 
+#### 4.2ο.1 La inducción de `FExt`, formalizada: el lector decide bajo M1 (`UpMono`, `PieceBridge`, `FExtInd`)
+
+**Demostrado** (solo `[propext, Quot.sound]`):
+* `UpMono.below_addNode`: `addNode` conserva `Below`.
+* **M2w** (`PieceBridge.src_of_piece`) y **M3w** (`PieceBridge.piece_of_src`), con `pinsW` como ventana: los requisitos de
+  `d` y, si el filtro de la fuente salta una ventana, L1 = 1. En M3w, la fuente fijada no salta ventana, porque la
+  única prohibida es (0, 0, 0) y pide L1 = 0. Así la subida es un `addNode` sin review, un kernel válido por debajo
+  de la pieza.
+* `FExtInd.LExt`: `FExt` con listas de pins. `readAny_track` y `fExt_of_lExt` hacen el encaje: un estado de pins
+  sucesivos es un kernel que respeta sus pins, y todo kernel que los respete queda por debajo de él.
+* `lExt_low`: líneas 0 y 1, porque cada paso tiene un solo nodo del mapa.
+* `lExt_succ`: el paso de la línea n a la n+1. Encadena M1, M2w, `LExt` de la fuente, reordenar los pins, M3w y subir
+  la pieza a J. En la cima de J solo vive la clave.
+* **`readerVerdictW_iff_of_m1`: el lector decide `φ` bajo M1 en cada join (n ≥ 1).**
+
+**Lo único abierto es M1**: si el estado unido fijado es válido, alguna pieza fijada igual es válida. Dado lo
+demostrado, M1 equivale a que un filtro válido del estado unido tenga cadena, es decir, a que la unión de piezas
+exactas siga siendo exacta. Es el hecho de tres miembros en su forma de validez, sin cliques de nodos de camino.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1690,8 +1709,8 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
-0. **Inducción de `KExt`/`FExt` a lo largo de la máquina (§4.2ο):** formalizar M3w (`kernel_up` con la ventana fijada) y
-   M2w (`kernel_trunc`), y atacar M1 (un kernel válido fijado del estado unido deja uno en alguna pieza). No construir
+0. **M1 (§4.2ο.1)**, la única hipótesis que queda del lector: un kernel válido fijado del estado unido deja uno válido
+   con los mismos pins en alguna pieza. M2w, M3w y la inducción ya están demostrados. No construir
    sobre `CertClique`/`FCert` de estados de línea, que son falsos en `clause_mix*`.
 1. **Línea de investigación (§4.2μ):** un invariante semántico por testigos: qué garantiza, desde la historia, que una
    clique con testigos en todos los pasos esté respaldada por una solución parcial. Empezar con sondas (¿bastan los testigos
@@ -1731,6 +1750,8 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `UnionLine.lean` | `lineU`, `UCtx_join`, `line_old`, `trunc_below`, `LUAU`, `luau_succ`, `climbE`, `afu_of_luau`, `anchorF_of_a1k`, `fCert_luau_line`, `readerVerdictW_iff_of_luau` |
 | `Splice.lean` | `splice`, `CertUpTo`, `SuffixSplit`, `certUpTo_succ`, `certClique_of_splits`, `readerVerdictW_iff_of_splits` |
 | `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF` (⚠ falso), `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
+| `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
+| `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
