@@ -1,7 +1,8 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2ξ** (el lector bajo dos hipótesis, ruta de
-> `CliqueTri`), §4.2ν (línea global: empalme) y §4.2μ (núcleo en cinco hipótesis locales). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2ο** (las cliques de nodos de camino fallan
+> en el join; el lector decide bajo `KExt`, la versión al grano del mapa; inducción en curso), §4.2ξ (ruta de `CliqueTri`,
+> ⚠ hipótesis falsa), §4.2ν (línea global: empalme) y §4.2μ (núcleo en cinco hipótesis locales). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
 > sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
@@ -1563,6 +1564,81 @@ piezas (`afp_probe.jl`) 100,5 M.
 Frente a la ruta de LUA (§4.2μ, cinco hipótesis), esta tiene dos, y las dos son el mismo hecho: una clique con testigos no se
 reparte entre los lados de una unión (en el join, entre piezas; en la fusión, entre padres).
 
+> ⚠ **Corrección (§4.2ο):** `JoinChoicePF` es **falso**. En el exhaustivo con cliques de un nodo falla 120 veces de 133,4 M
+> (`joinchoice_exh_probe.jl`), y en esos 120 también falla `CliqueTri` del estado unido. `readerVerdictW_iff_of_joinChoice`
+> es correcto, pero su hipótesis es falsa en `clause_mix.cnf` y `clause_mix_sep.cnf`.
+
+### 4.2ο Las cliques de nodos de camino fallan en el join; `CliqueTri` al grano del mapa: `FExt` y `KExt` (`MapTri.lean`)
+
+**El contraejemplo.** Los 120 fallos de `JoinChoiceP` son **20 tríos** de nodos de camino, contados en sus 6 órdenes.
+Salen en dos estados unidos: 4 en `clause_mix.cnf` (cima 26) y 16 en `clause_mix_sep.cnf` (cima 32), los dos con dos
+piezas. Por ejemplo, `(6,0)–(19,0)–(27,1)`.
+* Los tres pares de cada trío son compatibles de verdad, y el trío es clique con testigos en todos los pasos.
+* No es clique en ninguna pieza: cada pieza aporta parte de los pares.
+* No tiene solución (fuerza bruta): choca con la última cláusula cerrada, porque con una cláusula menos 96 de los 120 sí
+  la tienen.
+* No hay ninguna cadena del estado que pase por él. La búsqueda de cadenas encuentra cadena en 300 tríos verdaderos de
+  control.
+
+**Qué sale de ahí** (medido):
+* **`CertClique` es falso** en esos estados unidos, también después del review (`filterAll J []`). Por tanto **`FCert` es
+  falso** ahí. Toda ruta del lector que pase por `CertClique` o `FCert` de los estados de línea tiene una hipótesis falsa
+  en esas dos fórmulas: §4.2λ, la de LUA de §4.2μ, la del empalme de §4.2ν y la de §4.2ξ. Las implicaciones siguen siendo
+  correctas. Las medidas por muestreo no llegaban a esos 20 tríos.
+* **Fijar nodos del mapa no los elimina** (`joinpin_probe.jl`). Con uno, dos o los tres nodos del mapa fijados y
+  revisados, siguen vivos con testigos en 84, 56 y 36 de los 120 casos. El pin fija un paso y un valor, pero no el
+  nodo de camino concreto.
+* **Con nodos del mapa sí se sostiene.** En los 120 casos, todo conjunto de pins que deja el estado válido tiene una
+  cadena por esos nodos del mapa.
+* **Por parejas, los owners del estado unido son exactos** (`absent_probe.jl`, `absent_sem_probe.jl`). Lo relacionado
+  es compatible (2,90 M, 100 %). Lo no relacionado no tiene solución por una cima del estado (2,74 M, 0 compatibles), y
+  eso vale tanto si alguna pieza tenía los dos nodos (47 %) como si no (53 %). Unos «owners inversos» no añadirían
+  información.
+* **Por tríos casi son exactos** (`triple_sem_probe.jl`): 13,02 M cliques de tres con testigos tienen solución y solo
+  los 20 tríos de arriba no.
+* **Una regla de parejas no puede con ellos**, porque los tres pares son verdaderos. Una regla de tríos por testigos
+  tampoco, porque los tienen en cada paso. Quitarlos pide guardar owners condicionados a un tercer nodo (§4.4).
+
+**La reformulación** (**demostrado**, `MapTri.lean`, solo `[propext, Quot.sound]`). El lector nunca ve nodos de camino:
+fija nodos del mapa.
+* `ReadAny g₀`: los estados que se alcanzan fijando nodos del mapa uno tras otro, cada uno con su review, en cualquier
+  orden y en cualquier paso, mientras el estado siga válido.
+* **`FExt g₀`**: en todo estado válido de `ReadAny`, cada paso con elección tiene un nodo cuyo pin deja el estado
+  válido. Es `CliqueTri` al grano del mapa y no depende del orden del lector.
+  **`progressFirst_of_fExt`** (`FExt ⇒ NoDeadEnd`) y **`readerVerdictW_iff_of_fExt`**.
+* **`KExt g₀`**, la misma idea sobre kernels y sin lector: todo kernel válido podado de `g₀` se estrecha, en el paso
+  de cualquiera de sus nodos, a un kernel válido por debajo que nombra un solo nodo del mapa en ese paso.
+  `kernel_readAny` (todo estado válido de `ReadAny` es un kernel), `pruned_readAny`, **`fExt_of_kExt`** y
+  **`readerVerdictW_iff_of_kExt`**: **el lector decide bajo `KExt` de los estados de partida.**
+
+**Medido:** `FExt` no falla en `clause_mix*`: 5.792 conjuntos de pins válidos, los de 0 y 1 nodo todos, los de 2 y 3
+nodos al azar (`fext_probe.jl`). El resto del corpus está en curso.
+
+**Inducción de `FExt` a lo largo de la máquina** (en curso, `fextind_probe.jl`). Un paso de la máquina sube cada estado
+padre X a una pieza `P = upF X d` y une las piezas en J. Con pins de nodos del mapa, uno tras otro con su review,
+en `clause_mix*`:
+
+| puente | enunciado | correctos | fallos |
+|---|---|---|---|
+| M1 (join) | J fijado en R válido ⇒ alguna pieza fijada en R válida | 5.323 (3.939 con ≥ 2 piezas) | **0** |
+| M2 (bajar) | P fijado en R válido ⇒ X fijado en requisitos de d más R sin la cima válido | 8.894 | 0 |
+| M3 (subir) | X fijado así válido ⇒ P fijado válido | 7.903 | **1** |
+| M2w | P fijado en R válido ⇒ hay una ventana (a, b) de los pasos s−1, s no prohibida con d y X fijado en requisitos, R⁻, a, b válido | 3.645 | 0 |
+| M3w | ventana no prohibida y X fijado en requisitos, R⁻, a, b válido ⇒ P fijado en R⁻, a, b válido | 5.472 | 0 |
+
+M2w y M3w solo están medidos en `clause_mix.cnf`. El fallo de M3 es la ventana prohibida: con esos pins, X solo es
+válido con valores de los dos pasos anteriores que la ventana prohíbe junto con d. Con la ventana fijada, M3w no falla.
+
+El esquema de la inducción:
+1. M1 lleva un pin válido de J a una pieza.
+2. M2w lo baja a X, con una ventana permitida.
+3. `FExt` de X da la extensión.
+4. M3w la sube a la pieza.
+5. La pieza está por debajo de J, así que la extensión vale también en J.
+
+En Lean, el camino es transportar kernels fijados: `isValid_filterAll_of_kernel`, `kernel_up`, `kernel_trunc` y
+`kernel_join` ya están demostrados. M1 es el global (la mezcla de piezas).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1614,6 +1690,9 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
+0. **Inducción de `KExt`/`FExt` a lo largo de la máquina (§4.2ο):** formalizar M3w (`kernel_up` con la ventana fijada) y
+   M2w (`kernel_trunc`), y atacar M1 (un kernel válido fijado del estado unido deja uno en alguna pieza). No construir
+   sobre `CertClique`/`FCert` de estados de línea, que son falsos en `clause_mix*`.
 1. **Línea de investigación (§4.2μ):** un invariante semántico por testigos: qué garantiza, desde la historia, que una
    clique con testigos en todos los pasos esté respaldada por una solución parcial. Empezar con sondas (¿bastan los testigos
    de los pasos de cláusula, H19?).
@@ -1651,9 +1730,11 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `AnchorPiece.lean` | `AnchorF`, `TopPieceF`, `pieceLocalF_of_anchor`, `topPieceF_of_luaJ`, `merge_pin`, `topParent_of_afp`, `ULUA`, `LUAJ`, `climb`, `line_one`, `anchorF_zero` |
 | `UnionLine.lean` | `lineU`, `UCtx_join`, `line_old`, `trunc_below`, `LUAU`, `luau_succ`, `climbE`, `afu_of_luau`, `anchorF_of_a1k`, `fCert_luau_line`, `readerVerdictW_iff_of_luau` |
 | `Splice.lean` | `splice`, `CertUpTo`, `SuffixSplit`, `certUpTo_succ`, `certClique_of_splits`, `readerVerdictW_iff_of_splits` |
-| `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF`, `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
+| `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF` (⚠ falso), `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
+| `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
-`djf`, `toppar`, `mergesplit`).
+`djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
+`fextind`).
