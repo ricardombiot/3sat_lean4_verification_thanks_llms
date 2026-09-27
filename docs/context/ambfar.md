@@ -1,7 +1,7 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2μ** (núcleo de hipótesis locales) y **§4.2ν**
-> (línea semántica global: empalme). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2ξ** (el lector bajo dos hipótesis, ruta de
+> `CliqueTri`), §4.2ν (línea global: empalme) y §4.2μ (núcleo en cinco hipótesis locales). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
 > sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
@@ -1537,6 +1537,32 @@ requisito que cruza, componga con la parte baja en una clique con testigos (siem
 ascendente la elección es voraz salvo 9 casos de 261 k. «Testigo bueno» es una clique con testigos con un miembro
 más y todos en pasos ≤ `s`: la recursión baja por el paso más alto.
 
+### 4.2ξ La ruta de `CliqueTri`: el lector decide bajo dos hipótesis (`JoinTri.lean`)
+
+Con la review corregida, `TriPin₁` (632 k) y `CliqueTri` (cliques de 1 a 4 nodos, ~630 k cada tamaño) no fallan en ningún
+estado de línea; tampoco en las fuentes filtradas ni en las piezas (1,1 M cada una). `TriPin` sin cortes falla 317 (0,05 %):
+el review tras una fijación es de una ronda y elimina justo los testigos espurios (el lector no se atasca porque revisa
+tras cada elección). En los estados del lector `CliqueTri ⇔ CertLink ⇔ CertClique` (demostrado), así que es la forma más
+local del núcleo: parejas, pasos y una ronda de cortes.
+
+El estado unido es la unión de sus piezas **sin review posterior**, y aun así tiene `CliqueTri`: tiene que venir de las piezas.
+
+**Demostrado** (`JoinTri.lean`):
+* `cxP_grown`; **`cliqueTri_of_joinChoice`** (sin axiomas): estados que crecen en `J`, cada uno con `CliqueTri`, y
+  `JoinChoiceP` (todo enlace compatible con una clique de `J` lo es ya en uno de ellos, con la clique allí) dan
+  `CliqueTri J`. `cliqueTri_line_of_pieces`: la instancia para las piezas.
+* `joinChoice_nil`: `JoinChoiceP` con la clique vacía (`join_no_new` + la regla de parejas de la pieza).
+* **`fCert_join_of_choice`, `fCert_line_choice`, `readerVerdictW_iff_of_joinChoice`**: las piezas filtradas crecen en el
+  estado unido filtrado (kernel bajo `J` fijado por `R`), así que `JoinChoicePF` da `CliqueTri` y `CertClique` de cada filtro
+  del estado unido; las piezas conservan `FCert` (`pieceF_of_topParent`, con AF). **El lector decide bajo `JoinChoicePF`
+  y AF en las piezas.**
+
+**Medido en forma exacta, sin fallos**: `JoinChoicePF` 4,55 M (sin filtro y con filtros, cliques de 0 a 3 nodos); AF en las
+piezas (`afp_probe.jl`) 100,5 M.
+
+Frente a la ruta de LUA (§4.2μ, cinco hipótesis), esta tiene dos, y las dos son el mismo hecho: una clique con testigos no se
+reparte entre los lados de una unión (en el join, entre piezas; en la fusión, entre padres).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1625,6 +1651,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `AnchorPiece.lean` | `AnchorF`, `TopPieceF`, `pieceLocalF_of_anchor`, `topPieceF_of_luaJ`, `merge_pin`, `topParent_of_afp`, `ULUA`, `LUAJ`, `climb`, `line_one`, `anchorF_zero` |
 | `UnionLine.lean` | `lineU`, `UCtx_join`, `line_old`, `trunc_below`, `LUAU`, `luau_succ`, `climbE`, `afu_of_luau`, `anchorF_of_a1k`, `fCert_luau_line`, `readerVerdictW_iff_of_luau` |
 | `Splice.lean` | `splice`, `CertUpTo`, `SuffixSplit`, `certUpTo_succ`, `certClique_of_splits`, `readerVerdictW_iff_of_splits` |
+| `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF`, `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
