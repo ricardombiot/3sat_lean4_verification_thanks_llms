@@ -21,8 +21,10 @@ piece where `w` lives — with no step missing, clause steps included (S2, 2.5 M
   the line union: measured on the unfiltered union, 179 k, no failure) puts `c :: Q₀` in the source of `c`, filtered
   so; `FCert` of the source (the induction hypothesis) gives a certificate, which climbs through `up` with `w` and
   survives `R`. The filter `R` goes down through `below_filterAll` at the union: no FU, no anchored filter rule (AF).
+* **Line 0** (`line_one`, `topPieceF_zero`): with one source, sending only appends (`sendTo_fold`), so every state of
+  line 1 is its piece and S2 holds there.
 * **`readerVerdictW_iff_of_lua`**: by induction on the line, the reader decides under A1, LUA, `TopMergeJ` and
-  `MergeSplit` (and S2 at line 0).
+  `MergeSplit`.
 -/
 
 namespace AbsSatBin.GraphPath.Model.AnchorPiece
@@ -404,10 +406,87 @@ theorem readerVerdictW_iff_of_anchor (hA : ∀ n : Nat, (n : Int) + 1 < stepCoun
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_anchor
 
+-- ============================================================
+-- Line 0: one source, so every state of line 1 is its piece
+-- ============================================================
+
+omit hbd n in
+/-- **Sending one state to distinct new keys only appends**: every entry of the result is an old one or the state
+filtered for its key. -/
+theorem sendTo_fold (g : GPathM) : ∀ (ds : List NodeId) (acc : PureLine), ds.Nodup → (∀ kv ∈ acc, kv.1 ∉ ds) →
+    ∀ kv ∈ ds.foldl (sendTo φ g) acc, kv ∈ acc ∨ kv = (kv.1, upFiltering g (reqOf φ kv.1) kv.1 "" (isProhibited φ)) := by
+  intro ds
+  induction ds with
+  | nil => intro acc _ _ kv hkv; exact Or.inl hkv
+  | cons d ds ih =>
+    intro acc hnd hdis kv hkv
+    simp only [List.foldl_cons] at hkv
+    have hdn : d ∉ ds := (List.nodup_cons.mp hnd).1
+    -- one step: `sendTo` appends `(d, …)` or does nothing
+    have hstep : (∀ x ∈ sendTo φ g acc d, x ∈ acc ∨ x = (x.1, upFiltering g (reqOf φ x.1) x.1 "" (isProhibited φ))) ∧
+        ∀ x ∈ sendTo φ g acc d, x.1 ∉ ds := by
+      unfold sendTo
+      split
+      · have hnone : acc.find? (fun kv => kv.1 == d) = none := List.find?_eq_none.mpr (fun x hx h => by
+          have := hdis x hx
+          rw [eq_of_beq h] at this; exact this List.mem_cons_self)
+        unfold insertPure; rw [hnone]
+        refine ⟨fun x hx => ?_, fun x hx => ?_⟩
+        · rcases List.mem_append.mp hx with hx | hx
+          · exact Or.inl hx
+          · rw [List.mem_singleton.mp hx]; exact Or.inr rfl
+        · rcases List.mem_append.mp hx with hx | hx
+          · exact fun h => hdis x hx (List.mem_cons_of_mem _ h)
+          · rw [List.mem_singleton.mp hx]; exact hdn
+      · exact ⟨fun x hx => Or.inl hx, fun x hx h => hdis x hx (List.mem_cons_of_mem _ h)⟩
+    rcases ih _ (List.nodup_cons.mp hnd).2 hstep.2 kv hkv with h | h
+    · rcases hstep.1 kv h with h' | h'
+      · exact Or.inl h'
+      · exact Or.inr h'
+    · exact Or.inr h
+
+omit hbd n in
+theorem sons_root_nodup : (sonsOfMap φ ⟨0, 0⟩).Nodup := by
+  unfold sonsOfMap
+  rw [if_neg (by simp)]
+  show (mapNodes φ 1).Nodup
+  unfold mapNodes
+  repeat' split
+  all_goals simp
+
+omit hbd n in
+/-- **Every state of line 1 is the piece of the seed for its key.** -/
+theorem line_one (kv' : NodeId × GPathM) (hkv' : kv' ∈ line φ 1) :
+    kv'.2 = upF φ (GPathM.initSeed ⟨0, 0⟩ "") kv'.1 := by
+  have hm : mapNodes φ 0 = [⟨0, 0⟩] := mapNodes_fusion φ 0 (Or.inl rfl)
+  have h0 : line φ 0 = [(⟨0, 0⟩, GPathM.initSeed ⟨0, 0⟩ "")] := by
+    show pureInit φ = _
+    unfold pureInit; rw [hm]; rfl
+  have h1 : line φ 1 = sendAll φ (⟨0, 0⟩, GPathM.initSeed ⟨0, 0⟩ "") [] := by
+    rw [show (1 : Nat) = 0 + 1 from rfl, line_succ, h0]; rfl
+  rw [h1] at hkv'
+  rcases sendTo_fold φ _ _ [] (sons_root_nodup φ) (fun _ h => absurd h List.not_mem_nil) kv' hkv' with h | h
+  · exact absurd h List.not_mem_nil
+  · exact congrArg Prod.snd h
+
+omit hbd n in
+/-- **S2 at line 0**: a state of line 1 is its only piece. -/
+theorem topPieceF_zero : TopPieceF φ 0 := by
+  intro kv' hkv' R _ hv w Q hQ hW _ kv hkv _ _ _
+  have e := line_one φ kv' hkv'
+  rw [line_zero φ kv hkv]
+  rw [e] at hv hQ hW
+  exact ⟨hv, hQ, hW⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.topPieceF_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topPieceF_zero
+
 omit n in
 /-- **Every state of every line has `FCert`**, by induction: S2 at line `n` comes from LUA and `FCert` of line `n` (the
-induction hypothesis), then `PieceLocalF` from A1 and S2, and the pieces from `MergeSplit`. Line 0 needs S2 directly. -/
-theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n) (hS0 : TopPieceF φ 0)
+induction hypothesis), then `PieceLocalF` from A1 and S2, and the pieces from `MergeSplit`. At line 0 S2 is
+`topPieceF_zero`. -/
+theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n)
     (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
     (hTM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
     (hMS : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplit φ n) :
@@ -424,7 +503,7 @@ theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → Ancho
     push_cast at hm
     have hS : TopPieceF φ m := by
       by_cases hm0 : m = 0
-      · subst hm0; exact hS0
+      · subst hm0; exact topPieceF_zero φ
       · exact topPieceF_of_lua φ m hbd (by omega) (hL m (by omega) hm) (hTM m (by omega) hm)
           (fun kv hkv => ih (by omega) kv hkv)
     refine fCert_join φ hbd m (pieceLocalF_of_anchor φ m hbd (hA m hm) hS) (fun kv hkv d hd hv => ?_)
@@ -437,15 +516,15 @@ theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → Ancho
         kv hkv (ih (by omega) kv hkv) d hd hv
 
 omit n in
-/-- **The reader decides `φ` under A1, LUA, `TopMergeJ` and `MergeSplit`** (and S2 at line 0). -/
-theorem readerVerdictW_iff_of_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n) (hS0 : TopPieceF φ 0)
+/-- **The reader decides `φ` under A1, LUA, `TopMergeJ` and `MergeSplit`.** -/
+theorem readerVerdictW_iff_of_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n)
     (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
     (hTM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
     (hMS : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplit φ n) :
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  exact fCert_line_lua φ hbd hA hS0 hL hTM hMS _ hN kv hkv
+  exact fCert_line_lua φ hbd hA hL hTM hMS _ hN kv hkv
 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
