@@ -7,5 +7,5 @@ function new() :: GPath
     is_valid = true
 
     GPath(table_lines, owners, current_step,
-          map_parent_id, review_owners, is_valid, nothing)
+          map_parent_id, review_owners, is_valid)
 end

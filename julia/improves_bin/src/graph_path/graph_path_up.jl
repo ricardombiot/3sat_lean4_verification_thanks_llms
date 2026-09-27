@@ -12,11 +12,9 @@ end
 function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
                 prohibited :: Set{PathNodeId} = Set{PathNodeId}())
     if gpath.is_valid
-        key = gpath.map_parent_id              # la clave de la pieza: el nodo de mapa de la fuente (v196 §3)
         add_row!(gpath, map_id_node, title, prohibited)
         # add_row! puede invalidar el gpath (p. ej. la ventana prohibida no deja ningún candidato).
         if gpath.is_valid
-            init_key_tags!(gpath, key)
             gpath.current_step += 1
             gpath.map_parent_id = map_id_node
             # Si se saltó una ventana prohibida, algún padre se quedó sin hijo: el UP lo poda aquí,
