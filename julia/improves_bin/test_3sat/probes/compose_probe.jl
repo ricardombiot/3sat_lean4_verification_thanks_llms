@@ -1,4 +1,4 @@
-# Composición de testigos buenos (docs/context/ambfar.md §4.2ν, punto 2). Q clique con testigos de 3 o 4 nodos
+# Composición de testigos buenos (docs/context/escalera_reader.md §4.2ν, punto 2). Q clique con testigos de 3 o 4 nodos
 # (muestreo NQ por estado y tamaño); corte en cada miembro salvo el de arriba: L = miembros ≤ s. Sufijo τ por los miembros
 # ≥ s con nodos por encima de s que poseen Q, y cuyos requisitos que cruzan nombran cada uno un testigo bueno (w posee Q y
 # L ∪ {w} es clique con testigos). P = L ∪ {un testigo bueno por requisito}.

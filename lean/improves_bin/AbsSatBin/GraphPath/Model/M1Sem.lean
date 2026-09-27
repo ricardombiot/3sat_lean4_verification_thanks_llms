@@ -2,7 +2,7 @@
 import AbsSatBin.GraphPath.Model.FExtInd
 
 /-!
-# M1 from certificates (`docs/context/ambfar.md` §4.2ο.2)
+# M1 from certificates (`docs/context/escalera_reader.md` §4.2ο.2)
 
 * **`CertPin n`**: a valid pin set of a joined state of line `n+1` lies on a certificate of it (a chain through the
   pins). A chain of a machine state is a partial solution (`PrefixDecode`), so this is the semantic soundness of the

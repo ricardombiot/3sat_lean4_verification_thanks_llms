@@ -1,6 +1,6 @@
 # ¿Exactitud por tríos en el estado unido J? Toda clique de 3 nodos de J (y aparte, las que además tienen testigo en
 # cada paso: r que posee a los tres) ¿tiene una asignación que cumple las cláusulas cerradas hasta la cima y pasa por
-# los tres, S2 con su cima en J, S3 con todos sus nodos en J? docs/context/ambfar.md §4.2ξ.
+# los tres, S2 con su cima en J, S3 con todos sus nodos en J? docs/context/escalera_reader.md §4.2ξ.
 #   julia --project=../.. triple_sem_probe.jl f1.cnf ...
 include("./../../src/main.jl")
 function read_cnf(path)

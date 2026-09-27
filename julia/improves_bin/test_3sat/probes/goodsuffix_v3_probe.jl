@@ -1,4 +1,4 @@
-# Elección de certificados empalmables (docs/context/ambfar.md §4.2μ, lema Splice.splice). Tríos Q = q1 < q2 < q3 con
+# Elección de certificados empalmables (docs/context/escalera_reader.md §4.2μ, lema Splice.splice). Tríos Q = q1 < q2 < q3 con
 # testigos en un estado (muestreo NQ por estado). Se muestrean hasta K certificados por {q1, q2} (σ) y por {q2, q3} (τ).
 # Compatibles: los requisitos de los nodos de τ tras q2 que miran pasos ≤ paso(q2) los cumple σ.
 # ¿Qué sufijos τ (por q2, q3) tienen prefijo compatible? BUENO (exacto, por búsqueda): hay una cadena por q1, q2 que en

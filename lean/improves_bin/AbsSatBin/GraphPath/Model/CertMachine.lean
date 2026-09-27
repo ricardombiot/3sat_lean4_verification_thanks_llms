@@ -16,7 +16,7 @@ followed through the machine without the cut sandwich of the reader.
   the witnesses below the new step are old, the certificate before extends by its own last node.
 
 What is left for `CertClique` is the cliques that contain a **new** node at a merge (its table is the
-union of its parents'), the join, and the review after a skipped window. See `ambfar.md` §4.2r.
+union of its parents'), the join, and the review after a skipped window. See `escalera_reader.md` §4.2r.
 -/
 
 namespace AbsSatBin.GraphPath.Model.CertMachine

@@ -1,4 +1,4 @@
-# Empalme de certificados (docs/context/ambfar.md §4.2μ). En cada estado se toman hasta NC cadenas (búsqueda aleatoria).
+# Empalme de certificados (docs/context/escalera_reader.md §4.2μ). En cada estado se toman hasta NC cadenas (búsqueda aleatoria).
 # Para dos cadenas σ, τ que comparten el nodo del paso s, el empalme σ[≤ s] ++ τ[> s] respeta las ventanas (un nodo es una
 # ventana). SPL: ¿es una cadena del estado (todos sus nodos se poseen)? Si no, REQ: ¿hay un nodo del sufijo cuyo requisito
 # nombra un paso del prefijo con un nodo de otro valor? (el requisito de largo alcance que rompe el empalme).

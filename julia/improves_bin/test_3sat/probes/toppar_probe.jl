@@ -1,4 +1,4 @@
-# PieceF, caso con miembro en la cima (docs/context/ambfar.md §4.2κ). Pieza P = upF g d filtrada por ps (∅, un nodo
+# PieceF, caso con miembro en la cima (docs/context/escalera_reader.md §4.2κ). Pieza P = upF g d filtrada por ps (∅, un nodo
 # de mapa, o 2–4 al azar). Q = w :: Q0 con w en la cima, buena en filterAll P ps:
 #   TOPPAR: ∃ padre c de w con Q0 ∪ {c} buena en filterAll P ps (la cadena por c sube a w).
 #   FCP:    Q buena ⇒ cadena por Q (CertClique de la pieza filtrada), todas las Q.

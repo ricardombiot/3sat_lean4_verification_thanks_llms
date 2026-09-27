@@ -1,4 +1,4 @@
-# Pasos 1 y 2 hacia PieceLocalF, con filtros (docs/context/ambfar.md §4.2λ). Estado unido J de la línea n+1, piezas
+# Pasos 1 y 2 hacia PieceLocalF, con filtros (docs/context/escalera_reader.md §4.2λ). Estado unido J de la línea n+1, piezas
 # P_k, filtro R (vacío, de un nodo de mapa, o NR de 2–4 al azar); todo se mide en filterAll J R y filterAll P_k R.
 #   A1 (anclar): Q buena en J sin miembro en la cima ⇒ ∃ w en la cima con Q ∪ {w} buena en J.
 #   S2: Q buena en J con miembro w en la cima; P = pieza de clave w.parent_id (la única donde vive w):

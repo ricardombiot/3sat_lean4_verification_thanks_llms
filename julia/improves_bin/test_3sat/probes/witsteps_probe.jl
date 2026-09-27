@@ -1,4 +1,4 @@
-# Línea de investigación (docs/context/ambfar.md §4.2μ): ¿qué testigos bastan para que una clique tenga cadena?
+# Línea de investigación (docs/context/escalera_reader.md §4.2μ): ¿qué testigos bastan para que una clique tenga cadena?
 # En cada estado de línea y en la unión de la línea (sin filtro): Q clique (1–2 nodos) con testigos solo en los pasos W
 # ⇒ ¿hay cadena por Q? W ∈ {∅, variables, cláusula (L1 L2 L3), solo L3, todos}. Una W sin fallos marca qué testigos
 # llevan la información semántica.

@@ -1,4 +1,4 @@
-# Testigo coherente con su clave (docs/context/ambfar.md §4.2κ.8, candidato 1).
+# Testigo coherente con su clave (docs/context/escalera_reader.md §4.2κ.8, candidato 1).
 #   Estado unido J, piezas p_i con clave k_i (nodo fuente en el paso n). Q buena en J (clique + testigo en cada paso).
 #   GLK:  en cada paso ∃ testigo r y ∃ i: r posee en J un nodo de id k_i y r posee Q en la pieza p_i.
 #   GLKs: igual pero r posee Q y el nodo k_i dentro de la misma pieza p_i.

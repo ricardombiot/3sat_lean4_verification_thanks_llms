@@ -1,4 +1,4 @@
-# La inducción de LUA sobre la unión de una línea como estado (docs/context/ambfar.md §4.2λ).
+# La inducción de LUA sobre la unión de una línea como estado (docs/context/escalera_reader.md §4.2λ).
 # U = unión (join) de todos los estados de la línea n; FU = filterAll U S (S vacío o 2 de un nodo al azar).
 #   LUAU:  c :: Q0 buena en FU con c en la cima n ⇒ buena en filterAll X_c S (X_c: estado de clave c.id).
 #   AFU':  c :: Q0 buena en FU, c fija m ⇒ buena en filterAll U (S ∪ {m}).

@@ -1,4 +1,4 @@
-# MergeSplit (lean/improves_bin FiltCert.lean; docs/context/ambfar.md §4.2κ). Pieza P = upF g d filtrada por ps
+# MergeSplit (lean/improves_bin FiltCert.lean; docs/context/escalera_reader.md §4.2κ). Pieza P = upF g d filtrada por ps
 # (∅, un nodo de mapa, o 2–4 al azar). Q = w :: Q0 buena en filterAll P ps con w en la cima y dos padres distintos:
 #   MS: ∃ u = abuelo (gparent_id) de un padre de w con filterAll P (ps ∪ {u}) válido y Q buena en él.
 #   MS-TP (referencia): ∃ padre c de w con Q0 ∪ {c} buena en filterAll P ps (TopParent).

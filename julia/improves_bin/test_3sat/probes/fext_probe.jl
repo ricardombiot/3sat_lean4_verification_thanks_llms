@@ -1,4 +1,4 @@
-# FExt: la versión de mapa de CliqueTri (docs/context/ambfar.md §4.2ξ). En los estados de cada línea: si filterAll g R es
+# FExt: la versión de mapa de CliqueTri (docs/context/escalera_reader.md §4.2ξ). En los estados de cada línea: si filterAll g R es
 # válido (R nodos de mapa de pasos distintos), en cada paso l fuera de R hay un nodo de mapa k con filterAll g (k :: R)
 # válido. R vacío y de un nodo exhaustivos; de 2 y 3 nodos, NR al azar por estado entre los R válidos.
 #   julia --project=../.. fext_probe.jl f1.cnf ...

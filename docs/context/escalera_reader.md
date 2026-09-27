@@ -1,7 +1,8 @@
-# `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
+# La escalera del lector sin retroceso (mapa bin): dónde está y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2ο.1** (**el lector decide bajo M1**, un solo
-> enunciado sobre el join; §4.2ο: las cliques de nodos de camino fallan en el join), §4.2ξ (ruta de `CliqueTri`,
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Antes se llamaba `ambfar` (`docs/context/ambfar.md`). Estado al día en **§4.2ο.2** (M1 ⇐
+> `CertPin`, el círculo de la inducción y el reparto de M1 en M1a + M1b), §4.2ο.1 (**el lector decide bajo M1**, un solo
+> enunciado sobre el join) y §4.2ο (las cliques de nodos de camino fallan en el join), §4.2ξ (ruta de `CliqueTri`,
 > ⚠ hipótesis falsa), §4.2ν (línea global: empalme) y §4.2μ (núcleo en cinco hipótesis locales). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
 > sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
@@ -1658,6 +1659,38 @@ En Lean, el camino es transportar kernels fijados: `isValid_filterAll_of_kernel`
 demostrado, M1 equivale a que un filtro válido del estado unido tenga cadena, es decir, a que la unión de piezas
 exactas siga siendo exacta. Es el hecho de tres miembros en su forma de validez, sin cliques de nodos de camino.
 
+#### 4.2ο.2 M1 desde certificados y el reparto de M1 (`M1Sem.lean`, `m1split_probe.jl`)
+
+**Demostrado** (solo `[propext, Quot.sound]`):
+* `isValid_of_chainSound`: un estado con cadena es válido.
+* **`m1_of_certPin`**: `CertPin ⇒ M1`. `CertPin n` dice que un pin válido de un estado unido de la línea n+1 está en
+  una cadena del estado. Esa cadena está en una pieza (`chain_in_piece`) y sobrevive a su filtro
+  (`ChainSound_filterAll`). Una cadena es una solución parcial (`PrefixDecode`), así que `CertPin` es la solidez
+  semántica del test de validez del estado unido.
+* `readerVerdictW_iff_of_certPin`: el lector decide bajo `CertPin` en cada join.
+* La inducción (`lExt_line`, `readerVerdictW_iff_of_m1`) solo pide M1 en las líneas que existen (n + 1 < `stepCount`).
+
+**El círculo.** M1(n) ⇐ `CertPin(n)` ⇐ `LExt` del estado unido (fijando todos los pasos) ⇐ M1(n). Con lo ya
+demostrado, M1 no se obtiene: hace falta un argumento nuevo sobre el join. Semánticamente solo sale la dirección
+contraria: toda solución parcial que respeta los pins hace válidos al estado unido y a su pieza (`cert_of_prefix`).
+Esa dirección no es la que necesita el lector.
+
+**Reparto de M1** (en el estado unido J, los nodos del paso n y los de la cima son puros: vienen de una sola pieza, la de
+su clave k; por debajo de n las tablas son uniones):
+
+| parte | enunciado | papel |
+|---|---|---|
+| M1a | J fijado en R válido ⇒ alguna clave k del paso n deja J fijado en R + k válido | `FExt` de J solo en el paso de las claves |
+| M1a-todas | toda clave presente en J fijado en R sirve | versión fuerte de M1a |
+| M1a-cima | la clave de todo nodo de la cima sirve | versión fuerte de M1a |
+| M1b | J fijado en R + k válido ⇒ la pieza k fijada en R es válida | descompresión con pins |
+| M1b-entradas | toda entrada de J fijado en R + k es entrada de la pieza k | si vale, M1b es inmediato (kernel por debajo de la pieza) |
+
+M1 = M1a + M1b. Medición en curso (`m1split_probe.jl`). Sospecha, antes de medir: M1b-entradas puede fallar. Las
+reglas del kernel llevan una entrada «r posee q» de abajo hasta un nodo puro del paso n que posee q, pero no fuerzan
+que la pieza k tenga la entrada misma. Es la forma de los tríos falsos. Si falla, M1b tendría que salir de la exactitud
+de la pieza k, que se deduce de `LExt` de su fuente con M2w y M3w.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1709,8 +1742,9 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
-0. **M1 (§4.2ο.1)**, la única hipótesis que queda del lector: un kernel válido fijado del estado unido deja uno válido
-   con los mismos pins en alguna pieza. M2w, M3w y la inducción ya están demostrados. No construir
+0. **M1 (§4.2ο.1, §4.2ο.2)**, la única hipótesis que queda del lector: un kernel válido fijado del estado unido deja uno
+   válido con los mismos pins en alguna pieza. M2w, M3w, la inducción y M1 ⇐ `CertPin` ya están demostrados. Siguiente:
+   M1 = M1a + M1b según la medición; empezar por M1b si M1b-entradas vale. No construir
    sobre `CertClique`/`FCert` de estados de línea, que son falsos en `clause_mix*`.
 1. **Línea de investigación (§4.2μ):** un invariante semántico por testigos: qué garantiza, desde la historia, que una
    clique con testigos en todos los pasos esté respaldada por una solución parcial. Empezar con sondas (¿bastan los testigos
@@ -1752,10 +1786,11 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF` (⚠ falso), `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
 | `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
+| `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`).
+`fextind`, `m1split`).

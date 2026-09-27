@@ -4,7 +4,7 @@ import AbsSatBin.GraphPath.Model.PieceFilter
 /-!
 # Growing one node at a time is `MapCert`
 
-Measured (`julia/improves_bin/test_3sat/probes/grow_step_probe.jl`, `docs/context/ambfar.md` §4.2κ): a clique
+Measured (`julia/improves_bin/test_3sat/probes/grow_step_probe.jl`, `docs/context/escalera_reader.md` §4.2κ): a clique
 with witnesses always gains a node at any free step (X1, 55 M tests, 0 failures), and completing it top-down
 with **any** valid extension never gets stuck (X3).
 

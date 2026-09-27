@@ -1,5 +1,5 @@
 # Ausencias en el estado unido: ¿cortadas (alguna pieza tiene los dos nodos y no los relaciona) o desconocidas (ninguna
-# pieza tiene los dos)? Tercer estado para unos owners inversos. docs/context/ambfar.md §4.2ξ.
+# pieza tiene los dos)? Tercer estado para unos owners inversos. docs/context/escalera_reader.md §4.2ξ.
 #   julia --project=../.. absent_probe.jl f1.cnf ...
 include("./../../src/main.jl")
 function tables(g)

@@ -1,7 +1,7 @@
 # ¿El pin del lector y su review arreglan los fallos de JoinChoiceP en el estado unido J? Para cada fallo (P = [x], enlace
 # y–w, cliques de un nodo, exhaustivo) se fija en una copia de J el nodo de mapa de x, de y o de w (GraphPath.filter!,
 # review con pair mode incluido) y se mira: estado muerto, trío {x, y, w} roto (algún nodo o par ya no está) o trío vivo;
-# si sigue vivo, si TriP vale ya en el estado fijado. También fijando dos de los tres, uno tras otro, como el lector. docs/context/ambfar.md §4.2ξ.
+# si sigue vivo, si TriP vale ya en el estado fijado. También fijando dos de los tres, uno tras otro, como el lector. docs/context/escalera_reader.md §4.2ξ.
 #   julia --project=../.. joinpin_probe.jl f1.cnf ...
 include("./../../src/main.jl")
 function read_cnf(path)

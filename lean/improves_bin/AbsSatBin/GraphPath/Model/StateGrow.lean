@@ -4,7 +4,7 @@ import AbsSatBin.GraphPath.Model.ClauseWitness
 /-!
 # The correction: cliques inside one state, and the witness of the new step pins the source
 
-The Julia probe (`julia/improves_bin/test_3sat/probes/extat_probe.jl`, `docs/context/ambfar.md` §4.2z)
+The Julia probe (`julia/improves_bin/test_3sat/probes/extat_probe.jl`, `docs/context/escalera_reader.md` §4.2z)
 showed that `LineSem.SemCert` is **false**: it lets every entry of a clique come from a different state of
 the line, and in `rand3sat_v8_c10` (step 38) such a mixed clique has witnesses and no solution. Inside a
 single state there was no failure (1.3 M cliques, 13 M extensions), and the mixed clique dies at the next

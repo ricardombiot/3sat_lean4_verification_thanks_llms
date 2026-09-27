@@ -4,7 +4,7 @@ import AbsSatBin.GraphPath.Model.UnionLine
 /-!
 # Splicing certificates: the global structure of the network
 
-Measured (`julia/improves_bin/test_3sat/probes/splice_probe.jl`, `docs/context/ambfar.md` §4.2μ): two certificates of a
+Measured (`julia/improves_bin/test_3sat/probes/splice_probe.jl`, `docs/context/escalera_reader.md` §4.2μ): two certificates of a
 state that share a node at step `s` splice (the prefix of one up to `s`, the suffix of the other after `s`) into a
 certificate of the same state **exactly when the splice respects the requirements** — every failed splice violates a
 requirement (266 824 of 266 824). A node is a window of three steps, so the splice respects every window, the prohibited

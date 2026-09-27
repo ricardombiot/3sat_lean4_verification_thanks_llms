@@ -1,4 +1,4 @@
-# TriPin con un nodo de la cima como tercer miembro (docs/context/ambfar.md §4.2λ): en un estado de línea g con cima
+# TriPin con un nodo de la cima como tercer miembro (docs/context/escalera_reader.md §4.2λ): en un estado de línea g con cima
 # `top`, para w en la cima y y, v que poseen w con y que posee v: en cada paso hay una entrada común a y, v y w.
 # Si vale, restrictPin g w es un kernel (KernelSplit.restrict_kernel) y la regla del filtro con ancla (AF) sale sola.
 #   julia --project=../.. tripintop_probe.jl f1.cnf ...

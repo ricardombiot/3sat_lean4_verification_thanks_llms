@@ -1,4 +1,4 @@
-# M1 en partes (docs/context/ambfar.md §4.2ο.1). Estado unido J de la línea n+1 (cima n+1, claves en el paso n), piezas
+# M1 en partes (docs/context/escalera_reader.md §4.2ο.1). Estado unido J de la línea n+1 (cima n+1, claves en el paso n), piezas
 # P_k = upF X_k d por clave k de la fuente. R válido en J (pins uno tras otro con su review):
 #   M1a:        ∃ clave k (paso n) con J|(R+k) válido.
 #   M1a-todas:  toda clave k de un nodo del paso n de J|R da J|(R+k) válido.

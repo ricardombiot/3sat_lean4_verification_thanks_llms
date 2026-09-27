@@ -1,4 +1,4 @@
-# ¿Qué decide el destino bueno? (lean/improves_bin, invariante de unión de línea, docs/context/ambfar.md §4.2κ)
+# ¿Qué decide el destino bueno? (lean/improves_bin, invariante de unión de línea, docs/context/escalera_reader.md §4.2κ)
 # En pasos con 2 destinos, para cada clique Q con testigos en la unión de todas las piezas y cada destino d:
 #   good_d: Q clique con testigos en la unión de las piezas de d (J_d)
 #   B1: Q clique en J_d y testigos en J_d en todos los pasos L3 anteriores     (análogo de H19)

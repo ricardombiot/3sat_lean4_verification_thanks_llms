@@ -1,4 +1,4 @@
-# CliqueTri (TriP relativo a una clique, docs/context/ambfar.md §4.2d) con la review corregida, en estados de línea y en los
+# CliqueTri (TriP relativo a una clique, docs/context/escalera_reader.md §4.2d) con la review corregida, en estados de línea y en los
 # estados de partida del lector (filterAll de la línea final). P = clique de 2 nodos con testigos (muestreo NX por estado).
 # N_P = nodos que poseen todo P. CxP(y, w): y posee w y en cada paso hay un nodo que posee y, w y todo P.
 #   TRIP: y, w ∈ N_P con CxP(y, w) ⇒ en cada paso ∃ r ∈ N_P con CxP(r, y) y CxP(r, w).

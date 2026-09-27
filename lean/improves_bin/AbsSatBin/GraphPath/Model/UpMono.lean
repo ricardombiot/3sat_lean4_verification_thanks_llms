@@ -11,7 +11,7 @@ parents, and what its parents own in `h` they own in `X`. Old nodes gain, in `h`
 gain in `X`.
 
 This is the monotonicity the induction of `FExt` needs to lift a pinned kernel of a source to its piece
-(`docs/context/ambfar.md` §4.2ο, bridge M3w).
+(`docs/context/escalera_reader.md` §4.2ο, bridge M3w).
 -/
 
 namespace AbsSatBin.GraphPath.Model.UpMono

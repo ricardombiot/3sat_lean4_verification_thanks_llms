@@ -11,7 +11,7 @@ table). The cliques it uses are **prefixes**: one node at each step `0 … k`, a
 
 * **`PrefixTri g`**: `TriP g Q` for every prefix clique `Q`. It follows from `CliqueTri`
   (`prefixTri_of_cliqueTri`) and asks nothing about cliques with gaps — the ones where witnesses of
-  different branches can mix at a merge (`docs/context/ambfar.md` §4.2g–h).
+  different branches can mix at a merge (`docs/context/escalera_reader.md` §4.2g–h).
 * **At a reader state it gives `TriPin₁`** at the first choice (`triPin₁_of_prefixTri`): the forced
   nodes below `k` and the pin `x` form a prefix clique, and forced nodes are in every table, so the
   pair rule relative to it is `TriPin₁ g x` (`triP_congr`).

@@ -1,4 +1,4 @@
-# Bajar un filtro con ancla (docs/context/ambfar.md §4.2λ). Estado de línea g (unidos incluidos) con cima `top`.
+# Bajar un filtro con ancla (docs/context/escalera_reader.md §4.2λ). Estado de línea g (unidos incluidos) con cima `top`.
 #   AF: Q buena en g con miembro w en la cima; en un paso l < top todas las entradas de w nombran el mismo nodo de mapa m
 #       ⇒ Q buena en filterAll g [m]. (Sin ancla es falso: los 4 casos de certj_probe.jl.)
 #   julia --project=../.. anchfilt_probe.jl f1.cnf ...

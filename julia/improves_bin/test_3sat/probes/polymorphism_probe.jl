@@ -1,4 +1,4 @@
-# Argumento global candidato (docs/context/ambfar.md §4.2μ): la red de posesión de un estado como CSP binario (pasos =
+# Argumento global candidato (docs/context/escalera_reader.md §4.2μ): la red de posesión de un estado como CSP binario (pasos =
 # variables, nodos de camino = valores, relación R_{l,l'} = "x posee v"). El review da 3-consistencia fuerte; si las
 # relaciones fueran cerradas bajo una mayoría, habría consistencia global (Jeavons–Cohen–Cooper).
 # Mayoría natural sobre ventanas: bit a bit sobre (índice del paso, índice del padre, índice del abuelo).

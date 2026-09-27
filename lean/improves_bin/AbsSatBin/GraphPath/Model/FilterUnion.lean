@@ -6,7 +6,7 @@ import AbsSatBin.GraphPath.Model.LineUnion
 
 Measured (`julia/improves_bin/test_3sat/probes/glfstar_probe.jl`, FU): filtering a joined state by pins leaves,
 entry by entry, only entries of its pieces filtered by the same pins (5 337 of 5 337). This module proves it from
-`MapCert` of the joined state — step 2 of the induction of `GLF` (`docs/context/ambfar.md` §4.2κ).
+`MapCert` of the joined state — step 2 of the induction of `GLF` (`docs/context/escalera_reader.md` §4.2κ).
 
 * **`mapCert_filter_pins`**: pins keep `MapCert` when the pinned state is a kernel (the list form of
   `PieceFilter.mapCert_filter_pin`): the witnesses of the pinned kernel own, at each pinned step, only the pinned

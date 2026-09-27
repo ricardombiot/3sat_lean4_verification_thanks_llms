@@ -1,4 +1,4 @@
-# Línea de investigación (docs/context/ambfar.md §4.2μ): ¿qué testigos bastan para que una clique tenga cadena?
+# Línea de investigación (docs/context/escalera_reader.md §4.2μ): ¿qué testigos bastan para que una clique tenga cadena?
 # En cada estado de línea y en la unión de la línea (sin filtro): Q clique de 3 nodos (muestreo, NS por objeto) con
 # testigos solo en los pasos W (con 1–2 nodos la regla de parejas ya da testigos: la pregunta es vacía).
 # Versión local por cláusula: una cláusula TOCA a Q si alguno de sus literales es de una variable con miembro de Q en su

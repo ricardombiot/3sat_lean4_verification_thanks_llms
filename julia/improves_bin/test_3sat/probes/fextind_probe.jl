@@ -1,4 +1,4 @@
-# Puentes para FExt por inducción (docs/context/ambfar.md §4.2ξ). Pins de nodos de mapa, uno tras otro con su review.
+# Puentes para FExt por inducción (docs/context/escalera_reader.md §4.2ξ). Pins de nodos de mapa, uno tras otro con su review.
 #   M1 (join):  J|R válido ⇒ ∃ pieza P_i|R válida.
 #   M2 (bajar): P|R válido (P = upF X d) ⇒ X|(req(d) ++ R⁻) válido, R⁻ = R sin la cima.
 #   M3 (subir): X|(req(d) ++ R⁻) válido ⇒ P|R⁻ válido.

@@ -4,7 +4,7 @@ import AbsSatBin.GraphPath.Model.Splice
 /-!
 # `CliqueTri` through the join
 
-Measured (`julia/improves_bin/test_3sat/probes/cliquetri*_probe.jl`, `docs/context/ambfar.md` §4.2ν): `CliqueTri` (the
+Measured (`julia/improves_bin/test_3sat/probes/cliquetri*_probe.jl`, `docs/context/escalera_reader.md` §4.2ν): `CliqueTri` (the
 pair rule relative to a clique, with one round of cuts) holds at every stage of the machine — filtered sources, pieces
 and joined states — for cliques of 1 to 4 nodes, with the corrected review. The joined state is the union of its pieces
 with **no review after it**, so there `CliqueTri` must come from the pieces.

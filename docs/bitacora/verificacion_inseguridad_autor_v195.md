@@ -3,7 +3,7 @@
 Ricardo, este informe recoge todo el trabajo desde el v194: 80 commits en la rama `lean_improves_bin`, de `4914f15`
 a `e19b53a` (25 al 27 de septiembre). Hay trabajo en Lean (`lean/improves_bin`), sondas en Julia
 (`julia/improves_bin/test_3sat/probes/`) y tres correcciones de la review de Julia para que coincida con el modelo
-Lean. El detalle técnico, sección a sección, está en `docs/context/ambfar.md` (§3 a §4.2λ).
+Lean. El detalle técnico, sección a sección, está en `docs/context/escalera_reader.md` (§3 a §4.2λ).
 
 **La conclusión, por adelantado.**
 * El lector sin retroceso decide `φ` bajo dos hipótesis, `PieceLocalF` y `MergeSplit`
@@ -71,7 +71,7 @@ distintos pueden venir de ramas distintas.
 * La versión relativa a un nodo se conserva sin fusiones. Con fusiones, `join` o requisito se reduce a tres
   condiciones de «coherencia de rama» (`ShadowChoice`, `JoinChoice`, `FilterChoice`). **Demostrado.**
 * Helly con número 2 (`HellyTwo`): en un paso con dos nodos vivos, un trío comparte. **Demostrado**, pero no cierra la
-  coherencia (§4.2q de `ambfar`).
+  coherencia (§4.2q de `escalera_reader`).
 
 ### 2.2 El certificado elige la ventana: `MapCert`
 

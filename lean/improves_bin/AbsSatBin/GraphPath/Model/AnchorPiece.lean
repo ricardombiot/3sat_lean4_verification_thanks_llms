@@ -4,7 +4,7 @@ import AbsSatBin.GraphPath.Model.FiltCert
 /-!
 # `PieceLocalF` from an anchor at the top
 
-Measured (`julia/improves_bin/test_3sat/probes/anchor_probe.jl`, `anchorf_probe.jl`, `docs/context/ambfar.md` §4.2λ):
+Measured (`julia/improves_bin/test_3sat/probes/anchor_probe.jl`, `anchorf_probe.jl`, `docs/context/escalera_reader.md` §4.2λ):
 in a joined state (filtered or not) a clique with witnesses always gains a node `w` of the new step keeping its
 witnesses (A1, 1.78 M), and a clique with witnesses with a member `w` at the top is one of the piece of `w` — the only
 piece where `w` lives — with no step missing, clause steps included (S2, 2.5 M).

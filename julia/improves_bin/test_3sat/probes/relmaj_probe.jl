@@ -1,4 +1,4 @@
-# Versión relativa del argumento de mayoría (docs/context/ambfar.md §4.2μ). P clique con testigos en un estado (1–2
+# Versión relativa del argumento de mayoría (docs/context/escalera_reader.md §4.2μ). P clique con testigos en un estado (1–2
 # nodos, muestreo NP por estado). Red restringida N_P: nodos que poseen todo P; R^P_{l,l'} = pares (x, v) de N_P con x
 # posee v.
 #   MAJ_P: (x_i, v_i) ∈ R^P, i = 1..3 ⇒ maj x, maj v existen, están en N_P y (maj x, maj v) ∈ R^P (NS ternas por P).

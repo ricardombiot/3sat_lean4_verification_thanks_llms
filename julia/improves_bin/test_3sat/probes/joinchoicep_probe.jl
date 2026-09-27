@@ -1,4 +1,4 @@
-# JoinChoiceP (docs/context/ambfar.md §4.2ν): estado unido J con ≥ 2 piezas, P clique de J (0 a 3 nodos, muestreo), y, w
+# JoinChoiceP (docs/context/escalera_reader.md §4.2ν): estado unido J con ≥ 2 piezas, P clique de J (0 a 3 nodos, muestreo), y, w
 # que poseen P en J con CxP_J(y, w) ⇒ ¿hay una pieza X con P clique en X, y, w nodos de X que poseen P en X y CxP_X(y, w)?
 # Si vale, CliqueTri de las piezas pasa al estado unido (Lean: JoinTri.cliqueTri_of_joinChoice).
 #   julia --project=../.. joinchoicep_probe.jl f1.cnf ...

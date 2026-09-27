@@ -1,4 +1,4 @@
-# AF y crecimiento en la unión de una línea (inducción de LUA, docs/context/ambfar.md §4.2λ).
+# AF y crecimiento en la unión de una línea (inducción de LUA, docs/context/escalera_reader.md §4.2λ).
 # U_S = unión de los estados de la línea n, cada uno filtrado por S (vacío o 2 de un nodo al azar).
 #   AFU:  c :: Q0 buena en U_S con c en la cima n; c fija m (sus entradas del paso de m lo nombran) ⇒ buena en U_{S∪{m}}.
 #   A1KU: Q buena en U_S sin miembro en la cima ⇒ ∃ c en la cima con c :: Q buena en U_S.

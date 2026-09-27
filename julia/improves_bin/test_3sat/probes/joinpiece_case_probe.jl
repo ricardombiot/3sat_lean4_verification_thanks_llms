@@ -1,4 +1,4 @@
-# ¿Qué pieza elige JoinChoiceP? (docs/context/ambfar.md §4.2ξ). Estado unido J, P clique (1 a 3 nodos), enlace y–w con
+# ¿Qué pieza elige JoinChoiceP? (docs/context/escalera_reader.md §4.2ξ). Estado unido J, P clique (1 a 3 nodos), enlace y–w con
 # CxP_J(y, w). La pieza de un testigo puro del enlace (en el paso n de las claves o en la cima n+1: esos nodos vienen de
 # una sola pieza): ¿sirve siempre (∀ testigo puro) o alguno (∃)? Pieza buena = P clique, y, w poseen P y CxP en ella.
 #   julia --project=../.. joinpiece_probe.jl f1.cnf ...

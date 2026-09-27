@@ -5,7 +5,7 @@ import AbsSatBin.GraphPath.Model.StateLine
 /-!
 # Certificates of the filtered states: the invariant that replaces `MapCert`
 
-Measured (`julia/improves_bin/test_3sat/probes/certj_probe.jl`, `docs/context/ambfar.md` §4.2κ): **`MapCert` is false
+Measured (`julia/improves_bin/test_3sat/probes/certj_probe.jl`, `docs/context/escalera_reader.md` §4.2κ): **`MapCert` is false
 on a joined state** — in `clause_mix.cnf` at step 26 a clique `Q` has witnesses owning `Q` and a node `25:0`, but no
 chain goes through `Q` and `25:0`. So `PieceLocal` is false too. The constraint `R` of `MapCert` asks only the
 witnesses to own `R`; the machine applies a constraint by filtering, and then every node owns it. With the

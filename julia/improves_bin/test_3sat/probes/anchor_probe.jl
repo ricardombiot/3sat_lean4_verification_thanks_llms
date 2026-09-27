@@ -1,4 +1,4 @@
-# Pasos 1 y 2 hacia PieceLocalF (docs/context/ambfar.md §4.2λ). Estado unido J de la línea n+1, piezas P_k.
+# Pasos 1 y 2 hacia PieceLocalF (docs/context/escalera_reader.md §4.2λ). Estado unido J de la línea n+1, piezas P_k.
 #   A1 (anclar): Q buena en J sin miembro en la cima ⇒ ∃ w en la cima con Q ∪ {w} buena en J.
 #   S2: Q buena en J con miembro w en la cima; P = pieza de clave w.parent_id (la única donde vive w):
 #       ¿Q es clique en P? ¿en qué pasos falta testigo en P? Clasifica: ninguno / solo pasos de cláusula / otros (FALLA).

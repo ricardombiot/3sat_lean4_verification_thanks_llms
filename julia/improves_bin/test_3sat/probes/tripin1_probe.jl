@@ -1,4 +1,4 @@
-# TriPin y TriPin₁ (docs/context/ambfar.md §4.2b, OneShot) con la review corregida, en estados de línea.
+# TriPin y TriPin₁ (docs/context/escalera_reader.md §4.2b, OneShot) con la review corregida, en estados de línea.
 # Para x (muestreo NX por estado): N_x = nodos que poseen x. Cx(y, w): y posee w y en cada paso hay un nodo que posee y, w, x.
 #   TP:  y, w ∈ N_x, y posee w ⇒ en cada paso ∃ r que posee y, w, x.
 #   TP1: y, w ∈ N_x con Cx(y, w) ⇒ en cada paso ∃ r ∈ N_x con Cx(r, y) y Cx(r, w).

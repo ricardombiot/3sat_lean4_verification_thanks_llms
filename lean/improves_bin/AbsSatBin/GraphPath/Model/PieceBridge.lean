@@ -3,7 +3,7 @@ import AbsSatBin.GraphPath.Model.FilterUnion
 import AbsSatBin.GraphPath.Model.UpMono
 
 /-!
-# The two bridges between a source and its piece, for map pins (`docs/context/ambfar.md` §4.2ο)
+# The two bridges between a source and its piece, for map pins (`docs/context/escalera_reader.md` §4.2ο)
 
 A source `X` of line `n` and its piece `upF φ X d`. The pins of `X` for the key `d` are `pinsW`: the requirements of
 `d`, and `L1 = 1` when the filter of `X` skips a window (the prohibited window of a clause is `(0, 0, 0)`, and a

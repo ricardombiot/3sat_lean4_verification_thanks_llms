@@ -4,13 +4,13 @@ import AbsSatBin.GraphPath.Model.Trunc
 /-!
 # The union of a line, and the join through the filter
 
-Measured (`julia/improves_bin/test_3sat/probes/global_local_probe.jl`, `docs/context/ambfar.md` §4.2κ): the union
+Measured (`julia/improves_bin/test_3sat/probes/global_local_probe.jl`, `docs/context/escalera_reader.md` §4.2κ): the union
 of the states of a line (at most two in the bin map, with different keys, which the machine never joins) creates
 no clique with witnesses — each lives in one state (GL, 1.78 M cliques). This module takes that as the hypothesis
 of the join step.
 
 **⚠ Refuted as stated.** `GL` and `GLF` quantify over every `R`; with a constraint at the top step (every witness owns,
-in the union, a top node named `m`) they fail in 20 of 2.08 M cases (`gltop_probe.jl`, `docs/context/ambfar.md`
+in the union, a top node named `m`) they fail in 20 of 2.08 M cases (`gltop_probe.jl`, `docs/context/escalera_reader.md`
 §4.2κ). The theorems below are correct implications, but their hypothesis does not always hold.
 
 * **`GL φ n`**: a clique with witnesses in the union of the states of line `n` (every entry and every witness

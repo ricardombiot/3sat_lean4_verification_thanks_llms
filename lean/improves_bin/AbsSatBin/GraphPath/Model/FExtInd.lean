@@ -3,7 +3,7 @@ import AbsSatBin.GraphPath.Model.PieceBridge
 import AbsSatBin.GraphPath.Model.MapTri
 
 /-!
-# `FExt` by induction along the machine, under the join bridge M1 (`docs/context/ambfar.md` §4.2ο)
+# `FExt` by induction along the machine, under the join bridge M1 (`docs/context/escalera_reader.md` §4.2ο)
 
 * **`LExt X`**: `FExt` with pin lists. If `X` pinned by `ps` is valid, then at every step `k` some map node `m` of
   step `k` keeps `X` pinned by `m :: ps` valid.

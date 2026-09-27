@@ -12,7 +12,7 @@ stated on any state and it does not mention compatibility, so it can be followed
   them before (tables only shrink), and the certificate it lies on survives the review.
 * So **`CertClique` on the machine's raw output is enough** (`readerVerdictW_iff_of_certClique`).
 
-What each other operation of the machine would need is in `docs/context/ambfar.md` §4.2g: the
+What each other operation of the machine would need is in `docs/context/escalera_reader.md` §4.2g: the
 requirement filter, `addNode` at a merge node, and `join` all mix witnesses of different steps.
 -/
 

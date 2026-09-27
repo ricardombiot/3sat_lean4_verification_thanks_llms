@@ -1,4 +1,4 @@
-# Exhaustivo (cliques de un nodo) de JoinChoiceP y, en sus fallos, de TriP del estado unido. docs/context/ambfar.md §4.2ξ.
+# Exhaustivo (cliques de un nodo) de JoinChoiceP y, en sus fallos, de TriP del estado unido. docs/context/escalera_reader.md §4.2ξ.
 #   julia --project=../.. joinchoice_exh_probe.jl f1.cnf ...
 include("./../../src/main.jl")
 function tables(g)

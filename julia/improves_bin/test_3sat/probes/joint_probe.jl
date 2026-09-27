@@ -1,4 +1,4 @@
-# Invariante corregido y bajada (lean/improves_bin, LineUnion; docs/context/ambfar.md §4.2κ.7).
+# Invariante corregido y bajada (lean/improves_bin, LineUnion; docs/context/escalera_reader.md §4.2κ.7).
 #   GLJ: unión de los estados de una línea. Q clique entrada a entrada; en cada paso, un testigo r y UN estado donde r
 #        posee a la vez Q y las restricciones R ⇒ Q buena (con R) en un solo estado. R ∈ {vacío, cima [m], bajo [c]}.
 #   DJ:  estado unido J. Q buena con R en J ⇒ en cada paso, un testigo r y UNA pieza donde r posee Q y R juntos.

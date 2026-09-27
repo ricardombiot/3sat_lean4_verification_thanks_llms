@@ -1,6 +1,6 @@
 # ¿Las ausencias del estado unido J son compatibles de verdad? Para cada par ausente (cortado o desconocido, ver
 # absent_probe.jl) se busca por fuerza bruta una asignación que pase por los dos nodos y cumpla las cláusulas cerradas
-# hasta la cima: S1 sin más; S2 además su nodo de cima está en J; S3 además todos sus nodos están en J. docs/context/ambfar.md §4.2ξ.
+# hasta la cima: S1 sin más; S2 además su nodo de cima está en J; S3 además todos sus nodos están en J. docs/context/escalera_reader.md §4.2ξ.
 #   julia --project=../.. absent_sem_probe.jl f1.cnf ...
 include("./../../src/main.jl")
 function read_cnf(path)

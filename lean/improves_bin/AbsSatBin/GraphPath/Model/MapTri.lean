@@ -8,7 +8,7 @@ import AbsSatBin.GraphPath.Model.KernelSplit
 `CliqueTri`, `CertClique` and `FCert` speak of cliques of **path nodes**. In the joined states of
 `clause_mix.cnf` and `clause_mix_sep.cnf` there are 20 triples of path nodes that are a clique with
 witnesses at every step and lie on no chain of the state, not even after the review, nor after pinning
-their map nodes (probes `triple_sem_probe.jl`, `joinpin_probe.jl`, docs/context/ambfar.md §4.2ξ). So
+their map nodes (probes `triple_sem_probe.jl`, `joinpin_probe.jl`, docs/context/escalera_reader.md §4.2ξ). So
 those invariants are false there. The reader never sees path nodes: it pins **map nodes**, and at that
 grain every valid pin set measured has a chain through its pins.
 
