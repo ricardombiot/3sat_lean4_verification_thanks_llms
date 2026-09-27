@@ -337,7 +337,7 @@ end
 Si quitar una clave deja el estado inválido (era la única que quedaba), `remove_node_owner!` ya lo marca con
 `check_if_graph_valid!`, y la vuelta siguiente no hace nada.
 
-**Qué da (deducido, sin medir ni formalizar):**
+**Qué da (deducido; ⚠ corregido en §6.2: esto vale solo en el join donde actúan las reglas, no en la inducción entera):**
 * **`M1aAll` por construcción.** En el punto fijo del review, toda clave viva sobrevive a su pin: si no, la
   comprobación la habría quitado. Falta el lema de que el review de `J` fijado en `k :: R` y el de la copia coinciden
   en validez. La copia fija `R` primero y `k` después, y `filterAll` los fija en el otro orden. El puente es el de
