@@ -118,7 +118,10 @@ end
 function key_check!(gpath :: GPath) :: Bool
     (KEYCHECK_MODE[] == :on && gpath.is_valid) || return false
     keys = live_keys(gpath)
-    length(keys) >= 2 || return false
+    # Con una sola clave viva también hay que comprobarla si las tablas están mezcladas (etiquetas de un join):
+    # su pin con etiqueta puede matar el estado. Sin etiquetas, fijar la única clave no cambia nada.
+    mixed = gpath.key_tags !== nothing && gpath.key_tags.single === nothing
+    (length(keys) >= 2 || (length(keys) == 1 && mixed)) || return false
 
     dead = NodeId[]
     #! [for] $ O(K) $   K = claves vivas (≤ 2 en el mapa bin)
