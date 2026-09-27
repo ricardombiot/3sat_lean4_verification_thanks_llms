@@ -282,6 +282,28 @@ theorem m1aAll_of_keyTri (n : Nat) (hT : KeyTri φ n) : M1aAll φ n := by
   · rw [← hxq]; exact hpin z hz (by rw [hzs, hxq])
   · exact LineUnion.gowner_pinned kv'.2 ps z (hbS.gow z hz) r hr hzs
 
+/-- **`KeyTri` after one round of cuts**: every live key of step `n` has a node `x` with `TriPinCut.TriPin₁` (the pair
+rule inside the sub-kernel of `x` cut to its `x`-compatible links). Weaker than `KeyTri` (`triPin₁_of_triPin`). -/
+def KeyTri₁ (n : Nat) : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ ps : List NodeId, isValid (filterAll kv'.2 ps) = true →
+    ∀ q ∈ (filterAll kv'.2 ps).gowners, q.id.step = (n : Int) →
+      ∃ x ∈ (filterAll kv'.2 ps).gowners, x.id = q.id ∧ TriPinCut.TriPin₁ (filterAll kv'.2 ps) x
+
+/-- **`KeyTri₁ ⇒ M1aAll`**: the cut sub-kernel of the key node (`TriPinCut.restrict₁_kernel`). -/
+theorem m1aAll_of_keyTri₁ (n : Nat) (hT : KeyTri₁ φ n) : M1aAll φ n := by
+  intro kv' hkv' ps hv q hq hqn
+  have hok' := (lineOk φ (n + 1)).2 kv' hkv'
+  have cG := filt_ctx φ hbd _ kv' hok' ps hv
+  have hbG := KernelIff.below_filterAll_self kv'.2 (FExtInd.nodup_ok φ hbd _ kv' hok') ps
+  obtain ⟨x, hx, hxq, ht⟩ := hT kv' hkv' ps hv q hq hqn
+  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp (cG.pc.ker.gn x hx)
+  obtain ⟨hk, hvS, hbS, hpin⟩ := TriPinCut.restrict₁_kernel cG.pc x nx hnx ht
+  refine isValid_filterAll_of_kernel hk hvS (PieceFilter.below_trans hbG hbS) (q.id :: ps)
+    (fun r hr z hz hzs => ?_)
+  rcases List.mem_cons.mp hr with rfl | hr
+  · rw [← hxq]; exact hpin z hz (by rw [hzs, hxq])
+  · exact LineUnion.gowner_pinned kv'.2 ps z (hbS.gow z hz) r hr hzs
+
 /-- **The reader decides `φ` under `M1aAll` and `M1bLow` at every join.** -/
 theorem readerVerdictW_iff_of_parts
     (hA : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1aAll φ n)
@@ -305,6 +327,14 @@ theorem readerVerdictW_iff_of_keyTri
   readerVerdictW_iff_of_parts φ hbd (fun n h1 hn => m1aAll_of_keyTri φ hbd n (hT n h1 hn))
     (fun n h1 hn => m1bLow_of_own φ hbd n (hO n h1 hn))
 
+/-- **The reader decides `φ` under `KeyTri₁` and `M1bLowOwn` at every join.** -/
+theorem readerVerdictW_iff_of_keyTri₁
+    (hT : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → KeyTri₁ φ n)
+    (hO : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1bLowOwn φ n) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_parts φ hbd (fun n h1 hn => m1aAll_of_keyTri₁ φ hbd n (hT n h1 hn))
+    (fun n h1 hn => m1bLow_of_own φ hbd n (hO n h1 hn))
+
 end AbsSatBin.GraphPath.Model.M1Parts
 
 /-- info: 'AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_parts' depends on axioms: [propext, Quot.sound] -/
@@ -315,3 +345,6 @@ end AbsSatBin.GraphPath.Model.M1Parts
 
 /-- info: 'AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_keyTri' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_keyTri
+
+/-- info: 'AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_keyTri₁' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_keyTri₁

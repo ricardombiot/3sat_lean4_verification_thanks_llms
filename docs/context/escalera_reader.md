@@ -1732,7 +1732,25 @@ Sobre `KeyTri`: en el paso n, x es su propia entrada común (`TriPin` en l = n e
 que posee x es x (OOS). Por `triPin_of_ambTri`, solo cuentan las parejas ambiguas: y, w que se poseen, poseen x y
 también otro nodo del paso n. Son nodos por debajo de n, o de la cima si la clave tiene varios nodos de camino.
 
-**Abierto**: `M1aAll` (o `KeyTri`, más fuerte y sin medir) y `M1bLowOwn` (medido sin fallos como M1b-entradas).
+* **`m1aAll_of_keyTri₁`**: `KeyTri₁ ⇒ M1aAll`. `KeyTri₁` es `KeyTri` tras una ronda de cortes (`TriPin₁`, `TriPinCut`):
+  y, w que poseen x con enlace x-compatible comparten, en cada paso, un testigo que x posee y que es entrada
+  x-compatible de los dos. El subkernel cortado (`restrict₁_kernel`) hace el mismo papel.
+  `readerVerdictW_iff_of_keyTri₁` (bajo `KeyTri₁` y `M1bLowOwn`).
+
+**Medido** (`keytri_probe.jl`, `m1aall_probe.jl`, con `keytri_common.jl`; `clause_mix.cnf`, `clause_mix_sep.cnf` y las 6 (KeyTri) o 12 (M1aAll) primeras de
+`random_small`; R vacío, de un nodo, y de dos y tres nodos al azar):
+
+| enunciado | correctos | fallos |
+|---|---|---|
+| `KeyTri` | 24.203 | **360** (en todos, M1a-todas vale) |
+| `KeyTri₁` | 24.563 | 0 |
+| `M1aAll` | 42.463 (25.516 con ≥ 2 claves) | 0 |
+
+**`KeyTri` es FALSO**: en `clause_mix.cnf`, cima 21, clave (20, 0), hay parejas y, w de los pasos 3 a 10 que se poseen
+y poseen x, pero sus testigos comunes del paso 3 no los posee x. Es el mismo tipo de fallo que `TriPin` en el lector.
+Con una ronda de cortes desaparece: `KeyTri₁` no falla.
+
+**Abierto**: `M1aAll` (vía `KeyTri₁`) y `M1bLowOwn` (medido sin fallos como M1b-entradas).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1829,7 +1847,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF` (⚠ falso), `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
 | `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
-| `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri` |
+| `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri` (⚠ falso), `KeyTri₁`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `m1aAll_of_keyTri₁`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri₁` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
@@ -1837,4 +1855,4 @@ Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--cha
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`, `m1split`).
+`fextind`, `m1split`, `keytri`, `m1aall`).
