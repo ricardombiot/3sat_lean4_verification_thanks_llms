@@ -11,7 +11,7 @@ function test_new_gpath_up_root()
     @test gpath.current_step == Step(1)
 
     map_node_id_expected = Alias.new_path_id(map_node_id, nothing)
-    @test PathDocumentOwners.is_owner(gpath.owners, map_node_id_expected)
+    @test GraphPath.is_alive(gpath, map_node_id_expected)
     node = PathCollectionLines.get_node(gpath.table_lines, map_node_id_expected)
 
     @test node.id.id.step == 0
@@ -19,10 +19,10 @@ function test_new_gpath_up_root()
     @test node.title == "x=1"
     @test isempty(node.parents)
     @test isempty(node.sons)
-    @test PathDocumentOwners.is_valid(node.owners)
+    @test GraphPath.is_owners_valid(gpath, node)
     # myself owner
     myself_id = node.id
-    @test PathDocumentOwners.is_owner(node.owners, myself_id)
+    @test GraphPath.is_owner(gpath, node.id, myself_id)
 
     return gpath
 end
@@ -42,8 +42,8 @@ function test_up_step_1(gpath)
     id_0_1_r = Alias.new_path_id((step=0,index=1), nothing)
     id_1_0__0_1 = Alias.new_path_id((step=1,index=0), (step=0,index=1))
 
-    @test PathDocumentOwners.is_owner(gpath.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(gpath.owners, id_1_0__0_1)
+    @test GraphPath.is_alive(gpath, id_0_1_r)
+    @test GraphPath.is_alive(gpath, id_1_0__0_1)
 
     node_0_1_r = PathCollectionLines.get_node(gpath.table_lines, id_0_1_r)
     node_1_0__0_1 = PathCollectionLines.get_node(gpath.table_lines, id_1_0__0_1)
@@ -56,11 +56,11 @@ function test_up_step_1(gpath)
     @test node_1_0__0_1.parents == Set([id_0_1_r])
     @test isempty(node_1_0__0_1.sons)
 
-    @test PathDocumentOwners.is_owner(node_0_1_r.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(node_0_1_r.owners, id_1_0__0_1)
+    @test GraphPath.is_owner(gpath, node_0_1_r.id, id_0_1_r)
+    @test GraphPath.is_owner(gpath, node_0_1_r.id, id_1_0__0_1)
 
-    @test PathDocumentOwners.is_owner(node_1_0__0_1.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(node_1_0__0_1.owners, id_1_0__0_1)
+    @test GraphPath.is_owner(gpath, node_1_0__0_1.id, id_0_1_r)
+    @test GraphPath.is_owner(gpath, node_1_0__0_1.id, id_1_0__0_1)
 
     return gpath
 end
@@ -80,11 +80,12 @@ function test_up_step_2(gpath)
     ## Comprobar los nodos
     id_0_1_r = Alias.new_path_id((step=0,index=1), nothing)
     id_1_0__0_1 = Alias.new_path_id((step=1,index=0), (step=0,index=1))
-    id_2_1__1_0 = Alias.new_path_id((step=2,index=1), (step=1,index=0))
+    # ventana 3 (Alias.WINDOW): el id del paso 2 lleva padre y abuelo
+    id_2_1__1_0 = Alias.PathNodeId((step=0,index=1), (step=1,index=0), (step=2,index=1))
 
-    @test PathDocumentOwners.is_owner(gpath.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(gpath.owners, id_1_0__0_1)
-    @test PathDocumentOwners.is_owner(gpath.owners, id_2_1__1_0)
+    @test GraphPath.is_alive(gpath, id_0_1_r)
+    @test GraphPath.is_alive(gpath, id_1_0__0_1)
+    @test GraphPath.is_alive(gpath, id_2_1__1_0)
 
     node_0_1_r = PathCollectionLines.get_node(gpath.table_lines, id_0_1_r)
     node_1_0__0_1 = PathCollectionLines.get_node(gpath.table_lines, id_1_0__0_1)
@@ -103,18 +104,18 @@ function test_up_step_2(gpath)
     @test node_2_1__1_0.parents == Set([id_1_0__0_1])
     @test isempty(node_2_1__1_0.sons)
 
-    @test PathDocumentOwners.is_owner(node_0_1_r.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(node_0_1_r.owners, id_1_0__0_1)
-    @test PathDocumentOwners.is_owner(node_0_1_r.owners, id_2_1__1_0)
+    @test GraphPath.is_owner(gpath, node_0_1_r.id, id_0_1_r)
+    @test GraphPath.is_owner(gpath, node_0_1_r.id, id_1_0__0_1)
+    @test GraphPath.is_owner(gpath, node_0_1_r.id, id_2_1__1_0)
 
 
-    @test PathDocumentOwners.is_owner(node_1_0__0_1.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(node_1_0__0_1.owners, id_1_0__0_1)
-    @test PathDocumentOwners.is_owner(node_1_0__0_1.owners, id_2_1__1_0)
+    @test GraphPath.is_owner(gpath, node_1_0__0_1.id, id_0_1_r)
+    @test GraphPath.is_owner(gpath, node_1_0__0_1.id, id_1_0__0_1)
+    @test GraphPath.is_owner(gpath, node_1_0__0_1.id, id_2_1__1_0)
 
-    @test PathDocumentOwners.is_owner(node_2_1__1_0.owners, id_0_1_r)
-    @test PathDocumentOwners.is_owner(node_2_1__1_0.owners, id_1_0__0_1)
-    @test PathDocumentOwners.is_owner(node_2_1__1_0.owners, id_2_1__1_0)
+    @test GraphPath.is_owner(gpath, node_2_1__1_0.id, id_0_1_r)
+    @test GraphPath.is_owner(gpath, node_2_1__1_0.id, id_1_0__0_1)
+    @test GraphPath.is_owner(gpath, node_2_1__1_0.id, id_2_1__1_0)
 
 
     #==#
@@ -124,3 +125,9 @@ end
 gpath = test_new_gpath_up_root()
 gpath = test_up_step_1(gpath)
 gpath = test_up_step_2(gpath)
+
+# La tabla de owners en la visual sale del grafo (plan graph_owners, F3).
+let node = PathCollectionLines.get_node(gpath.table_lines, Alias.new_path_id((step=0,index=1), nothing))
+    txt = GraphPathVisual.draw_owners(gpath, node)
+    @test occursin("0 :", txt) && occursin("2 :", txt) && !occursin("INVALID", txt)
+end

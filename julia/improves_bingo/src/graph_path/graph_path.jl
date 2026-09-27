@@ -24,6 +24,7 @@ module GraphPath
 
 
     include("./graph_path_constructor.jl")
+    include("./graph_path_owners.jl")
     include("./graph_path_up.jl")
     
     include("./graph_path_join.jl")

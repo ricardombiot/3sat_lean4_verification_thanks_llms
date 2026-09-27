@@ -1,14 +1,15 @@
-# Paso 3 del plan del v181, §6: el cleanInvalid en dos fases.
+# cleanInvalid sobre el grafo de owners (plan docs/plans/graph_owners.md, F3; antes, paso 3 del plan
+# del v181, §6, en dos fases).
 #
 # Sobre estados REALES: los estados de la línea final de la máquina, pinchados como hace el lector
-# (filter_require! de un id de mapa de un paso) y todavía sin review. Sobre copias se aplican las dos
-# versiones de cleanInvalid y se comprueba, para la de dos fases:
-#   (a) ninguna tabla de nodo guarda un id que no esté en la global;
-#   (b) toda entrada de la global es un nodo presente;
+# (filter_require! de un id de mapa de un paso) y todavía sin review. Sobre una copia se aplica
+# clean_invalid_nodes! y se comprueba:
+#   (a) el grafo cumple sus invariantes (ningún id muerto en ninguna tabla, relación simétrica);
+#   (b) los vivos del grafo son exactamente los nodos de table_lines;
 #   (c) todos los nodos son válidos;
 #   (d) aplicarla otra vez no cambia nada.
-# Y se cuenta cuántas veces la secuencial deja ids fuera de la global en alguna tabla (la dependencia
-# del orden que el cambio elimina).
+# La versión secuencial, el corte de la fase 2 e is_valid_intersect ya no existen: al quitar un nodo
+# se van sus aristas.
 
 using Test
 
@@ -18,19 +19,13 @@ function all_nodes(gpath)
     return nodes
 end
 
-owner_entries(owners) = [id for (step, set) in owners.table for id in set]
-
 function signature(gpath)
     nodes = all_nodes(gpath)
-    return (Set(n.id for n in nodes), Set(owner_entries(gpath.owners)),
-            Dict(n.id => (Set(owner_entries(n.owners)), Set(n.parents), Set(n.sons)) for n in nodes))
+    return (Set(n.id for n in nodes), GraphPath.alive_ids(gpath),
+            Dict(n.id => (GraphPath.owners_table(gpath, n.id), Set(n.parents), Set(n.sons)) for n in nodes))
 end
 
-tables_inside_global(gpath) =
-    all(n -> all(id -> PathDocumentOwners.is_owner(gpath.owners, id), owner_entries(n.owners)), all_nodes(gpath))
-
-global_are_nodes(gpath) =
-    all(id -> PathCollectionLines.get_node(gpath.table_lines, id) !== nothing, owner_entries(gpath.owners))
+alive_are_nodes(gpath) = GraphPath.alive_ids(gpath) == Set(n.id for n in all_nodes(gpath))
 
 nodes_valid(gpath) = all(n -> GraphPath.is_valid_node(gpath, n), all_nodes(gpath))
 
@@ -61,43 +56,28 @@ const CLEAN_CASES = [
     "../../test_window/instances/v6_c26_i1.cnf",
 ]
 
-@testset "cleanInvalid en dos fases" begin
+@testset "cleanInvalid sobre el grafo de owners" begin
     n_states = 0
-    n_seq_dead = 0
-    n_nodes_checked = 0
-    n_mismatch = 0
+    n_valid = 0
     for rel in CLEAN_CASES
         path = joinpath(@__DIR__, rel)
         for g0 in pinned_states(path)
             n_states += 1
-            # is_valid_intersect = copiar, cortar y mirar la validez, nodo a nodo
-            for n in all_nodes(g0)
-                copy_cut = deepcopy(n.owners)
-                PathDocumentOwners.intersect!(copy_cut, g0.owners)
-                n_nodes_checked += 1
-                n_mismatch += PathDocumentOwners.is_valid_intersect(n.owners, g0.owners) !=
-                              PathDocumentOwners.is_valid(copy_cut)
-            end
-            g_seq = deepcopy(g0)
-            GraphPath.clean_invalid_nodes_sequential!(g_seq)
-            if g_seq.is_valid && !tables_inside_global(g_seq)
-                n_seq_dead += 1
-            end
-
+            @test PathOwnersGraph.check_invariants(g0.og)
             g2 = deepcopy(g0)
-            GraphPath.clean_invalid_nodes_two_phase!(g2)
-            if g2.is_valid
-                @test tables_inside_global(g2)
-                @test global_are_nodes(g2)
+            GraphPath.clean_invalid_nodes!(g2)
+            @test PathOwnersGraph.check_invariants(g2.og)
+            if g2.is_valid && g2.table_lines.is_valid
+                n_valid += 1
+                @test alive_are_nodes(g2)
                 @test nodes_valid(g2)
                 g3 = deepcopy(g2)
-                GraphPath.clean_invalid_nodes_two_phase!(g3)
+                GraphPath.clean_invalid_nodes!(g3)
                 @test signature(g3) == signature(g2)
             end
         end
     end
-    println("cleanInvalid: estados pinchados $n_states; la secuencial deja ids fuera de la global en $n_seq_dead")
-    println("is_valid_intersect: $n_nodes_checked nodos comparados con copia + intersect!, $n_mismatch distintos")
-    @test n_mismatch == 0
+    println("cleanInvalid: estados pinchados $n_states, válidos tras la purga $n_valid")
     @test n_states > 0
+    @test n_valid > 0
 end

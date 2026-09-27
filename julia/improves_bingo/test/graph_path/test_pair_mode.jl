@@ -1,82 +1,72 @@
-# Pasos A1 y A3 del plan docs/plans/pair_mode.md: la regla de parejas tras la limpieza.
+# Pasos A1 y A3 del plan docs/plans/pair_mode.md, sobre el grafo de owners (plan
+# docs/plans/graph_owners.md, F3).
 #
-# (A1) shares_every_step: simétrica, igual a intersect! + is_valid sobre una copia (con el mismo
-#      max_step), y los casos límite (un paso solo en una tabla se ignora; un paso común disjunto falla).
+# (A1) shares_every_step: simétrica, igual a la definición directa (en cada paso con línea en las dos
+#      tablas hay un id común), y los casos límite (un paso solo en una tabla se ignora; un paso común
+#      disjunto falla; una línea vacía común falla).
 # (A3) Con PAIR_MODE :on, sobre los estados pinchados del lector (cada nodo del mapa de cada paso con
-#      más de uno): tras clean + regla, toda pareja mutua viva comparte entrada en cada paso (PairOk),
-#      la simetría se conserva y ninguna pareja se compara con max_step distinto; y el review completo
-#      da el mismo veredicto que con :off. Se cuentan (sin exigir) los estados finales distintos.
+#      más de uno): tras clean + regla, toda arista comparte entrada en cada paso (PairOk) y el grafo
+#      cumple sus invariantes; y el review completo da el mismo veredicto que con :off. Se cuentan (sin
+#      exigir) los estados finales distintos. La simetría ya no se cuenta: es del grafo.
 
 using Test
 
 pair_nodes(gpath) = (ns = []; PathCollectionLines.for_each(gpath.table_lines, n -> push!(ns, n)); ns)
-pair_entries(owners) = [id for (step, set) in owners.table for id in set]
 
 function pair_signature(gpath)
     ns = pair_nodes(gpath)
-    return (Set(n.id for n in ns), Set(pair_entries(gpath.owners)),
-            Dict(n.id => (Set(pair_entries(n.owners)), Set(n.parents), Set(n.sons)) for n in ns))
+    return (Set(n.id for n in ns), GraphPath.alive_ids(gpath),
+            Dict(n.id => (GraphPath.owners_table(gpath, n.id), Set(n.parents), Set(n.sons)) for n in ns))
 end
 
-# Parejas vivas que se poseen y no comparten entrada en algún paso común.
-function pair_bad(gpath)
-    n = 0
-    for x in pair_nodes(gpath), wid in pair_entries(x.owners)
-        wid == x.id && continue
-        w = PathCollectionLines.get_node(gpath.table_lines, wid)
-        w === nothing && continue
-        n += !PathDocumentOwners.shares_every_step(x.owners, w.owners)
-    end
-    return n
-end
+# Aristas que no comparten entrada en algún paso común.
+pair_bad(gpath) = count(e -> !GraphPath.shares_every_step(gpath.og, e.a, e.b), values(gpath.og.edges))
 
-# Parejas vivas asimétricas: w ∈ owners(x), w vivo, x ∉ owners(w).
-function pair_asym(gpath)
-    n = 0
-    for x in pair_nodes(gpath), wid in pair_entries(x.owners)
-        wid == x.id && continue
-        w = PathCollectionLines.get_node(gpath.table_lines, wid)
-        w === nothing && continue
-        n += !PathDocumentOwners.is_owner(w.owners, x.id)
-    end
-    return n
-end
-
-# El test de pareja por la vía de siempre: cortar una copia y mirar si queda válida.
-function shares_by_intersect(a, b)
-    c = deepcopy(a)
-    PathDocumentOwners.intersect!(c, b)
-    return PathDocumentOwners.is_valid(c)
+# La definición directa, sin atajos.
+function shares_direct(og, x, w)
+    tx, tw = og.inc[x], og.inc[w]
+    all(step -> !haskey(tw, step) || !isempty(intersect(tx[step], tw[step])), keys(tx))
 end
 
 pid(step, index) = Alias.root_path_id((step = step, index = index))
 
-function owners_of(ids...)
-    o = PathDocumentOwners.new()
-    for id in ids
-        PathDocumentOwners.insert!(o, id)
+# Un grafo con dos nodos x (paso 3) y w (paso 4), enlazados, y los vecinos que se pidan de los pasos
+# 0..2. Los vecinos no se enlazan entre sí: solo cuentan las tablas de x y w.
+function pair_graph(nx, nw; empty_w = Int[])
+    og = PathOwnersGraph.new()
+    for _ in 0:4
+        PathOwnersGraph.add_step!(og)
     end
-    return o
+    x, w = pid(3, 0), pid(4, 0)
+    ids = unique(vcat(nx, nw))
+    for id in vcat(ids, [x, w])
+        PathOwnersGraph.register!(og, id)
+    end
+    PathOwnersGraph.add_edge!(og, x, w)
+    foreach(id -> PathOwnersGraph.add_edge!(og, x, id), nx)
+    foreach(id -> PathOwnersGraph.add_edge!(og, w, id), nw)
+    for step in empty_w                                        # línea presente y vacía en w
+        get!(og.inc[w], step, SetPathNodesId())
+    end
+    return og, x, w
 end
 
 @testset "A1 shares_every_step" begin
-    # casos a mano
-    a = owners_of(pid(0, 0), pid(0, 1), pid(1, 0), pid(2, 1))
-    b = owners_of(pid(0, 1), pid(1, 0), pid(1, 1), pid(2, 1))
-    @test PathDocumentOwners.shares_every_step(a, b)
-    @test PathDocumentOwners.shares_every_step(b, a)
-    c = owners_of(pid(0, 0), pid(1, 1), pid(2, 1))          # paso 1 disjunto con a
-    @test !PathDocumentOwners.shares_every_step(a, c)
-    @test !PathDocumentOwners.shares_every_step(c, a)
-    d = owners_of(pid(0, 1), pid(2, 1))                     # sin paso 1: se ignora
-    @test PathDocumentOwners.shares_every_step(a, d)
-    @test PathDocumentOwners.shares_every_step(d, a)
-    e = owners_of(pid(0, 0), pid(1, 0))
-    PathDocumentOwners.create_owners_line!(e, 2)            # paso 2 vacío: común y disjunto
-    @test !PathDocumentOwners.shares_every_step(a, e)
-    @test !PathDocumentOwners.shares_every_step(e, a)
+    a = [pid(0, 0), pid(0, 1), pid(1, 0), pid(2, 1)]
+    og, x, w = pair_graph(a, [pid(0, 1), pid(1, 0), pid(1, 1), pid(2, 1)])
+    @test GraphPath.shares_every_step(og, x, w)
+    @test GraphPath.shares_every_step(og, w, x)
+    og, x, w = pair_graph(a, [pid(0, 0), pid(1, 1), pid(2, 1)])        # paso 1 disjunto
+    @test !GraphPath.shares_every_step(og, x, w)
+    @test !GraphPath.shares_every_step(og, w, x)
+    og, x, w = pair_graph(a, [pid(0, 1), pid(2, 1)])                   # sin paso 1: se ignora
+    @test GraphPath.shares_every_step(og, x, w)
+    @test GraphPath.shares_every_step(og, w, x)
+    og, x, w = pair_graph(a, [pid(0, 0), pid(1, 0)]; empty_w = [2])    # paso 2 vacío: común y disjunto
+    @test !GraphPath.shares_every_step(og, x, w)
+    @test !GraphPath.shares_every_step(og, w, x)
 
-    # sobre tablas reales: simetría e igualdad con intersect! + is_valid
+    # sobre grafos reales: simetría e igualdad con la definición directa
     n_pairs = 0; n_asym = 0; n_diff = 0; n_false = 0
     path = joinpath(@__DIR__, "../../test_window/instances/v5_c20_i1.cnf")
     machine = SatMachine.new(GraphMap.load_import!(path))
@@ -84,19 +74,18 @@ end
         SatMachine.run!(machine)
     end
     for gpath in SatMachine.get_gpath_list(machine)
-        ns = pair_nodes(gpath)
+        og = gpath.og
+        ns = collect(keys(og.inc))
         for x in ns, w in ns
-            x.owners.max_step == w.owners.max_step || continue
             n_pairs += 1
-            s = PathDocumentOwners.shares_every_step(x.owners, w.owners)
-            n_asym += s != PathDocumentOwners.shares_every_step(w.owners, x.owners)
-            PathDocumentOwners.is_valid(x.owners) || continue
-            n_diff += s != shares_by_intersect(x.owners, w.owners)
+            s = GraphPath.shares_every_step(og, x, w)
+            n_asym += s != GraphPath.shares_every_step(og, w, x)
+            n_diff += s != shares_direct(og, x, w)
             n_false += !s
         end
     end
     println("shares_every_step: $n_pairs parejas, $n_false sin entrada común en algún paso, " *
-            "$n_asym asimétricas, $n_diff distintas de intersect!")
+            "$n_asym asimétricas, $n_diff distintas de la definición directa")
     @test n_pairs > 0
     @test n_false > 0
     @test n_asym == 0
@@ -111,8 +100,7 @@ const PAIR_CASES = [
 
 @testset "A3 regla de parejas" begin
     old_mode = GraphPath.PAIR_MODE[]
-    n_states = 0; n_bad = 0; n_asym = 0; n_verdict = 0; n_diff_states = 0; n_fired = 0
-    GraphPath.PAIR_MAXSTEP[] = 0
+    n_states = 0; n_bad = 0; n_broken = 0; n_verdict = 0; n_diff_states = 0; n_fired = 0
     try
         for rel in PAIR_CASES
             path = joinpath(@__DIR__, rel)
@@ -150,7 +138,7 @@ const PAIR_CASES = [
                             n_fired += GraphPath.PAIR_REMOVED[] > removed0
                             if g_on.is_valid && g_on.table_lines.is_valid
                                 n_bad += pair_bad(g_on)
-                                n_asym += pair_asym(g_on)
+                                n_broken += !PathOwnersGraph.check_invariants(g_on.og)
                             end
                             g_on.review_owners = true
                         end
@@ -170,11 +158,10 @@ const PAIR_CASES = [
         GraphPath.PAIR_MODE[] = old_mode
     end
     println("regla de parejas: $n_states estados pinchados, la regla actúa en $n_fired, " *
-            "parejas malas tras la regla $n_bad, asimétricas $n_asym, max_step distinto " *
-            "$(GraphPath.PAIR_MAXSTEP[]), veredictos distintos $n_verdict, estados finales distintos $n_diff_states")
+            "parejas malas tras la regla $n_bad, grafos que rompen invariantes $n_broken, " *
+            "veredictos distintos $n_verdict, estados finales distintos $n_diff_states")
     @test n_states > 0
     @test n_bad == 0
-    @test n_asym == 0
-    @test GraphPath.PAIR_MAXSTEP[] == 0
+    @test n_broken == 0
     @test n_verdict == 0
 end

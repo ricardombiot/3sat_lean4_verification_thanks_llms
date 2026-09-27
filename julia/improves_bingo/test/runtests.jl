@@ -54,14 +54,13 @@ end
 end
 
 @time @testset "PairMode" begin
-   #include("./graph_path/test_pair_mode.jl")
+    include("./graph_path/test_pair_mode.jl")
 end
 
 @time @testset "ExaustiveSolver" begin
     #include("./exaustive/test_exaustive_solver.jl")
 end
 
-#=
 @time @testset "GraphPath" begin
     include("./db/path/docs/test_simulation_nodes.jl")
     include("./db/path/cols/test_nodes.jl")
@@ -71,7 +70,6 @@ end
     include("./graph_path/test_graph_path_join.jl")
     include("./graph_path/test_clean_invalid_two_phase.jl")
 end
-=#
 
 #=
 @time @testset "GraphPow" begin

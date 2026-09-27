@@ -10,7 +10,6 @@ function test_new_path_cols_lines()
     @test node.title == "x=1"
     @test isempty(node.parents)
     @test isempty(node.sons)
-    @test PathDocumentOwners.is_valid(node.owners)
 
     PathCollectionLines.push_node!(col_lines, node)
     restore_node = PathCollectionLines.get_node(col_lines, node.id)

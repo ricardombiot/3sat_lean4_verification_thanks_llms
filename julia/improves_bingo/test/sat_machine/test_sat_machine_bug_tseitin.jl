@@ -2,7 +2,6 @@ using Test
 using Main.AbsSat.Alias
 using Main.AbsSat.GraphMap
 using Main.AbsSat.SatMachine
-using Main.AbsSat.DBDocuments.PathDocumentOwners
 using Main.AbsSat.DBDocuments.PathDocumentNode
 using Main.AbsSat.DBCollections.PathCollectionLines
 using Main.AbsSat.DBCollections.PathCollectionNodes

@@ -11,7 +11,6 @@ function test_new_cols_path_nodes()
     @test node.title == "x=1"
     @test isempty(node.parents)
     @test isempty(node.sons)
-    @test PathDocumentOwners.is_valid(node.owners)
 
     PathCollectionNodes.push_node!(col_nodes, node)
 

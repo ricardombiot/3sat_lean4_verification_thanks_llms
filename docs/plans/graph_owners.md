@@ -118,6 +118,23 @@ Rotos hasta F3: `test_pair_mode`, `test_clean_invalid_two_phase`, `test_graph_pa
   para `graph_path_visual.jl` (`draw_owners`).
 - Adaptar los tests de `test/graph_path` y `test/db/path` que leen `node.owners`.
 
+**Hecho (F3).** `graph_path_owners.jl`: `is_alive`, `is_owner`, `owners_table`, `alive_ids`;
+`draw_owners(gpath, node)` en la visual. Tests adaptados; `runtests.jl` ejecuta ahora los bloques
+GraphPath y PairMode:
+
+- `test_simulation_nodes`: los caminos son camarillas del grafo; quitar la raíz deja sin paso 0 al
+  camino 0 salvo el nodo compartido.
+- `test_clean_invalid_two_phase`: sin la secuencial ni `is_valid_intersect`; sobre 126 estados
+  pinchados, invariantes, vivos = nodos, todos válidos, idempotente.
+- `test_pair_mode`: `shares_every_step(og, x, w)` contra la definición directa; mismas cifras que en
+  bin (2.809 parejas, 882 sin entrada común; 126 estados, la regla actúa en 77, 30 estados finales
+  distintos entre :off y :on, 0 veredictos distintos).
+- `test_graph_path`: el id del paso 2 usaba ventana 2; con ventana 3 lleva abuelo. Eran los 4 fallos
+  y 6 errores heredados de bin: ahora pasa.
+
+Resultado: GraphPath 805/805, PairMode 16/16, OwnersGraph 267/267; `test_sat_machine_bug_tseitin`
+(fuera de runtests, desde la raíz del proyecto) 1/1.
+
 ### F4 — diferencial contra `improves_bin`
 
 Las dos máquinas definen `AbsSat`, así que no conviven en un proceso:
