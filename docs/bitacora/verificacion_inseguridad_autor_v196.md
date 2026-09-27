@@ -1,4 +1,4 @@
-# Verificación para el Autor v196: una etiqueta de clave de un nivel para cerrar M1b
+# Verificación para el Autor v196: una etiqueta de clave de un nivel para cerrar M1b, y una comprobación de claves para M1a
 
 Ricardo, este informe es una propuesta de cambio de la máquina, y la escribo porque me la pediste. Tú decides si
 entra. Antes explico por qué la propongo: qué he demostrado de M1b, qué he medido y dónde se atasca la prueba sin
@@ -16,6 +16,10 @@ cambios. El detalle técnico está en `docs/context/escalera_reader.md` §4.2ο.
 * **La propuesta:** en el join, cada entrada de las filas de abajo anota de qué clave viene, y solo durante una línea.
   Con eso `M1bLowOwn` es inmediato y M1 se reduce a `M1aAll`. Cuesta como mucho ×2 en memoria durante una línea, y
   cambia la conducta de la máquina solo cuando un filtro fija un nodo del paso de las claves.
+* **Una segunda regla, independiente (§3.5):** una comprobación de claves en el review de los estados unidos. Cada
+  clave viva se fija en una copia, y la que no sobrevive se quita. Da `M1aAll` por construcción. **Con las dos
+  reglas, M1 sale entero (deducido)**, y con él el lector, porque el resto de la inducción ya está demostrado. Cuesta
+  hasta ×3 en cada review de un estado unido del mapa bin.
 
 Cada afirmación lleva su estado: **demostrado** (teorema Lean), **medido** (sonda), **deducido** (argumento sin
 formalizar), **falso** (contraejemplo), **propuesto** o **abierto**.
@@ -234,19 +238,142 @@ check_if_graph_valid!(gpath)
   porque (p, v) y (v, p) vienen de la misma pieza y llevan las mismas claves. Pero con las etiquetas implícitas de una
   pieza sin unir hay que cuidar que las dos direcciones se traten igual.
 
+### 3.5 Segunda regla: comprobación de claves (para `M1aAll`)
+
+**Propuesto.** La etiqueta no ayuda con `M1aAll`. Con ella, `M1aAll` pasa a decir exactamente «si `k` sigue viva en `J`
+fijado en `R`, la pieza `k` fijada en `R` es válida», que es lo difícil de M1. El paso queda limpio, pero no
+demostrado, porque mientras no se fija `k` el review trabaja sobre las tablas unidas.
+
+**La regla.** Al terminar el review de un estado con dos o más claves vivas en su fila de claves:
+1. Para cada clave viva `k`, se hace una copia, se fija `k` en la copia y se hace su review.
+2. Si la copia queda inválida, se quita `k` de los owners globales del estado.
+3. Si se quitó alguna, se repite el review, y con él la comprobación.
+
+Todas las claves se comprueban contra el mismo estado y se quitan a la vez, en dos fases, como la regla de parejas.
+Así el resultado no depende del orden. Solo quita claves, así que termina.
+
+**No pierde soluciones (deducido).** Si fijar `k` deja el estado inválido, ninguna solución pasa por `k`, porque el
+review no pierde soluciones. Quitar `k` no quita ninguna.
+
+**No necesita las etiquetas.** Con una sola clave viva, fijarla no cambia nada y la comprobación se salta. Por eso las
+piezas recién subidas y los estados de una sola pieza no pagan nada. La fila de claves es la penúltima
+(`current_step - 2`), la misma que da `KeyTags.key_step` con la etiqueta.
+
+**Borrador en Julia** (`graph_path_key.jl`, junto a las funciones de §3.2):
+
+```julia
+# Comprobación de claves (v196 §3.5): en el punto fijo del review, toda clave viva sobrevive a su pin.
+#   :off — el review de siempre.
+#   :on  — make_review_owners! llama a key_check! al llegar al punto fijo.
+const KEYCHECK_MODE = Ref(:off)
+const KEYCHECK_REMOVED = Ref(0)     # claves quitadas (solo para medir)
+const KEYCHECK_COPIES  = Ref(0)     # copias revisadas (solo para medir)
+
+key_step(gpath :: GPath) :: Step =
+    gpath.key_tags !== nothing ? gpath.key_tags.key_step : gpath.current_step - 2
+
+# Las claves vivas: nodos de mapa de los owners globales en la fila de claves.
+function live_keys(gpath :: GPath) :: Vector{NodeId}
+    ks = key_step(gpath)
+    ks >= 0 || return NodeId[]
+    ids = PathDocumentOwners.get(gpath.owners, ks)
+    ids === nothing && return NodeId[]
+    unique([pid.id for pid in ids])
+end
+
+# Fase 1: qué claves no sobreviven a su pin, todas contra el estado de ahora.
+# Fase 2: se quitan a la vez. Devuelve true si quitó alguna (hay que repetir el review).
+function key_check!(gpath :: GPath) :: Bool
+    (KEYCHECK_MODE[] == :on && gpath.is_valid) || return false
+    keys = live_keys(gpath)
+    length(keys) >= 2 || return false
+
+    dead = NodeId[]
+    #! [for] $ O(K) $   K = claves vivas (≤ 2 en el mapa bin)
+    for k in keys
+        g = deepcopy(gpath)
+        KEYCHECK_COPIES[] += 1
+        # filter! = filter_require! (con etiquetas, restrict_to_key!) + review. En la copia queda una sola
+        # clave viva, así que su propia comprobación no hace nada: no hay recursión.
+        filter!(g, SetNodesId([k]))
+        g.is_valid || push!(dead, k)
+    end
+
+    #! [for] $ O(K*7) $
+    for k in dead
+        for pid in PathCollectionLines.get_ids_step(gpath.table_lines, k.step)
+            pid.id == k && remove_node_owner!(gpath, pid)
+        end
+        KEYCHECK_REMOVED[] += 1
+    end
+    isempty(dead) && return false
+    gpath.review_owners = true
+    return true
+end
+```
+
+**El enganche** (`graph_path_filter.jl`, `make_review_owners!`, al final de la vuelta):
+
+```julia
+        if gpath.review_owners
+            make_review_owners!(gpath)
+        elseif key_check!(gpath)          # nuevo: punto fijo alcanzado; si cae una clave, otra vuelta
+            make_review_owners!(gpath)
+        end
+```
+
+Si quitar una clave deja el estado inválido (era la única que quedaba), `remove_node_owner!` ya lo marca con
+`check_if_graph_valid!`, y la vuelta siguiente no hace nada.
+
+**Qué da (deducido, sin medir ni formalizar):**
+* **`M1aAll` por construcción.** En el punto fijo del review, toda clave viva sobrevive a su pin: si no, la
+  comprobación la habría quitado. Falta el lema de que el review de `J` fijado en `k :: R` y el de la copia coinciden
+  en validez. La copia fija `R` primero y `k` después, y `filterAll` los fija en el otro orden. El puente es el de
+  siempre: la copia es un kernel válido por debajo de `J` que respeta `k :: R` (`isValid_filterAll_of_kernel`).
+* **Con la etiqueta, M1 entero.**
+  * Por la comprobación de claves, alguna clave viva `k` deja válido `J` fijado en `k :: R`.
+  * Por la etiqueta, ese estado queda por debajo de la pieza `k`.
+  * Por `isValid_filterAll_of_kernel`, la pieza fijada en `R` es válida.
+
+  M2w, M3w y la inducción `lExt_line` ya están demostrados, así que **el lector decidiría `φ` sin hipótesis
+  abiertas**. Quedaría el trabajo de §3.4 (portar las reglas y demostrar la exactitud de las etiquetas) y el lema
+  anterior.
+* **Sin la etiqueta**, la comprobación sola da `M1aAll`, y M1 queda en `M1bLowOwn` (vía `KFix`).
+
+**Qué cuesta:**
+* Cada punto fijo del review de un estado con K ≥ 2 claves vivas añade K copias con su review. En el mapa bin, K ≤ 2:
+  hasta ×3 por review de un estado unido.
+* Cada clave quitada añade otra vuelta, como mucho K por estado.
+* Las piezas y los estados de una clave no pagan nada.
+
+**Qué cambia en la conducta:**
+* En la máquina actúa en `filterAll X (reqOf d)` cuando `X` es un estado unido, y en el lector.
+* Sin pins no debería dispararse (deducido): `sendTo` solo guarda piezas válidas, y en el estado unido sin pins cada
+  clave conserva su pieza.
+
+**Cómo leerla.** Es una anticipación de un paso sobre la fila de claves: la máquina hace ella misma la prueba que ahora
+hace el lector con cada pin. El coste sigue siendo polinómico, pero es un cambio de diseño y te toca valorarlo. Hay dos
+maneras de verla:
+* Como una regla del review más, de la familia de la regla de parejas: quita lo que ninguna solución puede usar.
+* Como una forma de trasladar al review la dificultad del lector. `M1aAll` deja de ser un teorema sobre la máquina de
+  ahora y pasa a ser una propiedad de diseño de la máquina nueva.
+
+Las dos lecturas son correctas. La segunda es la que hay que tener presente al decidir.
+
 ## 4. Qué haría a continuación
 
-Si decides probarla:
-1. Implementarla en Julia detrás de `KEY_MODE`, sin tocar nada con `:off`.
-2. Medir veredictos, tamaños y vueltas de review con `:on` y `:off` (`compare_*.jl`, `test_3sat`, `test_window`).
-3. Repetir `m1split_probe.jl` con `:on`: M1b-entradas debería valer por construcción, y M1a-todas seguir sin fallos.
-4. Solo después, portarla a Lean y demostrar la exactitud de las etiquetas.
+Si decides probarlas:
+1. Implementarlas en Julia detrás de `KEY_MODE` y `KEYCHECK_MODE`, sin tocar nada con `:off`.
+2. Medir veredictos, tamaños, vueltas de review y los contadores `KEYCHECK_REMOVED` y `KEYCHECK_COPIES`, en las cuatro
+   combinaciones de `:on` y `:off` (`compare_*.jl`, `test_3sat`, `test_window`).
+3. Repetir `m1split_probe.jl` con las dos en `:on`: M1b-entradas y M1a-todas deberían valer por construcción.
+4. Solo después, portarlas a Lean y demostrar la exactitud de las etiquetas y el punto fijo de la comprobación.
 
 Si prefieres no tocar la máquina, el camino es demostrar `KFix` por inducción sobre las líneas. No ha fallado en
 nada de lo medido, pero no tengo todavía el argumento de historia que lo cierre. Lo más natural es intentar un
 `KFix` en la línea `n` que implique el de la línea `n+1`, siguiendo `X_k` como unión de piezas de la línea anterior.
 
-En cualquiera de los dos casos, `M1aAll` sigue abierto por su lado (`KeyTri₁`, `KeyExact`).
+Sin la comprobación de claves, `M1aAll` sigue abierto por su lado (`KeyTri₁`, `KeyExact`).
 
 ---
 
