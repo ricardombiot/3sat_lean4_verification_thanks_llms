@@ -177,6 +177,100 @@ def TopMergeJ : Prop :=
       ∃ cp ∈ nw.parents, Clique (filterAll kv'.2 R) (cp :: Q0) ∧ Wit (filterAll kv'.2 R) (cp :: Q0)
 
 omit hbd in
+/-- **Pinning a grandparent leaves one parent** (any filtered state): if `w :: Q0` is a clique with witnesses of `X`
+filtered by `ps ++ [u]`, with `u` three steps under `w`, then some parent of `w` in `X` filtered by `ps` takes `w`'s place.
+Every parent of `w` there owns, two steps down, a node named `u`, so its grandparent is `u` (`gparent_owner`); the
+parents share id and parent (`PMP`, `GPMP`), so there is one; `single_parent`; the pinned state sits below the
+unpinned one. -/
+theorem merge_pin {X : GPathM} (hnd : NodupIds X) (ps : List NodeId) (u : NodeId)
+    (cU : AmbTriCore.ACtx (filterAll X (ps ++ [u]))) (hu0 : 0 ≤ u.step) (hult : u.step < X.current_step)
+    (w : PathNodeId) (Q0 : List PathNodeId) (hus : u.step = w.id.step - 3)
+    (hQU : Clique (filterAll X (ps ++ [u])) (w :: Q0)) (hWU : Wit (filterAll X (ps ++ [u])) (w :: Q0))
+    (nw : PNodeM) (hnw : (filterAll X ps).node? w = some nw) :
+    ∃ c ∈ nw.parents, Clique (filterAll X ps) (c :: Q0) ∧ Wit (filterAll X ps) (c :: Q0) := by
+  have hUcs : (filterAll X (ps ++ [u])).current_step = X.current_step := (pruned_filterAll _ _).step_eq
+  have hBF : Kernel.Below (filterAll X ps) (filterAll X (ps ++ [u])) :=
+    Kernel.below_filterAll cU.pc.ker (KernelIff.below_filterAll_self _ hnd (ps ++ [u])) ps
+      (fun r hr q hq hqs => LineUnion.gowner_pinned _ _ q hq r (List.mem_append_left _ hr) hqs)
+  obtain ⟨nw1, hnw1, _⟩ := hQU w List.mem_cons_self
+  have hw1m := List.mem_of_find?_eq_some hnw1
+  have hw1id : nw1.id = w := node?_id_eq _ w nw1 hnw1
+  have hpar : ∀ c' ∈ nw1.parents, c'.gparent_id = some u ∧ some c'.id = w.parent_id ∧ w.gparent_id = c'.parent_id := by
+    intro c' hc'
+    obtain ⟨_, nc', hnc', _⟩ := cU.pc.ker.linkP w nw1 hnw1 c' hc'
+    have hc's : c'.id.step = w.id.step - 1 := by
+      have := cU.pc.pb nw1 hw1m c' hc'; rw [hw1id] at this; exact this
+    have hval := ((Kernel.isValidNode_iff _ nc').mp (cU.pc.ker.valid c' nc' hnc')).1
+    obtain ⟨e, he, hes⟩ := List.any_eq_true.mp (List.all_eq_true.mp hval u.step
+      (mem_intRange_zero u.step _ hu0 (by rw [hUcs]; exact hult)))
+    have hes' : e.id.step = u.step := eq_of_beq hes
+    have heu := LineUnion.gowner_pinned _ _ e (cU.pc.ker.own c' nc' hnc' e he) u (List.mem_append_right _
+      List.mem_cons_self) hes'
+    have hg := gparent_owner cU c' nc' hnc' (show 2 ≤ c'.id.step by rw [hc's]; omega) e he
+      (show e.id.step = c'.id.step - 2 by rw [hes', hus, hc's]; omega)
+    rw [heu] at hg
+    refine ⟨hg, ?_, ?_⟩
+    · have := cU.rc.pmp nw1 hw1m c' hc'; rw [hw1id] at this; exact this
+    · have := cU.rc.gpmp.1 nw1 hw1m c' hc'; rw [hw1id] at this; exact this
+  have hnr : nw1.id.parent_id ≠ none := cU.rc.shape.notroot nw1 hw1m (by rw [hw1id]; omega)
+  obtain ⟨cp, hcp⟩ : ∃ cp, cp ∈ nw1.parents := by
+    rcases ((Kernel.isValidNode_iff _ nw1).mp (cU.pc.ker.valid w nw1 hnw1)).2.1 with h' | h'
+    · exact absurd (Option.isNone_iff_eq_none.mp h') hnr
+    · exact List.exists_mem_of_ne_nil _ h'
+  have hone : ∀ c' ∈ nw1.parents, c' = cp := by
+    intro c' hc'
+    obtain ⟨g1, i1, p1⟩ := hpar c' hc'
+    obtain ⟨g2, i2, p2⟩ := hpar cp hcp
+    have hid : c'.id = cp.id := Option.some.inj (i1.trans i2.symm)
+    have hpi : c'.parent_id = cp.parent_id := p1.symm.trans p2
+    have hgp : c'.gparent_id = cp.gparent_id := g1.trans g2.symm
+    revert hid hpi hgp
+    cases c' with
+    | mk a b e => cases cp with
+      | mk a' b' e' => intro hid hpi hgp; simp only at hid hpi hgp; rw [hid, hpi, hgp]
+  obtain ⟨hQc, hWc⟩ := single_parent cU.pc w nw1 hnw1 (by omega) cp hone Q0 hQU hWU
+  obtain ⟨nx, hnx, _, hpx, _⟩ := hBF.node w nw1 hnw1
+  rw [hnw] at hnx; cases hnx
+  refine ⟨cp, hpx cp hcp, fun p hp => ?_, fun l h0 h1 => ?_⟩
+  · obtain ⟨np, hnp, ho⟩ := hQc p hp
+    obtain ⟨nx, hnx, hox, _, _⟩ := hBF.node p np hnp
+    exact ⟨nx, hnx, fun s hs => hox s (ho s hs)⟩
+  · obtain ⟨r, nr, hnr', hrs, ho⟩ := hWc l h0 (by rw [← hBF.step]; exact h1)
+    obtain ⟨nx, hnx, hox, _, _⟩ := hBF.node r nr hnr'
+    exact ⟨r, nx, hnx, hrs, fun s hs => hox s (ho s hs)⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.merge_pin' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms merge_pin
+
+omit hbd in
+/-- **`MergeSplitJ n`**: `MergeSplit` in a filtered joined state of line `n+1`: a clique with witnesses whose top
+member `w` comes from a merge survives the filter by the grandparent `u` of one of `w`'s parents (step `n-2`). -/
+def MergeSplitJ : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ R : List NodeId, (∀ p ∈ R, 0 ≤ p.step ∧ p.step < kv'.2.current_step) →
+    isValid (filterAll kv'.2 R) = true → ∀ w Q0, Clique (filterAll kv'.2 R) (w :: Q0) →
+      Wit (filterAll kv'.2 R) (w :: Q0) → w.id.step = (n : Int) + 1 → (∀ q ∈ Q0, q.id.step ≤ n) →
+      ∀ nw, (filterAll kv'.2 R).node? w = some nw → (∃ c₁ ∈ nw.parents, ∃ c₂ ∈ nw.parents, c₁ ≠ c₂) →
+      ∃ u : NodeId, (∃ c ∈ nw.parents, c.gparent_id = some u) ∧ 0 ≤ u.step ∧ u.step = (n : Int) - 2 ∧
+        isValid (filterAll kv'.2 (R ++ [u])) = true ∧
+        Clique (filterAll kv'.2 (R ++ [u])) (w :: Q0) ∧ Wit (filterAll kv'.2 (R ++ [u])) (w :: Q0)
+
+/-- **`TopMergeJ` from `MergeSplitJ`** (`merge_pin` in the joined state). -/
+theorem topMergeJ_of_mergeSplitJ (hMS : MergeSplitJ φ n) : TopMergeJ φ n := by
+  intro kv' hkv' R hR hv w Q0 hQ hW hws hlow nw hnw hm
+  obtain ⟨u, _, hu0, hus, hvU, hQU, hWU⟩ := hMS kv' hkv' R hR hv w Q0 hQ hW hws hlow nw hnw hm
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hnd' := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hok'.reach)
+  have hcsJ : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  exact merge_pin hnd' R u (filt_ctx φ hbd _ kv' hok' _ hvU) hu0 (by rw [hcsJ]; omega) w Q0
+    (by rw [hus, hws]; omega) hQU hWU nw hnw
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.topMergeJ_of_mergeSplitJ' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topMergeJ_of_mergeSplitJ
+
+omit hbd in
 /-- **LUA n** (anchored locality of the union of line `n`, filtered): a kernel of the steps of line `n` whose entries
 are all entries of states of line `n`, pinned by `S`, in which `c :: Q0` is a clique with witnesses with `c` at the top
 step `n`, puts that clique in the state of `c`'s key filtered by `S`. -/
@@ -529,5 +623,20 @@ theorem readerVerdictW_iff_of_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount �
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_lua
+
+omit n in
+/-- **The reader decides `φ` under A1, LUA and the two merge splits** (`MergeSplitJ` in the joined states,
+`MergeSplit` in the pieces): a clique with witnesses with a merged top survives the pin of one of the two
+grandparents. -/
+theorem readerVerdictW_iff_of_lua_split (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n)
+    (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
+    (hMJ : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplitJ φ n)
+    (hMS : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplit φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_lua φ hbd hA hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn)) hMS
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua_split' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_lua_split
 
 end AbsSatBin.GraphPath.Model.AnchorPiece
