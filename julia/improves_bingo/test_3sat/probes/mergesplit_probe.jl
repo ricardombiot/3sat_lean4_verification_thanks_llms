@@ -1,0 +1,101 @@
+# MergeSplit (lean/improves_bin FiltCert.lean; docs/context/escalera_reader.md §4.2κ). Pieza P = upF g d filtrada por ps
+# (∅, un nodo de mapa, o 2–4 al azar). Q = w :: Q0 buena en filterAll P ps con w en la cima y dos padres distintos:
+#   MS: ∃ u = abuelo (gparent_id) de un padre de w con filterAll P (ps ∪ {u}) válido y Q buena en él.
+#   MS-TP (referencia): ∃ padre c de w con Q0 ∪ {c} buena en filterAll P ps (TopParent).
+#   julia --project=../.. mergesplit_probe.jl f1.cnf ...
+include("./../../src/main.jl")
+using Random
+Random.seed!(17)
+const NR = parse(Int, get(ENV, "NR", "4"))
+function tables(g)
+    U = Dict{PathNodeId, Set{PathNodeId}}(); P = Dict{PathNodeId, Set{PathNodeId}}()
+    for (_, line) in g.table_lines.table, (pid_, node) in line.table
+        S = get!(U, pid_, Set{PathNodeId}())
+        for (_, set) in node.owners.table; union!(S, set); end
+        P[pid_] = Set(node.parents)
+    end
+    U, P
+end
+owns(U, r, q) = haskey(U, r) && (q in U[r])
+isclique(U, Q) = all(q -> all(t -> owns(U, q, t), Q), Q)
+bystep_of(U) = (b = Dict{Int, Vector{PathNodeId}}(); for r in keys(U); push!(get!(b, r.id.step, PathNodeId[]), r); end; b)
+wit(U, B, Q, l) = any(r -> all(q -> owns(U, r, q), Q), get(B, l, PathNodeId[]))
+good(U, B, Q, top) = isclique(U, Q) && all(l -> wit(U, B, Q, l), 0:top)
+function chain(U, B, fixed, top)
+    sel = Dict{Int, PathNodeId}()
+    function go(l)
+        l < 0 && return true
+        for c in (haskey(fixed, l) ? fixed[l] : get(B, l, PathNodeId[]))
+            haskey(U, c) || continue
+            all(p -> owns(U, c, p) && owns(U, p, c), values(sel)) || continue
+            sel[l] = c
+            go(l - 1) && return true
+            delete!(sel, l)
+        end
+        false
+    end
+    go(top)
+end
+function probe(path, st)
+    gmap = GraphMapBin.load_import_bin!(path)
+    m = SatMachine.new(gmap); SatMachine.init!(m)
+    bump(k) = (st[k] = get(st, k, 0) + 1)
+    while !(SatMachine.is_finished(m) || !SatMachine.have_gpaths_step(m))
+        s = m.current_step
+        CollectionTimeline.for_each_gpath(m.timeline, s, function (g)
+            g.is_valid || return
+            node = SatMachine.map_get_node(gmap, g.map_parent_id)
+            for d in node.sons
+                dn = SatMachine.map_get_node(gmap, d)
+                p = deepcopy(g)
+                redirect_stdout(devnull) do
+                    GraphPath.do_up_filtering!(p, dn.requires, d, dn.title, SatMachine.map_prohibited(gmap))
+                end
+                p.is_valid || continue
+                top = s + 1
+                ids = unique([r.id for r in keys(tables(p)[1])])
+                for ps in vcat([NodeId[]], [[x] for x in ids], [unique(rand(ids, rand(2:4))) for _ in 1:NR])
+                    f = deepcopy(p)
+                    redirect_stdout(devnull) do; GraphPath.filter!(f, Set(ps)); end
+                    f.is_valid || continue
+                    U, Par = tables(f); B = bystep_of(U)
+                    tops = get(B, top, PathNodeId[])
+                    ns = collect(keys(U)); Qs = [[x] for x in ns]
+                    for i in eachindex(ns), k in i+1:length(ns)
+                        ns[i].id.step == ns[k].id.step && continue
+                        owns(U, ns[i], ns[k]) && push!(Qs, [ns[i], ns[k]])
+                    end
+                    cache = Dict{NodeId, Any}()
+                    function pinned(u)
+                        get!(cache, u) do
+                            f2 = deepcopy(p)
+                            redirect_stdout(devnull) do; GraphPath.filter!(f2, Set(vcat(ps, [u]))); end
+                            f2.is_valid || return nothing
+                            U2, _ = tables(f2); (U2, bystep_of(U2))
+                        end
+                    end
+                    for Q in Qs
+                        iw = findfirst(q -> q.id.step == top, Q)
+                        iw === nothing && continue
+                        w = Q[iw]
+                        pars = collect(get(Par, w, Set()))
+                        length(pars) >= 2 || continue
+                        good(U, B, Q, top) || continue
+                        Q0 = [q for q in Q if q != w]
+                        us = unique([c.gparent_id for c in pars if c.gparent_id !== nothing])
+                        okms = any(u -> (r = pinned(u); r !== nothing && good(r[1], r[2], Q, top)), us)
+                        bump(okms ? "MS ok" : "MS FALLA")
+                        bump(any(c -> good(U, B, vcat(Q0, [c]), top), pars) ? "MS-TP ok" : "MS-TP FALLA")
+                        okms || get(st, "ej", 0) >= 5 || (bump("ej"); println("MS: $(basename(path)) paso $top ps=$ps Q=$Q padres=$pars"))
+                    end
+                end
+            end
+        end)
+        redirect_stdout(devnull) do; SatMachine.make_step!(m); end
+    end
+end
+st = Dict{String, Int}()
+for f in ARGS
+    try probe(f, st) catch err; println("$(basename(f)): SALTADA ($err)"); end
+end
+for (k, v) in sort(collect(st)); println("  $k: $v"); end
