@@ -343,7 +343,7 @@ omit hbd in
 for some parent `c` of `w`, a clique with witnesses with `c` in place of `w`. With two parents (a merge) the members
 below may split between them; the choice is the whole clique's. -/
 def TopParent : Prop :=
-  ∀ kv ∈ line φ n, ∀ d ∈ sonsOfMap φ kv.1, isValid (upF φ kv.2 d) = true →
+  ∀ kv ∈ line φ n, FCert kv.2 → ∀ d ∈ sonsOfMap φ kv.1, isValid (upF φ kv.2 d) = true →
     ∀ ps : List NodeId, (∀ p ∈ ps, 0 ≤ p.step ∧ p.step < (upF φ kv.2 d).current_step) →
       isValid (filterAll (upF φ kv.2 d) ps) = true →
       ∀ w Q0, Clique (filterAll (upF φ kv.2 d) ps) (w :: Q0) → Wit (filterAll (upF φ kv.2 d) ps) (w :: Q0) →
@@ -366,7 +366,7 @@ def TopMerge : Prop :=
 /-- **`TopParent` without a merge is proved**: it reduces to `TopMerge`. A top node has a parent (it is not the root
 and it is valid); if all its parents are one node, `single_parent`. -/
 theorem topParent_of_topMerge (hTM : TopMerge φ n) : TopParent φ n := by
-  intro kv hkv d hd hv ps hps hvP w Q0 hQ hW hws hlow
+  intro kv hkv _ d hd hv ps hps hvP w Q0 hQ hW hws hlow
   obtain ⟨hok, _, hcs, _, _, _⟩ := src_ctx φ hbd n kv hkv d hd hv
   have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
   have cQ := filt_ctx φ hbd _ (d, upF φ kv.2 d) hP ps hvP
@@ -546,7 +546,7 @@ theorem pieceF_of_topParent (hn1 : 1 ≤ n) (hTP : TopParent φ n) : PieceF φ n
       intro l h0 h1
       obtain ⟨r, nr, hnr, hrs, ho⟩ := hW l h0 h1
       exact ⟨r, nr, hnr, hrs, fun s hs => ho s (hsub s hs)⟩
-    obtain ⟨cp, nw', hnw', hcp, hQc, hWc⟩ := hTP kv hkv d hd hv ps hps hvP w _ hQw hWw hws
+    obtain ⟨cp, nw', hnw', hcp, hQc, hWc⟩ := hTP kv hkv hX d hd hv ps hps hvP w _ hQw hWw hws
       (fun q hq => of_decide_eq_true (List.mem_filter.mp hq).2)
     rw [hnw] at hnw'; cases hnw'
     have hcps : cp.id.step = (n : Int) := by

@@ -24,7 +24,10 @@ piece where `w` lives — with no step missing, clause steps included (S2, 2.5 M
 * **Line 0** (`line_one`, `topPieceF_zero`): with one source, sending only appends (`sendTo_fold`), so every state of
   line 1 is its piece and S2 holds there.
 * **`readerVerdictW_iff_of_lua`**: by induction on the line, the reader decides under A1, LUA, `TopMergeJ` and
-  `MergeSplit`.
+  `MergeSplit`. `TopMergeJ` comes from `MergeSplitJ` (`merge_pin`, the pin of a grandparent, in any filtered state).
+* **The merge in a piece from AF** (`topParent_of_afp`): a top node fixes the map node one step under its parents
+  (`gparent_owner`); AF pins it; `cert_piece_low` then gives a certificate whose extension is `w` whichever parent it
+  took. **`readerVerdictW_iff_of_afp`**: the reader decides under A1, LUA, `MergeSplitJ` and AF in the pieces.
 -/
 
 namespace AbsSatBin.GraphPath.Model.AnchorPiece
@@ -576,14 +579,120 @@ theorem topPieceF_zero : TopPieceF φ 0 := by
 #guard_msgs in
 #print axioms topPieceF_zero
 
+-- ============================================================
+-- The merge in a piece, from the anchored filter
+-- ============================================================
+
+omit hbd in
+/-- **AF in the pieces** (the anchored filter): in a filtered piece of line `n+1`, a clique with witnesses with a
+member `w` at the top survives the filter by a map node `m` that `w` fixes (all of `w`'s entries at `m`'s step name
+`m`). Measured in the states of the lines (`anchfilt_probe.jl`, 2.87 M, no failure). -/
+def AFP : Prop :=
+  ∀ kv ∈ line φ n, ∀ d ∈ sonsOfMap φ kv.1, isValid (upF φ kv.2 d) = true →
+    ∀ ps : List NodeId, (∀ p ∈ ps, 0 ≤ p.step ∧ p.step < (upF φ kv.2 d).current_step) →
+      isValid (filterAll (upF φ kv.2 d) ps) = true →
+      ∀ w Q0, Clique (filterAll (upF φ kv.2 d) ps) (w :: Q0) → Wit (filterAll (upF φ kv.2 d) ps) (w :: Q0) →
+        w.id.step = (n : Int) + 1 → ∀ nw, (filterAll (upF φ kv.2 d) ps).node? w = some nw →
+        ∀ m : NodeId, 0 ≤ m.step → m.step ≤ n → (∀ e ∈ nw.owners, e.id.step = m.step → e.id = m) →
+          isValid (filterAll (upF φ kv.2 d) (ps ++ [m])) = true ∧
+          Clique (filterAll (upF φ kv.2 d) (ps ++ [m])) (w :: Q0) ∧
+          Wit (filterAll (upF φ kv.2 d) (ps ++ [m])) (w :: Q0)
+
+/-- **`TopParent` from AF, merges included** (line `n ≥ 1`). A top node `w` fixes, one step under its parents, the map
+node `g` named by its grandparent id (`gparent_owner`): the merge is only two steps under. AF pins `g`; there
+`cert_piece_low` gives a certificate through the members below whose node at step `n` has parent `g` and key id, so its
+extension is `w` whichever parent it took. The certificate survives back to the unpinned piece, and its node at step
+`n` is the parent that takes `w`'s place. -/
+theorem topParent_of_afp (hn1 : 1 ≤ n) (hAF : AFP φ n) : TopParent φ n := by
+  intro kv hkv hX d hd hv ps hps hvP w Q0 hQ hW hws hlow
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
+  have hPcs : (upF φ kv.2 d).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  have hndP := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hP.reach)
+  have cQ := filt_ctx φ hbd _ (d, upF φ kv.2 d) hP ps hvP
+  have hQcs : (filterAll (upF φ kv.2 d) ps).current_step = (n : Int) + 2 := by
+    rw [(pruned_filterAll _ ps).step_eq, hPcs]
+  obtain ⟨nw, hnw, _⟩ := hQ w List.mem_cons_self
+  -- `w` fixes the map node `g` at step `n - 1`
+  have hval := ((Kernel.isValidNode_iff _ nw).mp (cQ.pc.ker.valid w nw hnw)).1
+  obtain ⟨e0, he0, he0s⟩ := List.any_eq_true.mp (List.all_eq_true.mp hval ((n : Int) - 1)
+    (mem_intRange_zero _ _ (by omega) (by rw [hQcs]; omega)))
+  have he0s' : e0.id.step = (n : Int) - 1 := eq_of_beq he0s
+  have hg0 := gparent_owner cQ w nw hnw (by rw [hws]; omega) e0 he0 (by rw [he0s', hws]; omega)
+  have hfix : ∀ e ∈ nw.owners, e.id.step = e0.id.step → e.id = e0.id := by
+    intro e he hes
+    have := gparent_owner cQ w nw hnw (by rw [hws]; omega) e he (by rw [hes, he0s', hws]; omega)
+    exact Option.some.inj (this.symm.trans hg0)
+  obtain ⟨hvG, hQG, hWG⟩ := hAF kv hkv d hd hv ps hps hvP w Q0 hQ hW hws nw hnw e0.id (by omega) (by omega) hfix
+  have hps' : ∀ p ∈ ps ++ [e0.id], 0 ≤ p.step ∧ p.step < (upF φ kv.2 d).current_step := by
+    intro p hp
+    rcases List.mem_append.mp hp with hp | hp
+    · exact hps p hp
+    · rw [List.mem_singleton.mp hp, hPcs]; exact ⟨by omega, by omega⟩
+  obtain ⟨hQ0, hW0⟩ := good_sub (fun q hq => List.mem_cons_of_mem w hq) hQG hWG
+  obtain ⟨sel, hs, hon, htop⟩ := cert_piece_low φ hbd n hn1 kv hkv d hd hv hX (ps ++ [e0.id]) hps' hvG Q0 hQ0 hW0 hlow
+  -- its node at step `n` has the key and parent `g`, so its extension is `w`
+  have cG := filt_ctx φ hbd _ (d, upF φ kv.2 d) hP (ps ++ [e0.id]) hvG
+  have hGcs : (filterAll (upF φ kv.2 d) (ps ++ [e0.id])).current_step = (n : Int) + 2 := by
+    rw [(pruned_filterAll _ _).step_eq, hPcs]
+  obtain ⟨nsn, hnsn⟩ := Option.isSome_iff_exists.mp (hs.chain.1.1 n (by omega) (by rw [hGcs]; omega)).1
+  have hsns : (sel n).id.step = (n : Int) := (hs.chain.1.1 n (by omega) (by rw [hGcs]; omega)).2
+  obtain ⟨nP, hnP, _, _, _⟩ := (KernelIff.below_filterAll_self _ hndP (ps ++ [e0.id])).node (sel n) nsn hnsn
+  have hkey : (sel n).id = kv.1 := PieceJoin.mid_key φ hbd n kv hkv d hd hv (sel n) nP hnP hsns
+  have hlink := hs.chain.1.2 ((n : Int) - 1) (by omega) (by rw [hGcs]; omega)
+  rw [show (n : Int) - 1 + 1 = n by omega, hnsn] at hlink
+  have hpm := cG.rc.pmp nsn (List.mem_of_find?_eq_some hnsn) _ hlink
+  rw [node?_id_eq _ _ nsn hnsn] at hpm
+  have hg1 : (sel ((n : Int) - 1)).id = e0.id := by
+    have := chain_pins (upF φ kv.2 d) _ sel hs e0.id (List.mem_append_right _ List.mem_cons_self) (by omega)
+      (by rw [hPcs]; omega)
+    rw [he0s'] at this; exact this
+  obtain ⟨nPw, hnPw, _, _, _⟩ := (KernelIff.below_filterAll_self _ hndP ps).node w nw hnw
+  have hwd := mapId_of_mem_newRowIds _ _ _ w (upF_new φ kv.2 d hdst c hv w nPw hnPw (by rw [hws, hcs])).1
+  have hwp := StateGrow.row_parent_key φ hbd n kv hkv d hd hv w nPw hnPw hws
+  have hext : sel ((n : Int) + 1) = w := by
+    rw [htop]
+    unfold shiftPid
+    rw [hkey, ← hpm, hg1]
+    revert hwd hwp hg0
+    cases w with
+    | mk wi wp wg =>
+      intro hwd hwp hg0
+      simp only at hwd hwp hg0
+      rw [hwd, hwp, hg0]
+  -- back in the unpinned piece
+  have hsP : ChainSound (upF φ kv.2 d) sel :=
+    ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self _ hndP _)) sel hs
+  have hsF := ChainSound_filterAll _ ps sel hsP (fun r hr h0 h1 =>
+    chain_pins (upF φ kv.2 d) _ sel hs r (List.mem_append_left _ hr) h0 h1)
+  have hcp : sel n ∈ nw.parents := by
+    have := hsF.chain.1.2 n (by omega) (by rw [hQcs]; omega)
+    rw [hext, hnw] at this; exact this
+  refine ⟨sel n, nw, hnw, hcp, ?_⟩
+  obtain ⟨_, h1, h2⟩ := good_of_chain sel hsF (sel n :: Q0) (fun q hq => by
+    rw [hQcs]
+    rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hsns]; exact ⟨by omega, by omega, rfl⟩
+    · obtain ⟨nq, hnq, _⟩ := hQ q (List.mem_cons_of_mem _ hq)
+      have := CertFix.step_range cQ.pc q nq hnq
+      rw [hQcs] at this
+      exact ⟨this.1, this.2, hon q hq⟩)
+  exact ⟨h1, h2⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.topParent_of_afp' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms topParent_of_afp
+
 omit n in
 /-- **Every state of every line has `FCert`**, by induction: S2 at line `n` comes from LUA and `FCert` of line `n` (the
-induction hypothesis), then `PieceLocalF` from A1 and S2, and the pieces from `MergeSplit`. At line 0 S2 is
+induction hypothesis), then `PieceLocalF` from A1 and S2, and the pieces from `TopParent`. At line 0 S2 is
 `topPieceF_zero`. -/
 theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n)
     (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
     (hTM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
-    (hMS : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplit φ n) :
+    (hTP : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopParent φ n) :
     ∀ n : Nat, (n : Int) < stepCount φ → ∀ kv ∈ line φ n, FCert kv.2 := by
   intro n
   induction n with
@@ -605,9 +714,7 @@ theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → Ancho
     · subst hm0
       exact fCert_of_mapCert φ hbd _ _ (StateOk_sent φ 0 kv ((lineOk φ 0).2 kv hkv) d hd hv)
         (StateLine.mapCert_piece0 φ kv hkv d hd hv)
-    · exact pieceF_of_topParent φ hbd m (by omega)
-        (topParent_of_topMerge φ hbd m (topMerge_of_mergeSplit φ hbd m (hMS m (by omega) hm)))
-        kv hkv (ih (by omega) kv hkv) d hd hv
+    · exact pieceF_of_topParent φ hbd m (by omega) (hTP m (by omega) hm) kv hkv (ih (by omega) kv hkv) d hd hv
 
 omit n in
 /-- **The reader decides `φ` under A1, LUA, `TopMergeJ` and `MergeSplit`.** -/
@@ -618,7 +725,8 @@ theorem readerVerdictW_iff_of_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount �
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  exact fCert_line_lua φ hbd hA hL hTM hMS _ hN kv hkv
+  exact fCert_line_lua φ hbd hA hL hTM (fun n hn1 hn =>
+    topParent_of_topMerge φ hbd n (topMerge_of_mergeSplit φ hbd n (hMS n hn1 hn))) _ hN kv hkv
 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -638,5 +746,23 @@ theorem readerVerdictW_iff_of_lua_split (hA : ∀ n : Nat, (n : Int) + 1 < stepC
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua_split' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_lua_split
+
+omit n in
+/-- **The reader decides `φ` under A1, LUA, `MergeSplitJ` and AF in the pieces** (`MergeSplit` is no longer needed:
+the merge in a piece is resolved by the certificate of the source, once AF pins the map node `w` fixes one step under
+its parents). -/
+theorem readerVerdictW_iff_of_afp (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n)
+    (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
+    (hMJ : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplitJ φ n)
+    (hAF : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → AFP φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
+  have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
+  exact fCert_line_lua φ hbd hA hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
+    (fun n hn1 hn => topParent_of_afp φ n hbd hn1 (hAF n hn1 hn)) _ hN kv hkv
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_afp' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_afp
 
 end AbsSatBin.GraphPath.Model.AnchorPiece
