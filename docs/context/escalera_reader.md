@@ -1705,6 +1705,21 @@ fuertes se cumplen, así que M1 se divide en dos enunciados más fáciles de ata
 
 Tiempo: ~21 min, porque cada comprobación copia y revisa el estado entero. Pendiente: medir en todo el corpus.
 
+**Formalizado** (`M1Parts.lean`, solo `[propext, Quot.sound]`):
+* `M1aAll` (M1a-todas), `M1bBelow` (con la clave fijada, J fijado queda por debajo de su pieza) y `M1bLow` (lo mismo,
+  solo para los nodos por debajo del paso n).
+* **`m1_of_parts`**: `M1aAll ∧ M1bBelow ⇒ M1`. Un nodo vivo del paso n nombra su fuente (`mid_one_source`). Al fijar su
+  clave queda un kernel válido por debajo de la pieza que respeta los pins.
+* **`pure_field`, `pure_mid`, `pure_top`, `pure_node`**: las filas del paso n y de la cima de J son puras. Un nodo de
+  ellas tiene, campo por campo (owners, padres, hijos), lo que tiene en la pieza de su clave.
+* **`m1bBelow_of_low`**: `M1bLow ⇒ M1bBelow`. Con la clave fijada, los nodos de la cima de J fijado cuelgan de ella,
+  porque sus padres están fijados, así que también son puros.
+* **`readerVerdictW_iff_of_parts`**: el lector decide bajo `M1aAll` y `M1bLow` en cada join.
+
+**Abierto**: `M1aAll` (fijar cualquier clave viva no invalida) y `M1bLow` (con la clave fijada, las filas de abajo solo
+tienen entradas, padres e hijos de la pieza). Las dos están medidas sin fallos. La sonda midió solo los owners de
+`M1bLow`.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1800,6 +1815,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF` (⚠ falso), `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
 | `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
+| `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `readerVerdictW_iff_of_parts` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
