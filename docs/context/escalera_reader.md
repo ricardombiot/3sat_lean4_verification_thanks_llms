@@ -1814,6 +1814,21 @@ M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
 
 **Abierto**: `M1aAll` (vía `KeyTri₁ ⇐ KeyExact`) y `M1bLowOwn` (vía `KFix`, medido sin fallos; `KTri` y `KTriK` falsos).
 
+**`KFix` es `M1bLowOwn` otra vez** (`KFixCore.lean`, `wk_probe.jl`).
+* **Demostrado** (solo `[propext, Quot.sound]`): `witness_key` (en un conjunto cerrado para k, el testigo de la fila
+  de claves es un nodo de k), `pure_link` (un enlace hacia un nodo puro está en la pieza), **`kFix_of_low`**
+  (`KFixLow ⇒ KFix`: solo cuentan los enlaces entre filas de abajo) y `readerVerdictW_iff_of_kFixLow`.
+* **Deducido:** el mayor conjunto cerrado para k, W_k, es un kernel por debajo de J fijado en R que solo nombra k en
+  la fila de claves.
+  * Es simétrico (el testigo de (a, b) sirve para (b, a)) y admite los lazos (a, a).
+  * Su testigo en el paso de al lado es un padre o un hijo (`parent_of_owner`), lo que da las cláusulas de vecinos.
+  * Por `below_filterAll`, W_k está dentro de K_k = J fijado en k :: R. Y K_k es cerrado para k, así que K_k ⊆ W_k.
+  * Por tanto **W_k = K_k**, y `KFix` equivale a `M1bLowOwn`: no es una vía independiente.
+* **Medido:** W_k = K_k en 19.763 casos de 19.763 (`clause_mix` y 6 de `random_small`).
+* **Qué queda:** demostrar `M1bLowOwn` en sí, es decir, que el kernel de J fijado en la clave k está dentro de la
+  pieza k. Truncando la cima (`Trunc.kernel_trunc`) es un kernel por debajo de la unión de las fuentes filtradas F_j,
+  cuya fila de arriba solo tiene nodos de F_k. La pregunta es si está por debajo de F_k.
+
 **Las reglas de la fila de claves** (v196; `KeyRules.lean`, solo `[propext, Quot.sound]`; ⚠ retirado del código, queda en la historia: commit `82c121f`, merge `e0be7a3`). Etiqueta de clave
 (`restrictTo` con la pieza) y comprobación de claves (`reviewKC`), como operaciones nuevas del modelo; filtro
 `filterKC`. Implementadas en Julia en la rama `julia_key_rules`.
@@ -1924,6 +1939,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `KClosed`, `KFix`, `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix` |
 | `KeyCone.lean` | `CxPull`, `cx_up`, `triPin₁_of_below`, `KeySplit`, `keyTri₁_of_split`, `readerVerdictW_iff_of_split` |
 | `KeyRules.lean` (⚠ retirado; en la historia, `82c121f`) | `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`, `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel` |
+| `KFixCore.lean` | `KFixLow`, `witness_key`, `pure_link`, `kFix_of_low`, `readerVerdictW_iff_of_kFixLow` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
