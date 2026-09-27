@@ -28,6 +28,10 @@ piece where `w` lives — with no step missing, clause steps included (S2, 2.5 M
 * **The merge in a piece from AF** (`topParent_of_afp`): a top node fixes the map node one step under its parents
   (`gparent_owner`); AF pins it; `cert_piece_low` then gives a certificate whose extension is `w` whichever parent it
   took. **`readerVerdictW_iff_of_afp`**: the reader decides under A1, LUA, `MergeSplitJ` and AF in the pieces.
+* **A1 from ULUA** (`anchorF_of_ulua`, with `climb`): if a clique with witnesses of the truncated filtered joined state
+  is one of some pinned source (ULUA, the unanchored line union), the source's certificate climbs to its piece and to
+  the joined state, and its top node anchors the clique. At line 0, `anchorF_zero`. **`readerVerdictW_iff_of_ulua`**:
+  the reader decides under ULUA, LUA, `MergeSplitJ` and AF in the pieces.
 -/
 
 namespace AbsSatBin.GraphPath.Model.AnchorPiece
@@ -685,11 +689,225 @@ theorem topParent_of_afp (hn1 : 1 ≤ n) (hAF : AFP φ n) : TopParent φ n := by
 #guard_msgs in
 #print axioms topParent_of_afp
 
+-- ============================================================
+-- A1 from the unanchored line union (ULUA)
+-- ============================================================
+
+/-- **A certificate of the source pinned by `pinsW` and the pins below the top climbs to the filtered piece** (line
+`n ≥ 1`), when every pin at the top is the destination. The tail of `cert_piece_low`, as a lemma. -/
+theorem climb (hn1 : 1 ≤ n) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId)
+    (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true)
+    (ps : List NodeId) (htop : ∀ r ∈ ps, r.step = (n : Int) + 1 → r = d) (sel : Int → PathNodeId)
+    (hsG : ChainSound (filterAll kv.2 (LineUnion.pinsW φ n d kv.1 ++ ps.filter (fun m => decide (m.step ≤ (n : Int)))))
+      sel) :
+    ChainSound (filterAll (upF φ kv.2 d) ps) (extend (filterAll kv.2 (reqOf φ d)) d sel) ∧
+      (∀ l, l ≤ (n : Int) → extend (filterAll kv.2 (reqOf φ d)) d sel l = sel l) := by
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have hb := KernelIff.below_filterAll_self kv.2 hnd (reqOf φ d)
+  have hFcs : (filterAll kv.2 (reqOf φ d)).current_step = (n : Int) + 1 := by rw [← hb.step, hcs]
+  have hdF : d.step = (filterAll kv.2 (reqOf φ d)).current_step := by rw [hFcs, ← hcs, hdst]
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
+  have hPcs : (upF φ kv.2 d).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  have hsX : ChainSound kv.2 sel :=
+    ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self kv.2 hnd _)) sel hsG
+  have hpS := chain_pins kv.2 _ sel hsG
+  have hreqs : ∀ req ∈ reqOf φ d, 0 ≤ req.step → req.step < kv.2.current_step → (sel req.step).id = req :=
+    fun req hr h0 h1 => hpS req (List.mem_append_left _ (reqOf_sub_pinsW φ n d kv.1 req hr)) h0 h1
+  have hsF := ChainSound_filterAll kv.2 (reqOf φ d) sel hsX hreqs
+  have hmokX : MachineOk kv.2 := ⟨by rw [hok.step]; omega, fun h => by rw [hok.step] at h; omega,
+    fun _ => by rw [hok.par]; simp⟩
+  have hmok : MachineOk (filterAll kv.2 (reqOf φ d)) := MachineOk_of_pruned (pruned_filterAll _ _) hmokX
+  have hpos : 0 < (filterAll kv.2 (reqOf φ d)).current_step := by omega
+  have hf : isProhibited φ (extendPid (filterAll kv.2 (reqOf φ d)) d sel) = false := by
+    by_cases hsk : skipsWindow (filterAll kv.2 (reqOf φ d)) d (isProhibited φ) = true
+    · obtain ⟨_, hdid, _, _, _⟩ := StatePiece.skip_window φ hbd n hn1 kv hkv d hd hv hsk
+      have hin : (⟨(n : Int) - 1, 1⟩ : NodeId) ∈ LineUnion.pinsW φ n d kv.1 := by
+        unfold LineUnion.pinsW
+        rw [if_pos (List.any_eq_true.mpr ⟨kv, hkv, (Bool.and_eq_true _ _).mpr ⟨beq_iff_eq.mpr rfl, hsk⟩⟩)]
+        exact List.mem_append_right _ List.mem_cons_self
+      have h1 := hpS _ (List.mem_append_left _ hin) (by show (0 : Int) ≤ (n : Int) - 1; omega)
+        (by rw [hcs]; show (n : Int) - 1 < (n : Int) + 1; omega)
+      simp only at h1
+      have hlink := hsF.chain.1.2 ((n : Int) - 1) (by omega) (by rw [hFcs]; omega)
+      rw [show (n : Int) - 1 + 1 = n by omega] at hlink
+      obtain ⟨nl, hnl⟩ := Option.isSome_iff_exists.mp (hsF.chain.1.1 n (by omega) (by rw [hFcs]; omega)).1
+      rw [hnl] at hlink
+      have hpm := c.rc.pmp nl (List.mem_of_find?_eq_some hnl) _ hlink
+      rw [node?_id_eq _ _ nl hnl, h1] at hpm
+      unfold extendPid; rw [if_pos hpos, hFcs, show (n : Int) + 1 - 1 = n by omega]
+      unfold isProhibited shiftPid
+      rw [← hpm, hdid]
+      simp only [Bool.and_eq_false_iff]
+      right
+      show (some (⟨(n : Int) - 1, 1⟩ : NodeId) == some ⟨(n : Int) + 1 - 2, 0⟩) = false
+      rw [show (n : Int) + 1 - 2 = n - 1 by omega]
+      exact beq_eq_false_iff_ne.mpr (by intro h; cases h)
+    · cases hfb : isProhibited φ (extendPid (filterAll kv.2 (reqOf φ d)) d sel) with
+      | false => rfl
+      | true => exact absurd (List.any_eq_true.mpr ⟨_, extendPid_mem_shiftRowIds _ d sel hsF.chain.1, hfb⟩) hsk
+  have hsP : ChainSound (upF φ kv.2 d) (extend (filterAll kv.2 (reqOf φ d)) d sel) :=
+    ChainSound_upFiltering kv.2 (reqOf φ d) d "" (isProhibited φ) hvF hdF c.pc.below hmok sel hsX hreqs hf
+  have hlow : ∀ l, l ≤ (n : Int) → extend (filterAll kv.2 (reqOf φ d)) d sel l = sel l := by
+    intro l hl; unfold extend; rw [if_neg (by rw [hFcs]; omega)]
+  refine ⟨ChainSound_filterAll _ ps _ hsP (fun r hr h0 h1 => ?_), hlow⟩
+  rw [hPcs] at h1
+  by_cases hrt : r.step = (n : Int) + 1
+  · rw [hrt, ← hFcs, extend_top, extendPid_mapId]; exact (htop r hr hrt).symm
+  · rw [hlow r.step (by omega)]
+    exact hpS r (List.mem_append_right _ (List.mem_filter.mpr ⟨hr, decide_eq_true (by omega)⟩)) h0
+      (by rw [hcs]; omega)
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.climb' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms climb
+
+omit hbd in
+/-- **ULUA n** (the unanchored line union): a clique with witnesses of a filtered joined state of line `n+1`, below
+its top, is (in its truncation) one of some source sent to the destination, pinned by `pinsW` and `R` below the top. -/
+def ULUA : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ R : List NodeId, (∀ p ∈ R, 0 ≤ p.step ∧ p.step < kv'.2.current_step) →
+    isValid (filterAll kv'.2 R) = true → ∀ Q, Clique (Trunc.trunc (filterAll kv'.2 R)) Q →
+      Wit (Trunc.trunc (filterAll kv'.2 R)) Q → (∀ q ∈ Q, q.id.step ≤ n) →
+      ∃ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 ∧ isValid (upF φ kv.2 kv'.1) = true ∧
+        isValid (filterAll kv.2 (LineUnion.pinsW φ n kv'.1 kv.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int)))))
+          = true ∧
+        Clique (filterAll kv.2 (LineUnion.pinsW φ n kv'.1 kv.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))))) Q ∧
+        Wit (filterAll kv.2 (LineUnion.pinsW φ n kv'.1 kv.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))))) Q
+
+/-- **A1 from ULUA** (line `n ≥ 1`): the source's certificate through `Q` climbs to its piece filtered by `R`, then to the
+joined state; its node at the top anchors the clique. -/
+theorem anchorF_of_ulua (hn1 : 1 ≤ n) (hU : ULUA φ n) (hX : ∀ kv ∈ line φ n, FCert kv.2) : AnchorF φ n := by
+  intro kv' hkv' R hR hv Q hQ hW hlow
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hreach' := MapReachable.reachable_of_mapReachable φ hbd _ hok'.reach
+  have hnd' := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreach'
+  have cF := filt_ctx φ hbd _ kv' hok' R hv
+  have hbJ := KernelIff.below_filterAll_self kv'.2 hnd' R
+  have hcsJ : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hFcs : (filterAll kv'.2 R).current_step = (n : Int) + 2 := by rw [← hbJ.step, hcsJ]
+  have hKcs : (Trunc.trunc (filterAll kv'.2 R)).current_step = (n : Int) + 1 := by
+    show (filterAll kv'.2 R).current_step - 1 = _; rw [hFcs]; omega
+  have toK : ∀ p np, (filterAll kv'.2 R).node? p = some np → p.id.step ≤ n →
+      (Trunc.trunc (filterAll kv'.2 R)).node? p =
+        some (Trunc.cutTop ((filterAll kv'.2 R).current_step - 1) np) :=
+    fun p np hnp hps' => Trunc.trunc_node?_of _ p np hnp (by rw [hFcs]; omega)
+  have hQK : Clique (Trunc.trunc (filterAll kv'.2 R)) Q := fun p hp => by
+    obtain ⟨np, hnp, ho⟩ := hQ p hp
+    exact ⟨_, toK p np hnp (hlow p hp), fun s hs =>
+      (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hFcs]; have := hlow s hs; omega⟩⟩
+  have hWK : Wit (Trunc.trunc (filterAll kv'.2 R)) Q := by
+    intro l h0 h1
+    rw [hKcs] at h1
+    obtain ⟨r, nr, hnr, hrs, ho⟩ := hW l h0 (by rw [hFcs]; omega)
+    exact ⟨r, _, toK r nr hnr (by omega), hrs, fun s hs =>
+      (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hFcs]; have := hlow s hs; omega⟩⟩
+  obtain ⟨kv, hkv, hd, hvp, hvG, hQG, hWG⟩ := hU kv' hkv' R hR hv Q hQK hWK hlow
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv kv'.1 hd hvp
+  have c := filt_ctx φ hbd n kv hok (reqOf φ kv'.1) hvF
+  -- the pins of the source are inside its steps
+  have hSr : ∀ p ∈ LineUnion.pinsW φ n kv'.1 kv.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))),
+      0 ≤ p.step ∧ p.step < kv.2.current_step := by
+    intro p hp
+    rw [hcs]
+    have hreq : ∀ r ∈ reqOf φ kv'.1, 0 ≤ r.step ∧ r.step < (n : Int) + 1 := fun r hr =>
+      ⟨reqOf_nonneg φ hbd kv'.1 r hr, by have := reqOf_backward φ hbd kv'.1 r hr; rw [hdst, hcs] at this; exact this⟩
+    rcases List.mem_append.mp hp with hp | hp
+    · unfold LineUnion.pinsW at hp
+      split at hp
+      · rcases List.mem_append.mp hp with hp | hp
+        · exact hreq p hp
+        · rw [List.mem_singleton.mp hp]
+          exact ⟨by show (0 : Int) ≤ (n : Int) - 1; omega, by show (n : Int) - 1 < (n : Int) + 1; omega⟩
+      · exact hreq p hp
+    · obtain ⟨hp, hle⟩ := List.mem_filter.mp hp
+      exact ⟨(hR p hp).1, by have := of_decide_eq_true hle; omega⟩
+  obtain ⟨sel, hsG, hon⟩ := hX kv hkv _ hSr hvG Q hQG hWG
+  -- every pin at the top is the destination: a top witness of the filtered joined state names it
+  have htop : ∀ r ∈ R, r.step = (n : Int) + 1 → r = kv'.1 := by
+    intro r hr hrs
+    obtain ⟨w0, nw0, hnw0, hw0s, _⟩ := hW ((n : Int) + 1) (by omega) (by rw [hFcs]; omega)
+    have hwr := LineUnion.gowner_pinned _ R w0 (cF.pc.ker.gow w0 nw0 hnw0) r hr (by rw [hw0s, hrs])
+    obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node w0 nw0 hnw0
+    obtain ⟨kv0, hkv0, hd0, hv0, nP0, hnP0⟩ := (PieceJoin.join_no_new φ n kv' hkv').1 w0 nJ hnJ
+    obtain ⟨hok0, hdst0, hcs0, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
+    have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
+    have hwd := mapId_of_mem_newRowIds _ _ _ w0 (upF_new φ kv0.2 kv'.1 hdst0 c0 hv0 w0 nP0 hnP0 (by rw [hw0s, hcs0])).1
+    rw [← hwr, hwd]
+  obtain ⟨hsP, hlowsel⟩ := climb φ n hbd hn1 kv hkv kv'.1 hd hvp R htop sel hsG
+  -- to the joined state
+  obtain ⟨h, hmem, hgr⟩ := PieceJoin.piece_grown φ n kv hkv kv'.1 hd hvp
+  have he : (kv'.1, h) = kv' := key_inj _ (lineOk φ (n + 1)).1 _ hmem kv' hkv' rfl
+  have hP : StateOk φ ((n : Int) + 1) (kv'.1, upF φ kv.2 kv'.1) := StateOk_sent φ n kv hok kv'.1 hd hvp
+  have hndP := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hP.reach)
+  have hPcs : (upF φ kv.2 kv'.1).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  have hPRcs : (filterAll (upF φ kv.2 kv'.1) R).current_step = (n : Int) + 2 := by
+    rw [(pruned_filterAll _ R).step_eq, hPcs]
+  have hsJ' : ChainSound (filterAll h R) (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel) := by
+    have hsU : ChainSound (upF φ kv.2 kv'.1) (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel) :=
+      ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self _ hndP R)) _ hsP
+    exact ChainSound_filterAll h R _ (ChainSound_of_grown hgr _ hsU) (fun r hr h0 h1 =>
+      chain_pins (upF φ kv.2 kv'.1) R _ hsP r hr h0 (by rw [← hgr.step_eq]; exact h1))
+  rw [← he] at hFcs ⊢
+  have hws : (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel ((n : Int) + 1)).id.step = (n : Int) + 1 :=
+    (hsJ'.chain.1.1 _ (by omega) (by rw [hFcs]; omega)).2
+  obtain ⟨_, h1, h2⟩ := good_of_chain _ hsJ' (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel ((n : Int) + 1) :: Q)
+    (fun q hq => by
+      rw [hFcs]
+      rcases List.mem_cons.mp hq with e | hq
+      · rw [e, hws]; exact ⟨by omega, by omega, rfl⟩
+      · obtain ⟨nq, hnq, _⟩ := hQ q hq
+        have := CertFix.step_range cF.pc q nq hnq
+        rw [← he] at this; rw [hFcs] at this
+        exact ⟨this.1, by have := hlow q hq; omega, by rw [hlowsel _ (hlow q hq)]; exact hon q hq⟩)
+  exact ⟨_, hws, h1, h2⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.anchorF_of_ulua' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anchorF_of_ulua
+
+omit n in
+/-- **A1 at line 0**: a state of line 1 is its piece, which has `FCert` (from `MapCert`); the certificate's top node
+anchors the clique. -/
+theorem anchorF_zero : AnchorF φ 0 := by
+  intro kv' hkv' R hR hv Q hQ hW hlow
+  have hok' : StateOk φ ((0 + 1 : Nat) : Int) kv' := (lineOk φ (0 + 1)).2 kv' hkv'
+  have hcsJ : kv'.2.current_step = 2 := by have := hok'.step; push_cast at this; omega
+  have hFcs : (filterAll kv'.2 R).current_step = 2 := by rw [(pruned_filterAll _ R).step_eq, hcsJ]
+  obtain ⟨r0, nr0, hnr0, _, _⟩ := hW 0 (by omega) (by rw [hFcs]; omega)
+  have hnd' := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hok'.reach)
+  obtain ⟨nJ, hnJ, _, _, _⟩ := (KernelIff.below_filterAll_self kv'.2 hnd' R).node r0 nr0 hnr0
+  obtain ⟨kv0, hkv0, hd0, hv0, _⟩ := (PieceJoin.join_no_new φ 0 kv' hkv').1 r0 nJ hnJ
+  have hP := StateOk_sent φ 0 kv0 ((lineOk φ 0).2 kv0 hkv0) kv'.1 hd0 hv0
+  have hFC := fCert_of_mapCert φ hbd _ _ hP (StateLine.mapCert_piece0 φ kv0 hkv0 kv'.1 hd0 hv0)
+  have e : kv'.2 = upF φ kv0.2 kv'.1 := by rw [line_one φ kv' hkv', line_zero φ kv0 hkv0]
+  rw [e] at hv hQ hW hR hFcs
+  have cQ := filt_ctx φ hbd _ (kv'.1, upF φ kv0.2 kv'.1) hP R hv
+  obtain ⟨sel, hs, hon⟩ := hFC R hR hv Q hQ hW
+  have hws : (sel ((0 : Nat) + 1 : Int)).id.step = ((0 : Nat) : Int) + 1 :=
+    (hs.chain.1.1 _ (by omega) (by rw [hFcs]; omega)).2
+  obtain ⟨_, h1, h2⟩ := good_of_chain sel hs (sel ((0 : Nat) + 1 : Int) :: Q) (fun q hq => by
+    rw [hFcs]
+    rcases List.mem_cons.mp hq with e' | hq
+    · rw [e', hws]; exact ⟨by omega, by omega, rfl⟩
+    · obtain ⟨nq, hnq, _⟩ := hQ q hq
+      have := CertFix.step_range cQ.pc q nq hnq
+      exact ⟨this.1, by have := hlow q hq; omega, hon q hq⟩)
+  rw [e]
+  exact ⟨_, hws, h1, h2⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.anchorF_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anchorF_zero
+
 omit n in
 /-- **Every state of every line has `FCert`**, by induction: S2 at line `n` comes from LUA and `FCert` of line `n` (the
 induction hypothesis), then `PieceLocalF` from A1 and S2, and the pieces from `TopParent`. At line 0 S2 is
 `topPieceF_zero`. -/
-theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → AnchorF φ n)
+theorem fCert_line_lua
+    (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → (∀ kv ∈ line φ n, FCert kv.2) → AnchorF φ n)
     (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
     (hTM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
     (hTP : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopParent φ n) :
@@ -709,7 +927,8 @@ theorem fCert_line_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount φ → Ancho
       · subst hm0; exact topPieceF_zero φ
       · exact topPieceF_of_lua φ m hbd (by omega) (hL m (by omega) hm) (hTM m (by omega) hm)
           (fun kv hkv => ih (by omega) kv hkv)
-    refine fCert_join φ hbd m (pieceLocalF_of_anchor φ m hbd (hA m hm) hS) (fun kv hkv d hd hv => ?_)
+    refine fCert_join φ hbd m (pieceLocalF_of_anchor φ m hbd (hA m hm (fun kv hkv => ih (by omega) kv hkv)) hS)
+      (fun kv hkv d hd hv => ?_)
     by_cases hm0 : m = 0
     · subst hm0
       exact fCert_of_mapCert φ hbd _ _ (StateOk_sent φ 0 kv ((lineOk φ 0).2 kv hkv) d hd hv)
@@ -725,7 +944,7 @@ theorem readerVerdictW_iff_of_lua (hA : ∀ n : Nat, (n : Int) + 1 < stepCount �
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  exact fCert_line_lua φ hbd hA hL hTM (fun n hn1 hn =>
+  exact fCert_line_lua φ hbd (fun n hn _ => hA n hn) hL hTM (fun n hn1 hn =>
     topParent_of_topMerge φ hbd n (topMerge_of_mergeSplit φ hbd n (hMS n hn1 hn))) _ hN kv hkv
 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_lua' depends on axioms: [propext, Quot.sound] -/
@@ -758,11 +977,31 @@ theorem readerVerdictW_iff_of_afp (hA : ∀ n : Nat, (n : Int) + 1 < stepCount �
     ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
   refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
   have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
-  exact fCert_line_lua φ hbd hA hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
+  exact fCert_line_lua φ hbd (fun n hn _ => hA n hn) hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
     (fun n hn1 hn => topParent_of_afp φ n hbd hn1 (hAF n hn1 hn)) _ hN kv hkv
 
 /-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_afp' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms readerVerdictW_iff_of_afp
+
+omit n in
+/-- **The reader decides `φ` under ULUA, LUA, `MergeSplitJ` and AF in the pieces.** A1 is no longer a hypothesis: at
+line 0 it is `anchorF_zero`, and from line 1 on it comes from ULUA and `FCert` of the line (`anchorF_of_ulua`). -/
+theorem readerVerdictW_iff_of_ulua (hU : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → ULUA φ n)
+    (hL : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → LUA φ n)
+    (hMJ : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → MergeSplitJ φ n)
+    (hAF : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → AFP φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
+  have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
+  refine fCert_line_lua φ hbd (fun n hn hX => ?_) hL (fun n hn1 hn => topMergeJ_of_mergeSplitJ φ n hbd (hMJ n hn1 hn))
+    (fun n hn1 hn => topParent_of_afp φ n hbd hn1 (hAF n hn1 hn)) _ hN kv hkv
+  by_cases h0 : n = 0
+  · subst h0; exact anchorF_zero φ hbd
+  · exact anchorF_of_ulua φ n hbd (by omega) (hU n (by omega) hn) hX
+
+/-- info: 'AbsSatBin.GraphPath.Model.AnchorPiece.readerVerdictW_iff_of_ulua' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_ulua
 
 end AbsSatBin.GraphPath.Model.AnchorPiece
