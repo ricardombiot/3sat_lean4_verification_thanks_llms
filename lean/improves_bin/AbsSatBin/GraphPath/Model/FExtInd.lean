@@ -197,14 +197,16 @@ theorem lExt_succ (n : Nat) (hn1 : 1 ≤ n) (hM : M1 φ n) (hL : ∀ kv ∈ line
         rw [hq1, ← e2, e1]
 
 /-- **`LExt` in every state of every line, under M1 at every join.** -/
-theorem lExt_line (hM : ∀ n, 1 ≤ n → M1 φ n) : ∀ n, ∀ kv ∈ line φ n, LExt kv.2 := by
+theorem lExt_line (hM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1 φ n) :
+    ∀ n : Nat, (n : Int) < stepCount φ → ∀ kv ∈ line φ n, LExt kv.2 := by
   intro n
   induction n with
-  | zero => exact lExt_low φ hbd 0 (by omega)
+  | zero => intro _; exact lExt_low φ hbd 0 (by omega)
   | succ n ih =>
+    intro hn
     by_cases h0 : n = 0
     · subst h0; exact lExt_low φ hbd 1 (by omega)
-    · exact lExt_succ φ hbd n (by omega) (hM n (by omega)) ih
+    · exact lExt_succ φ hbd n (by omega) (hM n (by omega) (by push_cast at hn; exact hn)) (ih (by push_cast at hn; omega))
 
 -- ============================================================
 -- Successive pins fit the lists
@@ -277,9 +279,10 @@ theorem fExt_of_lExt (hL : LExt kv.2) : MapTri.FExt (filterAll kv.2 []) := by
 end
 
 /-- **The reader decides `φ` under M1 at every join.** -/
-theorem readerVerdictW_iff_of_m1 (hM : ∀ n, 1 ≤ n → M1 φ n) : readerVerdictW φ = true ↔ Satisfiable φ :=
+theorem readerVerdictW_iff_of_m1 (hM : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1 φ n) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
   MapTri.readerVerdictW_iff_of_fExt φ hbd (fun kv hkv =>
-    fExt_of_lExt φ hbd kv hkv (lExt_line φ hbd hM _ kv hkv))
+    fExt_of_lExt φ hbd kv hkv (lExt_line φ hbd hM _ (by simp only [stepCount]; omega) kv hkv))
 
 end AbsSatBin.GraphPath.Model.FExtInd
 
