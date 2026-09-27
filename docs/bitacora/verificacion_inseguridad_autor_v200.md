@@ -1,19 +1,28 @@
-# Verificación para el Autor v200: el modelo Lean de la máquina con grafo de owners, y el lector reducido a `NoZombie`
+# Verificación para el Autor v200: el modelo Lean de la máquina con grafo de owners, y el lector reducido a `NoDeadEnd`
 
 Ricardo, este informe cuenta lo que se hizo en `lean/improves_bingo` desde el v199: un proyecto Lean nuevo que
 modela la máquina de `julia/improves_bingo`, con los owners como un grafo por gpath en vez de una tabla por nodo.
-Termina con el plan para atacar la única hipótesis que queda.
+Termina con el plan para lo que queda.
+
+> **Corrección (28-sept).** La primera versión de este informe presentaba `NoZombie` (todo estado válido que visita el
+> lector lleva una solución) como la única hipótesis abierta. Me lo señalaste: en `improves_bin` los zombis ya
+> estaban superados. No afectan a la solidez (`denot_has_no_zombies`: un zombi es un problema de eficiencia, no de
+> corrección), y el caso base está demostrado (`inhabited_of_noChoice_readable`). Lo único abierto allí es que el
+> lector sin retroceso no se atasque, `NoDeadEnd`. En bingo, `NoZombie` junta dos cosas en una hipótesis más fuerte
+> de lo necesario. Este informe ya está corregido: §4 y §5 separan lo que es trabajo pendiente (el caso base) de lo
+> que es la pregunta abierta (`NoDeadEnd`, la misma que en bin).
 
 **La conclusión, por adelantado.**
 * **Hay un teorema de veredicto con una sola hipótesis.** `readerVerdict_iff_of_noZombie`: si ningún estado que el
   lector visita desde la línea final es un *zombi* (un estado válido que no lleva ninguna solución), entonces el
-  lector dice SAT **exactamente** cuando la fórmula es satisfacible. Sin `sorry`.
+  lector dice SAT **exactamente** cuando la fórmula es satisfacible. Sin `sorry`. Esa hipótesis es más fuerte de lo
+  necesario (§4): la forma buena es `readerVerdict_iff_of_noDeadEnd`, como en bin.
 * **La completitud de la máquina está demostrada sin hipótesis** (`machineVerdict_of_sat`, solo con `Bounded`): si
   `φ` es satisfacible, la línea final lleva la camarilla de la solución.
 * **El marco de reglas existe**: una regla nueva entra en el review demostrando tres cosas (solo borra, no pierde
   ninguna camarilla, todo vivo conserva su documento), y los teoremas anteriores la aprovechan sin tocarlos.
-* **Lo abierto se reduce a `NoZombie`.** Propongo partirla en un caso base demostrable y un paso, que es el mismo
-  punto difícil que en `improves_bin` (§5).
+* **Lo abierto es `NoDeadEnd`, la misma pregunta que en `improves_bin`**: que el lector sin retroceso no se atasque.
+  La solidez no depende de ella; solo falta demostrar en bingo el caso base que bin ya tiene (§5).
 * **Pendiente práctico:** el modelo en listas es muy lento, así que el diferencial con Julia (L4) está aplazado.
 
 ---
@@ -101,59 +110,66 @@ tablas. Se apoya en cinco invariantes estructurales que todo estado de la máqui
   combustible del review. La segunda hace falta para el caso base de §5.
 * **`Classical.choice`** aparece en los axiomas de los teoremas del lector; viene de tácticas. `sat_of_carried` no lo
   usa. Se puede limpiar.
-* **Una diferencia con `improves_bin`:** allí la solidez del lector no necesita hipótesis. Aquí, la dirección
-  «el lector dice SAT ⇒ satisfacible» también pasa por `NoZombie`. §5 lo resuelve con el caso base.
+* **`NoZombie` es más fuerte de lo necesario.** Mezcla dos cosas que `improves_bin` ya había separado:
+  * **la solidez** («el lector dice SAT ⇒ satisfacible»). En bin no tiene hipótesis: los zombis no la afectan
+    (`denot_has_no_zombies`), porque lo que el lector lee al terminar es siempre una cadena real, y el caso base está
+    demostrado (`inhabited_of_noChoice_readable`: sin nada que elegir, el estado contiene un camino). En bingo solo
+    hay que demostrar ese caso base: es **trabajo pendiente, no una hipótesis abierta**;
+  * **la completitud** («satisfacible ⇒ el lector dice SAT»). La demostración de `readG_isSome_of_noZombie` usa
+    `NoZombie` para una sola cosa: obtener un pin que deje válido el estado. Eso es exactamente **`NoDeadEnd`**: en
+    todo estado válido que visita el lector, algún pin del primer paso con elección lo deja válido. `NoZombie`
+    implica `NoDeadEnd`, pero no al revés.
 
-## 5. El plan: cómo atacar `NoZombie`
+## 5. El plan
 
-El lector usa `NoZombie` en dos sitios de dificultad muy distinta. La propuesta es separarlos.
+### 5.1 Reenunciar con `NoDeadEnd`
 
-### 5.1 Caso base: al terminar
+Cambiar la hipótesis del teorema del lector de `NoZombie` a `NoDeadEnd`, que es lo que la demostración usa de verdad.
+Es un cambio pequeño.
 
-El estado final del lector no tiene elección: un único nodo de mapa por paso. Solo hace falta que **un estado
-válido y limpio sin elección lleve una camarilla**. Es el análogo de `inhabited_of_noChoice_readable`, que
-`improves_bin` ya tiene demostrado.
+### 5.2 La solidez sin hipótesis: el caso base
 
-Requisito previo: demostrar que el review termina en un estado limpio (todos los nodos válidos), es decir, que el
-combustible basta. Cada vuelta que sigue borró algo, así que la medida baja.
+El estado final del lector no tiene elección: un único nodo de mapa por paso. Hay que demostrar que **un estado
+válido y limpio sin elección lleva una camarilla**, el análogo de `inhabited_of_noChoice_readable` de bin. Con eso
+y `sat_of_carried`, la dirección «el lector dice SAT ⇒ satisfacible» queda sin hipótesis, como `readerVerdictW_sound`.
 
-Resultado: la solidez del lector sin hipótesis, como en bin.
+Requisito previo: que el review termine en un estado limpio (todos los nodos válidos), es decir, que el combustible
+basta. Cada vuelta que sigue borró algo, así que la medida baja.
 
-### 5.2 Paso: en cada elección
+Resultado de 5.1 y 5.2: **`readerVerdict_iff_of_noDeadEnd`**, con la misma forma que `readerVerdictW_iff_of_noDeadEnd`
+de bin. La pregunta abierta pasa a ser literalmente la misma en los dos proyectos.
 
-En un estado válido que visita el lector, algún pin del primer paso con elección tiene que dejarlo válido. **Es el
-mismo punto difícil que en bin** (`NoDeadEnd` / `KernelSplit`, reformulado como `TriPin₁`, `CliqueTri`,
-`PieceLocal` y ahora la ruta M1). El grafo no lo hace fácil, pero da un sitio limpio donde enunciarlo y atacarlo:
+### 5.3 La pregunta abierta: `NoDeadEnd`
 
-* **Enunciado como invariante:** todo nodo vivo en un paso con elección está en una camarilla prefijo (pasos
-  `0 … k`) que se puede extender. Es la forma bingo de `PrefixTri` / `CliqueTri`.
-* **Por qué hacen falta reglas.** Las reglas actuales son locales (pares, apoyos) y conservan camarillas, pero no
-  garantizan que todo vivo esté en alguna. El salto de «consistente por pares» a «existe una camarilla completa» es
-  el hueco tipo Helly. El enfoque de subconjuntos lo rodea: pedir que exista un camino dentro del subconjunto
-  relevante. La regla 6.4 del v199 (camino común) es exactamente una prueba de vacío sobre el subconjunto de caminos
-  compatibles con un par, así que es la candidata natural.
-* **Cómo entra una regla:** una `Rule` más (solo borra, conserva camarillas, conserva documentos), y su lema de que
-  conserva el invariante del paso. Los teoremas de §3 no se tocan.
+En cada elección, algún pin tiene que dejar el estado válido. **Es el punto difícil de bin** (`NoDeadEnd` /
+`KernelSplit`, reformulado como `TriPin₁`, `CliqueTri`, `PieceLocal` y ahora la ruta M1). Hay dos vías, que se pueden
+llevar a la vez:
 
-### 5.3 En paralelo: el puente completo (L8)
-
-La otra sesión avanza en `improves_bin` por la ruta M1 («el lector decide bajo `M1aAll` y `CoverRow`», `03dfe07`
-y siguientes). Un puente que traduzca los estados de bingo a tablas y demuestre que las operaciones conmutan con esa
-traducción traería esos resultados a bingo sin rehacerlos. Es la fase más cara. La F4 de Julia (mismos estados
-finales y mismas vueltas en 81 de 81) dice que el enunciado es plausible.
+* **Traerlo de bin (puente completo, L8).** La otra sesión avanza por la ruta M1 («el lector decide bajo `M1aAll` y
+  `CoverRow`», `03dfe07` y siguientes). Un puente que traduzca los estados de bingo a tablas y demuestre que las
+  operaciones conmutan con esa traducción traería a bingo lo que se consiga allí, sin rehacerlo. La F4 de Julia
+  (mismos estados finales y mismas vueltas en 81 de 81) dice que el enunciado es plausible.
+* **Atacarlo en bingo con reglas sobre aristas.** Enunciado como invariante: todo nodo vivo en un paso con elección
+  está en una camarilla prefijo (pasos `0 … k`) que se puede extender, la forma bingo de `PrefixTri` / `CliqueTri`.
+  Las reglas actuales son locales (pares, apoyos): conservan camarillas, pero no garantizan que todo vivo esté en
+  alguna. El salto de «consistente por pares» a «existe una camarilla completa» es el hueco tipo Helly, y el enfoque
+  de subconjuntos lo rodea pidiendo que exista un camino dentro del subconjunto relevante. La regla 6.4 del v199
+  (camino común) es exactamente una prueba de vacío sobre el subconjunto de caminos compatibles con un par, así que
+  es la candidata natural. Entra como una `Rule` más, con su lema de conservación; los teoremas de §3 no se tocan.
 
 ### 5.4 Orden propuesto
 
 | # | qué | tipo | depende de |
 |---|---|---|---|
-| 1 | el review termina en un estado limpio (el combustible basta) | demostración | — |
-| 2 | caso base: sin elección + limpio ⇒ camarilla; la solidez del lector sin hipótesis | demostración | 1 |
-| 3 | medir en Julia bingo si el invariante del paso se cumple en los estados que visita el lector | sonda (pide tu permiso: busca contraejemplos) | — |
-| 4 | la regla 6.4 (camino común) en Julia y en Lean, con su lema de conservación | regla + demostración | 3 |
-| 5 | versiones `@[csimp]` y el diferencial Lean ↔ Julia (L4) | ingeniería | — |
-| 6 | el puente completo con `improves_bin` (L8), si la ruta M1 cierra antes | demostración | — |
+| 1 | reenunciar el teorema del lector con `NoDeadEnd` | demostración (pequeña) | — |
+| 2 | el review termina en un estado limpio (el combustible basta) | demostración | — |
+| 3 | caso base (sin elección + limpio ⇒ camarilla) y **`readerVerdict_iff_of_noDeadEnd`** | demostración | 1, 2 |
+| 4 | el puente completo con `improves_bin` (L8), para traer lo que se consiga en `NoDeadEnd` allí | demostración | 3 |
+| 5 | medir en Julia bingo el invariante de camarillas prefijo en los estados que visita el lector | sonda (pide tu permiso: busca contraejemplos) | — |
+| 6 | la regla 6.4 (camino común) en Julia y en Lean, con su lema de conservación | regla + demostración | 5 |
+| 7 | versiones `@[csimp]` y el diferencial Lean ↔ Julia (L4) | ingeniería | — |
 
-Los puntos 1 y 2 son ganancias seguras. El 3 decide si el 4 va en la buena dirección antes de invertir en él.
+Los puntos 1 a 3 dejan bingo a la altura de bin, con la misma pregunta abierta.
 
 ---
 
