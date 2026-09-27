@@ -30,6 +30,8 @@ function make_review_owners!(gpath :: GPath)
 
         if gpath.review_owners
             make_review_owners!(gpath)
+        elseif key_check!(gpath)      # v196 §3.5: punto fijo alcanzado; si cae una clave, otra vuelta
+            make_review_owners!(gpath)
         end
     end
 end
@@ -315,6 +317,11 @@ function filter_require!(gpath :: GPath, map_node_id_req :: NodeId)
 
                 gpath.review_owners = true
             end
+        end
+
+        # v196 §3: fijar la clave deja las filas de abajo con las entradas de su pieza.
+        if gpath.key_tags !== nothing && step_selection == gpath.key_tags.key_step
+            restrict_to_key!(gpath, map_node_id_req)
         end
 
         check_if_graph_valid!(gpath)
