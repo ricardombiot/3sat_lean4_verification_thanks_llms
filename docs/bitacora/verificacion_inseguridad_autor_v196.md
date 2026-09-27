@@ -18,8 +18,10 @@ cambios. El detalle técnico está en `docs/context/escalera_reader.md` §4.2ο.
   cambia la conducta de la máquina solo cuando un filtro fija un nodo del paso de las claves.
 * **Una segunda regla, independiente (§3.5):** una comprobación de claves en el review de los estados unidos. Cada
   clave viva se fija en una copia, y la que no sobrevive se quita. Da `M1aAll` por construcción. **Con las dos
-  reglas, M1 sale entero (deducido)**, y con él el lector, porque el resto de la inducción ya está demostrado. Cuesta
-  hasta ×3 en cada review de un estado unido del mapa bin.
+  reglas, M1 sale entero (deducido)**. Cuesta hasta ×3 en cada review de un estado unido del mapa bin.
+* **El riesgo (§3.5):** toda la prueba del lector se apoya en que el review nunca baja de un kernel, y la comprobación
+  de claves puede romper ese lema. Hay una salida probable (kernels cerrados por claves), sin intentar. Hasta que
+  salga, las dos reglas no dan el veredicto del lector.
 
 Cada afirmación lleva su estado: **demostrado** (teorema Lean), **medido** (sonda), **deducido** (argumento sin
 formalizar), **falso** (contraejemplo), **propuesto** o **abierto**.
@@ -335,9 +337,11 @@ Si quitar una clave deja el estado inválido (era la única que quedaba), `remov
   * Por la etiqueta, ese estado queda por debajo de la pieza `k`.
   * Por `isValid_filterAll_of_kernel`, la pieza fijada en `R` es válida.
 
-  M2w, M3w y la inducción `lExt_line` ya están demostrados, así que **el lector decidiría `φ` sin hipótesis
-  abiertas**. Quedaría el trabajo de §3.4 (portar las reglas y demostrar la exactitud de las etiquetas) y el lema
-  anterior.
+  M2w, M3w y la inducción `lExt_line` están demostrados **para la máquina actual**. Con las dos reglas, el lector
+  decidiría `φ` sin hipótesis abiertas **si** esos lemas se trasladan a la máquina nueva. Eso depende del riesgo que
+  sigue: `below_review` con la comprobación de claves. Quedarían además el trabajo de §3.4 (portar las reglas y
+  demostrar la exactitud de las etiquetas), el lema del orden de los pins y volver a demostrar que la máquina no
+  pierde soluciones (`completeness_pure`).
 * **Sin la etiqueta**, la comprobación sola da `M1aAll`, y M1 queda en `M1bLowOwn` (vía `KFix`).
 
 **Qué cuesta:**
@@ -350,6 +354,24 @@ Si quitar una clave deja el estado inválido (era la única que quedaba), `remov
 * En la máquina actúa en `filterAll X (reqOf d)` cuando `X` es un estado unido, y en el lector.
 * Sin pins no debería dispararse (deducido): `sendTo` solo guarda piezas válidas, y en el estado unido sin pins cada
   clave conserva su pieza.
+
+**El riesgo: el review nuevo podría bajar de un kernel.** Toda la cadena demostrada del lector se apoya en que el review
+nunca baja de un kernel (`Kernel.below_review`, y por él `isValid_filterAll_of_kernel`). Lo usan M3w, `lExt_succ`,
+`fExt_of_kExt` y `m1_of_parts`. La comprobación de claves puede romper ese lema:
+* Un kernel válido con dos claves vivas puede tener las dos claves muriendo al fijarlas una a una. Es justo la unión
+  no exacta de piezas que M1 intenta excluir.
+* Si eso pasa, el review nuevo quita claves que el kernel conserva, y los lemas anteriores dejan de valer tal como
+  están.
+
+**La salida probable (propuesta, sin intentar): kernels cerrados por claves.** Un kernel es cerrado por claves si cada
+clave viva sobrevive a su pin. Habría que demostrar `below_review` solo para ellos:
+* Los estados que produce el review nuevo lo son por construcción.
+* Los kernels que usa la prueba de M1 están por debajo de una sola pieza, con una sola clave en la fila de claves, así
+  que la comprobación no actúa sobre ellos.
+* El caso delicado son los estados del lector con dos claves vivas. Ahí hay que demostrar que un kernel cerrado por
+  claves por debajo de `g` hace que `g` fijado en `k` sea válido. Parece salir por inducción sobre el fuel del review.
+
+**Este es el lema del que depende todo.** Si no sale, las dos reglas no cierran el lector, aunque en Julia funcionen.
 
 **Cómo leerla.** Es una anticipación de un paso sobre la fila de claves: la máquina hace ella misma la prueba que ahora
 hace el lector con cada pin. El coste sigue siendo polinómico, pero es un cambio de diseño y te toca valorarlo. Hay dos
@@ -367,7 +389,10 @@ Si decides probarlas:
 2. Medir veredictos, tamaños, vueltas de review y los contadores `KEYCHECK_REMOVED` y `KEYCHECK_COPIES`, en las cuatro
    combinaciones de `:on` y `:off` (`compare_*.jl`, `test_3sat`, `test_window`).
 3. Repetir `m1split_probe.jl` con las dos en `:on`: M1b-entradas y M1a-todas deberían valer por construcción.
-4. Solo después, portarlas a Lean y demostrar la exactitud de las etiquetas y el punto fijo de la comprobación.
+4. En Lean, **primero el lema de riesgo**: `below_review` con la comprobación de claves, sobre kernels cerrados por
+   claves. Si no sale, lo demás no vale la pena.
+5. Después, portar las etiquetas y `filterRequire`, demostrar la exactitud de las etiquetas, el lema del orden de los
+   pins y `completeness_pure` con las reglas nuevas.
 
 Si prefieres no tocar la máquina, el camino es demostrar `KFix` por inducción sobre las líneas. No ha fallado en
 nada de lo medido, pero no tengo todavía el argumento de historia que lo cierre. Lo más natural es intentar un
