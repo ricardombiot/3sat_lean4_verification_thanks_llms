@@ -1750,7 +1750,22 @@ también otro nodo del paso n. Son nodos por debajo de n, o de la cima si la cla
 y poseen x, pero sus testigos comunes del paso 3 no los posee x. Es el mismo tipo de fallo que `TriPin` en el lector.
 Con una ronda de cortes desaparece: `KeyTri₁` no falla.
 
-**Abierto**: `M1aAll` (vía `KeyTri₁`) y `M1bLowOwn` (medido sin fallos como M1b-entradas).
+**`M1bLowOwn` por la fila de la clave** (`M1bOwn.lean`, solo `[propext, Quot.sound]`; `ktri_probe.jl`). En J fijado en
+k :: R solo vive k en el paso n, así que la regla de parejas da a p y v, en cada paso, una entrada común que posee un
+nodo de k. Dos formas locales, sobre J fijado en R cualquiera (sin fijar k):
+* `KTri`: p y v se poseen y poseen un nodo x del paso n ⇒ v está en la tabla de p en la pieza de x.id.
+  **FALSO**: 716 / 2.732 / 40 fallos con R vacío (`clause_mix`, `clause_mix_sep`, 6 de `random_small`). Son los enlaces
+  de `KeyTri`: sin testigo común que posea x.
+* **`KTriK`**: si además en cada paso tienen un testigo común que posee un nodo de k ⇒ v está en la tabla de p en la
+  pieza k. **`m1bLowOwn_of_kTriK`** (`KTriK ⇒ M1bLowOwn`) y `readerVerdictW_iff_of_kTriK` (bajo `M1aAll` y `KTriK`).
+  **FALSO también**, aunque mucho más raro: 8 + 56 fallos en `clause_mix` (cima 26, clave (25, 0), p del paso 21, v del
+  paso 5), 32 + 544 en `clause_mix_sep`, 0 en `random_small` (≈ 24 M casos en total).
+
+Así que `M1bLowOwn` (que no falla) no sale de ninguna propiedad de J fijado en R leída enlace a enlace: los testigos
+que poseen k existen en J, pero la cascada del review tras fijar k corta algunos, y con ellos el enlace. Hace falta un
+argumento de punto fijo (el mayor kernel por debajo de J fijado en k :: R), igual que `TriPin` → `TriPin₁` → review.
+
+**Abierto**: `M1aAll` (vía `KeyTri₁`) y `M1bLowOwn` (medido sin fallos como M1b-entradas; `KTri` y `KTriK` falsos).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1848,6 +1863,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
 | `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri` (⚠ falso), `KeyTri₁`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `m1aAll_of_keyTri₁`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri₁` |
+| `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `m1bLowOwn_of_kTriK`, `readerVerdictW_iff_of_kTriK` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
@@ -1855,4 +1871,4 @@ Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--cha
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`, `m1split`, `keytri`, `m1aall`).
+`fextind`, `m1split`, `keytri`, `m1aall`, `ktri`).
