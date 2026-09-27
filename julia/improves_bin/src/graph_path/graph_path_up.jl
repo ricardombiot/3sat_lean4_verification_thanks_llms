@@ -12,9 +12,17 @@ end
 function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
                 prohibited :: Set{PathNodeId} = Set{PathNodeId}())
     if gpath.is_valid
+        key = gpath.map_parent_id              # la clave de la pieza: el nodo de mapa de la fuente (v197 §5)
+        prune_keytags!(gpath)
         add_row!(gpath, map_id_node, title, prohibited)
         # add_row! puede invalidar el gpath (p. ej. la ventana prohibida no deja ningún candidato).
         if gpath.is_valid
+            if gpath.key_tags !== nothing
+                for id in collect(PathCollectionLines.get_ids_step(gpath.table_lines, gpath.current_step))
+                    inherit_keytags!(gpath, PathCollectionLines.get_node(gpath.table_lines, id))
+                end
+            end
+            init_key_level!(gpath, key)
             gpath.current_step += 1
             gpath.map_parent_id = map_id_node
             # Si se saltó una ventana prohibida, algún padre se quedó sin hijo: el UP lo poda aquí,
@@ -22,6 +30,7 @@ function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
             # la cima), como en el mapa clásico. Va después de avanzar el paso: la fila nueva es la
             # cima y no necesita hijos.
             make_review_owners!(gpath)
+            prune_keytags!(gpath)              # v197 §5: las máscaras de lo que ese review quitó
         end
     end
 end

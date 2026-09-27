@@ -2,6 +2,7 @@ function do_join!(gpath :: GPath, gpath_inmutable :: GPath)
     if is_valid_join(gpath, gpath_inmutable)
         # Expensive operation...
         gpath_inmutable = deepcopy(gpath_inmutable)
+        join_keytags!(gpath, gpath_inmutable)   # v197 §5: etiquetas, fila a fila, antes de unir las tablas
 
         PathCollectionLines.union!(gpath.table_lines, gpath_inmutable.table_lines)
         PathDocumentOwners.union!(gpath.owners, gpath_inmutable.owners)
