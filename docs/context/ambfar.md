@@ -1,6 +1,7 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2λ** (sesión 2026-09-27; §4.2κ es la
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2μ** (sesión 2026-09-27, tarde; §4.2λ y §4.2κ son las
+> anteriores). Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
 > sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
@@ -1412,6 +1413,57 @@ el join las fijaciones son la clave del paso `n`; en la fusión, el abuelo del p
 miembros: la tabla unida no guarda qué lado respalda cada entrada, así que no sale de las reglas por parejas. Es el
 núcleo de siempre (§4.2q), ahora en una forma que sí está medida sin fallos (`PieceLocalF`).
 
+### 4.2μ LUA demostrado por inducción; el núcleo en cinco hipótesis locales (`AnchorPiece.lean`, `UnionLine.lean`)
+
+**Teorema final:** `UnionLine.readerVerdictW_iff_of_luau` — el lector decide `φ` bajo cinco hipótesis, todas medidas sin
+fallos en su forma exacta y todas del mismo tipo (una unión filtrada no reparte una clique con testigos entre sus lados):
+
+| hipótesis | enunciado | medida (forma exacta) |
+|---|---|---|
+| A1K | una clique con testigos de la cima truncada de un estado unido filtrado crece con un nodo del paso `n` | 6,20 M |
+| AFU | en la unión filtrada de una línea, una clique anclada en la cima sobrevive a fijar el requisito del ancla | 6,30 M |
+| `TopMergeU` | ídem con cima fusionada: un padre ocupa el lugar del ancla | 124 k |
+| `TopMergeJ` | fusión en el estado unido filtrado | 1,45 M |
+| AFP (AF en las piezas) | una clique anclada sobrevive a fijar un nodo que el ancla fija | en curso |
+
+**Demostrado (sin `sorry`, solo `[propext, Quot.sound]`):**
+* **Ancla en la cima** (`AnchorPiece`): `PieceLocalF ⇐ A1 + S2` (`pieceLocalF_of_anchor`). S2 en la línea 0 (`line_one`,
+  `topPieceF_zero`: con una sola fuente, todo estado de la línea 1 es su pieza); A1 en la línea 0 (`anchorF_zero`).
+* **S2 desde LUA** (`topPieceF_of_luaJ`): el miembro de la cima cede su sitio a un padre (`single_parent`, `parent_or_merge`;
+  fusión: `TopMergeJ`, o `MergeSplitJ` vía `merge_pin`), la cima truncada cabe en la unión de las fuentes, LUA la pone en la
+  fuente del padre, `FCert` da la cadena y sube con extensión `w` (`good_of_chain`).
+* **La fusión en la pieza desde AF** (`topParent_of_afp`): la cima fija el nodo del paso `n-1` (`gparent_owner`); fijado,
+  `cert_piece_low` da una cadena cuya extensión es `w` sea cual sea el padre. `MergeSplit` deja de hacer falta.
+* **La unión de una línea como estado** (`UnionLine`): `lineU` (pliegue de `join`; `join` ignora el `map_parent` del segundo,
+  así que los lemas `_join` dan el contexto del lector: `UCtx_join`, `lineU_props`); procedencia de dueños, padres e hijos a
+  través del driver (`srcF_pureAdvance`, `piece_old`, `line_old`); la cima truncada de un estado filtrado de la línea `n+1`
+  queda bajo la unión de la línea `n` (`LowIn`, `trunc_below`).
+* **LUA por inducción** (`luau_zero`, `luau_succ`): una clique anclada de la unión filtrada de la línea `n+1` fija el
+  requisito del ancla (AFU), el ancla cede su sitio a un padre (`TopMergeU` en la fusión), baja a la unión de la línea `n`,
+  LUAU allí la pone en la fuente del padre, y la cadena de `FCert` sube con el ancla (`climbE`). `luaJ_of_luau`: la forma
+  que usa S2. `anchorF_of_a1k`: A1 desde A1K y LUA. `fCert_luau_line`: `FCert` y LUAU avanzan juntas por la línea.
+* **AFU es exactamente lo que LUAU añade por línea** (`afu_of_luau`, con `line_pinned_req`): LUAU en la línea `n+1` implica
+  AFU; y LUAU(n) + AFU(n+1) + `TopMergeU` + `FCert` implican LUAU(n+1).
+
+**Refutado (formas o mecanismos que no valen):**
+* `MapCert` y `PieceLocal` en el estado unido (§4.2λ.1).
+* Elegir la fuente con un testigo cualquiera del paso `n` (ULUA con R1∀: 5 226 fallos; con algún testigo o con el ancla que
+  da A1K, 0).
+* `TriPin` con un nodo de la cima como pin (0,1 %): la estrella del ancla no es siempre un kernel.
+* La estrella del ancla sobrevive entera a fijar su requisito (1,5 %, `afu_star_probe.jl`; sus nodos sí, siempre).
+* Localidad anclada de entradas: si `x` y `v` poseen al ancla, la entrada `x→v` está en el estado del ancla (0,2 %,
+  `entry_anchor_probe.jl`).
+
+**Lectura.** Las cinco hipótesis se cumplen siempre, pero ningún mecanismo local las da: la clique se salva por sus testigos
+concretos en todos los pasos, no por propiedades de entradas sueltas ni de la estrella del ancla. Es el patrón del join (E1,
+E1w, H13). Una prueba necesita un argumento global que use los testigos de todos los pasos; la única herramienta global que
+ha funcionado es la semántica (cadena = solución parcial, `chain_in_piece`, `PrefixCarry`), que vale para cadenas.
+
+**Otras medidas de la sesión** (review corregida, sin fallos): `FCert` con filtros arbitrarios (68,5 M), `PieceLocalF`
+(66,9 M), ULUA (65,6 M), LUA exacta (5,70 M), `TopParent` y `CertClique` de piezas filtradas (5,4 M / 83,5 M),
+`MergeSplit` (1,63 M), A1/S2 con filtros (58,8 M / 81 M), AFU y A1KU en la unión de estados filtrados (6,26 M / 3,51 M),
+LUAU (387 k).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1463,8 +1515,9 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 
 ## 5. Orden recomendado
 
-1. Esperar `fcert_any_probe.jl`, `toppar_probe.jl` y `mergesplit_probe.jl` (§4.2λ.2). Si `MergeSplit` falla, volver a
-   `TopMerge` (más débil) o a `TopParent`.
+1. **Línea de investigación (§4.2μ):** un invariante semántico por testigos: qué garantiza, desde la historia, que una
+   clique con testigos en todos los pasos esté respaldada por una solución parcial. Empezar con sondas (¿bastan los testigos
+   de los pasos de cláusula, H19?).
 2. Atacar `PieceLocalF` y `MergeSplit` como un solo enunciado: «una clique con testigos se queda en un lado de dos
    fijaciones complementarias» (en el join: la clave; en la fusión: el abuelo). La selección la hace la clique entera
    (H19/B1: los testigos de los `L3`).
@@ -1496,6 +1549,8 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `LineUnion.lean` | `GL`, `GLF` (⚠ refutados con restricción en la cima), `certR_top_of_GLF`, `certR_low_of_GLF`, `mapCert_next_F` |
 | `FilterUnion.lean` | `mapCert_filter_pins`, `filter_union`, `piece_pinned_below` |
 | `FiltCert.lean` | `FCert`, `fCert_join`, `PieceLocalF`, `cert_piece_low`, `single_parent`, `gparent_owner`, `TopParent`, `TopMerge`, `MergeSplit`, `readerVerdictW_iff_of_mergeSplit` |
+| `AnchorPiece.lean` | `AnchorF`, `TopPieceF`, `pieceLocalF_of_anchor`, `topPieceF_of_luaJ`, `merge_pin`, `topParent_of_afp`, `ULUA`, `LUAJ`, `climb`, `line_one`, `anchorF_zero` |
+| `UnionLine.lean` | `lineU`, `UCtx_join`, `line_old`, `trunc_below`, `LUAU`, `luau_succ`, `climbE`, `afu_of_luau`, `anchorF_of_a1k`, `fCert_luau_line`, `readerVerdictW_iff_of_luau` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
