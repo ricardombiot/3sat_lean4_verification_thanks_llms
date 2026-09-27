@@ -1872,7 +1872,31 @@ inducción hacia abajo con CoverSplit.
   * p por debajo de n-1: CoverSplit y `M1bDeep`, y después Q_{k,i} está por debajo de X_k (`piece_grown`);
   * p en la fila n-1: v = p, o la entrada simétrica (v, p).
 
-**Siguiente nivel** (propuesto): `M1bDeep` ⇐ CoverSplit en la fila n-2 ∧ el mismo enunciado con tres claves ∧ subir de
+**La forma de cadena, demostrada** (`NodeHistory.lean`, `UpSelf.lean`, `TruncN.lean`, `M1bChain.lean`; 0 `sorry`, solo
+`[propext, Quot.sound]`). El esquema del «siguiente nivel» de abajo, hecho de una vez para todas las filas:
+* **`node_history`**: un nodo y de un estado de la línea N, en la fila m ≤ N, es nodo del estado de la línea m en
+  `y.id`, con menos padres y, hasta la fila m, con menos entradas. Sustituye a la pureza, que solo vale en las dos
+  filas de arriba de un estado unido.
+* **`below_up_trunc`**: un kernel cuya fila de arriba es de un solo nodo de mapa d está por debajo del `up` a d de su
+  propia truncación. Los nodos nuevos poseen lo que poseen sus padres, sus padres son los que se desplazan a ellos, y
+  los nodos viejos ganan los nuevos que los poseen.
+* **`TruncN`**: cortar un estado hasta una fila conserva su contexto (`good_truncN`); `below_of_owners` (tablas dentro
+  de tablas dan `Below`).
+* **`SrcAt n m`**: J fijado en L, con la clave de un estado S de la línea m en L, tiene las entradas (nodo por debajo
+  de m, entrada hasta m) dentro de S. **`srcAt_succ`**: `SrcAt n m ∧ CoverRow n (m+1) ⇒ SrcAt n (m+1)`:
+  * las entradas hacia un nodo de la clave salen de la historia;
+  * para el resto, `CoverRow` añade una clave j de la fila m, con su estado W. El estado fijado también en j,
+    cortado hasta la fila m+1, está por debajo:
+    * del `up` de su corte (`below_up_trunc`);
+    * de W filtrado para k (por `SrcAt n m`, la historia y los requisitos de k, que están fijados en S);
+    * de la pieza Q = `upF` W k, y por tanto de S.
+* `SrcAt n 0` vale sin más; `SrcAt n n` es `M1bSrc`.
+* **`readerVerdictW_iff_of_chain`: el lector decide `φ` bajo `M1aAll` y `CoverRow` en cada fila de cada join.**
+
+`M1bLowOwn` queda así reducido a una sola propiedad por fila, **CoverRow** (el estado fijado es la unión de sus
+fijaciones por la fila de debajo). Junto con `M1aAll`, son las únicas hipótesis del lector.
+
+**Siguiente nivel** (propuesto; ya cubierto por la forma de cadena de arriba): `M1bDeep` ⇐ CoverSplit en la fila n-2 ∧ el mismo enunciado con tres claves ∧ subir de
 W_i a Q_{k,i}. Subir de W_i a Q_{k,i} usa `key_reqs` para los requisitos de k, y el argumento de la fila nueva del `up`:
 un nodo nuevo posee la unión de las tablas de sus padres. A diferencia del primer nivel, las filas bajas de J no son
 puras, así que la entrada hacia la fila nueva tiene que salir del kernel y no de la pureza. Iterado hasta la fila 0,
@@ -2007,6 +2031,10 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `KFixCore.lean` | `KFixLow`, `witness_key`, `pure_link`, `kFix_of_low`, `readerVerdictW_iff_of_kFixLow` |
 | `M1bSrc.lean` | `M1bSrc`, `line_node_req`, `node_in_piece`, `key_reqs`, `line_pinCtx`, `m1_of_src`, `readerVerdictW_iff_of_src` |
 | `M1bDeep.lean` | `CoverSplit`, `M1bDeep`, `m1bSrc_of_cover`, `readerVerdictW_iff_of_cover` |
+| `NodeHistory.lean` | `piece_node_src`, `node_history` |
+| `UpSelf.lean` | `Ctx`, `shift_parent`, `top_newRow`, `below_up_trunc` |
+| `TruncN.lean` | `Good`, `good_trunc`, `truncN`, `good_truncN`, `truncN_node_inv`, `truncN_node_of`, `below_of_owners` |
+| `M1bChain.lean` | `SrcAt`, `CoverRow`, `hist_key`, `srcAt_succ`, `srcAt_all`, `m1bSrc_of_srcAt`, `readerVerdictW_iff_of_chain` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
