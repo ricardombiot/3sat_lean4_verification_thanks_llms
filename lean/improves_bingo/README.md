@@ -26,6 +26,8 @@ compilan los módulos que se importan.
 | `Model/Rule` | L6 | el marco: `Rule` = `apply` + `shrinks` + `keeps` + `docs`; `comp`, `fuel`; las reglas de hoy como instancias (`purge`, `pairs`, `links`, `parents`, `sons`, `pass`, `review`) |
 | `Model/Grow` | L6b | el join conserva la camarilla por cualquiera de los dos lados (`carried_join_left/right`); **el UP la alarga** (`carried_addNode`, `carried_up`) |
 | `Model/Machine` | L6b | inducción sobre las líneas (`LineOk`, `Has`, `StateOk`); **`run_carries`**: la línea final lleva la camarilla de toda solución; `machineVerdict_of_sat`; **`readerVerdict_of_sat_noZombie`** |
+| `Model/Struct` | L7 | invariantes estructurales (`PMP`, `GPMP`, `NoForb`, `OnMap` y **`ReqEdges`: los requisitos como invariante de aristas**); los conserva todo lo que solo borra, el UP y el join; `struct_run`, `struct_visited` |
+| `Model/Decode` | L7 | **`sat_of_carried`**: una camarilla llevada en el último paso es una solución; **`readerVerdict_iff_of_noZombie`** |
 | `Exe/Dump` | L3 | volcado en el formato de `dump_final.jl` |
 | `Model/GPathB` | L1 | `PNodeB`, `GPathB`; `Adj`/`adj_symm`, `neighborsAt`, `ownersOk`, `isValid`, `isValidNode`, `measure`; primitivas `removeEdge`, `addEdge`, `killVertex`, `removeNode`; `Sub` (refl, trans, y para cada primitiva); lo que se va (`not_adj_removeEdge`, `not_adj_killVertex`); la medida baja (`measure_removeEdge_lt`, `measure_removeNode_lt`) |
 
@@ -48,8 +50,13 @@ compilan los módulos que se importan.
   satisfacible (solo con `Bounded`).
 * **`readerVerdict_of_sat_noZombie`**: si `φ` es satisfacible y ningún estado que el lector visita desde la línea
   final es un zombi, el lector dice SAT. **La única hipótesis abierta del lector es `NoZombie`.**
-* Pendiente: la solidez del lector (si termina, lo leído es una solución; L7, puente estructural con
-  `improves_bin`).
+* **`sat_of_carried`** (`Model/Decode`): una camarilla llevada por un estado de la máquina o del lector, en el último
+  paso, se decodifica en una asignación que satisface `φ` (el argumento de `CnfChain`, con `ReqEdges` en lugar de
+  las tablas). Axiomas: `propext`, `Quot.sound`.
+* **`readerVerdict_iff_of_noZombie`**: si ningún estado que el lector visita desde la línea final es un zombi,
+  **`readerVerdict φ = true ↔ Satisfiable φ`**. Es la meta del plan: la única hipótesis abierta es `NoZombie`.
+* Pendiente (L7b, opcional): la solidez sin hipótesis (como `readerVerdictW_sound` de `improves_bin`), que exige
+  demostrar que el review termina en un estado limpio (combustible suficiente).
 * 0 `sorry`. Axiomas: `propext`, `Classical.choice`, `Quot.sound` (el `Classical.choice` viene de tácticas; se puede
   limpiar).
 

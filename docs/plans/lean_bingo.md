@@ -1,6 +1,6 @@
 # Plan: `lean/improves_bingo`, el espejo Lean de `julia/improves_bingo`
 
-27-sept-2026. Rama `graph_owners`. Estado: **L0–L3, L5 (parcial) y L6 (núcleo) hechos**; L4 aplazado (modelo muy lento). L5: `Shrinks` y `AliveDocs` para todo el review; faltan los demás invariantes de forma y el orden dentro de una línea. L6: `Carried`, el review la conserva, `Rule`, y `readG_isSome_of_noZombie`; L6b hecho: `run_carries`, `machineVerdict_of_sat` y `readerVerdict_of_sat_noZombie` (el lector decide las satisfacibles con `NoZombie` como única hipótesis). Decisiones: (1) `require` de `improves_bin`, (2) aristas en una orientación con `Adj` simétrica por definición, (3) rama `graph_owners`.
+27-sept-2026. Rama `graph_owners`. Estado: **L0–L3, L5 (parcial) y L6 (núcleo) hechos**; L4 aplazado (modelo muy lento). L5: `Shrinks` y `AliveDocs` para todo el review; faltan los demás invariantes de forma y el orden dentro de una línea. L6: `Carried`, el review la conserva, `Rule`, y `readG_isSome_of_noZombie`; L6b hecho: `run_carries`, `machineVerdict_of_sat`, `readerVerdict_of_sat_noZombie`. **L7 hecho: `readerVerdict_iff_of_noZombie`** (el veredicto del lector es la satisfacibilidad si ningún estado visitado es un zombi), con una prueba propia (`Struct` + `sat_of_carried`) en lugar del puente; la solidez sin hipótesis queda como L7b opcional. Decisiones: (1) `require` de `improves_bin`, (2) aristas en una orientación con `Adj` simétrica por definición, (3) rama `graph_owners`.
 
 ## Objetivo
 
