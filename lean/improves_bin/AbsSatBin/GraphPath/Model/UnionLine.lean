@@ -10,7 +10,23 @@ its top it sits inside the union of the previous line (every field of every node
 state of the previous line).
 
 * **Provenance of every field** (`SrcF`, `srcF_pureAdvance`): the owners, parents and sons of a node of a state of line
-  `n+1` come from `upFiltering` of states of line `n` (the owners part is `LineSem.Src`).
+  `n+1` come from `upFiltering` of states of line `n` (the owners part is `LineSem.Src`); below the top, from the states
+  of line `n` themselves (`piece_old`, `line_old`).
+* **The union as a state** (`UCtx`, `UCtx_join`, `lineU`, `lineU_props`): `join` ignores the second state's
+  `map_parent`, so the `_join` lemmas give the reader's context of the union; every state grows into it and every field
+  element of it comes from a state.
+* **Below the top, inside the previous line** (`LowIn`, `trunc_below`): the truncation of a filtered state (a joined
+  state, or the union of line `n+1`) sits below the union of line `n`.
+* **LUAU by induction** (`luau_zero`, `luau_succ`): an anchored clique with witnesses of the filtered union of a line is
+  one of the state of its anchor's key. The step pins the anchor's requirement (**AFU**, the anchored filter in the
+  union), gives the anchor's place to a parent (`single_parent`, or **`TopMergeU`** at a merge), goes below to the union
+  of the previous line, applies LUAU there, and climbs back with the certificate of `FCert` (`climbE`: the anchor is the
+  shift of its parent, a node of the piece).
+* **LUAJ from LUAU** (`luaJ_of_luau`), **A1 from A1K and LUAJ** (`anchorF_of_a1k`: the anchor's son in its piece is its
+  shift).
+* **`readerVerdictW_iff_of_luau`**: with `FCert` and LUAU carried together along the run (`fCert_luau_line`), the reader
+  decides under A1K (growth at the top of the truncation), AFU, `TopMergeU`, `TopMergeJ` and AF in the pieces. LUA is no
+  longer a hypothesis.
 -/
 
 namespace AbsSatBin.GraphPath.Model.UnionLine
@@ -487,5 +503,570 @@ theorem trunc_below (n : Nat) (g : GPathM) (hlow : LowIn φ g n) (hnd : NodupIds
 /-- info: 'AbsSatBin.GraphPath.Model.UnionLine.trunc_below' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms trunc_below
+
+-- ============================================================
+-- LUA on the union of a line, by induction
+-- ============================================================
+
+omit hbd in
+/-- A clique with witnesses of a kernel climbs to a state it sits below, which is then valid. -/
+theorem good_up {X h : GPathM} (hb : Kernel.Below X h) (hker : Kernel.Kernel h) {Q : List PathNodeId}
+    (hQ : Clique h Q) (hW : Wit h Q) : isValid X = true ∧ Clique X Q ∧ Wit X Q := by
+  refine ⟨?_, fun p hp => ?_, fun l h0 h1 => ?_⟩
+  · unfold isValid
+    rw [hb.step]
+    refine List.all_eq_true.mpr (fun l hl => ?_)
+    have h0 := mem_intRange_lower hl
+    have h1 := mem_intRange_upper hl
+    obtain ⟨r, nr, hnr, hrs, _⟩ := hW l h0 (by omega)
+    exact List.any_eq_true.mpr ⟨r, hb.gow r (hker.gow r nr hnr), beq_iff_eq.mpr hrs⟩
+  · obtain ⟨np, hnp, ho⟩ := hQ p hp
+    obtain ⟨nx, hnx, hox, _, _⟩ := hb.node p np hnp
+    exact ⟨nx, hnx, fun s hs => hox s (ho s hs)⟩
+  · obtain ⟨r, nr, hnr, hrs, ho⟩ := hW l h0 (by rw [← hb.step]; exact h1)
+    obtain ⟨nx, hnx, hox, _, _⟩ := hb.node r nr hnr
+    exact ⟨r, nx, hnx, hrs, fun s hs => hox s (ho s hs)⟩
+
+omit hbd in
+/-- **LUAU n**: a clique with witnesses `c :: Q0` of the union of line `n` filtered by `S`, with `c` at the top, is one
+of the state of `c`'s key filtered by `S`. -/
+def LUAU (n : Nat) : Prop :=
+  ∀ S : List NodeId, (∀ p ∈ S, 0 ≤ p.step ∧ p.step ≤ n) → isValid (filterAll (lineU φ n) S) = true →
+    ∀ c Q0, Clique (filterAll (lineU φ n) S) (c :: Q0) → Wit (filterAll (lineU φ n) S) (c :: Q0) →
+    c.id.step = n → ∀ kv ∈ line φ n, kv.1 = c.id →
+      isValid (filterAll kv.2 S) = true ∧ Clique (filterAll kv.2 S) (c :: Q0) ∧ Wit (filterAll kv.2 S) (c :: Q0)
+
+omit hbd in
+/-- **AFU n**: in the union of line `n` filtered by `S`, a clique with witnesses with a top member `c` survives the pin
+of `c`'s requirement (the anchored filter, AF, in the union: `c` fixes it). -/
+def AFU (n : Nat) : Prop :=
+  ∀ S : List NodeId, (∀ p ∈ S, 0 ≤ p.step ∧ p.step ≤ n) → isValid (filterAll (lineU φ n) S) = true →
+    ∀ c Q0, Clique (filterAll (lineU φ n) S) (c :: Q0) → Wit (filterAll (lineU φ n) S) (c :: Q0) →
+    c.id.step = n → ∀ r ∈ reqOf φ c.id,
+      isValid (filterAll (lineU φ n) (S ++ [r])) = true ∧ Clique (filterAll (lineU φ n) (S ++ [r])) (c :: Q0) ∧
+      Wit (filterAll (lineU φ n) (S ++ [r])) (c :: Q0)
+
+omit hbd in
+/-- **TopMergeU n**: in the filtered union of line `n`, a clique with witnesses whose top member comes from a merge hands
+itself to one of its parents. -/
+def TopMergeU (n : Nat) : Prop :=
+  ∀ S : List NodeId, (∀ p ∈ S, 0 ≤ p.step ∧ p.step ≤ n) → isValid (filterAll (lineU φ n) S) = true →
+    ∀ c Q0, Clique (filterAll (lineU φ n) S) (c :: Q0) → Wit (filterAll (lineU φ n) S) (c :: Q0) →
+    c.id.step = n → (∀ q ∈ Q0, q.id.step < n) →
+    ∀ nc, (filterAll (lineU φ n) S).node? c = some nc → (∃ c₁ ∈ nc.parents, ∃ c₂ ∈ nc.parents, c₁ ≠ c₂) →
+    ∃ cp ∈ nc.parents, Clique (filterAll (lineU φ n) S) (cp :: Q0) ∧ Wit (filterAll (lineU φ n) S) (cp :: Q0)
+
+omit hbd in
+/-- **LUAU at line 0**: the union of line 0 is the seed, the only state. -/
+theorem luau_zero : LUAU φ 0 := by
+  intro S _ hv c Q0 hQ hW _ kv hkv _
+  have hm : mapNodes φ 0 = [⟨0, 0⟩] := mapNodes_fusion φ 0 (Or.inl rfl)
+  have h0 : line φ 0 = [(⟨0, 0⟩, GPathM.initSeed ⟨0, 0⟩ "")] := by
+    show pureInit φ = _
+    unfold pureInit; rw [hm]; rfl
+  have hU : lineU φ 0 = GPathM.initSeed ⟨0, 0⟩ "" := by
+    unfold lineU; simp only [h0, List.foldl_nil]
+  rw [hU] at hv hQ hW
+  rw [line_zero φ kv hkv]
+  exact ⟨hv, hQ, hW⟩
+
+/-- **A certificate of a source pinned by the requirements and the pins below the top climbs to the filtered piece**,
+when the shift of its node at step `n` is a node of the piece (so its window is allowed) and every pin at the top is the
+destination. -/
+theorem climbE (n : Nat) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId)
+    (hd : d ∈ sonsOfMap φ kv.1) (hv : isValid (upF φ kv.2 d) = true)
+    (ps : List NodeId) (htop : ∀ r ∈ ps, r.step = (n : Int) + 1 → r = d) (sel : Int → PathNodeId)
+    (hsG : ChainSound (filterAll kv.2 (reqOf φ d ++ ps.filter (fun m => decide (m.step ≤ (n : Int))))) sel)
+    (hz : ∃ nz, (upF φ kv.2 d).node? (shiftPid (sel n) d) = some nz) :
+    ChainSound (filterAll (upF φ kv.2 d) ps) (extend (filterAll kv.2 (reqOf φ d)) d sel) ∧
+      (∀ l, l ≤ (n : Int) → extend (filterAll kv.2 (reqOf φ d)) d sel l = sel l) ∧
+      extend (filterAll kv.2 (reqOf φ d)) d sel ((n : Int) + 1) = shiftPid (sel n) d := by
+  obtain ⟨hok, hdst, hcs, _, hvF, hnd⟩ := src_ctx φ hbd n kv hkv d hd hv
+  have hb := KernelIff.below_filterAll_self kv.2 hnd (reqOf φ d)
+  have hFcs : (filterAll kv.2 (reqOf φ d)).current_step = (n : Int) + 1 := by rw [← hb.step, hcs]
+  have hdF : d.step = (filterAll kv.2 (reqOf φ d)).current_step := by rw [hFcs, ← hcs, hdst]
+  have c := filt_ctx φ hbd n kv hok (reqOf φ d) hvF
+  have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv hok d hd hv
+  have hPcs : (upF φ kv.2 d).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  have hsX : ChainSound kv.2 sel :=
+    ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self kv.2 hnd _)) sel hsG
+  have hpS := chain_pins kv.2 _ sel hsG
+  have hreqs : ∀ req ∈ reqOf φ d, 0 ≤ req.step → req.step < kv.2.current_step → (sel req.step).id = req :=
+    fun req hr h0 h1 => hpS req (List.mem_append_left _ hr) h0 h1
+  have hmokX : MachineOk kv.2 := ⟨by rw [hok.step]; omega, fun h => by rw [hok.step] at h; omega,
+    fun _ => by rw [hok.par]; simp⟩
+  have hmok : MachineOk (filterAll kv.2 (reqOf φ d)) := MachineOk_of_pruned (pruned_filterAll _ _) hmokX
+  have hpos : 0 < (filterAll kv.2 (reqOf φ d)).current_step := by omega
+  have hext : extendPid (filterAll kv.2 (reqOf φ d)) d sel = shiftPid (sel n) d := by
+    unfold extendPid; rw [if_pos hpos, hFcs, show (n : Int) + 1 - 1 = n by omega]
+  obtain ⟨nz, hnz⟩ := hz
+  have hznew := (upF_new φ kv.2 d hdst c hv _ nz hnz (show d.step = kv.2.current_step from hdst)).1
+  have hf : isProhibited φ (extendPid (filterAll kv.2 (reqOf φ d)) d sel) = false := by
+    rw [hext]; exact not_forb_of_mem_newRowIds _ _ _ _ hznew
+  have hsP : ChainSound (upF φ kv.2 d) (extend (filterAll kv.2 (reqOf φ d)) d sel) :=
+    ChainSound_upFiltering kv.2 (reqOf φ d) d "" (isProhibited φ) hvF hdF c.pc.below hmok sel hsX hreqs hf
+  have hlow : ∀ l, l ≤ (n : Int) → extend (filterAll kv.2 (reqOf φ d)) d sel l = sel l := by
+    intro l hl; unfold extend; rw [if_neg (by rw [hFcs]; omega)]
+  have htopE : extend (filterAll kv.2 (reqOf φ d)) d sel ((n : Int) + 1) = shiftPid (sel n) d := by
+    rw [show (n : Int) + 1 = (filterAll kv.2 (reqOf φ d)).current_step by rw [hFcs], extend_top, hext]
+  refine ⟨ChainSound_filterAll _ ps _ hsP (fun r hr h0 h1 => ?_), hlow, htopE⟩
+  rw [hPcs] at h1
+  by_cases hrt : r.step = (n : Int) + 1
+  · rw [hrt, htopE, htop r hr hrt]; rfl
+  · rw [hlow r.step (by omega)]
+    exact hpS r (List.mem_append_right _ (List.mem_filter.mpr ⟨hr, decide_eq_true (by omega)⟩)) h0
+      (by rw [hcs]; omega)
+
+/-- info: 'AbsSatBin.GraphPath.Model.UnionLine.climbE' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms climbE
+
+/-- **The step of LUAU.** A clique with witnesses `c :: Q` of the filtered union of line `n+1`, anchored at `c` on the
+top, is pinned at `c`'s requirement (AFU); `c` gives its place to a parent `cp` (`parent_or_merge`, `TopMergeU`); the
+truncation sits below the union of line `n`, pinned (`trunc_below`); LUAU at `n` puts `cp :: Q₀` in the state of `cp`'s
+key, `FCert` gives a certificate there, and it climbs through `up` with `c` (the shift of `cp`, a node of the piece) into
+the state of `c`'s key. -/
+theorem luau_succ (n : Nat) (hL : LUAU φ n) (hA : AFU φ (n + 1)) (hTM : TopMergeU φ (n + 1))
+    (hX : ∀ kv ∈ line φ n, FCert kv.2) : LUAU φ (n + 1) := by
+  intro S hS hv c Q hQ hW hcs kv hkv hkey
+  have hcs' : c.id.step = (n : Int) + 1 := by rw [hcs]; push_cast; rfl
+  obtain ⟨hU, hUcs, hgrU, hsrcU, _⟩ := lineU_props φ hbd (n + 1) kv hkv
+  have hUcs' : (lineU φ (n + 1)).current_step = (n : Int) + 2 := by rw [hUcs]; push_cast; omega
+  have hbU := KernelIff.below_filterAll_self (lineU φ (n + 1)) hU.rc.nodup S
+  have hFcs : (filterAll (lineU φ (n + 1)) S).current_step = (n : Int) + 2 := by rw [← hbU.step, hUcs']
+  have cF := actx_of_uctx _ hU S hv
+  -- the members below the top
+  have hsub0 : ∀ q ∈ c :: Q.filter (fun q => decide (q.id.step ≤ (n : Int))), q ∈ c :: Q := by
+    intro q hq
+    rcases List.mem_cons.mp hq with e | hq
+    · rw [e]; exact List.mem_cons_self
+    · exact List.mem_cons_of_mem _ (List.mem_filter.mp hq).1
+  obtain ⟨hQ0, hW0⟩ := good_sub hsub0 hQ hW
+  have hlow0 : ∀ q ∈ Q.filter (fun q => decide (q.id.step ≤ (n : Int))), q.id.step ≤ n :=
+    fun q hq => of_decide_eq_true (List.mem_filter.mp hq).2
+  -- pin `c`'s requirement
+  have hreqr : ∀ r ∈ reqOf φ c.id, 0 ≤ r.step ∧ r.step ≤ n := fun r hr =>
+    ⟨reqOf_nonneg φ hbd c.id r hr, by have := reqOf_backward φ hbd c.id r hr; rw [hcs'] at this; omega⟩
+  obtain ⟨hvF', hQ', hW'⟩ : isValid (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)) = true ∧
+      Clique (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)) (c :: Q.filter (fun q => decide (q.id.step ≤ (n : Int)))) ∧
+      Wit (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)) (c :: Q.filter (fun q => decide (q.id.step ≤ (n : Int)))) := by
+    have hl := reqOf_length_le_one φ c.id
+    cases hr : reqOf φ c.id with
+    | nil => rw [List.append_nil]; exact ⟨hv, hQ0, hW0⟩
+    | cons r rest =>
+      cases rest with
+      | cons _ _ => rw [hr] at hl; simp at hl
+      | nil => exact hA S hS hv c _ hQ0 hW0 hcs r (by rw [hr]; exact List.mem_cons_self)
+  have hS' : ∀ p ∈ S ++ reqOf φ c.id, 0 ≤ p.step ∧ p.step ≤ ((n + 1 : Nat) : Int) := by
+    intro p hp
+    rcases List.mem_append.mp hp with hp | hp
+    · exact hS p hp
+    · exact ⟨(hreqr p hp).1, by have := (hreqr p hp).2; push_cast; omega⟩
+  have cF' := actx_of_uctx _ hU _ hvF'
+  have hbU' := KernelIff.below_filterAll_self (lineU φ (n + 1)) hU.rc.nodup (S ++ reqOf φ c.id)
+  have hF'cs : (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)).current_step = (n : Int) + 2 := by
+    rw [← hbU'.step, hUcs']
+  obtain ⟨nc, hnc, _⟩ := hQ' c List.mem_cons_self
+  have hcmem := List.mem_of_find?_eq_some hnc
+  have hcid : nc.id = c := node?_id_eq _ c nc hnc
+  -- a parent `cp` takes `c`'s place
+  obtain ⟨cp, hcp, hQc, hWc⟩ : ∃ cp ∈ nc.parents,
+      Clique (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)) (cp :: Q.filter (fun q => decide (q.id.step ≤ (n : Int)))) ∧
+      Wit (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)) (cp :: Q.filter (fun q => decide (q.id.step ≤ (n : Int)))) := by
+    rcases parent_or_merge cF' c nc hnc (by rw [hcs']; omega) _ hQ' hW' with hm | h
+    · exact hTM _ hS' hvF' c _ hQ' hW' hcs (fun q hq => by have := hlow0 q hq; push_cast; omega) nc hnc hm
+    · exact h
+  have hcps : cp.id.step = (n : Int) := by
+    have := cF'.pc.pb nc hcmem cp hcp; rw [hcid, hcs'] at this; omega
+  have hparc : some cp.id = c.parent_id := by
+    have := cF'.rc.pmp nc hcmem cp hcp; rw [hcid] at this; exact this
+  have hgpar : c.gparent_id = cp.parent_id := by
+    have := cF'.rc.gpmp.1 nc hcmem cp hcp; rw [hcid] at this; exact this
+  -- a state of line `n`
+  obtain ⟨ncp, hncp, _⟩ := hQc cp List.mem_cons_self
+  obtain ⟨ncpU, hncpU, _, _, _⟩ := hbU'.node cp ncp hncp
+  obtain ⟨kv1, hkv1, h1⟩ := hsrcU cp ncpU hncpU
+  obtain ⟨n1, hn1⟩ := Option.isSome_iff_exists.mp h1
+  obtain ⟨⟨kv0, hkv0, _⟩, _⟩ := lowIn_line φ hbd n kv1 hkv1 cp n1 hn1 (by omega)
+  -- the truncation, below the union of line `n`, pinned
+  have hBK := trunc_below φ hbd n (lineU φ (n + 1)) (lowIn_lineU φ hbd n kv hkv) hU.rc.nodup hUcs' _ cF' kv0 hkv0
+  have hkT := Trunc.kernel_trunc cF'.pc.ker cF'.pc.pb cF'.pc.sa cF'.pc.below
+  have hBL := Kernel.below_filterAll hkT hBK ((S ++ reqOf φ c.id).filter (fun m => decide (m.step ≤ (n : Int))))
+    (fun r hr q hq hqs => LineUnion.gowner_pinned _ _ q (List.mem_filter.mp hq).1 r (List.mem_filter.mp hr).1 hqs)
+  have toK : ∀ p np, (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)).node? p = some np → p.id.step ≤ n →
+      (Trunc.trunc (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id))).node? p =
+        some (Trunc.cutTop ((filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)).current_step - 1) np) :=
+    fun p np hnp hps' => Trunc.trunc_node?_of _ p np hnp (by rw [hF'cs]; omega)
+  have hlowc : ∀ q ∈ cp :: Q.filter (fun q => decide (q.id.step ≤ (n : Int))), q.id.step ≤ n := by
+    intro q hq
+    rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hcps]; exact Int.le_refl _
+    · exact hlow0 q hq
+  have hKcs : (Trunc.trunc (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id))).current_step = (n : Int) + 1 := by
+    show (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)).current_step - 1 = _; rw [hF'cs]; omega
+  have hQK : Clique (Trunc.trunc (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)))
+      (cp :: Q.filter (fun q => decide (q.id.step ≤ (n : Int)))) := fun p hp => by
+    obtain ⟨np, hnp, ho⟩ := hQc p hp
+    exact ⟨_, toK p np hnp (hlowc p hp), fun s hs =>
+      (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hF'cs]; have := hlowc s hs; omega⟩⟩
+  have hWK : Wit (Trunc.trunc (filterAll (lineU φ (n + 1)) (S ++ reqOf φ c.id)))
+      (cp :: Q.filter (fun q => decide (q.id.step ≤ (n : Int)))) := by
+    intro l h0 h1
+    rw [hKcs] at h1
+    obtain ⟨r, nr, hnr, hrs, ho⟩ := hWc l h0 (by rw [hF'cs]; omega)
+    exact ⟨r, _, toK r nr hnr (by omega), hrs, fun s hs =>
+      (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hF'cs]; have := hlowc s hs; omega⟩⟩
+  obtain ⟨hvL, hQL, hWL⟩ := good_up hBL hkT hQK hWK
+  have hS2 : ∀ p ∈ (S ++ reqOf φ c.id).filter (fun m => decide (m.step ≤ (n : Int))), 0 ≤ p.step ∧ p.step ≤ n := by
+    intro p hp
+    obtain ⟨hp, hle⟩ := List.mem_filter.mp hp
+    exact ⟨(hS' p hp).1, of_decide_eq_true hle⟩
+  -- the state `Y` of `cp`'s key
+  obtain ⟨hUn, _, _, hsrcUn, _⟩ := lineU_props φ hbd n kv0 hkv0
+  obtain ⟨nL, hnL, _⟩ := hQL cp List.mem_cons_self
+  obtain ⟨nL', hnL', _, _, _⟩ := (KernelIff.below_filterAll_self (lineU φ n) hUn.rc.nodup _).node cp nL hnL
+  obtain ⟨Y, hY, hYs⟩ := hsrcUn cp nL' hnL'
+  obtain ⟨nY, hnY⟩ := Option.isSome_iff_exists.mp hYs
+  have cY := KernelUp.aCtx_line φ hbd n Y hY
+  have hYkey : Y.1 = cp.id :=
+    (top_entry_key φ hbd n Y hY cp nY hnY cp (TriPinCut.self_own_pc cY.pc cp nY hnY) hcps).symm
+  obtain ⟨hvG, hQG, hWG⟩ := hL _ hS2 hvL cp _ hQL hWL hcps Y hY hYkey
+  have hYcs : Y.2.current_step = (n : Int) + 1 := ((lineOk φ n).2 Y hY).step
+  obtain ⟨sel, hsG, hon⟩ := hX Y hY _ (fun p hp => ⟨(hS2 p hp).1, by rw [hYcs]; have := (hS2 p hp).2; omega⟩)
+    hvG _ hQG hWG
+  -- `c` lives in the state of its key, and comes from the piece of `Y`
+  obtain ⟨ncF, hncF, hcownF⟩ := hQ c List.mem_cons_self
+  obtain ⟨ncU, hncU, hoU, _, _⟩ := hbU.node c ncF hncF
+  obtain ⟨kv2, hkv2, h2⟩ := hsrcU c ncU hncU
+  obtain ⟨n2, hn2⟩ := Option.isSome_iff_exists.mp h2
+  have c2 := KernelUp.aCtx_line φ hbd (n + 1) kv2 hkv2
+  have hk2 := top_entry_key φ hbd (n + 1) kv2 hkv2 c n2 hn2 c (TriPinCut.self_own_pc c2.pc c n2 hn2) hcs
+  have he2 : kv2 = kv := key_inj _ (lineOk φ (n + 1)).1 kv2 hkv2 kv hkv (hk2.symm.trans hkey.symm)
+  subst he2
+  obtain ⟨Y', hY', hd, hvp, hpY, hent⟩ := StateGrow.top_one_source φ hbd n kv2 hkv2 c n2 hn2 hcs'
+  have hY'Y : Y' = Y := key_inj _ (lineOk φ n).1 Y' hY' Y hY
+    (by rw [hYkey]; exact Option.some.inj (hpY.symm.trans hparc.symm))
+  subst hY'Y
+  obtain ⟨nz, hnz, _⟩ := hent c (TriPinCut.self_own_pc c2.pc c n2 hn2)
+  have hshift : shiftPid cp kv2.1 = c := by
+    unfold shiftPid
+    have hwd : c.id = kv2.1 := hk2
+    revert hwd hparc hgpar
+    cases c with
+    | mk ci cpar cg =>
+      intro hwd hparc hgpar
+      simp only at hwd hparc hgpar
+      rw [hwd, hparc, hgpar]
+  have hselc : sel n = cp := by rw [← hcps]; exact hon cp List.mem_cons_self
+  -- the certificate, pinned as the climb wants it
+  have hndY := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ ((lineOk φ n).2 Y' hY').reach)
+  have hsY : ChainSound Y'.2 sel :=
+    ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self Y'.2 hndY _)) sel hsG
+  have hkeyc : reqOf φ kv2.1 = reqOf φ c.id := by rw [hk2]
+  have hsG' : ChainSound (filterAll Y'.2 (reqOf φ kv2.1 ++ S.filter (fun m => decide (m.step ≤ (n : Int))))) sel := by
+    refine ChainSound_filterAll Y'.2 _ sel hsY (fun r hr h0 h1 => chain_pins Y'.2 _ sel hsG r ?_ h0 h1)
+    rcases List.mem_append.mp hr with hr | hr
+    · rw [hkeyc] at hr
+      exact List.mem_filter.mpr ⟨List.mem_append_right _ hr, decide_eq_true (hreqr r hr).2⟩
+    · obtain ⟨hr, hle⟩ := List.mem_filter.mp hr
+      exact List.mem_filter.mpr ⟨List.mem_append_left _ hr, hle⟩
+  have htopS : ∀ r ∈ S, r.step = (n : Int) + 1 → r = kv2.1 := by
+    intro r hr hrs
+    have := LineUnion.gowner_pinned _ S c (cF.pc.ker.gow c ncF hncF) r hr (by rw [hcs', hrs])
+    rw [← this, hk2]
+  obtain ⟨hsP, hlowsel, htopE⟩ := climbE φ hbd n Y' hY' kv2.1 hd hvp S htopS sel hsG'
+    ⟨nz, by rw [hselc, hshift]; exact hnz⟩
+  -- into the state of `c`'s key
+  obtain ⟨h, hmem, hgr⟩ := PieceJoin.piece_grown φ n Y' hY' kv2.1 hd hvp
+  have he : (kv2.1, h) = kv2 := key_inj _ (lineOk φ (n + 1)).1 _ hmem kv2 hkv2 rfl
+  have hP : StateOk φ ((n : Int) + 1) (kv2.1, upF φ Y'.2 kv2.1) := StateOk_sent φ n Y' ((lineOk φ n).2 Y' hY') kv2.1 hd hvp
+  have hndP := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hP.reach)
+  have hsJ : ChainSound (filterAll h S) (extend (filterAll Y'.2 (reqOf φ kv2.1)) kv2.1 sel) := by
+    have hsU : ChainSound (upF φ Y'.2 kv2.1) (extend (filterAll Y'.2 (reqOf φ kv2.1)) kv2.1 sel) :=
+      ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self _ hndP S)) _ hsP
+    exact ChainSound_filterAll h S _ (ChainSound_of_grown hgr _ hsU) (fun r hr h0 h1 =>
+      chain_pins (upF φ Y'.2 kv2.1) S _ hsP r hr h0 (by rw [← hgr.step_eq]; exact h1))
+  rw [← he]
+  have hJcs : (filterAll h S).current_step = (n : Int) + 2 := by
+    have := ((lineOk φ (n + 1)).2 _ hmem).step
+    rw [(pruned_filterAll _ S).step_eq, this]; push_cast; omega
+  exact good_of_chain _ hsJ (c :: Q) (fun q hq => by
+    rw [hJcs]
+    rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hcs', htopE, hselc, hshift]; exact ⟨by omega, by omega, rfl⟩
+    · obtain ⟨nq, hnq, _⟩ := hQ q (List.mem_cons_of_mem _ hq)
+      have hqr := CertFix.step_range cF.pc q nq hnq
+      rw [hFcs] at hqr
+      by_cases hqs : q.id.step ≤ (n : Int)
+      · refine ⟨hqr.1, by omega, ?_⟩
+        rw [hlowsel _ hqs]
+        exact hon q (List.mem_cons_of_mem _ (List.mem_filter.mpr ⟨hq, decide_eq_true hqs⟩))
+      · have hqs' : q.id.step = (n : Int) + 1 := by omega
+        have hncFm := List.mem_of_find?_eq_some hncF
+        have hncFid : ncF.id = c := node?_id_eq _ c ncF hncF
+        have hqc : q = c := by
+          have := cF.pc.oos ncF hncFm q (hcownF q (List.mem_cons_of_mem _ hq)) (by rw [hncFid, hqs', hcs'])
+          rw [hncFid] at this; exact this
+        rw [hqc, hcs', htopE, hselc, hshift]; exact ⟨by omega, by omega, rfl⟩)
+
+/-- info: 'AbsSatBin.GraphPath.Model.UnionLine.luau_succ' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms luau_succ
+
+/-- **LUAU gives LUAJ**: the truncated filtered joined state sits below the union of its line, pinned by the
+destination's requirements and by `R` below the top (`trunc_below`). -/
+theorem luaJ_of_luau (n : Nat) (hL : LUAU φ n) : LUAJ φ n := by
+  intro kv' hkv' R hR hv cp Q0 hQK hWK hcps _ kv hkv _ _ hkey
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hreach' := MapReachable.reachable_of_mapReachable φ hbd _ hok'.reach
+  have hnd' := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreach'
+  have cF := filt_ctx φ hbd _ kv' hok' R hv
+  have hbJ := KernelIff.below_filterAll_self kv'.2 hnd' R
+  have hcsJ : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hFcs : (filterAll kv'.2 R).current_step = (n : Int) + 2 := by rw [← hbJ.step, hcsJ]
+  have hkT := Trunc.kernel_trunc cF.pc.ker cF.pc.pb cF.pc.sa cF.pc.below
+  have hKcs : (Trunc.trunc (filterAll kv'.2 R)).current_step = (n : Int) + 1 := by
+    show (filterAll kv'.2 R).current_step - 1 = _; rw [hFcs]; omega
+  obtain ⟨kvd, hkvd, hdd, hvd, _⟩ : ∃ kv0 ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv0.1 ∧
+      isValid (upF φ kv0.2 kv'.1) = true ∧ True := by
+    obtain ⟨nc, hnc, _⟩ := hQK cp List.mem_cons_self
+    obtain ⟨nF, hnF, _, _⟩ := Trunc.trunc_node?_some _ cp nc hnc
+    obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node cp nF hnF
+    obtain ⟨kv0, hkv0, hd0, hv0, _⟩ := (PieceJoin.join_no_new φ n kv' hkv').1 cp nJ hnJ
+    exact ⟨kv0, hkv0, hd0, hv0, trivial⟩
+  obtain ⟨_, hdst, hcs, _, _, _⟩ := src_ctx φ hbd n kvd hkvd kv'.1 hdd hvd
+  -- a node of the joined state below the top lives in a source, with its entries below the top
+  have toSrc : ∀ p nJ, kv'.2.node? p = some nJ → p.id.step ≤ n → ∀ v ∈ nJ.owners, v.id.step ≤ n →
+      ∃ kv0 ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv0.1 ∧ isValid (upF φ kv0.2 kv'.1) = true ∧
+        ∃ nF0, (filterAll kv0.2 (reqOf φ kv'.1)).node? p = some nF0 ∧ v ∈ nF0.owners := by
+    intro p nJ hnJ hps v hv hvs
+    obtain ⟨kv0, hkv0, hd0, hv0, n', hn', hvn'⟩ := (PieceJoin.join_no_new φ n kv' hkv').2 p nJ hnJ v hv
+    obtain ⟨hok0, hdst0, hcs0, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
+    have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
+    obtain ⟨nF0, hnF0, ho0⟩ := upF_old φ kv0.2 kv'.1 hdst0 c0 hv0 p n' hn' (by rw [hcs0]; omega)
+    exact ⟨kv0, hkv0, hd0, hv0, nF0, hnF0, ho0 v hvn' (by rw [hcs0]; omega)⟩
+  have hreqr : ∀ r ∈ reqOf φ kv'.1, 0 ≤ r.step ∧ r.step ≤ n := fun r hr =>
+    ⟨reqOf_nonneg φ hbd kv'.1 r hr, by have := reqOf_backward φ hbd kv'.1 r hr; rw [hdst, hcs] at this; omega⟩
+  have hSr : ∀ p ∈ reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))), 0 ≤ p.step ∧ p.step ≤ n := by
+    intro p hp
+    rcases List.mem_append.mp hp with hp | hp
+    · exact hreqr p hp
+    · obtain ⟨hp, hle⟩ := List.mem_filter.mp hp
+      exact ⟨(hR p hp).1, of_decide_eq_true hle⟩
+  have hpinK : ∀ r ∈ reqOf φ kv'.1 ++ R.filter (fun m => decide (m.step ≤ (n : Int))),
+      ∀ q ∈ (Trunc.trunc (filterAll kv'.2 R)).gowners, q.id.step = r.step → q.id = r := by
+    intro r hr q hq hqs
+    have hqF : q ∈ (filterAll kv'.2 R).gowners := (List.mem_filter.mp hq).1
+    rcases List.mem_append.mp hr with hr | hr
+    · obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (cF.pc.ker.gn q hqF)
+      obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node q nq hnq
+      have hqs' : q.id.step ≤ n := by rw [hqs]; exact (hreqr r hr).2
+      obtain ⟨kv0, hkv0, hd0, hv0, nF0, hnF0, _⟩ := toSrc q nJ hnJ hqs' q
+        (by obtain ⟨nJ', hnJ', hoJ, _, _⟩ := hbJ.node q nq hnq
+            rw [hnJ] at hnJ'; cases hnJ'
+            exact hoJ q (TriPinCut.self_own_pc cF.pc q nq hnq)) hqs'
+      obtain ⟨hok0, _, _, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
+      have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
+      exact LineUnion.pinned_entry φ kv0.2 kv'.1 q (c0.pc.ker.gow q nF0 hnF0) r hr hqs
+    · exact LineUnion.gowner_pinned kv'.2 R q hqF r (List.mem_filter.mp hr).1 hqs
+  have hBK := trunc_below φ hbd n kv'.2 (lowIn_line φ hbd n kv' hkv') hnd' hcsJ R cF kv hkv
+  have hBL := Kernel.below_filterAll hkT hBK _ hpinK
+  obtain ⟨hvL, hQL, hWL⟩ := good_up hBL hkT hQK hWK
+  exact hL _ hSr hvL cp _ hQL hWL hcps kv hkv hkey
+
+/-- info: 'AbsSatBin.GraphPath.Model.UnionLine.luaJ_of_luau' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms luaJ_of_luau
+
+-- ============================================================
+-- A1 from growth at the top of the truncation (A1K) and LUAJ
+-- ============================================================
+
+omit hbd in
+/-- **A1K n**: a clique with witnesses of a filtered joined state of line `n+1` without its top row (members below
+step `n+1`) gains a node at step `n`, keeping its witnesses. -/
+def A1K (n : Nat) : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ R : List NodeId, (∀ p ∈ R, 0 ≤ p.step ∧ p.step < kv'.2.current_step) →
+    isValid (filterAll kv'.2 R) = true → ∀ Q, Clique (Trunc.trunc (filterAll kv'.2 R)) Q →
+      Wit (Trunc.trunc (filterAll kv'.2 R)) Q → (∀ q ∈ Q, q.id.step ≤ n) →
+      ∃ c, c.id.step = (n : Int) ∧ Clique (Trunc.trunc (filterAll kv'.2 R)) (c :: Q) ∧
+        Wit (Trunc.trunc (filterAll kv'.2 R)) (c :: Q)
+
+/-- **A1 from A1K and LUAJ.** The anchor `c` at step `n` puts the clique in its source (LUAJ); `FCert` gives a
+certificate; `c` has a son in its piece, which is the shift of `c`, so the certificate climbs (`climbE`) to the piece
+and to the joined state, and its top node anchors the clique. -/
+theorem anchorF_of_a1k (n : Nat) (hA : A1K φ n) (hLJ : LUAJ φ n) (hX : ∀ kv ∈ line φ n, FCert kv.2) :
+    AnchorF φ n := by
+  intro kv' hkv' R hR hv Q hQ hW hlow
+  have hok' : StateOk φ ((n + 1 : Nat) : Int) kv' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hreach' := MapReachable.reachable_of_mapReachable φ hbd _ hok'.reach
+  have hnd' := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreach'
+  have cF := filt_ctx φ hbd _ kv' hok' R hv
+  have hbJ := KernelIff.below_filterAll_self kv'.2 hnd' R
+  have hcsJ : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hFcs : (filterAll kv'.2 R).current_step = (n : Int) + 2 := by rw [← hbJ.step, hcsJ]
+  have hKcs : (Trunc.trunc (filterAll kv'.2 R)).current_step = (n : Int) + 1 := by
+    show (filterAll kv'.2 R).current_step - 1 = _; rw [hFcs]; omega
+  have toK : ∀ p np, (filterAll kv'.2 R).node? p = some np → p.id.step ≤ n →
+      (Trunc.trunc (filterAll kv'.2 R)).node? p =
+        some (Trunc.cutTop ((filterAll kv'.2 R).current_step - 1) np) :=
+    fun p np hnp hps' => Trunc.trunc_node?_of _ p np hnp (by rw [hFcs]; omega)
+  have hQK : Clique (Trunc.trunc (filterAll kv'.2 R)) Q := fun p hp => by
+    obtain ⟨np, hnp, ho⟩ := hQ p hp
+    exact ⟨_, toK p np hnp (hlow p hp), fun s hs =>
+      (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hFcs]; have := hlow s hs; omega⟩⟩
+  have hWK : Wit (Trunc.trunc (filterAll kv'.2 R)) Q := by
+    intro l h0 h1
+    rw [hKcs] at h1
+    obtain ⟨r, nr, hnr, hrs, ho⟩ := hW l h0 (by rw [hFcs]; omega)
+    exact ⟨r, _, toK r nr hnr (by omega), hrs, fun s hs =>
+      (Trunc.mem_cutTop_owners _ _ s).mpr ⟨ho s hs, by rw [hFcs]; have := hlow s hs; omega⟩⟩
+  -- the anchor at step `n` and its source
+  obtain ⟨c, hcs, hQc, hWc⟩ := hA kv' hkv' R hR hv Q hQK hWK hlow
+  obtain ⟨nck, hnck, _⟩ := hQc c List.mem_cons_self
+  obtain ⟨ncF, hncF, _, _⟩ := Trunc.trunc_node?_some _ c nck hnck
+  obtain ⟨ncJ, hncJ, _, _, _⟩ := hbJ.node c ncF hncF
+  obtain ⟨kv, hkv, hd, hvp, hkey, hent⟩ := PieceJoin.mid_one_source φ hbd n kv' hkv' c ncJ hncJ hcs
+  obtain ⟨hvG, hQG, hWG⟩ := hLJ kv' hkv' R hR hv c Q hQc hWc hcs hlow kv hkv hd hvp hkey.symm
+  obtain ⟨hok, _, hcs0, _, _, _⟩ := src_ctx φ hbd n kv hkv kv'.1 hd hvp
+  obtain ⟨sel, hsG, hon⟩ := hX kv hkv _ (fun p hp => by
+    rcases List.mem_append.mp hp with hp | hp
+    · exact ⟨reqOf_nonneg φ hbd kv'.1 p hp, by
+        have := reqOf_backward φ hbd kv'.1 p hp
+        have hdst : kv'.1.step = kv.2.current_step := (src_ctx φ hbd n kv hkv kv'.1 hd hvp).2.1
+        rw [hdst] at this; exact this⟩
+    · obtain ⟨hp, hle⟩ := List.mem_filter.mp hp
+      exact ⟨(hR p hp).1, by rw [hcs0]; have := of_decide_eq_true hle; omega⟩) hvG _ hQG hWG
+  have hselc : sel n = c := by rw [← hcs]; exact hon c List.mem_cons_self
+  -- `c` has a son in its piece, the shift of `c`
+  have hP : StateOk φ ((n : Int) + 1) (kv'.1, upF φ kv.2 kv'.1) := StateOk_sent φ n kv hok kv'.1 hd hvp
+  have hreachP := MapReachable.reachable_of_mapReachable φ hbd _ hP.reach
+  have hndP := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreachP
+  have cP := KernelUp.aCtx_reachable (reqOf φ) (isProhibited φ) _ hreachP hP.valid
+  have hPcs : (upF φ kv.2 kv'.1).current_step = (n : Int) + 2 := by rw [hP.step]; omega
+  obtain ⟨ncP, hncP, _⟩ := hent c (TriPinCut.self_own_pc (KernelUp.aCtx_line φ hbd (n + 1) kv' hkv').pc c ncJ hncJ)
+  have hncPm := List.mem_of_find?_eq_some hncP
+  have hncPid : ncP.id = c := node?_id_eq _ c ncP hncP
+  obtain ⟨z, hz⟩ : ∃ z, z ∈ ncP.sons := by
+    rcases ((Kernel.isValidNode_iff _ ncP).mp (cP.pc.ker.valid c ncP hncP)).2.2 with h' | h'
+    · exfalso
+      have := eq_of_beq h'; rw [hncPid, hcs, hPcs] at this; omega
+    · exact List.exists_mem_of_ne_nil _ h'
+  obtain ⟨_, nzz, hnzz, _⟩ := cP.pc.ker.linkS c ncP hncP z hz
+  have hnzzm := List.mem_of_find?_eq_some hnzz
+  have hnzzid : nzz.id = z := node?_id_eq _ z nzz hnzz
+  have hcz : c ∈ nzz.parents := by
+    have := Sons.PMS_reachable (reqOf φ) (isProhibited φ) _ hreachP ncP hncPm z hz nzz hnzzm hnzzid
+    rw [hncPid] at this; exact this
+  have hzs : z.id.step = (n : Int) + 1 := by
+    have := cP.pc.pb nzz hnzzm c hcz; rw [hnzzid, hcs] at this; omega
+  have hzp : some c.id = z.parent_id := by have := cP.rc.pmp nzz hnzzm c hcz; rw [hnzzid] at this; exact this
+  have hzg : z.gparent_id = c.parent_id := by have := cP.rc.gpmp.1 nzz hnzzm c hcz; rw [hnzzid] at this; exact this
+  obtain ⟨_, hdst, _, _, hvF, _⟩ := src_ctx φ hbd n kv hkv kv'.1 hd hvp
+  have c0 := filt_ctx φ hbd n kv hok (reqOf φ kv'.1) hvF
+  have hzd := mapId_of_mem_newRowIds _ _ _ z (upF_new φ kv.2 kv'.1 hdst c0 hvp z nzz hnzz (by rw [hzs, hcs0])).1
+  have hshift : shiftPid c kv'.1 = z := by
+    unfold shiftPid
+    revert hzd hzp hzg
+    cases z with
+    | mk zi zp zg =>
+      intro hzd hzp hzg
+      simp only at hzd hzp hzg
+      rw [← hzd, hzp, ← hzg]
+  -- every pin at the top is the destination
+  have htop : ∀ r ∈ R, r.step = (n : Int) + 1 → r = kv'.1 := by
+    intro r hr hrs
+    obtain ⟨w0, nw0, hnw0, hw0s, _⟩ := hW ((n : Int) + 1) (by omega) (by rw [hFcs]; omega)
+    have hwr := LineUnion.gowner_pinned _ R w0 (cF.pc.ker.gow w0 nw0 hnw0) r hr (by rw [hw0s, hrs])
+    obtain ⟨nJ, hnJ, _, _, _⟩ := hbJ.node w0 nw0 hnw0
+    obtain ⟨kv0, hkv0, hd0, hv0, nP0, hnP0⟩ := (PieceJoin.join_no_new φ n kv' hkv').1 w0 nJ hnJ
+    obtain ⟨hok0, hdst0, hcs0', _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv'.1 hd0 hv0
+    have c0' := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv'.1) hvF0
+    have hwd := mapId_of_mem_newRowIds _ _ _ w0 (upF_new φ kv0.2 kv'.1 hdst0 c0' hv0 w0 nP0 hnP0 (by rw [hw0s, hcs0'])).1
+    rw [← hwr, hwd]
+  obtain ⟨hsP, hlowsel, htopE⟩ := climbE φ hbd n kv hkv kv'.1 hd hvp R htop sel hsG
+    ⟨nzz, by rw [hselc, hshift]; exact hnzz⟩
+  -- to the joined state
+  obtain ⟨h, hmem, hgr⟩ := PieceJoin.piece_grown φ n kv hkv kv'.1 hd hvp
+  have he : (kv'.1, h) = kv' := key_inj _ (lineOk φ (n + 1)).1 _ hmem kv' hkv' rfl
+  have hsJ : ChainSound (filterAll h R) (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel) := by
+    have hsU : ChainSound (upF φ kv.2 kv'.1) (extend (filterAll kv.2 (reqOf φ kv'.1)) kv'.1 sel) :=
+      ChainSound_of_grown (PieceFilter.grown_of_below (KernelIff.below_filterAll_self _ hndP R)) _ hsP
+    exact ChainSound_filterAll h R _ (ChainSound_of_grown hgr _ hsU) (fun r hr h0 h1 =>
+      chain_pins (upF φ kv.2 kv'.1) R _ hsP r hr h0 (by rw [← hgr.step_eq]; exact h1))
+  rw [← he] at hFcs ⊢
+  obtain ⟨_, h1, h2⟩ := good_of_chain _ hsJ (z :: Q) (fun q hq => by
+    rw [hFcs]
+    rcases List.mem_cons.mp hq with e | hq
+    · rw [e, hzs, htopE, hselc, hshift]; exact ⟨by omega, by omega, rfl⟩
+    · obtain ⟨nq, hnq, _⟩ := hQ q hq
+      have := CertFix.step_range cF.pc q nq hnq
+      rw [← he] at this; rw [hFcs] at this
+      exact ⟨this.1, by have := hlow q hq; omega, by rw [hlowsel _ (hlow q hq)]; exact hon q (List.mem_cons_of_mem _ hq)⟩)
+  exact ⟨z, hzs, h1, h2⟩
+
+/-- info: 'AbsSatBin.GraphPath.Model.UnionLine.anchorF_of_a1k' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms anchorF_of_a1k
+
+-- ============================================================
+-- The whole run, and the reader
+-- ============================================================
+
+/-- **`FCert` and LUAU along the run, together.** LUAU at `n+1` comes from LUAU and `FCert` at `n` (`luau_succ`);
+`FCert` at `n+1` from the join (`PieceLocalF`: A1 from A1K and LUAJ, S2 from LUAJ) and the pieces (AF). -/
+theorem fCert_luau_line (hA1K : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → A1K φ n)
+    (hAFU : ∀ n : Nat, 1 ≤ n → (n : Int) < stepCount φ → AFU φ n)
+    (hTMU : ∀ n : Nat, 1 ≤ n → (n : Int) < stepCount φ → TopMergeU φ n)
+    (hTMJ : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
+    (hAF : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → AFP φ n) :
+    ∀ n : Nat, (n : Int) < stepCount φ → (∀ kv ∈ line φ n, FCert kv.2) ∧ LUAU φ n := by
+  intro n
+  induction n with
+  | zero =>
+    intro _
+    refine ⟨fun kv hkv => ?_, luau_zero φ⟩
+    have hok : StateOk φ ((0 : Nat) : Int) kv := (lineOk φ 0).2 kv hkv
+    refine fCert_of_mapCert φ hbd _ kv hok ?_
+    rw [line_zero φ kv hkv]; exact StateLine.mapCert_seed
+  | succ m ih =>
+    intro hm0
+    have hm : (m : Int) + 1 < stepCount φ := by push_cast at hm0; exact hm0
+    obtain ⟨hF, hL⟩ := ih (by omega)
+    have hLJ := luaJ_of_luau φ hbd m hL
+    refine ⟨?_, luau_succ φ hbd m hL (hAFU (m + 1) (by omega) hm0) (hTMU (m + 1) (by omega) hm0) hF⟩
+    have hAnch : AnchorF φ m := by
+      by_cases h0 : m = 0
+      · subst h0; exact anchorF_zero φ hbd
+      · exact anchorF_of_a1k φ hbd m (hA1K m (by omega) hm) hLJ hF
+    have hS : TopPieceF φ m := by
+      by_cases h0 : m = 0
+      · subst h0; exact topPieceF_zero φ
+      · exact topPieceF_of_luaJ φ m hbd (by omega) hLJ (hTMJ m (by omega) hm) hF
+    refine fCert_join φ hbd m (pieceLocalF_of_anchor φ m hbd hAnch hS) (fun kv hkv d hd hv => ?_)
+    by_cases h0 : m = 0
+    · subst h0
+      exact fCert_of_mapCert φ hbd _ _ (StateOk_sent φ 0 kv ((lineOk φ 0).2 kv hkv) d hd hv)
+        (StateLine.mapCert_piece0 φ kv hkv d hd hv)
+    · exact pieceF_of_topParent φ hbd m (by omega) (topParent_of_afp φ m hbd (by omega) (hAF m (by omega) hm))
+        kv hkv (hF kv hkv) d hd hv
+
+/-- **The reader decides `φ` under A1K, AFU, `TopMergeU`, `TopMergeJ` and AF in the pieces** — LUA is no longer a
+hypothesis: it is proved by induction on the line (`luau_succ`), and A1 from A1K and LUA (`anchorF_of_a1k`). -/
+theorem readerVerdictW_iff_of_luau (hA1K : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → A1K φ n)
+    (hAFU : ∀ n : Nat, 1 ≤ n → (n : Int) < stepCount φ → AFU φ n)
+    (hTMU : ∀ n : Nat, 1 ≤ n → (n : Int) < stepCount φ → TopMergeU φ n)
+    (hTMJ : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → TopMergeJ φ n)
+    (hAF : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → AFP φ n) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine readerVerdictW_iff_of_fCert φ hbd (fun kv hkv => ?_)
+  have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
+  exact (fCert_luau_line φ hbd hA1K hAFU hTMU hTMJ hAF _ hN).1 kv hkv
+
+/-- info: 'AbsSatBin.GraphPath.Model.UnionLine.readerVerdictW_iff_of_luau' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_luau
 
 end AbsSatBin.GraphPath.Model.UnionLine
