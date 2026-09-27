@@ -1,7 +1,7 @@
 # `AmbFar`: dónde está la escalera del lector sin retroceso (mapa bin) y cómo seguir
 
-> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2μ** (sesión 2026-09-27, tarde; §4.2λ y §4.2κ son las
-> anteriores). Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
+> Proyecto `lean/improves_bin`, rama `lean_improves_bin`. Estado al día en **§4.2μ** (núcleo de hipótesis locales) y **§4.2ν**
+> (línea semántica global: empalme). Sesión 2026-09-27; §4.2λ y §4.2κ son las anteriores. Antes: estado en §4.2λ (sesión 2026-09-27; §4.2κ es la
 > sesión anterior). Informe de todo lo hecho desde el v194: `docs/bitacora/verificacion_inseguridad_autor_v195.md`.
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
@@ -1464,6 +1464,61 @@ ha funcionado es la semántica (cadena = solución parcial, `chain_in_piece`, `P
 `MergeSplit` (1,63 M), A1/S2 con filtros (58,8 M / 81 M), AFU y A1KU en la unión de estados filtrados (6,26 M / 3,51 M),
 LUAU (387 k).
 
+### 4.2ν Línea global: la red como CSP, el empalme de certificados y la inducción por el paso más alto (`Splice.lean`)
+
+Las tablas son locales; la red de cliques que construyen es global. Los mecanismos locales para las hipótesis de §4.2μ
+están refutados, así que esta línea busca argumentos sobre la red entera.
+
+**Qué testigos llevan la información** (`witsteps3_probe.jl`, `witclause_probe.jl`, tríos). Con 1–2 nodos la pregunta es
+vacía (la regla de parejas ya da testigos). Con tríos:
+
+| testigos exigidos solo en | sin cadena (estados / unión) |
+|---|---|
+| ninguno | 477 / 732 |
+| pasos de variable | 230 / 191 |
+| pasos de cláusula | 1 / 1 |
+| **cláusulas + frontera de la fusión media** | **0 / 0** |
+| solo las cláusulas que tocan a la clique (+ frontera) | 13 / 17 |
+
+La información vive en los testigos de cláusula (los nodos con requisitos), no en los de variable, pero no es local por
+cláusula: a veces decide una cláusula lejana (cadenas de implicaciones).
+
+**La red como CSP binario** (`majority_probe.jl`, `polymorphism_probe.jl`, `relmaj_probe.jl`). Pasos = variables, nodos de
+camino = valores, «x posee v» = relación; el review da 3-consistencia fuerte. Si las relaciones fueran cerradas bajo una
+mayoría habría consistencia global (Jeavons–Cohen–Cooper). La mayoría bit a bit sobre ventanas conserva la relación en el
+99,8 % (mín/máx 88 %, minoría 97 %); relativa a una clique con testigos, 99,99 %; no exacta. La ruptura es inevitable: la
+relación de una cláusula (todo menos `000`) no es cerrada bajo mayoría (`maj(001,010,100) = 000`). **La ventana prohibida
+es el filtro semántico** (elimina los certificados que violan una cláusula), no un defecto.
+
+**Empalme** (`splice_probe.jl`). Dos certificados que comparten un nodo en el paso `s` se empalman (prefijo de uno, sufijo
+del otro): 198 650 empalmes válidos; de los 266 824 que fallan, **todos violan un requisito**. La ventana prohibida es local
+(un nodo es una ventana), así que nunca rompe un empalme; solo lo rompen los requisitos de largo alcance.
+
+**Demostrado** (`Splice.lean`, sin `sorry`, solo `[propext, Quot.sound]`):
+* **`splice`**: el empalme de dos certificados de un estado de la línea en un nodo compartido, con los requisitos que cruzan
+  cumplidos por el primero, es un certificado del mismo estado. Prueba semántica: el empalme es un camino enlazado que cumple
+  los requisitos, se lee como solución parcial (`preSat_decode`), la máquina la lleva al estado de su clave
+  (`cert_of_prefix`), que es el del segundo certificado (`key_inj`).
+* **`certUpTo_succ`, `certClique_of_splits`**: por inducción sobre el paso más alto, si toda clique con testigos se corta
+  (`SuffixSplit`: un sufijo `τ` por su parte alta y una clique con testigos `P` en pasos ≤ `s` con su parte baja y un nodo
+  por cada requisito de `τ` que cruza), toda clique con testigos tiene certificado: `P` lo tiene por inducción y se empalma
+  con `τ`.
+* **`readerVerdictW_iff_of_splits`**: el lector decide si en la última línea toda clique con testigos se corta (y las del
+  paso 0 tienen certificado).
+
+**Medido sobre la elección del sufijo** (tríos con testigos, `splicechoice_probe.jl`, `goodsuffix*_probe.jl`,
+`choosesuffix*_probe.jl`):
+* pares (prefijo, sufijo) al azar compatibles: 78 %; no todo sufijo tiene prefijo compatible (7 %): hay que elegir juntos;
+* un sufijo tiene prefijo compatible **exactamente** cuando la parte baja ampliada con sus requisitos que cruzan es clique
+  con testigos (V3: 133 968 / 8 407, sin excepción; es `CertClique` de esa clique, pero da la forma de la inducción); la
+  versión requisito a requisito con testigos (V2) falla 12 veces de 142 k, cuando cruzan 6–7 requisitos;
+* elegir el sufijo con sus nodos por encima del corte en la red de los que poseen la clique: existe siempre y es bueno en
+  84 809 de 84 810 tríos. El caso malo (`rand3sat_v8_c10`, paso 32): un testigo de la clique en el paso 14 posee a los tres
+  miembros pero no está en ninguna cadena con los dos de abajo — **testigos espurios respecto a una parte de la clique**.
+
+**Lo que queda**: toda clique con testigos admite un sufijo por su parte alta cuya parte baja ampliada con los requisitos
+que cruzan es clique con testigos (siempre medido; sin regla local exacta).
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1551,6 +1606,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `FiltCert.lean` | `FCert`, `fCert_join`, `PieceLocalF`, `cert_piece_low`, `single_parent`, `gparent_owner`, `TopParent`, `TopMerge`, `MergeSplit`, `readerVerdictW_iff_of_mergeSplit` |
 | `AnchorPiece.lean` | `AnchorF`, `TopPieceF`, `pieceLocalF_of_anchor`, `topPieceF_of_luaJ`, `merge_pin`, `topParent_of_afp`, `ULUA`, `LUAJ`, `climb`, `line_one`, `anchorF_zero` |
 | `UnionLine.lean` | `lineU`, `UCtx_join`, `line_old`, `trunc_below`, `LUAU`, `luau_succ`, `climbE`, `afu_of_luau`, `anchorF_of_a1k`, `fCert_luau_line`, `readerVerdictW_iff_of_luau` |
+| `Splice.lean` | `splice`, `CertUpTo`, `SuffixSplit`, `certUpTo_succ`, `certClique_of_splits`, `readerVerdictW_iff_of_splits` |
 
 Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--chain`, `--cap N`); Julia en
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
