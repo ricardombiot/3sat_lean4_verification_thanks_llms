@@ -146,6 +146,24 @@ Las dos máquinas definen `AbsSat`, así que no conviven en un proceso:
 - `test_3sat/compare_bingo.jl`: compara las dos salidas. Criterio de paso: mismos veredictos,
   mismas soluciones y mismos estados finales en todo el corpus.
 
+**Hecho (F4).** `test_3sat/dump_final.jl` y `test_3sat/compare_bingo.jl` (en bingo; el volcado de bin
+se hace con el mismo script apuntando a `improves_bin`).
+
+| | resultado |
+|---|---|
+| instancias | 82 (81 comparadas; `simple_v3_c2.cnf` no es 3-SAT: error en las dos) |
+| mismo veredicto | 81/81 |
+| mismas soluciones del lector | 81/81 |
+| mismo estado final (nodos, global, tabla, padres, hijos) | 81/81 |
+| mismas vueltas del review | 81/81 |
+| volumen comparado | 66 gpaths, 5.897 nodos, 265.303 entradas de owners (15 instancias UNSAT sin gpaths) |
+| tiempo bin / bingo | 90,7 / 45,3 s |
+
+El comparador detecta una sola entrada de owners quitada a mano en una copia del volcado.
+
+Alcance: se compara la última línea de la máquina (tras los joins), no cada paso intermedio; las
+vueltas iguales instancia a instancia apuntan a que la traza también coincide.
+
 ### F5 — medida
 
 Por instancia (test_window y test_3sat), en las dos máquinas: tiempo, `@allocated` del `run!`,
