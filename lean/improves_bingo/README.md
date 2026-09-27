@@ -17,7 +17,18 @@ compilan los módulos que se importan.
 
 | módulo | fase | qué |
 |---|---|---|
+| `Model/Ops` | L2 | espejo de las operaciones de `julia/improves_bingo`: `filterRequire`, `clean` (purga), `pairSweep`/`cleanPair`, `pruneLinks`, `cutSupport` y las pasadas, `reviewPass`/`review` (con `dirty` = Julia `review_owners`), `filterAll`, `addNode`/`up`/`upFiltering`/`initSeed`, `join`/`doJoin` |
+| `Model/Driver` | L2 | la máquina (`run`, sobre `CnfMapBin`), el lector sin retroceso (`readerVerdict`), `bruteSat`, `noDeadNodes` |
+| `Exe/Dump` | L3 | volcado en el formato de `dump_final.jl` |
 | `Model/GPathB` | L1 | `PNodeB`, `GPathB`; `Adj`/`adj_symm`, `neighborsAt`, `ownersOk`, `isValid`, `isValidNode`, `measure`; primitivas `removeEdge`, `addEdge`, `killVertex`, `removeNode`; `Sub` (refl, trans, y para cada primitiva); lo que se va (`not_adj_removeEdge`, `not_adj_killVertex`); la medida baja (`measure_removeEdge_lt`, `measure_removeNode_lt`) |
+
+## Ejecutables
+
+* `lake exe bingo-check f.cnf …` — máquina y lector contra fuerza bruta, y nodos muertos. `cnf/crafted` de
+  `improves_bin`: 8/8 OK (máquina y lector = fuerza bruta, sin nodos muertos). **Muy lento**: el modelo en listas
+  recorre todas las aristas en cada consulta de posesión (0,7 s con 3 variables; 6 min con `clause_mix_sep`,
+  9 variables). Versiones rápidas `@[csimp]` pendientes antes del diferencial (L4).
+* `lake exe bingo-dump SALIDA f.cnf` — volcado para `compare_bingo.jl`.
 
 ## Construcción
 

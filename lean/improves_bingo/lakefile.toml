@@ -14,3 +14,13 @@ path = "../improves_bin"
 [[lean_lib]]
 name = "AbsSatBingo"
 root = "AbsSatBingo"
+
+# La máquina bingo contra la fuerza bruta (veredicto de la máquina y del lector, nodos muertos).
+[[lean_exe]]
+name = "bingo-check"
+root = "BingoCheckMain"
+
+# Volcado del estado final en el formato de julia/improves_bingo/test_3sat/dump_final.jl.
+[[lean_exe]]
+name = "bingo-dump"
+root = "BingoDumpMain"

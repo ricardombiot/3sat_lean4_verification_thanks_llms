@@ -46,12 +46,16 @@ structure GPathB where
   edges        : List (PathNodeId × PathNodeId)
   current_step : Int
   map_parent   : Option NodeId
+  /-- Julia `review_owners`: algo cambió y el review tiene que correr. Lo activan el filtro por requisito,
+  la ventana saltada del UP y toda poda del review; el review solo corre con él activo. Hace falta para que
+  los estados coincidan con los de Julia (sin él, el modelo revisaría más a menudo). -/
+  dirty        : Bool
   deriving Repr
 
 namespace GPathB
 
 def empty : GPathB :=
-  { nodes := [], alive := [], edges := [], current_step := 0, map_parent := none }
+  { nodes := [], alive := [], edges := [], current_step := 0, map_parent := none, dirty := false }
 
 -- ============================================================
 -- Vistas derivadas
@@ -364,7 +368,7 @@ theorem measure_removeNode_lt (g : GPathB) (id : PathNodeId) (h : ∃ n ∈ g.no
 private def pa : PathNodeId := { id := ⟨0, 0⟩, parent_id := none }
 private def pb : PathNodeId := { id := ⟨1, 1⟩, parent_id := some ⟨0, 0⟩ }
 private def ex : GPathB :=
-  { nodes := [], alive := [pa, pb], edges := [(pa, pb)], current_step := 2, map_parent := none }
+  { nodes := [], alive := [pa, pb], edges := [(pa, pb)], current_step := 2, map_parent := none, dirty := false }
 
 example : ex.adjb pb pa = true := by decide
 example : ex.adjb pa pa = true := by decide
