@@ -1716,9 +1716,23 @@ Tiempo: ~21 min, porque cada comprobación copia y revisa el estado entero. Pend
   porque sus padres están fijados, así que también son puros.
 * **`readerVerdictW_iff_of_parts`**: el lector decide bajo `M1aAll` y `M1bLow` en cada join.
 
-**Abierto**: `M1aAll` (fijar cualquier clave viva no invalida) y `M1bLow` (con la clave fijada, las filas de abajo solo
-tienen entradas, padres e hijos de la pieza). Las dos están medidas sin fallos. La sonda midió solo los owners de
-`M1bLow`.
+**Reducciones** (`M1Parts.lean`, solo `[propext, Quot.sound]`):
+* **`m1bLow_of_own`**: `M1bLowOwn ⇒ M1bLow`. `M1bLowOwn` pide solo los owners (la forma que mide la sonda). Un padre
+  (hijo) de un nodo del estado fijado es una entrada de su tabla en el paso de al lado (`linkP`, `linkS`). La pieza
+  tiene esa entrada, y en la pieza una entrada del paso de al lado es padre (hijo) (`parent_of_owner`,
+  `son_of_owner`, con `piece_pinCtx`: una pieza válida es un estado alcanzable con su `PinCtx`). **Los padres y los
+  hijos ya no hacen falta medirlos.**
+* **`m1aAll_of_keyTri`**: `KeyTri ⇒ M1aAll`. `KeyTri`: en J fijado en R válido, toda clave viva del paso n tiene un
+  nodo x con `TriPin` (la regla de parejas con x como tercer miembro fijo). El subkernel de x (`restrict_kernel`)
+  queda por debajo de J fijado, respeta R y solo nombra la clave en el paso n.
+* `readerVerdictW_iff_of_own` (bajo `M1aAll` y `M1bLowOwn`) y **`readerVerdictW_iff_of_keyTri`** (bajo `KeyTri` y
+  `M1bLowOwn`).
+
+Sobre `KeyTri`: en el paso n, x es su propia entrada común (`TriPin` en l = n es inmediato), y un nodo del paso n
+que posee x es x (OOS). Por `triPin_of_ambTri`, solo cuentan las parejas ambiguas: y, w que se poseen, poseen x y
+también otro nodo del paso n. Son nodos por debajo de n, o de la cima si la clave tiene varios nodos de camino.
+
+**Abierto**: `M1aAll` (o `KeyTri`, más fuerte y sin medir) y `M1bLowOwn` (medido sin fallos como M1b-entradas).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1815,7 +1829,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `JoinTri.lean` | `cxP_grown`, `JoinChoiceP`, `cliqueTri_of_joinChoice`, `joinChoice_nil`, `JoinChoicePF` (⚠ falso), `fCert_join_of_choice`, `readerVerdictW_iff_of_joinChoice` |
 | `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
-| `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `readerVerdictW_iff_of_parts` |
+| `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 

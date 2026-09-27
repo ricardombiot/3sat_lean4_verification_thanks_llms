@@ -58,6 +58,14 @@ def M1bLow (n : Nat) : Prop :=
         ∃ nP, (upF φ kv.2 kv'.1).node? p = some nP ∧ (∀ v ∈ np.owners, v ∈ nP.owners) ∧
           (∀ v ∈ np.parents, v ∈ nP.parents) ∧ (∀ v ∈ np.sons, v ∈ nP.sons)
 
+/-- **M1b below step `n`, owners only** (the form `m1split_probe.jl` measures): the tables of the lower rows of the
+pinned joined state are tables of the piece. -/
+def M1bLowOwn (n : Nat) : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 → isValid (upF φ kv.2 kv'.1) = true →
+    ∀ ps : List NodeId, isValid (filterAll kv'.2 (kv.1 :: ps)) = true →
+      ∀ p np, (filterAll kv'.2 (kv.1 :: ps)).node? p = some np → p.id.step < (n : Int) →
+        ∃ nP, (upF φ kv.2 kv'.1).node? p = some nP ∧ ∀ v ∈ np.owners, v ∈ nP.owners
+
 include hbd
 
 -- ============================================================
@@ -209,6 +217,71 @@ theorem m1bBelow_of_low (n : Nat) (hL : M1bLow φ n) : M1bBelow φ n := by
   obtain ⟨nP, hnP, _⟩ := toP q nq hnq
   exact hkP.gow q nP hnP
 
+-- ============================================================
+-- M1b needs only the owners
+-- ============================================================
+
+/-- A piece carries the context of a pin (`KernelSplit.PinCtx`): it is a valid reachable state. -/
+theorem piece_pinCtx (n : Nat) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (d : NodeId)
+    (hd : d ∈ sonsOfMap φ kv.1) (hvP : isValid (upF φ kv.2 d) = true) : KernelSplit.PinCtx (upF φ kv.2 d) := by
+  have hP : StateOk φ ((n : Int) + 1) (d, upF φ kv.2 d) := StateOk_sent φ n kv ((lineOk φ n).2 kv hkv) d hd hvP
+  have hreach := MapReachable.reachable_of_mapReachable φ hbd _ hP.reach
+  have cm := Reader.RCtx_reachable (reqOf φ) (isProhibited φ) _
+    (Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _ hreach) hreach
+  exact ⟨KernelUp.kernel_reachable (reqOf φ) (isProhibited φ) _ hreach hvP, cm.nodup, cm.oos, cm.shape.pbelow,
+    KernelSplit.SAbove_reachable (reqOf φ) (isProhibited φ) _ hreach, cm.snn, cm.below⟩
+
+/-- **`M1bLowOwn ⇒ M1bLow`**: a parent (son) of a lower node of the pinned joined state is an entry of its table at
+the step just below (above); the piece holds that entry, and in the piece such an entry is a parent (son)
+(`KernelSplit.parent_of_owner`, `son_of_owner`). -/
+theorem m1bLow_of_own (n : Nat) (hO : M1bLowOwn φ n) : M1bLow φ n := by
+  intro kv' hkv' kv hkv hd hvP ps hvK p np hnp hlow
+  have hok' := (lineOk φ (n + 1)).2 kv' hkv'
+  have cK := filt_ctx φ hbd _ kv' hok' (kv.1 :: ps) hvK
+  have pcP := piece_pinCtx φ hbd n kv hkv kv'.1 hd hvP
+  have hPcs : (upF φ kv.2 kv'.1).current_step = (n : Int) + 2 := by
+    rw [(StateOk_sent φ n kv ((lineOk φ n).2 kv hkv) kv'.1 hd hvP).step]; omega
+  obtain ⟨nP, hnP, ho⟩ := hO kv' hkv' kv hkv hd hvP ps hvK p np hnp hlow
+  have hnpid : np.id = p := node?_id_eq _ p np hnp
+  refine ⟨nP, hnP, ho, fun c hc => ?_, fun c hc => ?_⟩
+  · obtain ⟨hco, nc, hnc, _⟩ := cK.pc.ker.linkP p np hnp c hc
+    have hcs : c.id.step = p.id.step - 1 := by
+      have := cK.pc.pb np (List.mem_of_find?_eq_some hnp) c hc; rw [hnpid] at this; exact this
+    have hc0 : 0 ≤ c.id.step := by
+      have := cK.pc.snn nc (List.mem_of_find?_eq_some hnc); rw [node?_id_eq _ c nc hnc] at this; exact this
+    exact (KernelSplit.parent_of_owner pcP p nP hnP (by omega) c (ho c hco) hcs).1
+  · obtain ⟨hco, _⟩ := cK.pc.ker.linkS p np hnp c hc
+    have hcs : c.id.step = p.id.step + 1 := by
+      have := cK.pc.sa np (List.mem_of_find?_eq_some hnp) c hc; rw [hnpid] at this; exact this
+    exact (KernelSplit.son_of_owner pcP p nP hnP (by rw [hPcs]; omega) c (ho c hco) hcs).1
+
+-- ============================================================
+-- M1a from the pair rule with the key as third member
+-- ============================================================
+
+/-- **The key row of the pinned joined state satisfies `TriPin`**: every live key of step `n` has a node on which
+the pair rule holds with it as a fixed third member (`KernelSplit.TriPin`). -/
+def KeyTri (n : Nat) : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ ps : List NodeId, isValid (filterAll kv'.2 ps) = true →
+    ∀ q ∈ (filterAll kv'.2 ps).gowners, q.id.step = (n : Int) →
+      ∃ x ∈ (filterAll kv'.2 ps).gowners, x.id = q.id ∧ KernelSplit.TriPin (filterAll kv'.2 ps) x
+
+/-- **`KeyTri ⇒ M1aAll`**: the sub-kernel of the key node (`KernelSplit.restrict_kernel`) lies below the pinned
+joined state, keeps its pins, and names only the key at step `n`. -/
+theorem m1aAll_of_keyTri (n : Nat) (hT : KeyTri φ n) : M1aAll φ n := by
+  intro kv' hkv' ps hv q hq hqn
+  have hok' := (lineOk φ (n + 1)).2 kv' hkv'
+  have cG := filt_ctx φ hbd _ kv' hok' ps hv
+  have hbG := KernelIff.below_filterAll_self kv'.2 (FExtInd.nodup_ok φ hbd _ kv' hok') ps
+  obtain ⟨x, hx, hxq, ht⟩ := hT kv' hkv' ps hv q hq hqn
+  obtain ⟨nx, hnx⟩ := Option.isSome_iff_exists.mp (cG.pc.ker.gn x hx)
+  obtain ⟨hk, hvS, hbS, hpin⟩ := KernelSplit.restrict_kernel cG.pc x nx hnx ht
+  refine isValid_filterAll_of_kernel hk hvS (PieceFilter.below_trans hbG hbS) (q.id :: ps)
+    (fun r hr z hz hzs => ?_)
+  rcases List.mem_cons.mp hr with rfl | hr
+  · rw [← hxq]; exact hpin z hz (by rw [hzs, hxq])
+  · exact LineUnion.gowner_pinned kv'.2 ps z (hbS.gow z hz) r hr hzs
+
 /-- **The reader decides `φ` under `M1aAll` and `M1bLow` at every join.** -/
 theorem readerVerdictW_iff_of_parts
     (hA : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1aAll φ n)
@@ -217,7 +290,28 @@ theorem readerVerdictW_iff_of_parts
   FExtInd.readerVerdictW_iff_of_m1 φ hbd (fun n h1 hn =>
     m1_of_parts φ hbd n (hA n h1 hn) (m1bBelow_of_low φ hbd n (hL n h1 hn)))
 
+/-- **The reader decides `φ` under `M1aAll` and `M1bLowOwn` at every join.** -/
+theorem readerVerdictW_iff_of_own
+    (hA : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1aAll φ n)
+    (hO : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1bLowOwn φ n) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_parts φ hbd hA (fun n h1 hn => m1bLow_of_own φ hbd n (hO n h1 hn))
+
+/-- **The reader decides `φ` under `KeyTri` and `M1bLowOwn` at every join.** -/
+theorem readerVerdictW_iff_of_keyTri
+    (hT : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → KeyTri φ n)
+    (hO : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1bLowOwn φ n) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_parts φ hbd (fun n h1 hn => m1aAll_of_keyTri φ hbd n (hT n h1 hn))
+    (fun n h1 hn => m1bLow_of_own φ hbd n (hO n h1 hn))
+
 end AbsSatBin.GraphPath.Model.M1Parts
 
 /-- info: 'AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_parts' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_parts
+
+/-- info: 'AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_own' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_own
+
+/-- info: 'AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_keyTri' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1Parts.readerVerdictW_iff_of_keyTri
