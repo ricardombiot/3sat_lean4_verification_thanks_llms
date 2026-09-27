@@ -17,8 +17,13 @@ cambios. El detalle técnico está en `docs/context/escalera_reader.md` §4.2ο.
   Con eso `M1bLowOwn` es inmediato y M1 se reduce a `M1aAll`. Cuesta como mucho ×2 en memoria durante una línea, y
   cambia la conducta de la máquina solo cuando un filtro fija un nodo del paso de las claves.
 * **Una segunda regla, independiente (§3.5):** una comprobación de claves en el review de los estados unidos. Cada
-  clave viva se fija en una copia, y la que no sobrevive se quita. Da `M1aAll` por construcción. **Con las dos
-  reglas, M1 sale entero (deducido)**. Cuesta hasta ×3 en cada review de un estado unido del mapa bin.
+  clave viva se fija en una copia, y la que no sobrevive se quita. Da `M1aAll` por construcción. Cuesta hasta ×3 en
+  cada review de un estado unido del mapa bin.
+* **Formalizado en Lean (§6), y con una corrección de alcance.** Con las dos reglas, M1 vale en el join donde actúan
+  (`KeyRules.m1_keyRules`, **demostrado**), y el lema de riesgo también sale (`below_reviewKC`, **demostrado**). Pero
+  **las reglas de un nivel no cierran la inducción del lector**: la inducción pide M1 en cada línea con el filtro que
+  usa en las fuentes, y ahí las etiquetas de un nivel ya no están. Lo que antes decía este informe («con las dos
+  reglas, M1 sale entero y el lector decide») era demasiado fuerte.
 * **El riesgo (§3.5):** toda la prueba del lector se apoya en que el review nunca baja de un kernel, y la comprobación
   de claves puede romper ese lema. La revisión del otro agente (§5.2) da un argumento corto para kernels cerrados por
   claves. Sigue sin formalizar: hasta que lo esté, las dos reglas no dan el veredicto del lector.
@@ -483,6 +488,73 @@ acuerdo en citarlo**, con el mismo estado que `KFix`: medido y abierto.
 decide», no «la máquina de siempre decide». De acuerdo. Su propuesta de medir `KEYCHECK_REMOVED` ya tiene respuesta:
 0 en todo el corpus (§5.1).
 
+## 6. La formalización en Lean, y lo que las reglas no dan
+
+### 6.1 Demostrado (`KeyRules.lean`, solo `[propext, Quot.sound]`, 0 `sorry`)
+
+Las dos reglas están en el modelo de listas como operaciones nuevas, sin tocar la máquina ni el review de siempre.
+* **La etiqueta** es `restrictTo g P`: cada tabla se queda con lo que la pieza `P` tiene para ese nodo. Como las
+  etiquetas de Julia son exactas (§5.1), el modelo toma como etiqueta la pertenencia a la tabla de la pieza, dada por
+  un mapa de claves a piezas (`pieceOf`). Las filas de la clave y de la cima son puras, así que restringirlas también
+  no cambia lo que sobrevive al review.
+* **La comprobación** es `reviewKC`: el review hasta su punto fijo; después se quitan a la vez las claves vivas cuyo pin
+  con etiqueta deja inválida la copia (`deadKeys`, `dropKeys`), y se repite. El modelo comprueba también una sola clave
+  viva; Julia se alineó con eso (commit `98923f0`, rama `julia_key_rules`), porque con tablas mezcladas una sola clave
+  puede morir al aplicar su etiqueta.
+* **`filterKC`**: pins, etiquetas de los pins de la fila de claves y `reviewKC`.
+
+Teoremas:
+* **`m1_keyRules`: M1 donde actúan las reglas.** En un estado unido de la línea `n+1`, si `filterKC` deja válidos los
+  pins `ps`, alguna pieza es válida con el filtro de siempre y los mismos pins. Tres pasos:
+  1. `kc_spec`: en una salida válida de `reviewKC` ninguna clave viva muere al fijarla.
+  2. `below_piece`: fijar una clave con su etiqueta y revisar da un kernel válido por debajo de su pieza. Es
+     `M1bLowOwn`, ahora por construcción.
+  3. `isValid_filterAll_of_kernel` en la pieza.
+* **`below_reviewKC`: el lema de riesgo de §3.5**, con el argumento de §5.2. El review con la comprobación nunca baja de
+  un kernel **cerrado por claves** (`KeyClosed`). Una clave viva del kernel sobrevive a su pin con etiqueta en todo
+  estado mayor (`survives_of_keyClosed`), así que nunca se quita. Cada vuelta que quita claves baja la medida
+  (`measure_dropKeys_lt`), así que el fuel no se agota.
+* **`isValid_filterKC_of_kernel`**: el análogo de `isValid_filterAll_of_kernel` para `filterKC`. Un conjunto de pins
+  sobrevive si un kernel válido y cerrado por claves por debajo del estado respeta los pins y lleva la etiqueta de
+  cada pin de la fila de claves (`TagBelow`).
+
+### 6.2 Lo que no dan: la inducción del lector
+
+Al formalizar lo anterior revisé cómo usa M1 la inducción (`FExtInd.lExt_succ`), y eso corrige lo que decía este
+informe en §3.4 y §3.5 (**deducido**, el razonamiento no está formalizado):
+* Para extender los pins de un estado unido `J`, la inducción usa M1 para llegar a una pieza, **baja a su fuente `X`**
+  (M2w), extiende allí y vuelve a subir (M3w). `X` es a su vez un estado unido de la línea anterior. Por eso la
+  inducción pide M1 **en todas las líneas**, con el mismo filtro que se usa en las fuentes.
+* Si el filtro nuevo se usa en todas las líneas, M1 vale en cada una (`m1_keyRules`). Pero el paso de bajada M2w pasa a
+  pedir que el kernel que viene de la pieza sea cerrado por claves y lleve las etiquetas de la fila de claves de `X`
+  (las hipótesis de `isValid_filterKC_of_kernel` una línea más abajo). **Con etiquetas de un nivel eso no está:** la
+  pieza hereda las tablas mezcladas de `X` por debajo de su propia fila de claves, y sus etiquetas ya solo hablan de
+  la fila nueva. Pedir que ese kernel respete las etiquetas de `X` es otra vez `M1bLowOwn`, una línea más abajo.
+* Si el filtro nuevo se usa solo en la última línea, la inducción sigue necesitando la M1 de siempre en todas las
+  demás.
+
+**Qué lo arreglaría, y a qué precio (propuesto):**
+* **Etiquetas de todos los niveles.** Cada entrada guarda, por cada fila de claves por la que pasó, de qué claves venía.
+  Las piezas heredan las etiquetas de sus fuentes. Así, `TagBelow` en la bajada saldría por construcción, y la parte M1b
+  quedaría resuelta en todas las líneas. El coste es polinómico, hasta ×2 por nivel (unas ×2S en el peor caso), y es
+  pariente de los owners por rama que descartaste.
+* **La comprobación de claves en todos los niveles no basta.** La copia de la comprobación usa el review de siempre, así
+  que el kernel que deja por debajo de la pieza no es cerrado por claves en los niveles de abajo. Hacer que la copia
+  use el review nuevo lleva la anticipación a una profundidad que crece con el número de filas: deja de ser
+  polinómico. Así que **`M1aAll` sigue siendo el núcleo abierto**, con o sin reglas.
+
+**Con etiquetas de todos los niveles y sin comprobación de claves**, la inducción quedaría así (deducido): el lector
+decide bajo `M1aAll` (con el filtro etiquetado) en cada línea. `M1bLowOwn` desaparecería como hipótesis.
+
+### 6.3 Qué haría ahora
+
+* **Sin cambiar la máquina** siguen abiertos `M1aAll` (`KeyTri₁`, `KeyExact`) y `M1bLowOwn` (`KFix`), o los dos a la vez
+  por `PairExact` con pins (§5.2, punto 3).
+* **Con cambio**, la regla que vale la pena es la etiqueta de **todos** los niveles, no la comprobación de claves: es la
+  que quita una hipótesis de verdad. Antes de formalizarla habría que medir su coste de memoria en Julia.
+* La comprobación de claves solo aporta a M1 en la línea donde actúa. No quita nada en todo lo medido. No la
+  recomiendo como cambio de la máquina.
+
 ---
 
 **Ficheros de esta sesión:**
@@ -492,5 +564,7 @@ decide», no «la máquina de siempre decide». De acuerdo. Su propuesta de medi
   `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix`.
 * Sondas en `julia/improves_bin/test_3sat/probes/`: `keytri_common.jl`, `keytri_probe.jl`, `m1aall_probe.jl`,
   `ktri_probe.jl`, `keycut_trace.jl`, `kfix_probe.jl`.
+* `lean/improves_bin/AbsSatBin/GraphPath/Model/KeyRules.lean`: `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`,
+  `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel`.
 * Rama `julia_key_rules`: `julia/improves_bin/src/graph_path/graph_path_key.jl` (las dos reglas), los enganches,
   `test_3sat/compare_key.jl` y `test_3sat/probes/keytags_probe.jl`.
