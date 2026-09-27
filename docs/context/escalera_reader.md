@@ -1686,10 +1686,24 @@ su clave k; por debajo de n las tablas son uniones):
 | M1b | J fijado en R + k válido ⇒ la pieza k fijada en R es válida | descompresión con pins |
 | M1b-entradas | toda entrada de J fijado en R + k es entrada de la pieza k | si vale, M1b es inmediato (kernel por debajo de la pieza) |
 
-M1 = M1a + M1b. Medición en curso (`m1split_probe.jl`). Sospecha, antes de medir: M1b-entradas puede fallar. Las
-reglas del kernel llevan una entrada «r posee q» de abajo hasta un nodo puro del paso n que posee q, pero no fuerzan
-que la pieza k tenga la entrada misma. Es la forma de los tríos falsos. Si falla, M1b tendría que salir de la exactitud
-de la pieza k, que se deduce de `LExt` de su fuente con M2w y M3w.
+M1 = M1a + M1b. **Medido sin fallos** (`m1split_probe.jl`, en `clause_mix.cnf`, `clause_mix_sep.cnf` y las 6 primeras de
+`random_small`; R vacío, de un nodo, y de dos y tres nodos al azar):
+
+| parte | estados con ≥ 2 piezas | estados con 1 pieza | fallos |
+|---|---|---|---|
+| M1a | 12.951 | 4.180 | 0 |
+| M1a-todas | 12.951 | 4.180 | 0 |
+| M1a-cima | 12.951 | 4.180 | 0 |
+| M1b | 20.789 | 4.180 | 0 |
+| M1b-entradas | 20.789 | 4.180 | 0 |
+
+La sospecha previa (que M1b-entradas fallaría por la forma de los tríos falsos) era equivocada. Las dos versiones
+fuertes se cumplen, así que M1 se divide en dos enunciados más fáciles de atacar:
+* **M1a-todas**: en J fijado, fijar la clave de cualquier nodo vivo del paso n no deja el estado inválido.
+* **M1b-entradas**: con la clave k fijada, J fijado solo contiene entradas de la pieza k. Queda un kernel por debajo
+  de la pieza, que respeta los pins, y M1b se sigue directamente.
+
+Tiempo: ~21 min, porque cada comprobación copia y revisa el estado entero. Pendiente: medir en todo el corpus.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
