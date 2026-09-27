@@ -1521,8 +1521,13 @@ del otro): 198 650 empalmes válidos; de los 266 824 que fallan, **todos violan 
   testigos): existe en los 84 810 tríos y los 152 519 sufijos así muestreados son todos buenos. Con testigos buenos basta
   requisito a requisito: la compatibilidad conjunta desaparece.
 
-**Lo que queda**: (a) que exista un sufijo así (siempre medido); (b) que testigos buenos requisito a requisito den la parte
-baja ampliada conjunta con testigos (siempre medido en tríos). «Testigo bueno» es una clique con testigos con un miembro
+* **Composición de testigos buenos (`compose_probe.jl`, cliques de 3 y 4 nodos, todos los cortes)**: para un sufijo R_gw,
+  **alguna** elección de un testigo bueno por requisito que cruza da una parte baja ampliada con testigos (109 144 y
+  152 129 sufijos, 0 fallos); **no toda** elección (fallan el 5,8 % y el 3,3 %). Los testigos buenos componen, pero hay que
+  elegir cuáles.
+
+**Lo que queda**: (a) que exista un sufijo así (siempre medido); (b) que alguna elección de testigos buenos, uno por
+requisito que cruza, componga con la parte baja en una clique con testigos (siempre medido, cliques de 3 y 4). «Testigo bueno» es una clique con testigos con un miembro
 más y todos en pasos ≤ `s`: la recursión baja por el paso más alto.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
