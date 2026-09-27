@@ -15,6 +15,12 @@ ones included: the prohibited window removes unsatisfiable certificates locally,
   met, is a certificate of the same state. Global and semantic: the splice is a linked path that meets the requirements,
   so it reads as a partial solution (`PrefixDecode.preSat_decode`), which the machine carries into the state of its key
   (`PrefixCarry.cert_of_prefix`) — the key of the second certificate's top, so the same state.
+* **Certificates by induction on the top step** (`CertUpTo`, `SuffixSplit`, `certUpTo_succ`, `certClique_of_splits`): a
+  clique with witnesses splits at a step `s` into a suffix certificate `τ` through its upper members and a lower clique
+  with witnesses `P` (its lower members plus nodes naming the crossing requirements of `τ`); `P` has a certificate by
+  induction, and it splices with `τ`. Measured (`goodsuffix_v3_probe.jl`): a suffix has a compatible prefix exactly when
+  such a `P` exists (133 968 / 8 407, no exception). **`readerVerdictW_iff_of_splits`**: the reader decides when every
+  clique with witnesses of the last line splices (and the cliques at step 0 have certificates).
 -/
 
 namespace AbsSatBin.GraphPath.Model.Splice
@@ -30,6 +36,10 @@ open AbsSatBin.GraphPath.Model.LineSem
 open AbsSatBin.GraphPath.Model.MapReachable
 open AbsSatBin.GraphPath.Model.CnfChain
 open AbsSatBin.GraphPath.Model.PrefixCarry
+open AbsSatBin.GraphPath.Model.CliqueTri (Clique)
+open AbsSatBin.GraphPath.Model.CertDescent (Wit)
+open AbsSatBin.GraphPath.Model.CertFix (CertThrough)
+open AbsSatBin.GraphPath.Model.CertInvariant (CertClique)
 
 variable (φ : Cnf) (hbd : Bounded φ)
 include hbd
@@ -119,5 +129,122 @@ theorem splice (n : Nat) (hn : (n : Int) < stepCount φ) (kv : NodeId × GPathM)
 /-- info: 'AbsSatBin.GraphPath.Model.Splice.splice' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms splice
+
+-- ============================================================
+-- Certificates by induction on the top step, through splices
+-- ============================================================
+
+omit hbd in
+/-- Every clique with witnesses whose members lie at steps `≤ t` has a certificate. -/
+def CertUpTo (g : GPathM) (t : Int) : Prop :=
+  ∀ Q, (∀ q ∈ Q, q.id.step ≤ t) → Clique g Q → Wit g Q → CertThrough g Q
+
+omit hbd in
+/-- **A splice of `Q` at step `s`**: a member of `Q` at `s`, a certificate `τ` through the members of `Q` at steps
+`≥ s`, and a clique with witnesses `P` at steps `≤ s` holding the members of `Q` below `s` and, for every requirement of
+`τ` above `s` that looks at or below `s`, a node naming it. -/
+def SuffixSplit (g : GPathM) (n : Nat) (Q : List PathNodeId) (s : Int) : Prop :=
+  0 ≤ s ∧ (∃ q ∈ Q, q.id.step = s) ∧ ∃ τ, ChainSound g τ ∧ (∀ x ∈ Q, s ≤ x.id.step → τ x.id.step = x) ∧
+    ∃ P : List PathNodeId, (∀ x ∈ Q, x.id.step ≤ s → x ∈ P) ∧ (∀ p ∈ P, p.id.step ≤ s) ∧
+      (∀ k, s < k → k ≤ n → ∀ r ∈ reqOf φ (τ k).id, 0 ≤ r.step → r.step ≤ s → ∃ p ∈ P, p.id = r) ∧
+      Clique g P ∧ Wit g P
+
+/-- **One step of the induction**: if every clique with witnesses up to step `t` has a certificate, and every clique with
+witnesses with a member at `t+1` splices at some `s ≤ t`, every clique with witnesses up to `t+1` has a certificate. The
+lower clique `P` has a certificate `σ` (it lives at steps `≤ s ≤ t`); `σ` names the crossing requirements of `τ` and
+meets `τ` at the member of step `s`, so the splice (`splice`) is a certificate through `Q`. -/
+theorem certUpTo_succ (n : Nat) (hn : (n : Int) < stepCount φ) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n) (t : Int)
+    (hlow : CertUpTo kv.2 t)
+    (hS : ∀ Q, (∀ q ∈ Q, q.id.step ≤ t + 1) → Clique kv.2 Q → Wit kv.2 Q → (∃ q ∈ Q, q.id.step = t + 1) →
+      ∃ s, s ≤ t ∧ SuffixSplit φ kv.2 n Q s) :
+    CertUpTo kv.2 (t + 1) := by
+  intro Q hQs hQ hW
+  cases hany : Q.any (fun q => decide (q.id.step = t + 1)) with
+  | true =>
+    have htop : ∃ q ∈ Q, q.id.step = t + 1 := by
+      obtain ⟨q, hq, hqs⟩ := List.any_eq_true.mp hany; exact ⟨q, hq, of_decide_eq_true hqs⟩
+    obtain ⟨s, hst, hs0, ⟨q, hqQ, hqs⟩, τ, hτ, hτQ, P, hPQ, hPs, hPreq, hPc, hPw⟩ := hS Q hQs hQ hW htop
+    obtain ⟨σ, hσ, hσP⟩ := hlow P (fun p hp => Int.le_trans (hPs p hp) hst) hPc hPw
+    have c := KernelUp.aCtx_line φ hbd n kv hkv
+    have hcs : kv.2.current_step = (n : Int) + 1 := ((lineOk φ n).2 kv hkv).step
+    have hrange : ∀ x ∈ Q, 0 ≤ x.id.step ∧ x.id.step ≤ n := fun x hx => by
+      obtain ⟨nx, hnx, _⟩ := hQ x hx
+      have h := CertFix.step_range c.pc x nx hnx
+      rw [hcs] at h
+      exact ⟨h.1, Int.lt_add_one_iff.mp h.2⟩
+    have hsn : s ≤ n := by rw [← hqs]; exact (hrange q hqQ).2
+    have hqP : q ∈ P := hPQ q hqQ (Int.le_of_eq hqs)
+    have heq : σ s = τ s := by
+      rw [← hqs, hσP q hqP, hτQ q hqQ (Int.le_of_eq hqs.symm)]
+    have hreq : ∀ k, s < k → k ≤ n → ∀ r ∈ reqOf φ (τ k).id, 0 ≤ r.step → r.step ≤ s → (σ r.step).id = r := by
+      intro k hk1 hk2 r hr h0 h1
+      obtain ⟨p, hpP, hpr⟩ := hPreq k hk1 hk2 r hr h0 h1
+      have hps : p.id.step = r.step := by rw [hpr]
+      rw [← hps, hσP p hpP, hpr]
+    obtain ⟨ρ, hρ, hlo, hhi⟩ := splice φ hbd n hn kv hkv σ τ hσ hτ s hs0 hsn heq hreq
+    refine ⟨ρ, hρ, fun x hx => ?_⟩
+    by_cases hxs : x.id.step ≤ s
+    · rw [hlo _ (hrange x hx).1 hxs]; exact hσP x (hPQ x hx hxs)
+    · have hsx : s ≤ x.id.step := Int.le_of_lt (Int.not_le.mp hxs)
+      rw [hhi _ hsx (hrange x hx).2]; exact hτQ x hx hsx
+  | false =>
+    exact hlow Q (fun q hq => by
+      have := hQs q hq
+      have : q.id.step ≠ t + 1 := fun h => (List.any_eq_false.mp hany) q hq (decide_eq_true h)
+      omega) hQ hW
+
+/-- info: 'AbsSatBin.GraphPath.Model.Splice.certUpTo_succ' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms certUpTo_succ
+
+omit hbd in
+/-- **`SplitStep`** at a state of line `n`: every clique with witnesses whose top member is at `t+1` splices at some
+`s ≤ t`. -/
+def SplitStep (g : GPathM) (n : Nat) : Prop :=
+  ∀ t : Int, 0 ≤ t → t < n → ∀ Q, (∀ q ∈ Q, q.id.step ≤ t + 1) → Clique g Q → Wit g Q →
+    (∃ q ∈ Q, q.id.step = t + 1) → ∃ s, s ≤ t ∧ SuffixSplit φ g n Q s
+
+/-- **`CertClique` of a state from splices**: by induction on the top step, the certificates of the cliques at step 0
+and `SplitStep` give a certificate to every clique with witnesses. -/
+theorem certClique_of_splits (n : Nat) (hn : (n : Int) < stepCount φ) (kv : NodeId × GPathM) (hkv : kv ∈ line φ n)
+    (h0 : CertUpTo kv.2 0) (hS : SplitStep φ kv.2 n) : CertClique kv.2 := by
+  have up : ∀ m : Nat, m ≤ n → CertUpTo kv.2 m := by
+    intro m
+    induction m with
+    | zero => intro _; exact h0
+    | succ m ih =>
+      intro hm
+      have hm' : m < n := Nat.lt_of_succ_le hm
+      have := certUpTo_succ φ hbd n hn kv hkv m (ih (Nat.le_of_lt hm')) (fun Q hQs hQ hW htop =>
+        hS m (Int.natCast_nonneg m) (Int.ofNat_lt.mpr hm') Q hQs hQ hW htop)
+      push_cast; exact this
+  intro Q hQ hW
+  have c := KernelUp.aCtx_line φ hbd n kv hkv
+  have hcs : kv.2.current_step = (n : Int) + 1 := ((lineOk φ n).2 kv hkv).step
+  exact up n (Nat.le_refl n) Q (fun q hq => by
+    obtain ⟨nq, hnq, _⟩ := hQ q hq
+    have h := CertFix.step_range c.pc q nq hnq
+    rw [hcs] at h
+    exact Int.lt_add_one_iff.mp h.2) hQ hW
+
+/-- info: 'AbsSatBin.GraphPath.Model.Splice.certClique_of_splits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms certClique_of_splits
+
+/-- **The reader decides `φ` when, in every state of the last line, the cliques at step 0 have certificates and every
+clique with witnesses splices** (the lower part, widened by the crossing requirements of a suffix, is a clique with
+witnesses). -/
+theorem readerVerdictW_iff_of_splits
+    (h0 : ∀ kv ∈ pureRun φ, CertUpTo kv.2 0)
+    (hS : ∀ kv ∈ pureRun φ, SplitStep φ kv.2 (stepCount φ - 1).toNat) :
+    ReaderExec.readerVerdictW φ = true ↔ Satisfiable φ := by
+  refine CertInvariant.readerVerdictW_iff_of_certClique φ hbd (fun kv hkv => ?_)
+  have hN : (((stepCount φ - 1).toNat : Nat) : Int) < stepCount φ := by simp only [stepCount]; omega
+  have hkvl : kv ∈ line φ (stepCount φ - 1).toNat := hkv
+  exact certClique_of_splits φ hbd _ hN kv hkvl (h0 kv hkv) (hS kv hkv)
+
+/-- info: 'AbsSatBin.GraphPath.Model.Splice.readerVerdictW_iff_of_splits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms readerVerdictW_iff_of_splits
 
 end AbsSatBin.GraphPath.Model.Splice
