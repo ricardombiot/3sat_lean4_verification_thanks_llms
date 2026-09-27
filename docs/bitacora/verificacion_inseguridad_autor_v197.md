@@ -20,14 +20,18 @@ bastan para el lector. La regla que sí bastaría para quitar una de las dos hip
 * **La propuesta:** etiquetas de todos los niveles. Cada entrada guarda, por cada fila de claves por la que pasó, de
   qué claves venía. Con eso `M1bLowOwn` desaparecería como hipótesis en todas las líneas (deducido), y el lector
   decidiría bajo `M1aAll` sola. Coste polinómico, como mucho un factor S en memoria.
-* **Lo siguiente:** medir en Julia cuánto se mezclan de verdad las filas antes de implementar nada. Después, la
-  implementación y la formalización.
+* **Implementada y medida (§8).** Las etiquetas de todos los niveles son **exactas** y no cambian ningún veredicto
+  ni ninguna solución en las 29 instancias terminadas. Con ellas, M1b-entradas vale por construcción (24.560 estados).
+  Pero la mezcla es casi total (hasta 89 de 105 filas) y la representación con diccionarios es inviable: 88,7 GB en
+  `clause_mix_sep` y ×12,8 en tiempo. **Está desactivada** (`KEYTAGS_MODE = :off`) hasta rehacer la representación.
+  Las dos reglas de un nivel se han quitado del código.
 
 Cada afirmación lleva su estado: **demostrado** (teorema Lean), **medido** (sonda), **deducido** (argumento sin
 formalizar), **propuesto** o **abierto**.
 
-Commits: `82c121f`, `5815b66` y `6c4841c` en `lean_improves_bin`; `aeeb001`, `cac23ff` y `98923f0` en
-`julia_key_rules`.
+Commits: `82c121f`, `5815b66` y `6c4841c` en `lean_improves_bin`; en `julia_key_rules`, `aeeb001`, `cac23ff` y
+`98923f0` (reglas de un nivel), `a7b3dd7` (las quita), y `f218230`, `47d00be` y `cfc92c9` (etiquetas de todos los
+niveles, desactivadas).
 
 ---
 
@@ -298,7 +302,7 @@ piezas de un join suelen compartir sus tablas bajas, muchas filas seguirán unif
 * El riesgo de `below_review` era real pero se resolvió: **`below_reviewKC` está demostrado.** No cambia la
   conclusión, porque la comprobación de claves no llega a cerrar la inducción.
 
-## 7. Qué voy a hacer a continuación
+## 7. Qué voy a hacer a continuación (plan inicial; resultado en §8)
 
 1. **Medir la mezcla** (sonda en Julia, sin tocar la máquina). Por cada estado de cada línea: cuántas filas de claves
    quedan mezcladas, el tamaño de `mixed` frente al de las tablas, y la máscara típica de una entrada. Eso dice si el
@@ -311,11 +315,87 @@ piezas de un join suelen compartir sus tablas bajas, muchas filas seguirán unif
 
 Si en el paso 1 la mezcla resulta ser casi total, el factor S de memoria será real y lo valoraremos antes de seguir.
 
+## 8. Resultados de las etiquetas de todos los niveles
+
+### 8.1 Qué hice
+
+En la rama `julia_key_rules`:
+* **`a7b3dd7`**: quité del código las dos reglas de un nivel (la etiqueta de un nivel y la comprobación de claves).
+  Quedan sustituidas por la propuesta de §5. Las dos reglas siguen documentadas en el v196 y formalizadas en
+  `KeyRules.lean`.
+* **`f218230`**: las etiquetas de todos los niveles, en `src/graph_path/graph_path_keytags.jl`, según el borrador de
+  §5.2:
+  * `KeyTagsAll`: por cada fila de claves, una máscara uniforme o una por entrada (p, v) si un join la mezcló.
+  * `init_key_level!`, `inherit_keytags!`, `prune_keytags!`: el UP (fila nueva con una clave, herencia de los padres,
+    limpieza).
+  * `join_keytags!`: el join, OR fila a fila; `materialize_level!` cuando una fila se mezcla.
+  * `restrict_keytags!`: el pin, llamado desde `filter_require!` en cualquier fila.
+  * Diferencial `test_3sat/compare_keytags.jl` y sonda `test_3sat/probes/keytags_all_probe.jl`.
+* **`47d00be`**: un error que salió al medir. El review que hace el UP al final (ventanas prohibidas) quitaba entradas
+  después de heredar sus máscaras, y el join acumulaba máscaras huérfanas: 318.848 frente a 4.096 entradas vivas en
+  `rand3sat_v4_c20`. Ahora se limpian también tras ese review, y quedan 0.
+* **`cfc92c9`**: **desactivada** por memoria (§8.4). `KEYTAGS_MODE = :off` por defecto: no se crea ninguna etiqueta y
+  los enganches no hacen nada, así que la máquina es la de siempre. Solo las sondas la encienden, explícitamente.
+
+### 8.2 Exactitud (`keytags_all_probe.jl`)
+
+En `clause_mix.cnf`, `clause_mix_sep.cnf` y las 6 primeras de `random_small`, en cada estado unido J de la línea
+`n+1`. **0 fallos**:
+
+| comprobación | casos | fallos |
+|---|---|---|
+| fila n (el último join): etiqueta `k` en (p, v) ⇔ `v` está en la tabla de `p` en la pieza `P_k` | 1.115.403 | 0 |
+| fila n-1 (heredada): etiqueta `j` ⇒ la entrada está en alguna pieza `P_k` y en la pieza `Q_{k,j}` de la línea anterior | 695.699 | 0 |
+| M1b-entradas con la regla: J fijado en R + k válido ⇒ toda entrada de las filas de abajo es de `P_k` | 24.560 | 0 |
+
+* En la fila n-1 no se comparan 27.162 entradas cuyo owner es un nodo de la cima (paso n+1). Ese nodo no existía en
+  la pieza de la línea anterior; su máscara la hereda de sus padres. En la primera pasada la sonda los contó como
+  fallos; era un error de la sonda, corregido en `cfc92c9`.
+* **Lectura:** la herencia por el UP y la unión por el join hacen lo que dice §5.1. Con las etiquetas, `M1bLowOwn`
+  deja de ser una hipótesis y pasa a ser una propiedad por construcción. Esto está medido, no demostrado.
+
+### 8.3 Diferencial (`compare_keytags.jl`, `:off` frente a `:on`)
+
+Se paró tras 29 de las 76 instancias, por memoria (§8.4). En esas 29:
+* **Mismo veredicto** en las 29, y todas aciertan frente al exhaustivo.
+* **Mismas soluciones** leídas por el lector exponencial, **mismo pico** de nodos, y el lector sin retroceso acierta
+  siempre.
+* **Tiempo ×12,8** en total (162,9 s → 2.086,2 s). Por instancia, de ×10 a ×31; la peor es `rand3sat_v8_c10`.
+* **La regla actúa en la máquina:** los filtros de requisito que fijan una fila mezclada recortan entradas (30.779 en
+  `clause_mix`, 1,9 M en `v7_c30_i2`). No cambia nada del resultado: lo que corta no lo usa ninguna solución.
+* **La mezcla es casi total:** hasta 89 filas mezcladas de 105 (`v7_c30_i2`); en `clause_mix`, 22 de 25. Tras el
+  arreglo de `47d00be`, las máscaras por entrada son exactamente el número de filas mezcladas.
+
+### 8.4 El coste: memoria
+
+`clause_mix_sep.cnf` sola, con la regla encendida, llega a **88,7 GB de huella de memoria** (6,9 GB residentes; el
+resto, comprimido) y no termina.
+* **Crecimiento lineal en S, no exponencial:** cada entrada lleva como mucho una máscara por fila de claves, 2 bits en
+  el mapa bin. Las filas se etiquetan por separado; no se guardan combinaciones entre filas (ramas), que sí serían
+  2^S.
+* **La causa es la representación:** cada máscara va en un diccionario por fila con clave (p, v).
+  * Cada clave son dos `PathNodeId`, cada uno con tres `NodeId` opcionales: unos 150 bytes por máscara.
+  * Con 89 filas mezcladas, unos 13 KB de etiquetas por entrada de tabla.
+  * La máquina hace `deepcopy` del estado en cada envío a un hijo, con todos los diccionarios.
+* **La información real** son 2 bits por fila: unos 26 bytes por entrada con 105 filas, unas 500 veces menos.
+
+### 8.5 Qué queda
+
+* **Correcta, pero cara en esta forma.** Antes de volver a encenderla hay que guardar la máscara **dentro de la tabla
+  de owners**: un vector de 2 bits por fila de claves junto a cada owner, no diccionarios aparte. La cota asintótica
+  es la misma, pero la constante es unas 500 veces menor, y el join y el pin pasan a ser operaciones sobre bits.
+* **Con esa representación:** repetir el diferencial completo (76 instancias) y la sonda de exactitud; después, la
+  formalización en Lean (§5.4). El objetivo sigue siendo que el lector decida bajo `M1aAll` sola.
+* **Sin cambiar la máquina:** siguen abiertos `M1aAll` (`KeyTri₁`, `KeyExact`, `KeySplit`) y `M1bLowOwn` (`KFix`), o
+  los dos por `PairExact` con pins.
+
 ---
 
 **Ficheros:**
 * `lean/improves_bin/AbsSatBin/GraphPath/Model/KeyRules.lean`: `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`,
   `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel`.
-* Rama `julia_key_rules`: `julia/improves_bin/src/graph_path/graph_path_key.jl`, sus enganches,
-  `test_3sat/compare_key.jl` y `test_3sat/probes/keytags_probe.jl`.
+* Rama `julia_key_rules`: `julia/improves_bin/src/graph_path/graph_path_keytags.jl` (desactivado), sus enganches en
+  `graph_path_up.jl`, `graph_path_join.jl` y `graph_path_filter.jl`, `test_3sat/compare_keytags.jl` y
+  `test_3sat/probes/keytags_all_probe.jl`. Las reglas de un nivel (`graph_path_key.jl`, `compare_key.jl`,
+  `keytags_probe.jl`) se quitaron en `a7b3dd7`.
 * Detalle técnico en `docs/context/escalera_reader.md` §4.2ο.2; propuesta anterior en el v196.
