@@ -1791,6 +1791,13 @@ dos a dos): 25.242.784 enlaces en `clause_mix*` con x en la clave; en `clause_mi
 apunta a `PairExactRel` para todo x en los estados unidos fijados. No choca con los 20 tríos sin cadena de §4.2ο:
 allí los testigos no los posee también x.
 
+**`PairExact` con pins, medido sin fallos** (`pairexact_probe.jl`): todo enlace y–w de J fijado en R está en una
+cadena de J fijado en R. 5.426.185 enlaces en `clause_mix*`. Con él, `KeyExact` se reduce a que un enlace
+x-compatible sobreviva al fijar la ventana de x (la cadena de J fijado en R + ventana de x pasa por x y baja a J fijado
+en R). Eso es otra vez `TriPin₁` (el subkernel cortado queda por debajo del estado fijado), así que no cierra el
+círculo. `PairExact` sin pins lo conservan el review, el join y `addNode` sin ventana saltada (`BranchFull`); lo
+abierto es el filtro por pins.
+
 Demostrar `KeyExact` pide exactitud por cadenas a través del join con pins: los testigos de un enlace x-compatible de
 J fijado pueden venir de piezas distintas, y la cadena tiene que estar en una sola (`chain_in_piece`). Es el núcleo de
 M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
@@ -1901,4 +1908,4 @@ Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--cha
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`, `m1split`, `keytri`, `m1aall`, `keyexact`, `ktri`, `keycut_trace`, `kfix`).
+`fextind`, `m1split`, `keytri`, `m1aall`, `keyexact`, `pairexact`, `ktri`, `keycut_trace`, `kfix`).
