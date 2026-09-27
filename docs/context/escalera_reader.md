@@ -8,7 +8,7 @@
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
 > Informes de referencia: `docs/bitacora/verificacion_inseguridad_autor_v194.md` (hasta `TriPin`/`AmbTri`) y `…_v195.md`
-> (de `AmbTri` a `PieceLocalF` + `MergeSplit`). Propuesta de máquina para M1b (etiqueta de clave de un nivel): `…_v196.md`.
+> (de `AmbTri` a `PieceLocalF` + `MergeSplit`). Propuesta de máquina para M1b (etiqueta de clave de un nivel): `…_v196.md`. Reglas formalizadas y propuesta de etiquetas de todos los niveles: `…_v197.md`.
 > Este documento añade el peldaño `AmbTri ⇐ AmbFar` y las propuestas para seguir.
 
 ---
