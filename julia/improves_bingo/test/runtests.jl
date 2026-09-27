@@ -43,12 +43,10 @@ end
     #include("./sat_machine/test_sat_reader.jl")
     #include("./sat_machine/test_sat_machine_biglines.jl")
 
-    #include("./sat_machine/test_sat_machine_agresive.jl")
 end
 
 
 @time @testset "ReviewSimetrico" begin
-   # include("./graph_path/test_symmetric_review.jl")
 end
 
 @time @testset "PairMode" begin

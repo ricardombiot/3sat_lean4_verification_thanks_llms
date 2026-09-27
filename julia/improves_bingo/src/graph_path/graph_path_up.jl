@@ -4,7 +4,6 @@ function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node ::
                           prohibited :: Set{PathNodeId} = Set{PathNodeId}())
 
     filter!(gpath, requires)
-    #up_filter_triangle_nodes!(gpath, requires)
 
     do_up!(gpath, map_id_node, title, prohibited)
 end

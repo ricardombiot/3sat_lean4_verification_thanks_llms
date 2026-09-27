@@ -24,8 +24,6 @@ function make_review_owners!(gpath :: GPath)
 
         review_owners_coherence_with_its_parents_sons!(gpath)
 
-        #agressive_consistence_filter!(gpath)
-        #chain_consistence_filter!(gpath)
         LINK_MODE[] == :on && prune_stale_links!(gpath)
 
         if gpath.review_owners

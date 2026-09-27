@@ -1,6 +1,6 @@
 # Plan: grafo de owners (rama `graph_owners`, `julia/improves_bingo`)
 
-27-sept-2026. Estado: **F0 hecho** (commit 1c93bd8). F1 en adelante, pendiente del ok.
+27-sept-2026. Estado: **F0 hecho** (commits 1c93bd8, f63ce6a y la poda de filtros y sondas). F1 en adelante, pendiente del ok.
 
 ## Objetivo
 
@@ -111,13 +111,19 @@ crear los `Edge` solo cuando una regla necesite datos (el grafo queda en `alive`
 Regla del segmento, contadores de apoyo con cola de trabajo. Cada una detrás de un flag y medida con
 `removed_by`.
 
-## Decisiones antes de F2
+## Decisiones (27-sept)
 
-1. **Filtros fuera del review** (`agresive`, `witness`, `chain`, `triangle`): hoy no se llaman desde
-   `make_review_owners!`, solo desde tests. ¿Se portan al grafo o se quitan de bingo?
-2. **Sondas** (`test_3sat/probes`, ~80 ficheros que leen `node.owners`): propuesta, quitarlas de bingo;
-   siguen en `improves_bin`.
-3. **`Edge` desde el principio**: sí (decidido 27-sept). F5 dirá si conviene hacerlos perezosos.
+1. **Filtros fuera del review** (`agresive`, `witness`, `chain`, `triangle`): quitados de bingo, con
+   sus tests (`test_aggressive_review`, `test_far2_aggressive`, `test_sat_machine_agresive`,
+   `test_symmetric_review`) y los scripts que usaban sus contadores (`measure_symmetry`,
+   `compare_sym`, `compare_pair`).
+2. **Sondas** (`test_3sat/probes`): quitadas de bingo; siguen en `improves_bin`.
+3. **`Edge` desde el principio**: sí. F5 dirá si conviene hacerlos perezosos.
+
+`compare_clean.jl` compara los dos modos de `CLEAN_MODE`; se quita en F2, cuando desaparece el modo
+secuencial. Línea base de tests en bingo (igual que en `improves_bin`): `test_pair_mode` 17/17,
+`test_clean_invalid_two_phase` 506/506, `test_graph_path` 44 pasan, 4 fallan, 6 errores (ya
+fallaban antes de la copia).
 
 ## Commits
 
