@@ -1814,6 +1814,17 @@ M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
 
 **Abierto**: `M1aAll` (vía `KeyTri₁ ⇐ KeyExact`) y `M1bLowOwn` (vía `KFix`, medido sin fallos; `KTri` y `KTriK` falsos).
 
+**Las reglas de la fila de claves** (v196; `KeyRules.lean`, solo `[propext, Quot.sound]`). Etiqueta de clave
+(`restrictTo` con la pieza) y comprobación de claves (`reviewKC`), como operaciones nuevas del modelo; filtro
+`filterKC`. Implementadas en Julia en la rama `julia_key_rules`.
+* **`m1_keyRules`**: con las dos reglas, M1 vale en el join donde actúan. `below_piece` es `M1bLowOwn` por
+  construcción.
+* **`below_reviewKC`**: el review con la comprobación no baja de un kernel cerrado por claves (`KeyClosed`).
+  **`isValid_filterKC_of_kernel`**: el análogo de `isValid_filterAll_of_kernel`.
+* **No cierran la inducción** (deducido, v196 §6.2): `lExt_succ` baja a las fuentes, que son estados unidos, y con
+  etiquetas de un nivel el kernel de la pieza no respeta las etiquetas de la fuente. Harían falta etiquetas de todos
+  los niveles. `M1aAll` sigue abierto con o sin reglas.
+
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
 Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) conserven `addNode`, `join`,
@@ -1912,6 +1923,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri` (⚠ falso), `KeyTri₁`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `m1aAll_of_keyTri₁`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri₁` |
 | `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `KClosed`, `KFix`, `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix` |
 | `KeyCone.lean` | `CxPull`, `cx_up`, `triPin₁_of_below`, `KeySplit`, `keyTri₁_of_split`, `readerVerdictW_iff_of_split` |
+| `KeyRules.lean` | `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`, `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
