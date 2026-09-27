@@ -1,6 +1,6 @@
 # KeyExact (BranchRel.PairExactRel en la clave): en J|R válido, para x de la clave (paso top-1), todo enlace y–w
 # x-compatible (Cx) está en una cadena con x: un nodo por paso, todos poseídos dos a dos, pasando por x, y, w.
-# DEPTH=D (por defecto 1): x en el paso top-D (0 = cima, 1 = claves).
+# DEPTH=D (por defecto 1): x en el paso top-D (0 = cima, 1 = claves; -1 = todos los pasos).
 # Si vale, KeyTri₁ sale de BranchRel.triPin₁_of_pairExactRel.
 #   julia --project=../.. keyexact_probe.jl f1.cnf ...
 include("./keytri_common.jl")
@@ -28,7 +28,7 @@ function probe(path, st)
         for R in sampleR(J)
             G = pinned(J, R); G.is_valid || continue
             U = tables(G)
-            for x in [p for p in keys(U) if p.id.step == top - DEPTH]
+            for x in [p for p in keys(U) if DEPTH < 0 || p.id.step == top - DEPTH]
                 Tx = U[x]
                 cx(y, w) = haskey(U, w) && w in U[y] && all(l -> any(r -> r.id.step == l && r in U[w] && r in Tx, U[y]), 0:top)
                 for (y, Ty) in U
