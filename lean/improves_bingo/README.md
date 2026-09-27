@@ -19,6 +19,11 @@ compilan los módulos que se importan.
 |---|---|---|
 | `Model/Ops` | L2 | espejo de las operaciones de `julia/improves_bingo`: `filterRequire`, `clean` (purga), `pairSweep`/`cleanPair`, `pruneLinks`, `cutSupport` y las pasadas, `reviewPass`/`review` (con `dirty` = Julia `review_owners`), `filterAll`, `addNode`/`up`/`upFiltering`/`initSeed`, `join`/`doJoin` |
 | `Model/Driver` | L2 | la máquina (`run`, sobre `CnfMapBin`), el lector sin retroceso (`readerVerdict`), `bruteSat`, `noDeadNodes` |
+| `Model/Shrink` | L5 | `Shrinks` (solo borra + la medida no sube) para cada operación del review y para `filterAll` |
+| `Model/Carried` | L6 | `Carried g S`: la selección `S` (un nodo por paso) viva, poseída dos a dos y enlazada; `isValid_of_carried`, `isValidNode_of_carried`; qué primitivas la conservan |
+| `Model/Keeps` | L6 | **el review conserva toda camarilla llevada** (`carried_review`), y el filtro por requisitos que concuerdan (`carried_filterAll`), regla a regla |
+| `Model/Reader` | L6 | `AliveDocs` (lo conserva el filtro); un pin en un paso con elección baja la medida; **`readG_isSome_of_noZombie`**: si ningún estado que el lector visita es un zombi, el lector termina |
+| `Model/Rule` | L6 | el marco: `Rule` = `apply` + `shrinks` + `keeps` + `docs`; `comp`, `fuel`; las reglas de hoy como instancias (`purge`, `pairs`, `links`, `parents`, `sons`, `pass`, `review`) |
 | `Exe/Dump` | L3 | volcado en el formato de `dump_final.jl` |
 | `Model/GPathB` | L1 | `PNodeB`, `GPathB`; `Adj`/`adj_symm`, `neighborsAt`, `ownersOk`, `isValid`, `isValidNode`, `measure`; primitivas `removeEdge`, `addEdge`, `killVertex`, `removeNode`; `Sub` (refl, trans, y para cada primitiva); lo que se va (`not_adj_removeEdge`, `not_adj_killVertex`); la medida baja (`measure_removeEdge_lt`, `measure_removeNode_lt`) |
 
@@ -29,6 +34,17 @@ compilan los módulos que se importan.
   recorre todas las aristas en cada consulta de posesión (0,7 s con 3 variables; 6 min con `clause_mix_sep`,
   9 variables). Versiones rápidas `@[csimp]` pendientes antes del diferencial (L4).
 * `lake exe bingo-dump SALIDA f.cnf` — volcado para `compare_bingo.jl`.
+
+## Estado de los teoremas
+
+* **`readG_isSome_of_noZombie`** (`Model/Reader`): el lector termina sobre un estado si el estado revisado es válido,
+  todo vivo tiene documento y **todo estado que visita cumple `NoZombie`** (válido ⇒ lleva una camarilla). Es la
+  completitud del lector con una sola hipótesis, sobre los estados.
+* **`carried_review`, `carried_filterAll`** (`Model/Keeps`): ninguna regla del review pierde una camarilla llevada.
+* Pendiente (L6b): la completitud de la máquina (φ satisfacible ⇒ la línea final lleva la camarilla de una
+  solución: UP y join), y la solidez del lector (L7, puente estructural).
+* 0 `sorry`. Axiomas: `propext`, `Classical.choice`, `Quot.sound` (el `Classical.choice` viene de tácticas; se puede
+  limpiar).
 
 ## Construcción
 
