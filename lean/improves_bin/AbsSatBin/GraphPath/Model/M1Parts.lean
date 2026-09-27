@@ -2,6 +2,7 @@
 import AbsSatBin.GraphPath.Model.FExtInd
 import AbsSatBin.GraphPath.Model.UnionLine
 import AbsSatBin.GraphPath.Model.StateGrow
+import AbsSatBin.GraphPath.Model.BranchRel
 
 /-!
 # M1 in parts (`docs/context/escalera_reader.md` §4.2ο.2)
@@ -288,6 +289,20 @@ def KeyTri₁ (n : Nat) : Prop :=
   ∀ kv' ∈ line φ (n + 1), ∀ ps : List NodeId, isValid (filterAll kv'.2 ps) = true →
     ∀ q ∈ (filterAll kv'.2 ps).gowners, q.id.step = (n : Int) →
       ∃ x ∈ (filterAll kv'.2 ps).gowners, x.id = q.id ∧ TriPinCut.TriPin₁ (filterAll kv'.2 ps) x
+
+/-- **Exactness at the key**: every live key of step `n` has a node `x` such that every `x`-compatible link lies, with
+`x`, on a certificate (`BranchRel.PairExactRel`: a chain, i.e. a partial solution, through `x`, `y` and `w`). -/
+def KeyExact (n : Nat) : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ ps : List NodeId, isValid (filterAll kv'.2 ps) = true →
+    ∀ q ∈ (filterAll kv'.2 ps).gowners, q.id.step = (n : Int) →
+      ∃ x ∈ (filterAll kv'.2 ps).gowners, x.id = q.id ∧ BranchRel.PairExactRel (filterAll kv'.2 ps) x
+
+/-- **`KeyExact ⇒ KeyTri₁`** (`BranchRel.triPin₁_of_pairExactRel`). -/
+theorem keyTri₁_of_keyExact (n : Nat) (hE : KeyExact φ n) : KeyTri₁ φ n := by
+  intro kv' hkv' ps hv q hq hqn
+  have cG := filt_ctx φ hbd _ kv' ((lineOk φ (n + 1)).2 kv' hkv') ps hv
+  obtain ⟨x, hx, hxq, he⟩ := hE kv' hkv' ps hv q hq hqn
+  exact ⟨x, hx, hxq, BranchRel.triPin₁_of_pairExactRel cG.pc x he⟩
 
 /-- **`KeyTri₁ ⇒ M1aAll`**: the cut sub-kernel of the key node (`TriPinCut.restrict₁_kernel`). -/
 theorem m1aAll_of_keyTri₁ (n : Nat) (hT : KeyTri₁ φ n) : M1aAll φ n := by
