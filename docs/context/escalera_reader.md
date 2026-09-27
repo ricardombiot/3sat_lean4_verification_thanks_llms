@@ -1896,6 +1896,14 @@ inducción hacia abajo con CoverSplit.
 `M1bLowOwn` queda así reducido a una sola propiedad por fila, **CoverRow** (el estado fijado es la unión de sus
 fijaciones por la fila de debajo). Junto con `M1aAll`, son las únicas hipótesis del lector.
 
+**`CoverRow` medido en todas las filas sin fallos** (`coverrow_probe.jl`; `clause_mix` y 3 de `random_small`; R al
+azar, cada fila 2 ≤ m ≤ n y cada clave viva de la fila m):
+
+| filas | entradas | fallos |
+|---|---|---|
+| m < n | 27.948.768 | 0 |
+| m = n | 5.213.722 | 0 |
+
 **Siguiente nivel** (propuesto; ya cubierto por la forma de cadena de arriba): `M1bDeep` ⇐ CoverSplit en la fila n-2 ∧ el mismo enunciado con tres claves ∧ subir de
 W_i a Q_{k,i}. Subir de W_i a Q_{k,i} usa `key_reqs` para los requisitos de k, y el argumento de la fila nueva del `up`:
 un nodo nuevo posee la unión de las tablas de sus padres. A diferencia del primer nivel, las filas bajas de J no son
