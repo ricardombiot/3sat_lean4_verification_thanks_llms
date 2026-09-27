@@ -1526,8 +1526,15 @@ del otro): 198 650 empalmes válidos; de los 266 824 que fallan, **todos violan 
   152 129 sufijos, 0 fallos); **no toda** elección (fallan el 5,8 % y el 3,3 %). Los testigos buenos componen, pero hay que
   elegir cuáles.
 
+* **Elección voraz (`greedy_probe.jl`)**: añadir los testigos de uno en uno, cada uno bueno respecto a la parte baja ya
+  ampliada, eligiendo al azar entre los candidatos. En orden de pasos **ascendente** se atasca 5 veces de 109 568 (tríos) y
+  4 de 152 041 (cliques de 4); en orden descendente 2,3 % y 1,6 %; en orden aleatorio 1,2 % y 0,6 %. Con vuelta atrás no se
+  atasca nunca (es la «alguna elección» anterior: un subconjunto de una clique con testigos lo es). El orden natural de la
+  máquina, de izquierda a derecha, es casi voraz.
+
 **Lo que queda**: (a) que exista un sufijo así (siempre medido); (b) que alguna elección de testigos buenos, uno por
-requisito que cruza, componga con la parte baja en una clique con testigos (siempre medido, cliques de 3 y 4). «Testigo bueno» es una clique con testigos con un miembro
+requisito que cruza, componga con la parte baja en una clique con testigos (siempre medido, cliques de 3 y 4); en orden
+ascendente la elección es voraz salvo 9 casos de 261 k. «Testigo bueno» es una clique con testigos con un miembro
 más y todos en pasos ≤ `s`: la recursión baja por el paso más alto.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
