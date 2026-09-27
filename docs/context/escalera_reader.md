@@ -8,7 +8,7 @@
 > Cada pieza va marcada como **demostrado** (teorema Lean, 0 `sorry`, solo `[propext, Quot.sound]`),
 > **medido**, **deducido** (argumento en papel, sin formalizar), **propuesto** o **abierto**.
 > Informes de referencia: `docs/bitacora/verificacion_inseguridad_autor_v194.md` (hasta `TriPin`/`AmbTri`) y `…_v195.md`
-> (de `AmbTri` a `PieceLocalF` + `MergeSplit`). Propuesta de máquina para M1b (etiqueta de clave de un nivel): `…_v196.md`. Reglas formalizadas y propuesta de etiquetas de todos los niveles: `…_v197.md`.
+> (de `AmbTri` a `PieceLocalF` + `MergeSplit`). Propuesta de máquina para M1b (etiqueta de clave de un nivel): `…_v196.md`. Reglas formalizadas y propuesta de etiquetas de todos los niveles: `…_v197.md` (ambas retiradas del código; en la historia, merge `e0be7a3`).
 > Este documento añade el peldaño `AmbTri ⇐ AmbFar` y las propuestas para seguir.
 
 ---
@@ -1814,7 +1814,7 @@ M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
 
 **Abierto**: `M1aAll` (vía `KeyTri₁ ⇐ KeyExact`) y `M1bLowOwn` (vía `KFix`, medido sin fallos; `KTri` y `KTriK` falsos).
 
-**Las reglas de la fila de claves** (v196; `KeyRules.lean`, solo `[propext, Quot.sound]`). Etiqueta de clave
+**Las reglas de la fila de claves** (v196; `KeyRules.lean`, solo `[propext, Quot.sound]`; ⚠ retirado del código, queda en la historia: commit `82c121f`, merge `e0be7a3`). Etiqueta de clave
 (`restrictTo` con la pieza) y comprobación de claves (`reviewKC`), como operaciones nuevas del modelo; filtro
 `filterKC`. Implementadas en Julia en la rama `julia_key_rules`.
 * **`m1_keyRules`**: con las dos reglas, M1 vale en el join donde actúan. `below_piece` es `M1bLowOwn` por
@@ -1923,7 +1923,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri` (⚠ falso), `KeyTri₁`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `m1aAll_of_keyTri₁`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri₁` |
 | `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `KClosed`, `KFix`, `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix` |
 | `KeyCone.lean` | `CxPull`, `cx_up`, `triPin₁_of_below`, `KeySplit`, `keyTri₁_of_split`, `readerVerdictW_iff_of_split` |
-| `KeyRules.lean` | `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`, `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel` |
+| `KeyRules.lean` (⚠ retirado; en la historia, `82c121f`) | `restrictTo`, `reviewKC`, `filterKC`, `pieceOf`, `kc_spec`, `below_piece`, `m1_keyRules`, `KeyClosed`, `TagBelow`, `below_reviewKC`, `isValid_filterKC_of_kernel` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 

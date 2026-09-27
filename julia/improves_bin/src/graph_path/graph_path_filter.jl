@@ -317,9 +317,6 @@ function filter_require!(gpath :: GPath, map_node_id_req :: NodeId)
             end
         end
 
-        # v197 §5: fijar una clave deja en cada tabla solo las entradas que la llevan en su fila.
-        gpath.key_tags === nothing || restrict_keytags!(gpath, map_node_id_req)
-
         check_if_graph_valid!(gpath)
     end
 end
