@@ -101,6 +101,7 @@ import AbsSatBin.GraphPath.Model.FilterUnion
 import AbsSatBin.GraphPath.Model.FiltCert
 import AbsSatBin.GraphPath.Model.AnchorPiece
 import AbsSatBin.GraphPath.Model.UnionLine
+import AbsSatBin.GraphPath.Model.Splice
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs
