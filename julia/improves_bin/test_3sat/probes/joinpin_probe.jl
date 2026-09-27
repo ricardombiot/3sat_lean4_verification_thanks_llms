@@ -55,6 +55,61 @@ bystep_of(U) = (b = Dict{Int, Vector{PathNodeId}}(); for r in keys(U); push!(get
 ownsall(U, y, P) = haskey(U, y) && all(p -> owns(U, y, p), P)
 cxp(U, B, P, y, w, top) = owns(U, y, w) && haskey(U, w) &&
     all(l -> any(r -> owns(U, y, r) && owns(U, w, r) && ownsall(U, r, P), get(B, l, PathNodeId[])), 0:top)
+function nodesmap(g)
+    D = Dict{PathNodeId, Any}()
+    for (_, line) in g.table_lines.table, (pid_, node) in line.table; D[pid_] = node; end
+    D
+end
+# ¿hay una cadena (por parents, con posesión mutua) de la cima a la raíz que pase por todos los de Q?
+function chain_through(g, Q, top)
+    D = nodesmap(g)
+    own(r, q) = haskey(D, r) && haskey(D[r].owners.table, q.id.step) && (q in D[r].owners.table[q.id.step])
+    need = Dict(q.id.step => q for q in Q)
+    found = Ref(false); budget = Ref(2_000_000)
+    function go(p)
+        (found[] || budget[] <= 0) && return
+        budget[] -= 1
+        last = p[end]
+        if last.id.step == 0; found[] = true; return; end
+        for c in D[last].parents
+            haskey(D, c) || continue
+            haskey(need, c.id.step) && need[c.id.step] != c && continue
+            all(a -> own(a, c) && own(c, a), p) || continue
+            push!(p, c); go(p); pop!(p)
+        end
+    end
+    for t in keys(D)
+        t.id.step == top || continue
+        haskey(need, top) && need[top] != t && continue
+        go([t]); found[] && break
+    end
+    found[] ? "sí" : (budget[] <= 0 ? "presupuesto" : "no")
+end
+# versión mapa: cadena que pase por los nodos de mapa ids (cualquier nodo de camino con ese id)
+function chain_through_map(g, ids, top)
+    D = nodesmap(g)
+    own(r, q) = haskey(D, r) && haskey(D[r].owners.table, q.id.step) && (q in D[r].owners.table[q.id.step])
+    need = Dict(i.step => i for i in ids)
+    found = Ref(false); budget = Ref(2_000_000)
+    function go(p)
+        (found[] || budget[] <= 0) && return
+        budget[] -= 1
+        last = p[end]
+        if last.id.step == 0; found[] = true; return; end
+        for c in D[last].parents
+            haskey(D, c) || continue
+            haskey(need, c.id.step) && need[c.id.step] != c.id && continue
+            all(a -> own(a, c) && own(c, a), p) || continue
+            push!(p, c); go(p); pop!(p)
+        end
+    end
+    for t in keys(D)
+        t.id.step == top || continue
+        haskey(need, top) && need[top] != t.id && continue
+        go([t]); found[] && break
+    end
+    found[] ? "sí" : (budget[] <= 0 ? "presupuesto" : "no")
+end
 function probe(path, st)
     nv, cls = read_cnf(path); ncl = length(cls)
     assigns = [BitVector(digits(m, base = 2, pad = nv)) for m in 0:(2^nv - 1)]
@@ -96,12 +151,14 @@ function probe(path, st)
                     bump("JOINCHOICEP $(ok ? "ok" : "FALLA")")
                     if !ok
                         sem = semtri(U, [x, y, w], top)
+                        bump("fallos: cadena del estado unido por {x,y,w}: $(chain_through(g, [x, y, w], top))")
                         bump("fallos: trío {x,y,w} con solución $(sem ? "sí" : "no")")
                         println("FALLO $(basename(path)) cima=$top x=$(x.id) y=$(y.id) w=$(w.id) sem=$sem")
                         pat = String[]
-                        for (who, ps) in (("x", [x]), ("y", [y]), ("w", [w]), ("x+y", [x, y]), ("x+w", [x, w]), ("y+w", [y, w]), ("x+y+w", [x, y, w]))
+                        for (who, ps) in (("ninguno", PathNodeId[]), ("x", [x]), ("y", [y]), ("w", [w]), ("x+y", [x, y]), ("x+w", [x, w]), ("y+w", [y, w]), ("x+y+w", [x, y, w]))
                             f = deepcopy(g)
-                            redirect_stdout(devnull) do; for p in ps; f.is_valid && GraphPath.filter!(f, SetNodesId([p.id])); end; end
+                            redirect_stdout(devnull) do; isempty(ps) && (f.review_owners = true; GraphPath.make_review_owners!(f)); for p in ps; f.is_valid && GraphPath.filter!(f, SetNodesId([p.id])); end; end
+                            f.is_valid && !isempty(ps) && bump("pin $who: estado válido, cadena por los nodos de mapa: $(chain_through_map(f, [p.id for p in ps], top))")
                             if !f.is_valid
                                 bump("pin $who: estado muerto"); push!(pat, "muerto"); continue
                             end
@@ -114,6 +171,7 @@ function probe(path, st)
                             wit = all(l -> any(r -> ownsall(V, r, Q), get(BV, l, PathNodeId[])), 0:top)
                             bump("pin $who: trío vivo, testigos $(wit ? "sí" : "no"), TriP $(tp ? "ok" : "FALLA")")
                             push!(pat, wit ? "vivo+t" : "vivo")
+                            wit && bump("pin $who: vivo con testigos, cadena por el trío: $(chain_through(f, Q, top))")
                         end
                         bump("patrón (x,y,w): $(join(pat, ", "))")
                     end
