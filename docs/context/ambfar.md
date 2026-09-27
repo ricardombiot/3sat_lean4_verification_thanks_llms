@@ -1516,8 +1516,14 @@ del otro): 198 650 empalmes válidos; de los 266 824 que fallan, **todos violan 
   84 809 de 84 810 tríos. El caso malo (`rand3sat_v8_c10`, paso 32): un testigo de la clique en el paso 14 posee a los tres
   miembros pero no está en ninguna cadena con los dos de abajo — **testigos espurios respecto a una parte de la clique**.
 
-**Lo que queda**: toda clique con testigos admite un sufijo por su parte alta cuya parte baja ampliada con los requisitos
-que cruzan es clique con testigos (siempre medido; sin regla local exacta).
+* **Regla con testigos buenos (R_gw, `goodwit_probe.jl`)**: sufijo con sus nodos por encima del corte en la red de la
+  clique y cuyos requisitos que cruzan nombran, **cada uno**, un testigo bueno (la parte baja más ese testigo es clique con
+  testigos): existe en los 84 810 tríos y los 152 519 sufijos así muestreados son todos buenos. Con testigos buenos basta
+  requisito a requisito: la compatibilidad conjunta desaparece.
+
+**Lo que queda**: (a) que exista un sufijo así (siempre medido); (b) que testigos buenos requisito a requisito den la parte
+baja ampliada conjunta con testigos (siempre medido en tríos). «Testigo bueno» es una clique con testigos con un miembro
+más y todos en pasos ≤ `s`: la recursión baja por el paso más alto.
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
