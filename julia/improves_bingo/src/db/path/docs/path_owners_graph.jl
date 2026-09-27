@@ -1,5 +1,5 @@
-# Borrador (rama graph_owners, 27-sept-2026). Todavía no se incluye en DBDocuments ni lo usa GPath:
-# véase docs/plans/graph_owners.md.
+# Rama graph_owners, 27-sept-2026 (docs/plans/graph_owners.md). F1: el módulo solo, con tests;
+# GPath todavía no lo usa.
 #
 # Grafo de owners de un gpath: la relación «x y w son compatibles» (hoy repartida en las tablas
 # node.owners, una por nodo) guardada una sola vez, en el gpath. Es simétrica por construcción y
@@ -155,6 +155,36 @@ module PathOwnersGraph
         end
         ga.nsteps = max(ga.nsteps, gb.nsteps)
     end
+
+    # ---------- invariantes ----------
+    # La primera violación encontrada, o nothing. Para tests y asserts:
+    #   · cada arista está bajo su clave, une dos vivos y aparece en la incidencia de los dos;
+    #   · cada vecino w ≠ x de la incidencia de x tiene su arista (luego la relación es simétrica);
+    #   · cada vivo está en `alive` de su paso y en su propia incidencia (reflexiva), y al revés.
+    function invariant_violation(g :: OwnersGraph) :: Union{Nothing, String}
+        for (k, e) in g.edges
+            k == edge_key(e.a, e.b) || return "arista bajo una clave que no es la suya: $k"
+            e.a != e.b || return "arista reflexiva con objeto: $k"
+            (is_alive(g, e.a) && is_alive(g, e.b)) || return "arista con un extremo muerto: $k"
+            e.b in neighbors(g, e.a, step_of(e.b)) || return "falta b en la incidencia de a: $k"
+            e.a in neighbors(g, e.b, step_of(e.a)) || return "falta a en la incidencia de b: $k"
+        end
+        for (x, inc) in g.inc
+            x in get(g.alive, step_of(x), SetPathNodesId()) || return "vivo fuera de alive: $x"
+            x in get(inc, step_of(x), SetPathNodesId()) || return "falta la reflexiva: $x"
+            for (step, ws) in inc, w in ws
+                step_of(w) == step || return "vecino en la línea de otro paso: $x ~ $w"
+                w == x && continue
+                haskey(g.edges, edge_key(x, w)) || return "vecino sin arista: $x ~ $w"
+            end
+        end
+        for (_, ids) in g.alive, x in ids
+            is_alive(g, x) || return "en alive sin incidencia: $x"
+        end
+        return nothing
+    end
+
+    check_invariants(g :: OwnersGraph) :: Bool = invariant_violation(g) === nothing
 
     # ---------- puente con la representación actual (test diferencial) ----------
     as_table(g :: OwnersGraph, x :: PathNodeId) :: Inc = deepcopy(g.inc[x])

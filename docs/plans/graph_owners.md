@@ -58,6 +58,9 @@ encima; la copia del gpath en cada UP (`sat_machine.jl:110`) se queda. Se mide e
   - `is_valid_owners` con paso vacío y con paso sin línea;
   - `cut_by_support!` en un caso de padres a mano; `union!` de dos grafos con aristas comunes.
 
+Hecho: `invariant_violation` / `check_invariants` en el módulo; `test/db/path/docs/test_owners_graph.jl`
+en `runtests.jl`, 257/257 (incluye 200 secuencias al azar contra un modelo de pares no ordenados).
+
 ### F2 — GPath sobre el grafo
 
 - `GPath`: `owners :: PathDocOwners` → `og :: OwnersGraph`. `PathDocNode` pierde `owners`;

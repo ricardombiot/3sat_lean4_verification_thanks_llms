@@ -5,5 +5,6 @@ module DBDocuments
 
     include("./path/docs/path_doc_owners.jl")
     include("./path/docs/path_doc_node.jl")
+    include("./path/docs/path_owners_graph.jl")
 
 end

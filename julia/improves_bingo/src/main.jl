@@ -24,6 +24,8 @@ using Main.AbsSat.GraphMapVisual
 
 using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode
 using Main.AbsSat.DBDocuments.PathDocumentNode
+using Main.AbsSat.DBDocuments.PathOwnersGraph: OwnersGraph
+using Main.AbsSat.DBDocuments.PathOwnersGraph
 
 using Main.AbsSat.DBDocuments.PathDocumentOwners: PathDocOwners
 using Main.AbsSat.DBDocuments.PathDocumentOwners

@@ -18,6 +18,10 @@ end
    #include("./graph_map/test_graph_map_import.jl")
 end
 
+@time @testset "OwnersGraph" begin
+    include("./db/path/docs/test_owners_graph.jl")
+end
+
 @time @testset "GraphMapBin" begin
     include("./graph_map/test_graph_map_bin.jl")
 end
