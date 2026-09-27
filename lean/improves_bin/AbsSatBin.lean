@@ -106,6 +106,7 @@ import AbsSatBin.GraphPath.Model.JoinTri
 import AbsSatBin.GraphPath.Model.MapTri
 import AbsSatBin.GraphPath.Model.UpMono
 import AbsSatBin.GraphPath.Model.PieceBridge
+import AbsSatBin.GraphPath.Model.FExtInd
 import AbsSatBin.GraphPath.Model.Up
 import AbsSatBin.GraphPath.Model.Verdict
 import AbsSatBin.SatMachine.PureProofs

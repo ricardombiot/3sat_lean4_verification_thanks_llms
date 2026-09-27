@@ -49,6 +49,7 @@ function probe(path, st)
                 end
                 p.is_valid || continue
                 push!(get!(pieces, d, Any[]), p)
+                get(ENV, "ONLY_M1", "0") == "1" && continue
                 # M2 y M3 en la pieza
                 req = collect(dn.requires)
                 forb = SatMachine.map_prohibited(gmap)
