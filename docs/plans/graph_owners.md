@@ -170,6 +170,30 @@ Por instancia (test_window y test_3sat), en las dos máquinas: tiempo, `@allocat
 `Sys.maxrss()`, vueltas del review. Y en bingo, `removed_by` por regla. Si la memoria empeora mucho:
 crear los `Edge` solo cuando una regla necesite datos (el grafo queda en `alive` + `inc`).
 
+**Hecho (F5).** `test_3sat/measure_bingo.jl` (cada máquina en su proceso; `copy` da a las tablas de
+bin una copia por estructura inyectada desde el script, sin tocar sus fuentes). `REMOVED_BY` pasa a ser
+un contador global: por grafo contaba varias veces (el grafo se copia en cada UP y se une en los joins).
+81 instancias, mismos veredictos y vueltas en las tres:
+
+| | bin | bin + copia | bingo |
+|---|---|---|---|
+| tiempo (s) | 99,0 | 53,7 | 40,1 |
+| memoria reservada en total (GB) | 274,2 | 163,0 | 148,2 |
+| GC (s) | 16,0 | 8,7 | 8,8 |
+| pico vivo de la línea, suma (MB) | 812,3 | 818,1 | 1.075,4 |
+| pico vivo de la línea, máximo (MB) | 134,8 | 136,9 | 178,9 |
+| pico de owners, suma (MB) | 735,6 | 741,4 | 997,7 |
+
+- Tiempo: la mayor parte de la ganancia es la copia por estructura (99,0 → 53,7 s); el grafo añade
+  un 25 % más (53,7 → 40,1 s), con menos memoria reservada.
+- Memoria viva: bingo ocupa un 35 % más en owners, como se esperaba. El diccionario de aristas es el
+  31 % del grafo (308,6 de 997,7 MB); sin él, el grafo ocuparía unos 689 MB, un 7 % menos que las
+  tablas de bin con copia.
+- Aristas quitadas por regla: `clean` 5.090.266, `require` 4.484.763, `pair` 117.558, `parents` y
+  `sons` 0. En bin pasa lo mismo (espejo de las pasadas = 0 en `rand3sat_v8_c10` y `v6_c26_i1`): en
+  este corpus las pasadas de padres e hijos solo eliminan nodos sin padres o sin hijos, nunca cortan
+  una tabla.
+
 ### F6 — reglas sobre aristas (fuera de este plan, con ok aparte)
 
 Regla del segmento, contadores de apoyo con cola de trabajo. Cada una detrás de un flag y medida con

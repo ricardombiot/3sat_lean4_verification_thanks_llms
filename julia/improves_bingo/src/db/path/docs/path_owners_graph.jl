@@ -37,10 +37,13 @@ module PathOwnersGraph
         inc     :: Dict{PathNodeId, Inc}             # incidencia (hoy: node.owners)
         nsteps  :: Int                               # pasos creados (current_step)
         valid   :: Bool
-        removed_by :: Dict{Symbol, Int}              # aristas quitadas por cada regla (medida)
     end
 
-    new() = OwnersGraph(Dict(), Dict(), Dict(), 0, true, Dict())
+    new() = OwnersGraph(Dict(), Dict(), Dict(), 0, true)
+
+    # Aristas quitadas por cada regla, en todo el proceso (solo para medir). Global y no por grafo: el
+    # grafo se copia en cada UP y se une en los joins, y un contador suyo contaría varias veces.
+    const REMOVED_BY = Dict{Symbol, Int}()
 
     step_of(id :: PathNodeId) = id.id.step
 
@@ -89,7 +92,7 @@ module PathOwnersGraph
         delete!(g.edges, k)
         _drop!(g.inc[x], w)
         _drop!(g.inc[w], x)
-        g.removed_by[rule] = get(g.removed_by, rule, 0) + 1
+        REMOVED_BY[rule] = get(REMOVED_BY, rule, 0) + 1
         return true
     end
 
@@ -172,7 +175,7 @@ module PathOwnersGraph
         alive = Dict{Step, SetPathNodesId}(k => copy(v) for (k, v) in g.alive)
         edges = Dict{EdgeKey, Edge}(k => Edge(e.a, e.b, e.born) for (k, e) in g.edges)
         inc = Dict{PathNodeId, Inc}(x => Inc(s => copy(ws) for (s, ws) in r) for (x, r) in g.inc)
-        return OwnersGraph(alive, edges, inc, g.nsteps, g.valid, copy(g.removed_by))
+        return OwnersGraph(alive, edges, inc, g.nsteps, g.valid)
     end
 
     Base.deepcopy_internal(g :: OwnersGraph, stackdict :: IdDict) =

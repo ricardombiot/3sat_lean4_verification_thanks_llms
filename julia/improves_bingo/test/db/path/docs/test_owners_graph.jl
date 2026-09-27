@@ -39,9 +39,10 @@ end
     OG.add_edge!(g, x, w)
     @test OG.is_valid_owners(g, x) && OG.is_valid_owners(g, w)
 
+    n0 = get(OG.REMOVED_BY, :test, 0)
     @test OG.remove_edge!(g, w, x; rule = :test)
     @test !OG.remove_edge!(g, x, w; rule = :test)   # ya no está
-    @test g.removed_by[:test] == 1
+    @test OG.REMOVED_BY[:test] == n0 + 1
     @test !OG.has_edge(g, x, w) && !OG.has_edge(g, w, x)
     @test isempty(g.edges)
     # la línea queda vacía y se ve
@@ -68,12 +69,13 @@ end
     for x in (a, b, c); OG.register!(g, x); end
     OG.add_edge!(g, a, b); OG.add_edge!(g, a, c)
 
+    n0 = get(OG.REMOVED_BY, :clean, 0)
     OG.remove_node!(g, b; rule = :clean)
     @test !OG.is_alive(g, b)
     @test !(b in g.alive[1])
     @test !OG.has_edge(g, a, b)
     @test OG.has_edge(g, a, c)
-    @test g.removed_by[:clean] == 1
+    @test OG.REMOVED_BY[:clean] == n0 + 1
     @test g.valid                              # el paso 1 aún tiene a c
     @test OG.check_invariants(g)
 
@@ -147,9 +149,10 @@ end
     @test OG.cut_by_support!(g, d, [b, c]; rule = :parents) == 0   # todo apoyado
 
     OG.remove_edge!(g, c, a2; rule = :test)
+    n0 = get(OG.REMOVED_BY, :parents, 0)
     # a' ya no lo apoya ningún padre de d (b no lo tiene, c lo acaba de perder)
     @test OG.cut_by_support!(g, d, [b, c]; rule = :parents) == 1
-    @test g.removed_by[:parents] == 1
+    @test OG.REMOVED_BY[:parents] == n0 + 1
     @test !OG.has_edge(g, d, a2) && !OG.has_edge(g, a2, d)          # espejo incluido
     @test OG.has_edge(g, d, a)                                      # a sigue apoyado por b
     @test OG.check_invariants(g)
