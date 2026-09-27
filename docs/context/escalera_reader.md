@@ -1798,6 +1798,16 @@ en R). Eso es otra vez `TriPin₁` (el subkernel cortado queda por debajo del es
 círculo. `PairExact` sin pins lo conservan el review, el join y `addNode` sin ventana saltada (`BranchFull`); lo
 abierto es el filtro por pins.
 
+**`KeyTri₁` partido en el join** (`KeyCone.lean`, solo `[propext, Quot.sound]`; `triPin₁_of_below` sin axiomas):
+* **`triPin₁_of_below`**: si Π está por debajo de K, `TriPin₁ Π x` y todo enlace x-compatible de K ya es x-compatible
+  en Π (**`CxPull`**), entonces `TriPin₁ K x`.
+* **`keyTri₁_of_split`**: `KeySplit ⇒ KeyTri₁`, con Π = la pieza de la clave fijada en R (un kernel por debajo de J
+  fijado, `below_filterAll`). `KeySplit` = Π válida, `TriPin₁ Π x` y `CxPull`. `readerVerdictW_iff_of_split`.
+* **Medido sin fallos** (`keysplit_probe.jl`, `clause_mix*`): 8.115 claves; Π válida, `TriPin₁(Π, x)` y `CxPull`
+  en todas.
+`CxPull` es la mezcla del join en su forma mínima; `TriPin₁ Π x` habla de una sola pieza, con x en la cima de la
+fuente. Π válida es M1 para esa clave (`M1aAll` + M1b), así que `KeySplit` no rompe el círculo; separa las partes.
+
 Demostrar `KeyExact` pide exactitud por cadenas a través del join con pins: los testigos de un enlace x-compatible de
 J fijado pueden venir de piezas distintas, y la cadena tiene que estar en una sola (`chain_in_piece`). Es el núcleo de
 M1 (`BranchRel.JoinChoice`, ahora con pins), no un atajo.
@@ -1901,6 +1911,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
 | `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri` (⚠ falso), `KeyTri₁`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `m1aAll_of_keyTri₁`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri₁` |
 | `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `KClosed`, `KFix`, `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix` |
+| `KeyCone.lean` | `CxPull`, `cx_up`, `triPin₁_of_below`, `KeySplit`, `keyTri₁_of_split`, `readerVerdictW_iff_of_split` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
@@ -1908,4 +1919,4 @@ Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--cha
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`, `m1split`, `keytri`, `m1aall`, `keyexact`, `pairexact`, `ktri`, `keycut_trace`, `kfix`).
+`fextind`, `m1split`, `keytri`, `m1aall`, `keyexact`, `pairexact`, `keysplit`, `ktri`, `keycut_trace`, `kfix`).
