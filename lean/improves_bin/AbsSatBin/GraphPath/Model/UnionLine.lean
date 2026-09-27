@@ -880,6 +880,68 @@ theorem luaJ_of_luau (n : Nat) (hL : LUAU φ n) : LUAJ φ n := by
 #guard_msgs in
 #print axioms luaJ_of_luau
 
+/-- **A state of line `n+1` is pinned at the requirement of its key**: its global owners at a requirement's step name
+the requirement (its pieces were filtered by it). -/
+theorem line_pinned_req (n : Nat) (kv : NodeId × GPathM) (hkv : kv ∈ line φ (n + 1)) (r : NodeId)
+    (hr : r ∈ reqOf φ kv.1) : ∀ q ∈ kv.2.gowners, q.id.step = r.step → q.id = r := by
+  intro q hq hqs
+  have ck := KernelUp.aCtx_line φ hbd (n + 1) kv hkv
+  obtain ⟨nq, hnq⟩ := Option.isSome_iff_exists.mp (ck.pc.ker.gn q hq)
+  obtain ⟨kv0, hkv0, hd0, hv0, n0, hn0⟩ := (PieceJoin.join_no_new φ n kv hkv).1 q nq hnq
+  obtain ⟨hok0, hdst0, hcs0, _, hvF0, _⟩ := src_ctx φ hbd n kv0 hkv0 kv.1 hd0 hv0
+  have c0 := filt_ctx φ hbd n kv0 hok0 (reqOf φ kv.1) hvF0
+  have hrs : r.step < kv0.2.current_step := by have := reqOf_backward φ hbd kv.1 r hr; rw [← hdst0]; exact this
+  obtain ⟨nF0, hnF0, _⟩ := upF_old φ kv0.2 kv.1 hdst0 c0 hv0 q n0 hn0 (by rw [hqs]; exact hrs)
+  exact LineUnion.pinned_entry φ kv0.2 kv.1 q (c0.pc.ker.gow q nF0 hnF0) r hr hqs
+
+/-- **AFU follows from LUAU at the same line**: the state of the anchor's key, filtered by `S`, holds the clique; it is
+pinned at the anchor's requirement, so it sits inside the union filtered by `S` and the requirement. So AFU is exactly
+what LUAU adds at each line: the rest of the step (`luau_succ`) is proved. -/
+theorem afu_of_luau (n : Nat) (hL : LUAU φ (n + 1)) : AFU φ (n + 1) := by
+  intro S hS hv c Q0 hQ hW hcs r hr
+  -- the state of `c`'s key
+  obtain ⟨ncF, hncF, _⟩ := hQ c List.mem_cons_self
+  have hnonempty : ∃ kv, kv ∈ line φ (n + 1) := by
+    cases hl : line φ (n + 1) with
+    | nil =>
+      exfalso
+      have hU : lineU φ (n + 1) = GPathM.initSeed ⟨0, 0⟩ "" := by unfold lineU; rw [hl]
+      rw [hU] at hncF
+      obtain ⟨n0, hn0, hid, _, _⟩ :=
+        (pruned_filterAll (GPathM.initSeed ⟨0, 0⟩ "") S).nodes_derived ncF (List.mem_of_find?_eq_some hncF)
+      rw [initSeed_nodes, List.mem_singleton] at hn0
+      rw [node?_id_eq _ _ ncF hncF, hn0] at hid
+      have : c.id.step = 0 := by rw [hid]
+      omega
+    | cons kv1 _ => exact ⟨kv1, List.mem_cons_self⟩
+  obtain ⟨kv1, hkv1⟩ := hnonempty
+  obtain ⟨hU, _, hgrU, hsrcU, _⟩ := lineU_props φ hbd (n + 1) kv1 hkv1
+  have hbU := KernelIff.below_filterAll_self (lineU φ (n + 1)) hU.rc.nodup S
+  obtain ⟨ncU, hncU, _, _, _⟩ := hbU.node c ncF hncF
+  obtain ⟨kv, hkv, h2⟩ := hsrcU c ncU hncU
+  obtain ⟨n2, hn2⟩ := Option.isSome_iff_exists.mp h2
+  have c2 := KernelUp.aCtx_line φ hbd (n + 1) kv hkv
+  have hk2 := top_entry_key φ hbd (n + 1) kv hkv c n2 hn2 c (TriPinCut.self_own_pc c2.pc c n2 hn2) hcs
+  obtain ⟨hvG, hQG, hWG⟩ := hL S hS hv c Q0 hQ hW hcs kv hkv hk2.symm
+  -- it sits inside the union pinned at the requirement
+  have hok : StateOk φ ((n + 1 : Nat) : Int) kv := (lineOk φ (n + 1)).2 kv hkv
+  have cG := filt_ctx φ hbd _ kv hok S hvG
+  have hnd := Reader.NodupIds_reachable (reqOf φ) (isProhibited φ) _
+    (MapReachable.reachable_of_mapReachable φ hbd _ hok.reach)
+  have hBG : Kernel.Below (lineU φ (n + 1)) (filterAll kv.2 S) :=
+    PieceFilter.below_trans (PieceFilter.below_of_grown (hgrU kv hkv)) (KernelIff.below_filterAll_self kv.2 hnd S)
+  have hrk : r ∈ reqOf φ kv.1 := by rw [← hk2]; exact hr
+  have hB := Kernel.below_filterAll cG.pc.ker hBG (S ++ [r]) (fun r' hr' q hq hqs => by
+    rcases List.mem_append.mp hr' with hr' | hr'
+    · exact LineUnion.gowner_pinned kv.2 S q hq r' hr' hqs
+    · rw [List.mem_singleton.mp hr'] at hqs ⊢
+      exact line_pinned_req φ hbd n kv hkv r hrk q ((pruned_filterAll kv.2 S).gowners_sub q hq) hqs)
+  exact good_up hB cG.pc.ker hQG hWG
+
+/-- info: 'AbsSatBin.GraphPath.Model.UnionLine.afu_of_luau' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms afu_of_luau
+
 -- ============================================================
 -- A1 from growth at the top of the truncation (A1K) and LUAJ
 -- ============================================================
