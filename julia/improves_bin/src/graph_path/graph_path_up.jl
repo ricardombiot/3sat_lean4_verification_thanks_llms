@@ -30,6 +30,7 @@ function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
             # la cima), como en el mapa clásico. Va después de avanzar el paso: la fila nueva es la
             # cima y no necesita hijos.
             make_review_owners!(gpath)
+            prune_keytags!(gpath)              # v197 §5: las máscaras de lo que ese review quitó
         end
     end
 end
