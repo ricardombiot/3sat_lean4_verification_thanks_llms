@@ -53,6 +53,22 @@ def KTriK (n : Nat) : Prop :=
           ∃ nr, (filterAll kv'.2 ps).node? r = some nr ∧ ∃ x ∈ nr.owners, x.id = kv.1) →
         ∃ nP, (upF φ kv.2 kv'.1).node? p = some nP ∧ v ∈ nP.owners
 
+/-- A set of links of `G` **closed for the key `k`**: every link joins two nodes (the second in the first's table) and
+has, at every step, a witness that owns a node of `k` and is linked to both ends inside the set. -/
+def KClosed (G : GPathM) (k : NodeId) (cs : Int) (S : PathNodeId → PathNodeId → Prop) : Prop :=
+  ∀ a b, S a b → ∃ na, G.node? a = some na ∧ b ∈ na.owners ∧ (∃ nb, G.node? b = some nb) ∧
+    ∀ l : Int, 0 ≤ l → l < cs → ∃ r, r.id.step = l ∧ S a r ∧ S b r ∧
+      ∃ nr, G.node? r = some nr ∧ ∃ x ∈ nr.owners, x.id = k
+
+/-- **Links closed for the key lie in its piece** (the pair rule of the review, relative to `k`, taken to its fixpoint;
+`KTriK` is its first round): in a valid pinned joined state, every link of a set closed for the key `k` that starts
+below step `n` is a link of the piece of `k`. -/
+def KFix (n : Nat) : Prop :=
+  ∀ kv' ∈ line φ (n + 1), ∀ ps : List NodeId, isValid (filterAll kv'.2 ps) = true →
+    ∀ kv ∈ line φ n, kv'.1 ∈ sonsOfMap φ kv.1 → isValid (upF φ kv.2 kv'.1) = true →
+      ∀ S, KClosed (filterAll kv'.2 ps) kv.1 ((n : Int) + 2) S →
+        ∀ p v, S p v → p.id.step < (n : Int) → ∃ nP, (upF φ kv.2 kv'.1).node? p = some nP ∧ v ∈ nP.owners
+
 include hbd
 
 /-- **`KTriK ⇒ M1bLowOwn`**: with the key pinned, the common entries the pair rule gives own, at step `n`, an entry
@@ -79,6 +95,42 @@ theorem m1bLowOwn_of_kTriK (n : Nat) (hT : KTriK φ n) : M1bLowOwn φ n := by
   obtain ⟨nP', hnP', hvP'⟩ := tri v hv
   rw [hnP] at hnP'; cases hnP'; exact hvP'
 
+/-- **`KFix ⇒ M1bLowOwn`**: with the key pinned, all the links of the state form a set closed for it. -/
+theorem m1bLowOwn_of_kFix (n : Nat) (hF : KFix φ n) : M1bLowOwn φ n := by
+  intro kv' hkv' kv hkv hd hvP ps hvK p np hnp hlow
+  have hok' := (lineOk φ (n + 1)).2 kv' hkv'
+  have hcs' : kv'.2.current_step = (n : Int) + 2 := by rw [hok'.step]; push_cast; omega
+  have hkn : kv.1.step = (n : Int) := mapNodes_step φ n kv.1 ((lineOk φ n).2 kv hkv).onMap
+  have cK := filt_ctx φ hbd _ kv' hok' (kv.1 :: ps) hvK
+  have hbJK := KernelIff.below_filterAll_self kv'.2 (FExtInd.nodup_ok φ hbd _ kv' hok') (kv.1 :: ps)
+  have hKcs : (filterAll kv'.2 (kv.1 :: ps)).current_step = (n : Int) + 2 := by rw [← hbJK.step, hcs']
+  let K := filterAll kv'.2 (kv.1 :: ps)
+  let S : PathNodeId → PathNodeId → Prop := fun a b =>
+    ∃ na, K.node? a = some na ∧ b ∈ na.owners ∧ ∃ nb, K.node? b = some nb
+  have hS : KClosed K kv.1 ((n : Int) + 2) S := by
+    rintro a b ⟨na, hna, hba, nb, hnb⟩
+    refine ⟨na, hna, hba, ⟨nb, hnb⟩, fun l h0 h1 => ?_⟩
+    obtain ⟨r, hra, hrb, hrs⟩ := cK.pc.ker.pair a na b nb hna hnb hba l h0 (by rw [hKcs]; exact h1)
+    obtain ⟨nr, hnr⟩ := cK.pc.ker.isNode_owner a na hna r hra
+    obtain ⟨x, hx, hxs⟩ := AmbTriCore.entry_at cK r nr hnr (n : Int) (by omega) (by rw [hKcs]; omega)
+    exact ⟨r, hrs, ⟨na, hna, hra, nr, hnr⟩, ⟨nb, hnb, hrb, nr, hnr⟩, nr, hnr, x, hx,
+      LineUnion.gowner_pinned kv'.2 _ x (cK.pc.ker.own r nr hnr x hx) kv.1 List.mem_cons_self (by rw [hxs, hkn])⟩
+  have tri : ∀ v ∈ np.owners, ∃ nP, (upF φ kv.2 kv'.1).node? p = some nP ∧ v ∈ nP.owners := by
+    intro v hv
+    obtain ⟨nv, hnv⟩ := cK.pc.ker.isNode_owner p np hnp v hv
+    exact hF kv' hkv' (kv.1 :: ps) hvK kv hkv hd hvP S hS p v ⟨np, hnp, hv, nv, hnv⟩ hlow
+  obtain ⟨nP, hnP, _⟩ := tri p (TriPinCut.self_own_pc cK.pc p np hnp)
+  refine ⟨nP, hnP, fun v hv => ?_⟩
+  obtain ⟨nP', hnP', hvP'⟩ := tri v hv
+  rw [hnP] at hnP'; cases hnP'; exact hvP'
+
+/-- **The reader decides `φ` under `M1aAll` and `KFix` at every join.** -/
+theorem readerVerdictW_iff_of_kFix
+    (hA : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1aAll φ n)
+    (hF : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → KFix φ n) :
+    readerVerdictW φ = true ↔ Satisfiable φ :=
+  readerVerdictW_iff_of_own φ hbd hA (fun n h1 hn => m1bLowOwn_of_kFix φ hbd n (hF n h1 hn))
+
 /-- **The reader decides `φ` under `M1aAll` and `KTriK` at every join.** -/
 theorem readerVerdictW_iff_of_kTriK
     (hA : ∀ n : Nat, 1 ≤ n → (n : Int) + 1 < stepCount φ → M1aAll φ n)
@@ -90,3 +142,6 @@ end AbsSatBin.GraphPath.Model.M1bOwn
 
 /-- info: 'AbsSatBin.GraphPath.Model.M1bOwn.readerVerdictW_iff_of_kTriK' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1bOwn.readerVerdictW_iff_of_kTriK
+
+/-- info: 'AbsSatBin.GraphPath.Model.M1bOwn.readerVerdictW_iff_of_kFix' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms AbsSatBin.GraphPath.Model.M1bOwn.readerVerdictW_iff_of_kFix

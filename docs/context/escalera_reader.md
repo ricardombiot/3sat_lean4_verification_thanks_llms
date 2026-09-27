@@ -1765,7 +1765,25 @@ Así que `M1bLowOwn` (que no falla) no sale de ninguna propiedad de J fijado en 
 que poseen k existen en J, pero la cascada del review tras fijar k corta algunos, y con ellos el enlace. Hace falta un
 argumento de punto fijo (el mayor kernel por debajo de J fijado en k :: R), igual que `TriPin` → `TriPin₁` → review.
 
-**Abierto**: `M1aAll` (vía `KeyTri₁`) y `M1bLowOwn` (medido sin fallos como M1b-entradas; `KTri` y `KTriK` falsos).
+**Dónde mueren los enlaces de `KTriK`** (`keycut_trace.jl`: rehace el review de J fijado en k :: R operación a
+operación). Los 704 fallos (64 en `clause_mix`, 640 en `clause_mix_sep`) caen igual: vuelta 1 del review, dentro de la
+regla de parejas. En su ronda 1 se deshacen otras parejas (8 en `clause_mix`, 24 o 32 en `clause_mix_sep`) y la purga
+se lleva sus nodos. Con eso p–v pierde sus testigos en algún paso y en la ronda 2 es una pareja mala. Ni el corte
+contra padres o hijos ni los enlaces caducados intervienen.
+
+**`KFix`**: la regla de parejas relativa a k, llevada a su punto fijo (`KTriK` es su primera ronda). Un conjunto de
+enlaces de J fijado en R es **cerrado para k** (`KClosed`) si cada enlace (a, b) tiene, en cada paso, un testigo r que
+posee un nodo de k con (a, r) y (b, r) en el conjunto. `KFix`: todo enlace de un conjunto cerrado para k que sale de
+un nodo por debajo del paso n es un enlace de la pieza k.
+* **`m1bLowOwn_of_kFix`** (`KFix ⇒ M1bLowOwn`; con k fijada, todos los enlaces forman un conjunto cerrado) y
+  **`readerVerdictW_iff_of_kFix`**: el lector decide bajo `M1aAll` y `KFix`.
+* **Medido sin fallos** (`kfix_probe.jl`, el mayor conjunto cerrado por iteración): 24.560 pares (estado, clave), 660
+  con R vacío; **24,7 M enlaces** comprobados (`clause_mix`, `clause_mix_sep`, 6 de `random_small`).
+
+`KFix` habla solo de J fijado en R y de las piezas, sin el review del estado fijado en k: es la forma coinductiva de
+«la unión de piezas es exacta por debajo de la clave».
+
+**Abierto**: `M1aAll` (vía `KeyTri₁`) y `M1bLowOwn` (vía `KFix`, medido sin fallos; `KTri` y `KTriK` falsos).
 
 ### 4.3 Buscar el invariante de historia (el trabajo de fondo)
 
@@ -1863,7 +1881,7 @@ en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y vice
 | `UpMono.lean`, `PieceBridge.lean` | `below_addNode`, `src_of_piece` (M2w), `piece_of_src` (M3w) |
 | `FExtInd.lean` | `LExt`, `M1`, `readAny_track`, `fExt_of_lExt`, `lExt_low`, `lExt_succ`, `lExt_line`, `readerVerdictW_iff_of_m1` |
 | `M1Parts.lean` | `M1aAll`, `M1bBelow`, `M1bLow`, `M1bLowOwn`, `KeyTri` (⚠ falso), `KeyTri₁`, `m1_of_parts`, `pure_node`, `m1bBelow_of_low`, `piece_pinCtx`, `m1bLow_of_own`, `m1aAll_of_keyTri`, `m1aAll_of_keyTri₁`, `readerVerdictW_iff_of_parts`, `readerVerdictW_iff_of_keyTri₁` |
-| `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `m1bLowOwn_of_kTriK`, `readerVerdictW_iff_of_kTriK` |
+| `M1bOwn.lean` | `KTri` (⚠ falso), `KTriK` (⚠ falso), `KClosed`, `KFix`, `m1bLowOwn_of_kTriK`, `m1bLowOwn_of_kFix`, `readerVerdictW_iff_of_kFix` |
 | `M1Sem.lean` | `isValid_of_chainSound`, `CertPin`, `m1_of_certPin`, `readerVerdictW_iff_of_certPin` |
 | `MapTri.lean` | `ReadAny`, `FExt`, `progressFirst_of_fExt`, `readerVerdictW_iff_of_fExt`, `KExt`, `kernel_readAny`, `fExt_of_kExt`, `readerVerdictW_iff_of_kExt` |
 
@@ -1871,4 +1889,4 @@ Sondas: `lean/improves_bin/OtherBitProbeMain.lean` (exe `otherbit-probe`, `--cha
 `julia/improves_bin/test_3sat/probes/` (`decompress`, `lift`, `grow_step`, `kernel`, `global_local`, `dest`, `glpin`,
 `glfstar`, `select`, `gltop`, `verdict_brute`, `supported`, `twenty`, `joint`, `key`, `certj`, `fcert`, `fcert_any`,
 `djf`, `toppar`, `mergesplit`; de §4.2ο: `joinchoice_exh`, `absent`, `absent_sem`, `triple_sem`, `joinpin`, `fext`,
-`fextind`, `m1split`, `keytri`, `m1aall`, `ktri`).
+`fextind`, `m1split`, `keytri`, `m1aall`, `ktri`, `keycut_trace`, `kfix`).
