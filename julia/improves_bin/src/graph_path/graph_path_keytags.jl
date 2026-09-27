@@ -16,8 +16,13 @@
 # No pierde soluciones: una solución que pasa por k en la fila ℓ es un camino de la pieza k de esa línea, así que todas
 # sus entradas llevan k.
 #
-#   :off — (por defecto) la máquina de siempre.
+#   :off — (por defecto) la máquina de siempre: no se crea ninguna etiqueta y los enganches no hacen nada.
 #   :on  — la regla.
+#
+# DESACTIVADA (27-sept-2026). Es correcta en lo medido (etiquetas exactas en las filas n y n-1, mismos veredictos y
+# soluciones en 29 instancias), pero esta representación (un Dict por fila con clave (p, v)) llega a 88,7 GB de huella
+# en clause_mix_sep.cnf y es ×12,8 más lenta. Antes de volver a encenderla: guardar la máscara dentro de la tabla de
+# owners (2 bits por fila de claves y owner), no en diccionarios aparte.
 
 const KEYTAGS_MODE = Ref(:off)
 

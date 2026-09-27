@@ -3,7 +3,7 @@
 #   fila n   (la del último join): k ∈ tag_n(p, v)  ⇔  v ∈ T_{P_k}(p), para P_k la pieza de J con clave k;
 #   fila n-1 (heredada):           j ∈ tag_{n-1}(p, v) ⇒ ∃ k con v ∈ T_{P_k}(p) y v ∈ T_{Q_{k,j}}(p), para Q_{k,j} la
 #                                  pieza de la línea anterior (fuente con clave j) que entró en la fuente X_k de P_k.
-#                                  Solo nodos p hasta el paso n (los de la cima n+1 no existían en Q).
+#                                  Solo entradas con p y v hasta el paso n (los nodos de la cima n+1 no existían en Q).
 #   M1b-entradas: J fijado (con etiquetas) en R + k válido ⇒ toda entrada de las filas bajo n es de P_k.
 #   julia --project=../.. keytags_all_probe.jl f1.cnf ...
 include("./keytri_common.jl")
@@ -60,6 +60,8 @@ function probe(path, st)
                     end
                     # fila n-1
                     (n >= 1 && p.id.step <= n) || continue
+                    # un owner de la cima (paso n+1) no existía en Q: su máscara la hereda del padre, no se compara
+                    v.id.step <= n || (bump("fila n-1: owner en la cima (heredada)"); continue)
                     mj = GraphPath.tag_mask(t, e, n - 1)
                     mj === nothing && (bump("fila n-1 sin máscara"); continue)
                     for bitj in 0:63
