@@ -168,7 +168,7 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `choiceAt` (`Driver.lean`) | `choice_at` (`graph_path_secpair.jl`) | igual |
 | `SecPairReader` (abierto) | `test_3sat/probe_tri_sec.jl` modos `sec`/`secx`: 0 cortes en 88 instancias | medido |
 | `PinEqSec g b` = mitad fácil `sec_of_pinEdge` (demostrada bajo `PairClosed`) + mitad difícil `SecInPin` (abierta) | `test_3sat/probe_sec_vs_pin.jl`: 17 158 / 17 158 iguales (`sec_miss` = mitad fácil, `sec_bigger` = mitad difícil) | medido |
-| `PairClosed` (el pin queda cerrado por parejas; abierto) | `pair_consistency_after_clean!` hasta su punto fijo | por construcción en Julia |
+| `PairClosed` (`ReviewClean.lean`): `pairClosed_review` demostrado bajo `ReviewExitsClean` (el review sale sin `dirty`; abierto, suficiencia del combustible) | `pair_closed(gpath)` (`graph_path_filter_pair.jl`), test en `test_secpair.jl`; el `while` de Julia llega al punto fijo sin combustible | demostrado / por construcción |
 | `noDeadEnd_of_secInPin`: `SecPair` + `SecInPin` ⇒ `NoDeadEndAt` | `dead_pins` = 0 | demostrado / medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 

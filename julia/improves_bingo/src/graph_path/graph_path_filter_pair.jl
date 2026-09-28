@@ -65,3 +65,8 @@ function pair_consistency_after_clean!(gpath :: GPath)
         end
     end
 end
+
+# Espejo de Lean `PairClosed` (lean/improves_bingo/AbsSatBingo/Model/ReviewClean.lean): cada arista comparte
+# entrada en cada paso. Consulta para tests; tras make_review_owners! vale por construcción (el while de arriba
+# llega a su punto fijo; en Lean es `pairClosed_review`, bajo `ReviewExitsClean`).
+pair_closed(gpath :: GPath) :: Bool = all(e -> shares_every_step(gpath.og, e.a, e.b), values(gpath.og.edges))

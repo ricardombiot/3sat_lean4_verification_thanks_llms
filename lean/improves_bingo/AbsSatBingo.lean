@@ -9,6 +9,7 @@ import AbsSatBingo.Model.Keeps
 import AbsSatBingo.Model.Machine
 import AbsSatBingo.Model.Ops
 import AbsSatBingo.Model.Reader
+import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.Rule
 import AbsSatBingo.Model.SecPair
 import AbsSatBingo.Model.Shrink

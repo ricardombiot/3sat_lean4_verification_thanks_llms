@@ -7,6 +7,7 @@
         redirect_stdout(devnull) do; SatMachine.run!(m); end
         g = first(SatMachine.get_gpath_solutions(m))
         # el estado final la cumple (medido en todo el corpus: probe_tri_sec.jl)
+        @test GraphPath.pair_closed(g)                 # Lean PairClosed
         @test GraphPath.sec_pair(g)
         @test GraphPath.sec_pair(g; by = :node)
         # una arista falsa entre dos vivos sin entrada común en algún paso queda fuera de toda sección

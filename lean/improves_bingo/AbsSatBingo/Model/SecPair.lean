@@ -1,5 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo/Model/SecPair.lean
 import AbsSatBingo.Model.Reader
+import AbsSatBingo.Model.ReviewClean
 
 /-!
 # `SecPair`: el grafo de owners es la unión de sus secciones por nodo del mapa
@@ -31,7 +32,8 @@ fuerte (`secPair_of_secPairX`).
 * `secPair_of_secPairX`.
 * `pairOk_of_secPair`: `SecPair` implica la regla de parejas en cada arista (si hay algún paso con elección).
 * **`PinEqSec g b`** (el pin de `b` es la mayor sección de `b`), enunciado. Mitad fácil, `sec_of_pinEdge`: toda
-  arista del pin de `b` está en una sección de `b`, si el review deja el pin cerrado por parejas (`PairClosed`).
+  arista del pin de `b` está en una sección de `b`, si el review deja el pin cerrado por parejas (`PairClosed`, que
+  da `pairClosed_filterAll` bajo `ReviewExitsClean`; ver `ReviewClean.lean`).
   Con la mitad difícil (`SecInPin`, abierta): `pinEqSec_of_secInPin`.
 * `noDeadEnd_of_secInPin`: `SecPair` + `SecInPin` ⇒ `NoDeadEndAt` (en un estado con alguna arista).
 
@@ -180,18 +182,14 @@ parejas; la mitad difícil (toda sección sobrevive al review del pin) queda com
 def PinEdge (h : GPathB) (y w : PathNodeId) : Prop :=
   h.isValid = true ∧ y ∈ h.alive ∧ w ∈ h.alive ∧ h.Adj y w
 
-/-- **`PinEqSec g b`**: las aristas del pin de `b` son exactamente las que están en alguna sección de `b`. -/
+/-- **`PinEqSec g b`**: las aristas del pin de `b` son exactamente las que están en alguna sección de `b` (aristas:
+`y ≠ w`, como compara Julia). -/
 def PinEqSec (g : GPathB) (b : NodeId) : Prop :=
-  ∀ y w, PinEdge (g.filterAll [b]) y w ↔ ∃ R, SecClosed g b R ∧ R y w
+  ∀ y w, y ≠ w → (PinEdge (g.filterAll [b]) y w ↔ ∃ R, SecClosed g b R ∧ R y w)
 
 /-- La mitad difícil, **abierta**: toda sección de `b` sobrevive al pin de `b` (el review no corta dentro de ella). -/
 def SecInPin (g : GPathB) (b : NodeId) : Prop :=
-  ∀ R, SecClosed g b R → ∀ y w, R y w → PinEdge (g.filterAll [b]) y w
-
-/-- El review deja el estado cerrado por parejas entre vivos (la parte de «el review termina limpio» que usa la
-mitad fácil; **abierto** en general, v200 paso 2). -/
-def PairClosed (h : GPathB) : Prop :=
-  ∀ y w, y ∈ h.alive → w ∈ h.alive → h.Adj y w → h.pairOk y w = true
+  ∀ R, SecClosed g b R → ∀ y w, y ≠ w → R y w → PinEdge (g.filterAll [b]) y w
 
 /-- Tras `filterRequire b` (sobre un estado válido en el que todo vivo tiene documento), en el paso de `b` solo
 quedan vivos de `b`. -/
@@ -223,17 +221,16 @@ theorem pinned_filterAll {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = true)
   exact pinned_filterRequire hd hv b q (hsub.alive q hq) hqs
 
 /-- **El pin es una sección** (la mitad fácil, en abstracto): un estado `h` por debajo de `g`, cerrado por parejas,
-en el que el paso de `b` solo tiene vivos de `b`, da una sección de `b` en `g` con sus aristas. -/
+en el que el paso de `b` solo tiene vivos de `b`, da una sección de `b` en `g`: sus parejas buenas. -/
 theorem secClosed_of_pinned {g h : GPathB} {b : NodeId} (hs : Sub h g)
     (hpin : ∀ q ∈ h.alive, q.id.step = b.step → q.id = b) (hpc : PairClosed h)
     (hb0 : 0 ≤ b.step) (hb1 : b.step < h.current_step) :
-    SecClosed g b (fun y w => y ∈ h.alive ∧ w ∈ h.alive ∧ h.Adj y w) where
-  symm := fun ⟨hy, hw, ha⟩ => ⟨hw, hy, (adj_symm h _ _).mp ha⟩
-  alive := fun ⟨hy, hw, _⟩ => ⟨hs.alive _ hy, hs.alive _ hw⟩
-  adj := fun ⟨_, _, ha⟩ => hs.adj _ _ ha
+    SecClosed g b (fun y w => y ∈ h.alive ∧ w ∈ h.alive ∧ h.Adj y w ∧ h.pairOk y w = true) where
+  symm := fun ⟨hy, hw, ha, hp⟩ => ⟨hw, hy, (adj_symm h _ _).mp ha, by rw [pairOk_comm]; exact hp⟩
+  alive := fun ⟨hy, hw, _, _⟩ => ⟨hs.alive _ hy, hs.alive _ hw⟩
+  adj := fun ⟨_, _, ha, _⟩ => hs.adj _ _ ha
   anchor := by
-    rintro y w ⟨hy, hw, ha⟩
-    have hok := hpc y w hy hw ha
+    rintro y w ⟨_, _, _, hok⟩
     unfold pairOk at hok
     have hc := List.all_eq_true.mp hok b.step (mem_intRange hb0 (by omega))
     unfold commonAt at hc
@@ -244,36 +241,51 @@ theorem secClosed_of_pinned {g h : GPathB} {b : NodeId} (hs : Sub h g)
     · exact hs.adj _ _ ((adj_symm h _ _).mp hyr)
     · exact hs.adj _ _ ((adj_symm h _ _).mp hwr)
   pair := by
-    rintro y w ⟨hy, hw, ha⟩ l hl0 hl1
-    have hok := hpc y w hy hw ha
-    unfold pairOk at hok
-    rw [hs.step] at hok
-    have hc := List.all_eq_true.mp hok l (mem_intRange hl0 (by omega))
+    rintro y w ⟨hy, hw, _, hok⟩ l hl0 hl1
+    have hok' := hok
+    unfold pairOk at hok'
+    rw [hs.step] at hok'
+    have hc := List.all_eq_true.mp hok' l (mem_intRange hl0 (by omega))
     unfold commonAt at hc
     obtain ⟨r, hr, hrc⟩ := List.any_eq_true.mp hc
     simp only [Bool.and_eq_true, beq_iff_eq] at hrc
     obtain ⟨⟨hrs, hyr⟩, hwr⟩ := hrc
-    exact ⟨r, hrs, ⟨hy, hr, hyr⟩, ⟨hw, hr, hwr⟩⟩
+    -- la pareja con `r` es buena: si `r` es el propio nodo, por la reflexiva; si no, por `PairClosed`
+    have good : ∀ z, z ∈ h.alive → h.pairOk z z = true → h.adjb z r = true → h.pairOk z r = true := by
+      intro z hz hzz hzr
+      by_cases hzr' : z = r
+      · subst hzr'; exact hzz
+      · exact hpc z r hzr' hz hr hzr
+    have hyy : h.pairOk y y = true := pairOk_self_of hok
+    have hww : h.pairOk w w = true := pairOk_self_of (by rw [pairOk_comm]; exact hok)
+    exact ⟨r, hrs, ⟨hy, hr, hyr, good y hy hyy hyr⟩, ⟨hw, hr, hwr, good w hw hww hwr⟩⟩
 
 /-- **La mitad fácil de `PinEqSec`**: toda arista del pin de `b` está en una sección de `b`, si el review deja el
 pin cerrado por parejas. -/
 theorem sec_of_pinEdge {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = true) {b : NodeId}
     (hb0 : 0 ≤ b.step) (hb1 : b.step < g.current_step) (hpc : PairClosed (g.filterAll [b]))
-    {y w : PathNodeId} (he : PinEdge (g.filterAll [b]) y w) : ∃ R, SecClosed g b R ∧ R y w := by
+    {y w : PathNodeId} (hne : y ≠ w) (he : PinEdge (g.filterAll [b]) y w) : ∃ R, SecClosed g b R ∧ R y w := by
   have hsub := (shrinks_filterAll g [b]).1
   obtain ⟨_, hy, hw, ha⟩ := he
   exact ⟨_, secClosed_of_pinned hsub (pinned_filterAll hd hv b) hpc hb0 (by rw [hsub.step]; exact hb1),
-    hy, hw, ha⟩
+    hy, hw, ha, hpc y w hne hy hw ha⟩
+
+/-- El pin sale cerrado por parejas si el filtro quitó algo (`dirty`) y el review sale sin `dirty`
+(`pairClosed_review`; lo segundo es `ReviewExitsClean`). -/
+theorem pairClosed_filterAll {g : GPathB} {b : NodeId} (hd : (g.filterRequire b).dirty = true)
+    (hce : ReviewExitsClean (g.filterRequire b)) (hv : (g.filterAll [b]).isValid = true) :
+    PairClosed (g.filterAll [b]) :=
+  pairClosed_review hd hv (hce hv)
 
 /-- `PinEqSec` a partir de su mitad difícil. -/
 theorem pinEqSec_of_secInPin {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = true) {b : NodeId}
     (hb0 : 0 ≤ b.step) (hb1 : b.step < g.current_step) (hpc : PairClosed (g.filterAll [b]))
     (hin : SecInPin g b) : PinEqSec g b := by
-  intro y w
+  intro y w hne
   constructor
-  · exact sec_of_pinEdge hd hv hb0 hb1 hpc
+  · exact sec_of_pinEdge hd hv hb0 hb1 hpc hne
   · rintro ⟨R, hs, hr⟩
-    exact hin R hs y w hr
+    exact hin R hs y w hne hr
 
 /-- **`SecPair` y la mitad difícil dan `NoDeadEnd`**: en un estado con alguna arista, en cada paso con elección el
 nodo del mapa de la sección que contiene esa arista deja un pin válido. -/
@@ -285,7 +297,7 @@ theorem noDeadEnd_of_secInPin {g : GPathB} (hsp : SecPair g) (hin : ∀ b, SecIn
   obtain ⟨x, hx, hxb, _, _⟩ := hs.anchor hr
   refine ⟨x, hx, by rw [hxb, hbk], ?_⟩
   rw [hxb]
-  exact (hin b R hs y w hr).1
+  exact (hin b R hs y w hne hr).1
 
 end GPathB
 
