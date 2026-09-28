@@ -8,6 +8,7 @@
         g = first(SatMachine.get_gpath_solutions(m))
         # el estado final la cumple (medido en todo el corpus: probe_tri_sec.jl)
         @test GraphPath.pair_closed(g)                 # Lean PairClosed
+        @test GraphPath.edge_clique(g)                 # Lean EdgeClique
         @test GraphPath.sec_pair(g)
         @test GraphPath.sec_pair(g; by = :node)
         # Lean SecStruct: cada sección de un paso con elección está cerrada por enlaces y apoyo
@@ -33,6 +34,7 @@
             g2, y, w = fake
             bad = GraphPath.sec_pair_bad(g2.og)
             @test any(e -> Set(e) == Set((y, w)), bad)
+            @test GraphPath.edge_clique_miss(g2) == (1, 0)   # la arista falsa no está en ninguna camarilla
         end
     end
 end

@@ -25,50 +25,8 @@ const PG = PathOwnersGraph
 const PTS = (:F, :A, :U, :L)
 const ACC = Dict{Symbol, Vector{Int}}(p => zeros(Int, 5) for p in PTS)
 
-# Cubre las aristas y los nodos de todas las cadenas; devuelve (e_miss, v_miss) o nothing si se pasa del tope.
-function coverage(g)
-    og = g.og
-    top = g.current_step - 1
-    top < 0 && return (0, 0)
-    covE = Set{Tuple{PathNodeId, PathNodeId}}()
-    covV = Set{PathNodeId}()
-    chains = 0
-    chain = PathNodeId[]
-    over = false
-    function ext(x)
-        over && return
-        push!(chain, x)
-        if x.id.step == top
-            chains += 1
-            chains > CAP && (over = true)
-            for (i, a) in enumerate(chain)
-                push!(covV, a)
-                for j in i+1:length(chain)
-                    push!(covE, PG.edge_key(a, chain[j]))
-                end
-            end
-        else
-            n = PathCollectionLines.get_node(g.table_lines, x)
-            if n !== nothing
-                for s in n.sons
-                    PG.is_alive(og, s) || continue
-                    PathCollectionLines.get_node(g.table_lines, s) === nothing && continue
-                    all(a -> PG.has_edge(og, a, s), chain) && ext(s)
-                end
-            end
-        end
-        pop!(chain)
-    end
-    for r in get(og.alive, 0, SetPathNodesId())
-        r.parent_id === nothing || continue
-        PathCollectionLines.get_node(g.table_lines, r) === nothing && continue
-        ext(r)
-        over && return nothing
-    end
-    e_miss = count(k -> !(k in covE), keys(og.edges))
-    v_miss = count(x -> !(x in covV), (x for (_, xs) in og.alive for x in xs))
-    return (e_miss, v_miss)
-end
+# GraphPath.edge_clique_miss (espejo de EdgeClique.lean): (aristas, nodos) sin cubrir, o nothing si se pasa del tope.
+coverage(g) = GraphPath.edge_clique_miss(g; cap = CAP)
 
 function look!(p, g)
     g.is_valid || return

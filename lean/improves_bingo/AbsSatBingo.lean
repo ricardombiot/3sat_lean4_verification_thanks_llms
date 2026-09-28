@@ -3,6 +3,7 @@ import AbsSatBingo.Exe.Dump
 import AbsSatBingo.Model.Carried
 import AbsSatBingo.Model.Decode
 import AbsSatBingo.Model.Driver
+import AbsSatBingo.Model.EdgeClique
 import AbsSatBingo.Model.GPathB
 import AbsSatBingo.Model.Grow
 import AbsSatBingo.Model.Keeps
