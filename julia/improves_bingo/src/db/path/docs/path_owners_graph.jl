@@ -5,7 +5,23 @@
 # node.owners, una por nodo) guardada una sola vez, en el gpath. Es simétrica por construcción y
 # reflexiva de forma implícita (x es owner de sí mismo, sin objeto Edge).
 module PathOwnersGraph
-    using Main.AbsSat.Alias: Step, PathNodeId, SetPathNodesId
+    using Main.AbsSat.Alias: Step, NodeId, PathNodeId, SetPathNodesId
+
+    # ---------- etiquetas por fila (informe v204 §7; rama row-tags) ----------
+    # Cada arista (y cada nodo, por su arista reflexiva) guarda, por cada fila de claves ℓ, la máscara de las
+    # claves (nodos del mapa del paso ℓ) de cuyas piezas viene: bit i ⇔ la clave (ℓ, i). Una fila de claves es el
+    # paso de la cima de un remitente: la llegada la marca con {k} (`stamp!`), el UP hereda de los padres y el join
+    # une fila a fila. La regla que las usa está en graph_path_tags.jl.
+    #
+    # ROW_TAGS: :off (por defecto; no se guarda nada) | :on. Variable de entorno ROW_TAGS.
+    const ROW_TAGS = Ref(Symbol(get(ENV, "ROW_TAGS", "off")))
+    tags_on() = ROW_TAGS[] == :on
+
+    const Mask = UInt8
+    const NOKEY = 0x00
+    const Tags = Vector{Mask}
+    const EMPTY_TAGS = Mask[]        # compartida por todas las aristas con ROW_TAGS = :off; nunca se modifica
+    key_bit(k :: NodeId) :: Mask = (@assert 0 <= k.index < 8 "clave con índice $(k.index) ≥ 8"; Mask(1) << k.index)
 
     # ---------- arista ----------
     # Una compatibilidad (a, b), a ≺ b. Mutable: aquí irán los datos propios de cada arista
@@ -14,7 +30,9 @@ module PathOwnersGraph
         a :: PathNodeId
         b :: PathNodeId
         born :: Step                  # paso en que se creó (para medir)
+        tags :: Tags                  # máscara de claves por fila (vacía con ROW_TAGS = :off)
     end
+    Edge(a, b, born) = Edge(a, b, born, EMPTY_TAGS)
 
     const EdgeKey = Tuple{PathNodeId, PathNodeId}
 
@@ -37,9 +55,28 @@ module PathOwnersGraph
         inc     :: Dict{PathNodeId, Inc}             # incidencia (hoy: node.owners)
         nsteps  :: Int                               # pasos creados (current_step)
         valid   :: Bool
+        ntags   :: Dict{PathNodeId, Tags}            # etiquetas de la arista reflexiva de cada vivo
+        krows   :: Int                               # filas de claves marcadas: las filas 0 … krows-1
     end
 
+    OwnersGraph(alive, edges, inc, nsteps, valid) = OwnersGraph(alive, edges, inc, nsteps, valid, Dict(), 0)
     new() = OwnersGraph(Dict(), Dict(), Dict(), 0, true)
+
+    # Las etiquetas del par (x, w): la reflexiva es la del nodo.
+    tags_of(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId) :: Tags =
+        x == w ? g.ntags[x] : g.edges[edge_key(x, w)].tags
+    has_key(t :: Tags, ℓ :: Int, a :: Mask) :: Bool = (t[ℓ + 1] & a) != NOKEY
+
+    # La llegada del remitente de clave k: toda arista y todo nodo de la copia vienen de la pieza k en la fila
+    # k.step, que es la siguiente por marcar.
+    function stamp!(g :: OwnersGraph, k :: NodeId)
+        tags_on() || return
+        @assert k.step == g.krows "fila de claves fuera de orden: $(k.step) ≠ $(g.krows)"
+        b = key_bit(k)
+        for e in values(g.edges); push!(e.tags, b); end
+        for t in values(g.ntags); push!(t, b); end
+        g.krows += 1
+    end
 
     # Aristas quitadas por cada regla, en todo el proceso (solo para medir). Global y no por grafo: el
     # grafo se copia en cada UP y se une en los joins, y un contador suyo contaría varias veces.
@@ -53,9 +90,10 @@ module PathOwnersGraph
         g.nsteps += 1
     end
 
-    function register!(g :: OwnersGraph, x :: PathNodeId)
+    function register!(g :: OwnersGraph, x :: PathNodeId, tags :: Union{Nothing, Tags} = nothing)
         push!(get!(g.alive, step_of(x), SetPathNodesId()), x)
         g.inc[x] = Inc(step_of(x) => SetPathNodesId([x]))   # reflexiva, sin objeto Edge
+        tags_on() && (g.ntags[x] = tags === nothing ? zeros(Mask, g.krows) : copy(tags))
     end
 
     is_alive(g, x) = haskey(g.inc, x)
@@ -67,18 +105,24 @@ module PathOwnersGraph
             w == x || remove_edge!(g, x, w; rule)
         end
         delete!(g.inc, x)
+        delete!(g.ntags, x)
         line = g.alive[step_of(x)]
         delete!(line, x)
         isempty(line) && (g.valid = false)
     end
 
     # ---------- aristas ----------
-    function add_edge!(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId)
+    # Con etiquetas, una arista que ya estaba une las suyas con `tags` fila a fila.
+    function add_edge!(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId, tags :: Union{Nothing, Tags} = nothing)
         x == w && return nothing
         k = edge_key(x, w)
         e = get(g.edges, k, nothing)
-        e === nothing || return e
-        e = Edge(k[1], k[2], g.nsteps - 1)
+        if e !== nothing
+            tags_on() && tags !== nothing && (e.tags .|= tags)
+            return e
+        end
+        e = Edge(k[1], k[2], g.nsteps - 1,
+                 !tags_on() ? EMPTY_TAGS : tags === nothing ? zeros(Mask, g.krows) : copy(tags))
         g.edges[k] = e
         push!(get!(g.inc[x], step_of(w), SetPathNodesId()), w)
         push!(get!(g.inc[w], step_of(x), SetPathNodesId()), x)
@@ -135,10 +179,18 @@ module PathOwnersGraph
     # (sustituye a create_node_from_parents! + its_owners_are_owned_by_me!).
     # Solo pasos anteriores al de n: un hermano ya registrado está en la tabla del padre común, pero
     # hoy los hermanos nunca se poseen (se crean todos antes de registrar ninguno).
+    # Etiquetas: el nodo nuevo, la unión de las de sus padres; la arista n–w, la unión de las de p–w.
     function create_from_parents!(g :: OwnersGraph, n :: PathNodeId, parents)
-        register!(g, n)
+        if tags_on()
+            nt = zeros(Mask, g.krows)
+            for p in parents; nt .|= g.ntags[p]; end
+            register!(g, n, nt)
+        else
+            register!(g, n)
+        end
         for p in parents, w in collect(neighbors_all(g, p))
-            step_of(w) < step_of(n) && is_alive(g, w) && add_edge!(g, n, w)
+            step_of(w) < step_of(n) && is_alive(g, w) &&
+                (tags_on() ? add_edge!(g, n, w, tags_of(g, p, w)) : add_edge!(g, n, w))
         end
     end
 
@@ -158,12 +210,18 @@ module PathOwnersGraph
     # ---------- join ----------
     # Los ids son los mismos en los dos gpaths: V = V₁ ∪ V₂, E = E₁ ∪ E₂.
     # Si la arista está en los dos, se queda la de ga (aquí se decidirá cómo mezclar sus datos).
+    # Etiquetas: fila a fila, OR (los dos llegan al mismo destino, con las mismas filas marcadas).
     function union!(ga :: OwnersGraph, gb :: OwnersGraph)
+        tags_on() && @assert ga.krows == gb.krows "join con filas de claves distintas: $(ga.krows) ≠ $(gb.krows)"
         for (step, ids) in gb.alive, x in ids
-            is_alive(ga, x) || register!(ga, x)
+            if !is_alive(ga, x)
+                tags_on() ? register!(ga, x, gb.ntags[x]) : register!(ga, x)
+            elseif tags_on()
+                ga.ntags[x] .|= gb.ntags[x]
+            end
         end
         for e in values(gb.edges)
-            add_edge!(ga, e.a, e.b)
+            tags_on() ? add_edge!(ga, e.a, e.b, e.tags) : add_edge!(ga, e.a, e.b)
         end
         ga.nsteps = max(ga.nsteps, gb.nsteps)
     end
@@ -173,9 +231,10 @@ module PathOwnersGraph
     # estructura, sin el IdDict del deepcopy genérico. Es la copia de cada UP (sat_machine.jl, send_to_destine!).
     function copy_graph(g :: OwnersGraph) :: OwnersGraph
         alive = Dict{Step, SetPathNodesId}(k => copy(v) for (k, v) in g.alive)
-        edges = Dict{EdgeKey, Edge}(k => Edge(e.a, e.b, e.born) for (k, e) in g.edges)
+        edges = Dict{EdgeKey, Edge}(k => Edge(e.a, e.b, e.born, tags_on() ? copy(e.tags) : EMPTY_TAGS) for (k, e) in g.edges)
         inc = Dict{PathNodeId, Inc}(x => Inc(s => copy(ws) for (s, ws) in r) for (x, r) in g.inc)
-        return OwnersGraph(alive, edges, inc, g.nsteps, g.valid)
+        ntags = Dict{PathNodeId, Tags}(x => copy(t) for (x, t) in g.ntags)
+        return OwnersGraph(alive, edges, inc, g.nsteps, g.valid, ntags, g.krows)
     end
 
     Base.deepcopy_internal(g :: OwnersGraph, stackdict :: IdDict) =
@@ -205,6 +264,16 @@ module PathOwnersGraph
         end
         for (_, ids) in g.alive, x in ids
             is_alive(g, x) || return "en alive sin incidencia: $x"
+        end
+        if tags_on()
+            for (k, e) in g.edges
+                length(e.tags) == g.krows || return "arista con $(length(e.tags)) filas de etiquetas, no $(g.krows): $k"
+            end
+            for x in keys(g.inc)
+                t = get(g.ntags, x, nothing)
+                (t !== nothing && length(t) == g.krows) || return "nodo sin sus $(g.krows) filas de etiquetas: $x"
+            end
+            length(g.ntags) == length(g.inc) || return "etiquetas de nodos muertos"
         end
         return nothing
     end

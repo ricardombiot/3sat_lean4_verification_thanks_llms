@@ -31,6 +31,7 @@ module GraphPath
     include("./graph_path_filter.jl")
     include("./graph_path_filter_pair.jl")
     include("./graph_path_star.jl")
+    include("./graph_path_tags.jl")
     include("./graph_path_secpair.jl")
     include("./graph_path_edgeclique.jl")
 

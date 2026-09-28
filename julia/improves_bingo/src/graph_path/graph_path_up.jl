@@ -2,6 +2,8 @@
 # es vacío. Véase docs/plans/bin-map.md, Fase B.
 function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
                           prohibited :: Set{PathNodeId} = Set{PathNodeId}())
+    # Etiquetas por fila (ROW_TAGS): la copia que sale del remitente es la pieza de su clave en su fila de cima.
+    gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
 
     filter!(gpath, requires)
 

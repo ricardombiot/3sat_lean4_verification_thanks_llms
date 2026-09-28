@@ -39,6 +39,11 @@ function make_review_owners!(gpath :: GPath)
             star_rule!(gpath)
         end
 
+        # regla de la etiqueta (graph_path_tags.jl): también con las demás reglas en su punto fijo
+        if PathOwnersGraph.tags_on() && TAG_RULE[] == :on && !gpath.review_owners && gpath.is_valid && gpath.table_lines.is_valid
+            tag_rule!(gpath)
+        end
+
         if gpath.review_owners
             make_review_owners!(gpath)
         elseif FINAL_CHECK[] == :on && gpath.is_valid
