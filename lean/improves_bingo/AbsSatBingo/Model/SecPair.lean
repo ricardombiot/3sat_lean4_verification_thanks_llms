@@ -33,7 +33,7 @@ fuerte (`secPair_of_secPairX`).
 * `pairOk_of_secPair`: `SecPair` implica la regla de parejas en cada arista (si hay algún paso con elección).
 * **`PinEqSec g b`** (el pin de `b` es la mayor sección de `b`), enunciado. Mitad fácil, `sec_of_pinEdge`: toda
   arista del pin de `b` está en una sección de `b`, si el review deja el pin cerrado por parejas (`PairClosed`, que
-  da `pairClosed_filterAll` bajo `ReviewExitsClean`; ver `ReviewClean.lean`).
+  da `pairClosed_filterAll` sin más hipótesis que un pin válido que quitó algo; ver `ReviewClean.lean`).
   Con la mitad difícil (`SecInPin`, abierta): `pinEqSec_of_secInPin`.
 * `noDeadEnd_of_secInPin`: `SecPair` + `SecInPin` ⇒ `NoDeadEndAt` (en un estado con alguna arista).
 
@@ -270,12 +270,18 @@ theorem sec_of_pinEdge {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = true) {
   exact ⟨_, secClosed_of_pinned hsub (pinned_filterAll hd hv b) hpc hb0 (by rw [hsub.step]; exact hb1),
     hy, hw, ha, hpc y w hne hy hw ha⟩
 
-/-- El pin sale cerrado por parejas si el filtro quitó algo (`dirty`) y el review sale sin `dirty`
-(`pairClosed_review`; lo segundo es `ReviewExitsClean`). -/
+/-- **El pin sale cerrado por parejas** si el filtro quitó algo (`dirty`) y el pin es válido (`pairClosed_review'`:
+el review que sale válido sale sin `dirty`). -/
 theorem pairClosed_filterAll {g : GPathB} {b : NodeId} (hd : (g.filterRequire b).dirty = true)
-    (hce : ReviewExitsClean (g.filterRequire b)) (hv : (g.filterAll [b]).isValid = true) :
-    PairClosed (g.filterAll [b]) :=
-  pairClosed_review hd hv (hce hv)
+    (hv : (g.filterAll [b]).isValid = true) : PairClosed (g.filterAll [b]) :=
+  pairClosed_review' hd hv
+
+/-- **La mitad fácil de `PinEqSec`, sin `PairClosed`**: basta que el filtro quite algo (`dirty`), lo que ocurre
+en todo paso con elección si los vivos tienen documento. -/
+theorem sec_of_pinEdge' {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = true) {b : NodeId}
+    (hb0 : 0 ≤ b.step) (hb1 : b.step < g.current_step) (hdirty : (g.filterRequire b).dirty = true)
+    {y w : PathNodeId} (hne : y ≠ w) (he : PinEdge (g.filterAll [b]) y w) : ∃ R, SecClosed g b R ∧ R y w :=
+  sec_of_pinEdge hd hv hb0 hb1 (pairClosed_filterAll hdirty he.1) hne he
 
 /-- `PinEqSec` a partir de su mitad difícil. -/
 theorem pinEqSec_of_secInPin {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = true) {b : NodeId}
