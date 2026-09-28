@@ -161,6 +161,53 @@ theorem ownSideGood_of_tri {e g : GPathB} {k : Int} (hcs : e.current_step = g.cu
   · obtain ⟨k1, k2, k3⟩ := (ht P y w r hr h h1 h2).2 ha hrg
     exact kernel_join_right hcs (hwg P y w r hr k1 k2 k3)
 
+-- ============================================================
+-- Lados de un solo origen
+-- ============================================================
+
+/-- Todos los vivos de `g` en el paso `k` son del nodo del mapa `b` (un lado que sale de un UP: su paso de origen es
+la cima del estado de un solo nodo del mapa). -/
+def SingleAt (g : GPathB) (k : Int) (b : NodeId) : Prop := ∀ q ∈ g.alive, q.id.step = k → q.id = b
+
+/-- Con un solo nodo del mapa en `k`, fijarlo no cambia el núcleo. -/
+theorem kernel_pin_single {g : GPathB} {k : Int} {b : NodeId} (hs : SingleAt g k b) (hb : b.step = k)
+    {P : List NodeId} {y w : PathNodeId} (h : Kernel g P y w) : Kernel g (P ++ [b]) y w := by
+  obtain ⟨V, R, hst, ha, hr⟩ := h
+  refine ⟨V, R, hst, fun b' hb' => ?_, hr⟩
+  rcases List.mem_append.mp hb' with hb' | hb'
+  · exact ha b' hb'
+  · rw [List.mem_singleton] at hb'
+    subst hb'
+    intro q hq hqs
+    exact hs q (hst.alive hq) (hqs.trans hb)
+
+/-- **Con un solo nodo del mapa en `k`, `WitAll` en `k` es automático.** -/
+theorem witAll_of_single {g : GPathB} {k : Int} {b : NodeId} (hs : SingleAt g k b) : WitAll g k := by
+  intro P y w r hr h h1 _
+  obtain ⟨V, R, hst, _, hyr⟩ := h1
+  have hrb : r.id = b := hs r (hst.alive (hst.dom hyr).2) hr
+  rw [hrb]
+  exact kernel_pin_single hs (hrb ▸ hr) h
+
+/-- **`PairIn`**: una pareja del núcleo de la unión que es arista de un lado y tiene un testigo de ese lado está en
+el núcleo de ese lado (la primera pieza de `TriIn`; medida en `probe_triangle.jl`). -/
+def PairIn (e g : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) y w (r : PathNodeId), r.id.step = k → Kernel (join e g) P y w → Kernel (join e g) P y r →
+    Kernel (join e g) P w r →
+    (e.Adj y w → r ∈ e.alive → Kernel e P y w) ∧ (g.Adj y w → r ∈ g.alive → Kernel g P y w)
+
+/-- **Con lados de un solo origen, `OwnSideGood` ⇐ `PairIn`.** -/
+theorem ownSideGood_of_single {e g : GPathB} {k : Int} {a b : NodeId} (hcs : e.current_step = g.current_step)
+    (hse : SingleAt e k a) (hsg : SingleAt g k b) (hp : PairIn e g k) : OwnSideGood e g k := by
+  intro P y w r h hr h1 h2 hside
+  rcases hside with ⟨ha, hre⟩ | ⟨ha, hrg⟩
+  · have hra : r.id = a := hse r hre hr
+    rw [hra]
+    exact kernel_join_left (kernel_pin_single hse (hra ▸ hr) ((hp P y w r hr h h1 h2).1 ha hre))
+  · have hrb : r.id = b := hsg r hrg hr
+    rw [hrb]
+    exact kernel_join_right hcs (kernel_pin_single hsg (hrb ▸ hr) ((hp P y w r hr h h1 h2).2 ha hrg))
+
 end GPathB
 
 end AbsSatBingo.Model
