@@ -1,6 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo/Model/ReaderTop.lean
 import AbsSatBingo.Model.ReaderFinal
-import AbsSatBingo.Model.TopNbr
+import AbsSatBingo.Model.StarLocal
 
 /-!
 # El veredicto del lector con `TopExact`: una sola hipótesis, `TopUnion`
@@ -355,6 +355,29 @@ theorem hyps_of_star {φ : Cnf} (H : HypsStar φ) : Hyps φ := by
 theorem readerVerdict_iff_of_star {φ : Cnf} (hbd : Bounded φ) (H : HypsStar φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
   readerVerdict_iff_of_topUnion hbd (hyps_of_star H)
+
+-- ============================================================
+-- `TopUnion` por la estrella y la absorción local
+-- ============================================================
+
+/-- **Las hipótesis locales**: la estrella de una cima la sostiene (`TopStarK`), cada lado absorbe las estructuras
+de la unión que viven en sus vivos (`LocalAbsorb`), y ninguna cima está viva en los dos lados (`TopsSep`). -/
+structure HypsLocal (φ : Cnf) : Prop where
+  star  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → TopStarK (join e g)
+  absorb : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g →
+            LocalAbsorb (join e g) e ∧ LocalAbsorb (join e g) g
+  tops  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → TopsSep e g
+
+theorem hyps_of_local {φ : Cnf} (H : HypsLocal φ) : Hyps φ := by
+  refine ⟨fun T key e g hT he hg hke hkg => ?_⟩
+  obtain ⟨hae, hag⟩ := H.absorb T key e g hT he hg hke hkg
+  exact topUnion_of_local (he.step.trans hg.step.symm) hke.2.2.2.2.2.2.1 hkg.2.2.2.2.2.2.1 hke.2.2.1 hkg.2.2.1
+    (H.star T key e g hT he hg hke hkg) hae hag (H.tops T key e g hT he hg hke hkg)
+
+/-- **El veredicto del lector es la satisfacibilidad bajo `TopStarK`, `LocalAbsorb` y `TopsSep`.** -/
+theorem readerVerdict_iff_of_local {φ : Cnf} (hbd : Bounded φ) (H : HypsLocal φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_topUnion hbd (hyps_of_local H)
 
 end FinalTop
 
