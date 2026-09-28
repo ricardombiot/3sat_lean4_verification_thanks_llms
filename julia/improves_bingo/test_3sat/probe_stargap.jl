@@ -9,6 +9,8 @@
 # fijados en P vacío y `muestras` P al azar:
 #   pairs / gap_bad — todas las parejas de la estrella que no se poseen / las que no tienen hueco (StarGap: 0)
 #   one / one_bad   — solo las que el otro lado sí hace poseerse (las aristas de un solo lado) / sin hueco
+#   up_bad / one_up_bad — sin hueco POR ENCIMA de la pareja (l > el paso más alto de x, z): StarCone, el cono cerrado
+#                     restringido a la estrella (con él, la inducción que baja por el paso más alto cierra)
 
 using Random
 
@@ -63,15 +65,20 @@ function gaps!(S, O, P)
             x.id.step == z.id.step && continue
             one = PG.is_alive(O.og, x) && PG.is_alive(O.og, z) && PG.has_edge(O.og, x, z)
             bump!(:pairs); one && bump!(:one)
-            hasgap = false
+            hasgap = false; hasup = false
+            m = max(x.id.step, z.id.step)
             for l in 0:c-1
                 (l == x.id.step || l == z.id.step) && continue
                 if !any(w -> w in Ns && PG.has_edge(h.og, z, w), PG.neighbors(h.og, x, l))
-                    hasgap = true; break
+                    hasgap = true
+                    l > m && (hasup = true)
                 end
             end
             if !hasgap
                 bump!(:gap_bad); one && bump!(:one_bad)
+            end
+            if !hasup
+                bump!(:up_bad); one && bump!(:one_up_bad)
             end
         end
     end
@@ -94,7 +101,7 @@ Core.eval(GraphPath, quote
     end
 end)
 
-const COLS = (:pairs, :gap_bad, :one, :one_bad)
+const COLS = (:pairs, :gap_bad, :up_bad, :one, :one_bad, :one_up_bad)
 
 function corpus()
     dirs = [joinpath(ROOT, "test/example_cnf"), joinpath(ROOT, "test_window/instances"),
