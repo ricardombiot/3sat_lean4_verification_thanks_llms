@@ -1,5 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo/Model/TopExact.lean
 import AbsSatBingo.Model.SplitWitness
+import AbsSatBingo.Model.SideAbsorb
 
 /-!
 # `TopExact`: la exactitud solo para las cimas
@@ -127,6 +128,34 @@ theorem noZombie_of_topExact {h : GPathB} (hk : TopExact h) (hcl : ClosedState h
   have hts : t.id.step = h.current_step - 1 := by simpa using hts
   obtain ⟨S, hc, _, _⟩ := hk [] t hts ⟨_, _, hcl, fun _ hb => absurd hb List.not_mem_nil, ht, ht, adj_refl _ _ ht⟩
   exact ⟨S, hc⟩
+
+-- ============================================================
+-- `TopUnion` por el origen de la cima
+-- ============================================================
+
+/-- **`TopSplit`**: `SplitAt` solo para las cimas: una cima del núcleo de `u` fijado en `P` sobrevive fijando además
+un nodo del mapa del paso `k`. Medido (`test_3sat/probe_topsplit.jl`): sin fallos, fijando el origen de la cima. -/
+def TopSplit (u : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) (t : PathNodeId), t.id.step = u.current_step - 1 → Kernel u P t t →
+    ∃ b : NodeId, b.step = k ∧ Kernel u (P ++ [b]) t t
+
+/-- **`TopUnion` ⇐ `TopSplit` + `SidePinned`** en el paso de origen. -/
+theorem topUnion_of_topSplit {e g : GPathB} {k : Int} (hs : TopSplit (join e g) k)
+    (hp : SidePinned (join e g) e g k) : TopUnion e g := by
+  intro P t hts hk
+  obtain ⟨b, hbk, hkb⟩ := hs P t hts hk
+  rcases hp b hbk with he | hg
+  · exact Or.inl (kernel_of_append (he P t t hkb))
+  · exact Or.inr (kernel_of_append (hg P t t hkb))
+
+/-- **`TopUnion` ⇐ `TopSplit` + `Absorb` en los dos lados** (con la separación y los enlaces completos): la forma
+con las piezas ya reducidas. -/
+theorem topUnion_of_absorb {e g : GPathB} {k : Int} (hk0 : 0 ≤ k) (hkc : k < e.current_step)
+    (hcs : e.current_step = g.current_step) (hle : LinksInv e) (hlg : LinksInv g) (hee : EdgesAlive e)
+    (heg : EdgesAlive g) (hsep : SepAt e g k) (hts : TopSplit (join e g) k) (hae : Absorb (join e g) e)
+    (hag : Absorb (join e g) g) : TopUnion e g :=
+  topUnion_of_topSplit hts (sidePinned_of_sideEdges hk0 hkc hcs hle hlg hee heg hsep
+    (sideEdgesAt_of_absorb hk0 hkc hcs hle hlg hee heg hae hag))
 
 end GPathB
 
