@@ -1988,6 +1988,16 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     2,3 M aristas que faltan; la inclusión contraria vale siempre. `SecPair` sigue valiendo en el pin (0 cortes), pero
     la cubre **otro** `b''`: al fijar `b`, cambia la sección que cubre cada arista. El paso no es local por
     intersección; hace falta otro invariante o un argumento directo en cada estado fijado.
+  * **Qué sección cubre una arista tras el pin** (`probe_seccover.jl`, hasta 60 estados por instancia, 88
+    instancias, 139,7 M pares arista × paso). `SecMeet` falla en 4,49 M (3,2 %).
+    * El 92,6 % de esos fallos son solo porque el `b''` que la cubría muere en el pin.
+    * Pero **`SecMeetAlive` también es falso**: 330 507 casos en los que un `b''` que la cubría y sigue vivo ya no la
+      cubre, en 17 instancias, incluida `basic_v3_c1` (8).
+    * Tampoco vale «toda ancla cubre»: en `h`, la cubren todas las anclas en el 99,88 % de los casos, no en todos.
+    * `SecPair` en el pin sigue sin fallos (`empty_h2` = 0).
+    * Conclusión: fijar `b` rompe compatibilidades entre una arista y otro `b''` vivo, que es un efecto de tríos
+      (`b`, `b''`, arista). Es la reserva de §4.4 («cada pin sube un nivel»), que vuelve a aparecer en forma de
+      secciones. El paso no se reduce a ninguna de las tres formas locales medidas.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
