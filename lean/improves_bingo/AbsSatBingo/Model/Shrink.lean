@@ -193,16 +193,23 @@ theorem shrinks_reviewPass (g : GPathB) : Shrinks g.reviewPass g :=
   (shrinks_pruneLinks _).trans ((shrinks_reviewSons _).trans ((shrinks_reviewParents _).trans
     ((shrinks_pruneLinks _).trans (shrinks_cleanPair g))))
 
-theorem shrinks_reviewFuel : ∀ (n : Nat) (g : GPathB), Shrinks (reviewFuel n g) g := by
-  intro n
-  induction n with
-  | zero => intro g; exact Shrinks.refl g
-  | succ n ih =>
-    intro g
-    simp only [reviewFuel]
-    split
-    · exact (ih _).trans ((shrinks_reviewPass _).trans (shrinks_dirty g false))
-    · exact Shrinks.refl g
+theorem shrinks_forcedParents (g : GPathB) : Shrinks g.forcedParents g := by
+  unfold forcedParents; split
+  · exact shrinks_reviewSteps _ _ _
+  · exact Shrinks.refl g
+
+theorem shrinks_forcedSons (g : GPathB) : Shrinks g.forcedSons g := by
+  unfold forcedSons; split
+  · exact shrinks_reviewSteps _ _ _
+  · exact Shrinks.refl g
+
+theorem shrinks_finalPass (g : GPathB) : Shrinks g.finalPass g :=
+  (shrinks_pruneLinks _).trans ((shrinks_forcedSons _).trans (shrinks_forcedParents g))
+
+theorem shrinks_reviewFuel (n : Nat) (g : GPathB) : Shrinks (reviewFuel n g) g :=
+  reviewFuel_pres (fun h => Shrinks h g)
+    (fun h hh => (shrinks_reviewPass _).trans ((shrinks_dirty h false).trans hh))
+    (fun h hh => (shrinks_finalPass h).trans hh) n g (Shrinks.refl g)
 
 theorem shrinks_review (g : GPathB) : Shrinks g.review g := shrinks_reviewFuel _ _
 

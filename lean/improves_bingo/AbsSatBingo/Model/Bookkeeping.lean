@@ -127,16 +127,20 @@ theorem revPrims_reviewPass (h : RevPrims P) (g : GPathB) (hg : P g) : P g.revie
     · exact h3
   exact h.links _ h4
 
-theorem revPrims_review (h : RevPrims P) (g : GPathB) (hg : P g) : P g.review := by
-  unfold review
-  generalize g.measure + 1 = n
-  induction n generalizing g with
-  | zero => exact hg
-  | succ n ih =>
-    simp only [reviewFuel]
-    split
-    · exact ih _ (revPrims_reviewPass h _ (h.dirty _ _ hg))
+theorem revPrims_finalPass (h : RevPrims P) (g : GPathB) (hg : P g) : P g.finalPass := by
+  have h1 : P g.forcedParents := by
+    unfold forcedParents; split
+    · exact revPrims_reviewSteps h _ _ _ hg
     · exact hg
+  have h2 : P g.forcedParents.forcedSons := by
+    unfold forcedSons; split
+    · exact revPrims_reviewSteps h _ _ _ h1
+    · exact h1
+  exact h.links _ h2
+
+theorem revPrims_review (h : RevPrims P) (g : GPathB) (hg : P g) : P g.review :=
+  reviewFuel_pres P (fun _ hh => revPrims_reviewPass h _ (h.dirty _ _ hh)) (fun g' hh => revPrims_finalPass h g' hh)
+    _ g hg
 
 theorem revPrims_filterAll (h : RevPrims P) (g : GPathB) (reqs : List NodeId) (hg : P g) : P (g.filterAll reqs) := by
   unfold filterAll

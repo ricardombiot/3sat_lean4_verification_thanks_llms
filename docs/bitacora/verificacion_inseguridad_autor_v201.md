@@ -156,6 +156,14 @@ salvo comprobar; su valor es que lo que era un hecho medido pasa a ser una garan
 **Recomendación:** adoptarlo en los dos lados (encender `FINAL_CHECK` por defecto en Julia y cambiar `review` en
 Lean), y demostrar `closed`.
 
+> **Adoptado (28-sept-2026).** Julia: `FINAL_CHECK = :on` por defecto (tests en verde). Lean: `reviewFuel` con la
+> comprobación final `finalPass` (`Ops.lean`), espejo de Julia: solo tras una vuelta que sale sin `dirty` y válida.
+> Todas las pruebas se adaptaron con un principio genérico (`reviewFuel_pres`). **`closed` es ya un teorema:**
+> `closedState_review` (`ClosedReview.lean`): el review que entra con algo que revisar y sale válido deja el estado
+> cerrado. Para los estados del lector, `cInv_visited` (`ReaderFinal.lean`). `Hyps` queda con **dos** hipótesis,
+> `union` y `skip`. `lake exe bingo-check` con el review nuevo: 0 fallos frente a la fuerza bruta en las instancias
+> pequeñas.
+
 ## 6. El plan
 
 1. **Si adoptas §5:** el cambio en Lean y Julia, y `closed` como teorema. Quedarían `union` y `skip`.

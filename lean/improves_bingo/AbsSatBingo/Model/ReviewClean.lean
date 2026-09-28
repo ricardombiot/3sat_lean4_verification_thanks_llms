@@ -291,26 +291,28 @@ theorem reviewFuel_of_clean {g : GPathB} (h : g.dirty = false) : ∀ n, reviewFu
   intro n
   cases n with
   | zero => rfl
-  | succ n => simp [reviewFuel, h]
+  | succ n => exact reviewFuel_skip (by simp [h])
 
 theorem pairClosed_reviewFuel :
     ∀ (n : Nat) (g : GPathB), g.dirty = true → (reviewFuel n g).isValid = true → (reviewFuel n g).dirty = false →
       PairClosed (reviewFuel n g) := by
   intro n
   induction n with
-  | zero => intro g hd _ hc; simp only [reviewFuel] at hc; rw [hd] at hc; cases hc
+  | zero => intro g hd _ hc; rw [reviewFuel.eq_1] at hc; rw [hd] at hc; cases hc
   | succ n ih =>
     intro g hd hv hc
-    simp only [reviewFuel] at hv hc ⊢
-    split at hv
-    · rename_i hvd
-      simp only [hvd, if_true] at hc ⊢
-      cases hp : (reviewPass { g with dirty := false }).dirty
-      · rw [reviewFuel_of_clean hp] at hv hc ⊢
-        exact pairClosed_reviewPass hp hv
-      · exact ih _ hp hv hc
-    · rename_i hvd
-      simp [hv, hd] at hvd
+    by_cases h : (g.isValid && g.dirty) = true
+    · cases hpd : (reviewPass { g with dirty := false }).dirty
+      · by_cases hvp : (reviewPass { g with dirty := false }).isValid = true
+        · cases hfd : (finalPass (reviewPass { g with dirty := false })).dirty
+          · rw [reviewFuel_done h hpd hvp hfd] at hv hc ⊢
+            exact pairClosed_reviewPass hpd hv
+          · rw [reviewFuel_final h hpd hvp hfd] at hv hc ⊢
+            exact ih _ hfd hv hc
+        · rw [reviewFuel_invalid h hpd hvp] at hv; exact absurd hv hvp
+      · rw [reviewFuel_pass h hpd] at hv hc ⊢
+        exact ih _ hpd hv hc
+    · rw [reviewFuel_skip h] at hc; rw [hd] at hc; cases hc
 
 /-- **El review deja el estado cerrado por parejas**, si entra con algo que revisar y sale válido y sin `dirty`. -/
 theorem pairClosed_review {g : GPathB} (hd : g.dirty = true) (hv : g.review.isValid = true)
@@ -543,6 +545,47 @@ theorem strictDirty_reviewPass : StrictDirty reviewPass := by
       (Nat.le_trans (shrinks_pruneLinks _).2 (shrinks_cleanPair g).2))) (fun g => (shrinks_pruneLinks g).2)
   exact c4
 
+theorem strictDirty_reviewSteps (sel : PNodeB → List PathNodeId) :
+    ∀ (ks : List Int), StrictDirty (fun g => reviewSteps sel g ks) := by
+  intro ks
+  induction ks with
+  | nil => intro g hg hd; simp only [reviewSteps] at hd; rw [hg] at hd; cases hd
+  | cons k ks ih =>
+    intro g hg hd
+    have hl := strictDirty_reviewLine sel k
+    simp only [reviewSteps] at hd ⊢
+    split at hd
+    · rename_i hv
+      simp only [hv, if_true]
+      cases hr : (reviewLine sel g k).dirty
+      · exact Nat.lt_of_lt_of_le (ih _ hr hd) (shrinks_reviewLine sel g k).2
+      · exact Nat.lt_of_le_of_lt (shrinks_reviewSteps sel ks _).2 (hl g hg hr)
+    · rename_i hv
+      simp only [hv]
+      exact hl g hg hd
+
+theorem strictDirty_forcedParents : StrictDirty forcedParents := by
+  intro g hg hd
+  unfold forcedParents at hd ⊢
+  split at hd
+  · rename_i hv; simp only [hv, if_true]; exact strictDirty_reviewSteps _ _ g hg hd
+  · rw [hg] at hd; cases hd
+
+theorem strictDirty_forcedSons : StrictDirty forcedSons := by
+  intro g hg hd
+  unfold forcedSons at hd ⊢
+  split at hd
+  · rename_i hv; simp only [hv, if_true]; exact strictDirty_reviewSteps _ _ g hg hd
+  · rw [hg] at hd; cases hd
+
+theorem strictDirty_finalPass : StrictDirty finalPass := by
+  have c1 := strictDirty_comp strictDirty_forcedParents strictDirty_forcedSons
+    (fun g => (shrinks_forcedParents g).2) (fun g => (shrinks_forcedSons g).2)
+  have c2 := strictDirty_comp (f₁ := fun g => g.forcedParents.forcedSons) (f₂ := pruneLinks) c1 strictDirty_pruneLinks
+    (fun g => Nat.le_trans (shrinks_forcedSons _).2 (shrinks_forcedParents g).2) (fun g => (shrinks_pruneLinks g).2)
+  intro g hg hd
+  exact c2 g hg hd
+
 /-- Con más combustible que la medida, el review que sale válido sale sin `dirty`. -/
 theorem reviewFuel_exits_clean :
     ∀ (n : Nat) (g : GPathB), g.measure < n → (reviewFuel n g).isValid = true → (reviewFuel n g).dirty = false := by
@@ -551,21 +594,23 @@ theorem reviewFuel_exits_clean :
   | zero => intro g hm; omega
   | succ n ih =>
     intro g hm hv
-    simp only [reviewFuel] at hv ⊢
-    split at hv
-    · rename_i hvd
-      simp only [hvd, if_true]
-      cases hp : (reviewPass { g with dirty := false }).dirty
-      · rw [reviewFuel_of_clean hp]; exact hp
-      · have hlt := strictDirty_reviewPass { g with dirty := false } rfl hp
-        have hm' : (reviewPass { g with dirty := false }).measure < n := by
-          have : ({ g with dirty := false } : GPathB).measure = g.measure := rfl
-          omega
-        exact ih _ hm' hv
-    · rename_i hvd
-      simp only [hvd]
-      simp only [hv, Bool.true_and, Bool.not_eq_true] at hvd
-      exact hvd
+    have hm0 : ({ g with dirty := false } : GPathB).measure = g.measure := rfl
+    by_cases h : (g.isValid && g.dirty) = true
+    · cases hpd : (reviewPass { g with dirty := false }).dirty
+      · by_cases hvp : (reviewPass { g with dirty := false }).isValid = true
+        · cases hfd : (finalPass (reviewPass { g with dirty := false })).dirty
+          · rw [reviewFuel_done h hpd hvp hfd]; exact hpd
+          · rw [reviewFuel_final h hpd hvp hfd] at hv ⊢
+            have h1 := strictDirty_finalPass _ hpd hfd
+            have h2 := (shrinks_reviewPass { g with dirty := false }).2
+            exact ih _ (by omega) hv
+        · rw [reviewFuel_invalid h hpd hvp] at hv; exact absurd hv hvp
+      · rw [reviewFuel_pass h hpd] at hv ⊢
+        have hlt := strictDirty_reviewPass { g with dirty := false } rfl hpd
+        exact ih _ (by omega) hv
+    · rw [reviewFuel_skip h] at hv ⊢
+      simp only [hv, Bool.true_and, Bool.not_eq_true] at h
+      exact h
 
 /-- **El review que sale válido sale sin `dirty`** (antes `ReviewExitsClean`, abierto): `measure + 1` vueltas
 bastan, porque cada vuelta que enciende `dirty` borra algo. -/

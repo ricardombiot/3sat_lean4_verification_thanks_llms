@@ -337,16 +337,27 @@ theorem carried_reviewSons {g : GPathB} (h : Carried g S) : Carried g.reviewSons
 theorem carried_reviewPass {g : GPathB} (h : Carried g S) : Carried g.reviewPass S :=
   carried_pruneLinks (carried_reviewSons (carried_reviewParents (carried_pruneLinks (carried_cleanPair h))))
 
-theorem carried_reviewFuel : ∀ (n : Nat) (g : GPathB), Carried g S → Carried (reviewFuel n g) S := by
-  intro n
-  induction n with
-  | zero => intro g h; exact h
-  | succ n ih =>
-    intro g h
-    simp only [reviewFuel]
-    split
-    · exact ih _ (carried_reviewPass (carried_dirty h _))
-    · exact h
+theorem carried_forcedParents {g : GPathB} (h : Carried g S) : Carried g.forcedParents S := by
+  unfold forcedParents
+  split
+  · exact carried_reviewSteps _ _ g h (fun k hk => selOk_parents k (intRange_bounds hk).1)
+  · exact h
+
+theorem carried_forcedSons {g : GPathB} (h : Carried g S) : Carried g.forcedSons S := by
+  unfold forcedSons
+  split
+  · refine carried_reviewSteps_sons g.current_step _ g h rfl ?_
+    intro k hk
+    have := (intRange_bounds (List.mem_reverse.mp hk)).2
+    omega
+  · exact h
+
+theorem carried_finalPass {g : GPathB} (h : Carried g S) : Carried g.finalPass S :=
+  carried_pruneLinks (carried_forcedSons (carried_forcedParents h))
+
+theorem carried_reviewFuel (n : Nat) (g : GPathB) (h : Carried g S) : Carried (reviewFuel n g) S :=
+  reviewFuel_pres (fun h => Carried h S) (fun _ hh => carried_reviewPass (carried_dirty hh _))
+    (fun _ hh => carried_finalPass hh) n g h
 
 /-- **El review conserva toda camarilla llevada.** -/
 theorem carried_review {g : GPathB} (h : Carried g S) : Carried g.review S := carried_reviewFuel _ _ h

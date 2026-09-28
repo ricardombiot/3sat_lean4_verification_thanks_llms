@@ -147,16 +147,20 @@ theorem aliveDocs_reviewPass {g : GPathB} (h : AliveDocs g) : AliveDocs g.review
     · exact h3
   exact aliveDocs_pruneLinks h4
 
-theorem aliveDocs_review {g : GPathB} (h : AliveDocs g) : AliveDocs g.review := by
-  unfold review
-  generalize g.measure + 1 = n
-  induction n generalizing g with
-  | zero => exact h
-  | succ n ih =>
-    simp only [reviewFuel]
-    split
-    · exact ih (aliveDocs_reviewPass (aliveDocs_dirty h _))
+theorem aliveDocs_finalPass {g : GPathB} (h : AliveDocs g) : AliveDocs g.finalPass := by
+  have h1 : AliveDocs g.forcedParents := by
+    unfold forcedParents; split
+    · exact aliveDocs_reviewSteps _ _ _ h
     · exact h
+  have h2 : AliveDocs g.forcedParents.forcedSons := by
+    unfold forcedSons; split
+    · exact aliveDocs_reviewSteps _ _ _ h1
+    · exact h1
+  exact aliveDocs_pruneLinks h2
+
+theorem aliveDocs_review {g : GPathB} (h : AliveDocs g) : AliveDocs g.review :=
+  reviewFuel_pres AliveDocs (fun _ hh => aliveDocs_reviewPass (aliveDocs_dirty hh _))
+    (fun _ hh => aliveDocs_finalPass hh) _ g h
 
 theorem aliveDocs_filterAll {g : GPathB} (h : AliveDocs g) (reqs : List NodeId) :
     AliveDocs (g.filterAll reqs) :=

@@ -180,7 +180,9 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `Bookkeeping.lean`: `RevPrims`; `EdgesAlive`, `NodupIds` por review, filtro, fila y join | — | demostrado |
 | `KernelUp.lean`: `kernelExact_addNode`, la fila nueva conserva `KernelExact` (sin ventana saltada; `LinksStep`, `Below`, `AliveDocs`, `EdgesAlive`) | `test_3sat/probe_kernelexact_up.jl` (mapa bin, antes del review del UP): 0 fallos | demostrado |
 | `KernelJoin.lean`: `kernelExact_doJoin` bajo `KernelUnion`; `LinksStep`, `Below` | `test_3sat/probe_kernelunion.jl`: 0 diferencias | demostrado bajo `KernelUnion` |
-| **`ReaderFinal.lean`: `readerVerdict_iff_of_hyps`**, el veredicto del lector es la satisfacibilidad bajo `Hyps φ` = `closed` (`ClosedState` en los estados del lector), `union` (`KernelUnion` en los joins), `skip` (el UP con ventana saltada conserva `KernelExact`) | las tres medidas sin fallos | **demostrado bajo tres hipótesis** |
+| Comprobación final del review: Lean `finalPass` en `reviewFuel` (`Ops.lean`) ↔ Julia `FINAL_CHECK = :on`, `final_coherence_check!` | `test_3sat/probe_final_check.jl`: 0 cambios en 176 ejecuciones | **adoptado** (v201 §5) |
+| `closedState_review` (`ClosedReview.lean`): el review deja el estado cerrado (antes la hipótesis `closed`) | — | demostrado |
+| **`ReaderFinal.lean`: `readerVerdict_iff_of_hyps`**, el veredicto del lector es la satisfacibilidad bajo `Hyps φ` = `union` (`KernelUnion` en los joins), `skip` (el UP con ventana saltada conserva `KernelExact`) | las dos medidas sin fallos | **demostrado bajo dos hipótesis** |
 | `SecStructAt g b` (abierto): toda sección de `b` se extiende a una `SecStruct` que concuerda con `b` | `test_3sat/probe_secinpin.jl`: `sec_struct_fails` = (0, 0, 0) en 17 158 secciones; padres/hijos cortan 0 en los pins | medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 

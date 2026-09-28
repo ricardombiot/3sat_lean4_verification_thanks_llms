@@ -1,5 +1,5 @@
 -- lean/improves_bingo/AbsSatBingo/Model/ReaderFinal.lean
-import AbsSatBingo.Model.KernelJoin
+import AbsSatBingo.Model.ClosedReview
 
 /-!
 # El veredicto del lector bajo tres hipótesis con nombre
@@ -8,16 +8,16 @@ La cadena entera: `KernelExact` («el núcleo de cualquier pin está hecho de ca
 máquina y del lector, y en los estados del lector, con el cierre del review, da `EdgeClique`, `NoZombie` y el
 veredicto (`readerVerdict_iff_of_noZombie`).
 
-**`readerVerdict_iff_of_hyps`**: el veredicto del lector es la satisfacibilidad bajo `Hyps φ`:
-* `closed` — los estados del lector están cerrados por las reglas (`ClosedState`; medido: las pasadas de padres e
-  hijos nunca cortan nada);
+**`readerVerdict_iff_of_hyps`**: el veredicto del lector es la satisfacibilidad bajo `Hyps φ`. (La antigua
+hipótesis `closed`, que los estados del lector estén cerrados por las reglas, es ya el teorema `closedState_review`,
+con la comprobación final del review; aquí, `cInv_visited`.)
 * `union` — en cada join de la máquina, el núcleo de la unión es la unión de los núcleos (`KernelUnion`; medido:
   `probe_kernelunion.jl`);
 * `skip` — el UP con una ventana saltada conserva `KernelExact` en su fila (medido: `probe_kernelexact_up.jl`,
   `probe_edgeclique.jl` punto U).
 
 Las hipótesis `union` y `skip` se piden sobre los estados con el invariante de línea (una sobreaproximación de los
-alcanzables); `closed`, sobre los estados que visita el lector.
+alcanzables).
 -/
 
 namespace AbsSatBingo.Model
@@ -32,11 +32,10 @@ namespace Final
 open GPathB Driver Machine
 
 /-- El invariante de un estado de la línea (además de `StateOk`). -/
-def KInv (g : GPathB) : Prop := KernelExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g
+def KInv (g : GPathB) : Prop := KernelExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g
 
-/-- **Las tres hipótesis.** -/
+/-- **Las dos hipótesis** (la tercera, `closed`, es ya el teorema `closedState_review`). -/
 structure Hyps (φ : Cnf) : Prop where
-  closed : ∀ kv ∈ run φ, ∀ h, Visited kv.2 h → h.isValid = true → ClosedState h
   union  : ∀ T key e g, StateOk T key e → StateOk T key g → KInv e → KInv g → KernelUnion e g
   skip   : ∀ T key g d, StateOk T key g → KInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
              (g.filterAll (reqOf φ d)).isValid = true →
@@ -52,7 +51,8 @@ theorem review_eq_filterAll (g : GPathB) : g.review = g.filterAll [] := rfl
 theorem kInv_filterAll {g : GPathB} (hk : KInv g) (hd : AliveDocs g) (reqs : List NodeId) :
     KInv (g.filterAll reqs) :=
   ⟨kernelExact_filterAll hk.1 hd hk.2.1 reqs, revPrims_filterAll revPrims_nodupIds _ _ hk.2.1,
-   revPrims_filterAll revPrims_edgesAlive _ _ hk.2.2.1, revPrims_filterAll revPrims_linksStep _ _ hk.2.2.2⟩
+   revPrims_filterAll revPrims_edgesAlive _ _ hk.2.2.1, revPrims_filterAll revPrims_linksStep _ _ hk.2.2.2.1,
+   revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2⟩
 
 theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
     (hk : KInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
@@ -72,7 +72,7 @@ theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g 
     let a := f.addNode d "" (isProhibited φ)
     have hka : KernelExact a := by
       cases hsk : f.skipsWindow d (isProhibited φ)
-      · exact kernelExact_addNode hf.1 hfd hfb hf.2.2.2 hf.2.2.1
+      · exact kernelExact_addNode hf.1 hfd hfb hf.2.2.2.1 hf.2.2.1
           (by show 0 < (g.filterAll (reqOf φ d)).current_step; omega) hsk hdstep
       · exact H.skip T key g d hg hk hT hd hvf hsk
     have hnd : NodupIds a := nodupIds_addNode hf.2.1 hfb hdstep
@@ -80,7 +80,8 @@ theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g 
     rw [review_eq_filterAll]
     exact ⟨kernelExact_filterAll hka hda hnd [], revPrims_filterAll revPrims_nodupIds _ _ hnd,
       revPrims_filterAll revPrims_edgesAlive _ _ (edgesAlive_addNode hf.2.2.1),
-      revPrims_filterAll revPrims_linksStep _ _ (linksStep_addNode hf.2.2.2 hdstep)⟩
+      revPrims_filterAll revPrims_linksStep _ _ (linksStep_addNode hf.2.2.2.1 hdstep),
+      revPrims_filterAll revPrims_aboveZero _ _ (aboveZero_addNode hf.2.2.2.2 (by omega))⟩
   · rename_i hvf
     rw [if_neg hvf] at hv
     exact absurd hv hvf
@@ -94,10 +95,13 @@ def LineK (line : Line) : Prop := ∀ kv ∈ line, KInv kv.2
 theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} {key : NodeId} {e g : GPathB} (he : StateOk T key e)
     (hg : StateOk T key g) (hke : KInv e) (hkg : KInv g) : KInv (doJoin e g) := by
   refine ⟨kernelExact_doJoin hke.1 hkg.1 (H.union T key e g he hg hke hkg), nodupIds_doJoin hke.2.1 hkg.2.1,
-    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_⟩
-  unfold doJoin; split
-  · exact linksStep_join hke.2.2.2 hkg.2.2.2
-  · exact hke.2.2.2
+    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_⟩
+  · unfold doJoin; split
+    · exact linksStep_join hke.2.2.2.1 hkg.2.2.2.1
+    · exact hke.2.2.2.1
+  · unfold doJoin; split
+    · exact aboveZero_join hke.2.2.2.2 hkg.2.2.2.2
+    · exact hke.2.2.2.2
 
 theorem lineK_insert {φ : Cnf} (H : Hyps φ) {T : Int} {line : Line} {key : NodeId} {g : GPathB}
     (hl : LineOk T line) (hlk : LineK line) (hg : StateOk T key g) (hk : KInv g) :
@@ -211,9 +215,16 @@ theorem kInv_initSeed : KInv (initSeed (⟨0, 0⟩ : NodeId) "") := by
     unfold initSeed up
     rw [if_pos (show GPathB.empty.isValid = true by rfl)]
     rfl
+  have hz : AboveZero a := by
+    intro n hn
+    rw [hnodes, List.mem_singleton] at hn
+    subst hn
+    show 0 ≤ d.step
+    decide
   rw [hup]
   exact ⟨kernelExact_filterAll hka hda hnd [], revPrims_filterAll revPrims_nodupIds _ _ hnd,
-    revPrims_filterAll revPrims_edgesAlive _ _ hea, revPrims_filterAll revPrims_linksStep _ _ hls⟩
+    revPrims_filterAll revPrims_edgesAlive _ _ hea, revPrims_filterAll revPrims_linksStep _ _ hls,
+    revPrims_filterAll revPrims_aboveZero _ _ hz⟩
 
 -- ============================================================
 -- La máquina entera
@@ -281,15 +292,90 @@ theorem vInv_visited {g₀ : GPathB} (hk : KInv g₀) (hd : AliveDocs g₀) : �
     exact vInv_filterAll (h := { g₀ with dirty := true }) ⟨kernelExact_dirty hk.1 true, hk.2.1, hk.2.2.1, hd⟩ []
   | pin q _ ih => exact vInv_filterAll ih [q.id]
 
-/-- **El veredicto del lector es la satisfacibilidad**, bajo las tres hipótesis con nombre. -/
+-- ============================================================
+-- Los estados del lector están cerrados (antes la hipótesis `closed`)
+-- ============================================================
+
+theorem closedState_congr {h h' : GPathB} (ha : h'.alive = h.alive) (he : h'.edges = h.edges)
+    (hn : h'.nodes = h.nodes) (hs : h'.current_step = h.current_step) (hc : ClosedState h) : ClosedState h' := by
+  obtain ⟨n₁, a₁, e₁, c₁, m₁, d₁⟩ := h
+  obtain ⟨n₂, a₂, e₂, c₂, m₂, d₂⟩ := h'
+  simp only at ha he hn hs
+  subst ha he hn hs
+  exact ⟨hc.alive, hc.refl, hc.symm, hc.dom, hc.adj, hc.pair, hc.node, hc.par, hc.son⟩
+
+/-- Un requisito que no mata a nadie deja el grafo y los documentos. -/
+theorem filterRequire_clean_full {h : GPathB} {r : NodeId} (hd : (h.filterRequire r).dirty = false) :
+    (h.filterRequire r).alive = h.alive ∧ (h.filterRequire r).edges = h.edges ∧
+      (h.filterRequire r).nodes = h.nodes ∧ (h.filterRequire r).current_step = h.current_step := by
+  unfold filterRequire at hd ⊢
+  by_cases hv : h.isValid = true
+  · rw [if_pos hv] at hd ⊢
+    dsimp only at hd ⊢
+    generalize (List.filter (fun q => q.id != r) (List.map (fun x => x.id) (h.line r.step))) = victims at hd ⊢
+    simp only [Bool.or_eq_false_iff, Bool.not_eq_false', List.isEmpty_iff] at hd
+    rw [hd.2]
+    exact ⟨rfl, rfl, rfl, rfl⟩
+  · rw [if_neg hv]; exact ⟨rfl, rfl, rfl, rfl⟩
+
+/-- El invariante de cierre de un estado del lector. -/
+def CInv (h : GPathB) : Prop :=
+  AliveDocs h ∧ NodupIds h ∧ Below h ∧ AboveZero h ∧ 2 ≤ h.current_step ∧ (h.isValid = true → ClosedState h)
+
+theorem revPrims_filterRequire {P : GPathB → Prop} (hp : RevPrims P) (g : GPathB) (r : NodeId) (hg : P g) :
+    P (g.filterRequire r) := by
+  unfold filterRequire
+  split
+  · exact hp.dirty _ _ (inv_foldl P killVertex _ (fun g'' q _ hc' => hp.kill _ _ hc') g hg)
+  · exact hg
+
+theorem cInv_visited {g₀ : GPathB} (had : AliveDocs g₀) (hnd : NodupIds g₀) (hb : Below g₀) (hz : AboveZero g₀)
+    (hcs : 2 ≤ g₀.current_step) : ∀ h, Visited g₀ h → CInv h := by
+  intro h hvis
+  induction hvis with
+  | start =>
+    let g₁ : GPathB := { g₀ with dirty := true }
+    have had₁ : AliveDocs g₁ := aliveDocs_dirty had true
+    have hnd₁ : NodupIds g₁ := revPrims_nodupIds.dirty _ _ hnd
+    have hb₁ : Below g₁ := revPrims_below.dirty _ _ hb
+    have hz₁ : AboveZero g₁ := revPrims_aboveZero.dirty _ _ hz
+    have hcs₁ : g₁.review.current_step = g₀.current_step := (shrinks_review g₁).1.step
+    show CInv g₁.review
+    exact ⟨aliveDocs_review had₁, revPrims_review revPrims_nodupIds _ hnd₁, revPrims_review revPrims_below _ hb₁,
+      revPrims_review revPrims_aboveZero _ hz₁, by omega,
+      fun hv => closedState_review rfl hv had₁ hnd₁ hb₁ hz₁ hcs⟩
+  | @pin h q _ ih =>
+    obtain ⟨had', hnd', hb', hz', hcs', hcl'⟩ := ih
+    have hstep : (h.filterAll [q.id]).current_step = h.current_step := (shrinks_filterAll h [q.id]).1.step
+    refine ⟨aliveDocs_filterAll had' _, revPrims_filterAll revPrims_nodupIds _ _ hnd',
+      revPrims_filterAll revPrims_below _ _ hb', revPrims_filterAll revPrims_aboveZero _ _ hz', by omega, ?_⟩
+    intro hv
+    have hfa : h.filterAll [q.id] = (h.filterRequire q.id).review := rfl
+    rw [hfa] at hv ⊢
+    cases hdr : (h.filterRequire q.id).dirty
+    · -- el requisito no mató a nadie: el review no corre y el estado es el anterior
+      obtain ⟨ha, he, hn, hs⟩ := filterRequire_clean_full hdr
+      have hr : (h.filterRequire q.id).review = h.filterRequire q.id := reviewFuel_of_clean hdr _
+      rw [hr] at hv ⊢
+      have hvh : h.isValid = true := by
+        unfold isValid at hv ⊢; rw [ha, hs] at hv; exact hv
+      exact closedState_congr ha he hn hs (hcl' hvh)
+    · have hsf : (h.filterRequire q.id).current_step = h.current_step := (shrinks_filterRequire h q.id).1.step
+      exact closedState_review hdr hv (aliveDocs_filterRequire had' _)
+        (revPrims_filterRequire revPrims_nodupIds _ _ hnd') (revPrims_filterRequire revPrims_below _ _ hb')
+        (revPrims_filterRequire revPrims_aboveZero _ _ hz') (by omega)
+
+/-- **El veredicto del lector es la satisfacibilidad**, bajo las dos hipótesis con nombre (`union`, `skip`). -/
 theorem readerVerdict_iff_of_hyps {φ : Cnf} (hbd : Bounded φ) (H : Hyps φ) :
     readerVerdict φ = true ↔ Satisfiable φ := by
   apply Decode.readerVerdict_iff_of_noZombie hbd
   intro kv hkv h hvis
   obtain ⟨hok, hk⟩ := run_kInv H kv hkv
   have hv := vInv_visited hk hok.docs h hvis
+  have hcs : 2 ≤ kv.2.current_step := by rw [hok.step]; unfold stepCount; omega
+  have hc := cInv_visited hok.docs hk.2.1 hok.below hk.2.2.2.2 hcs h hvis
   intro hval
-  exact noZombie_of_edgeClique (edgeClique_of_kernelExact hv.1 (H.closed kv hkv h hvis hval) hv.2.2.1) hval
+  exact noZombie_of_edgeClique (edgeClique_of_kernelExact hv.1 (hc.2.2.2.2.2 hval) hv.2.2.1) hval
 
 end Final
 

@@ -191,18 +191,22 @@ theorem reviewFuel_docs :
   | zero => intro g _ _; exact Or.inl rfl
   | succ n ih =>
     intro g hv hd
-    simp only [reviewFuel] at hv hd ⊢
-    split at hv
-    · rename_i hvd
-      simp only [hvd, if_true] at hd ⊢
-      cases hp : (reviewPass { g with dirty := false }).dirty
-      · rw [reviewFuel_of_clean hp] at hv ⊢
-        exact Or.inr (docsAlive_reviewPass rfl hp hv)
-      · rcases ih _ hv hd with he | hda
-        · rw [he] at hd; rw [hp] at hd; cases hd
+    by_cases h : (g.isValid && g.dirty) = true
+    · cases hpd : (reviewPass { g with dirty := false }).dirty
+      · by_cases hvp : (reviewPass { g with dirty := false }).isValid = true
+        · cases hfd : (finalPass (reviewPass { g with dirty := false })).dirty
+          · rw [reviewFuel_done h hpd hvp hfd]
+            exact Or.inr (docsAlive_reviewPass rfl hpd hvp)
+          · rw [reviewFuel_final h hpd hvp hfd] at hv hd ⊢
+            rcases ih _ hv hd with he | hda
+            · rw [he, hfd] at hd; cases hd
+            · exact Or.inr hda
+        · rw [reviewFuel_invalid h hpd hvp] at hv; exact absurd hv hvp
+      · rw [reviewFuel_pass h hpd] at hv hd ⊢
+        rcases ih _ hv hd with he | hda
+        · rw [he, hpd] at hd; cases hd
         · exact Or.inr hda
-    · rename_i hvd
-      left; rw [if_neg hvd]
+    · exact Or.inl (reviewFuel_skip h)
 
 /-- **El review válido deja todo documento vivo** si la entrada ya lo cumplía o tenía algo que revisar. -/
 theorem docsAlive_review {g : GPathB} (hv : g.review.isValid = true) (h : DocsAlive g ∨ g.dirty = true) :

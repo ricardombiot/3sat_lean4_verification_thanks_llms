@@ -46,8 +46,10 @@ end
 # padres e hijos solo corren con review_owners: si la de hijos corta, el apoyo por padres de un paso superior
 # puede quedar roto y el review salir sin repasarlo. Con :on, al salir se fuerza una vuelta de las dos pasadas (y
 # la poda de enlaces); si cambian algo, el review sigue. Así el review solo sale cuando una vuelta completa con
-# todas las reglas no cambia nada. :off (por defecto) es la máquina de siempre.
-const FINAL_CHECK = Ref(:off)
+# todas las reglas no cambia nada. Adoptado (informe v201 §5): :on por defecto; medido sin ningún cambio de
+# veredicto, solución ni estado en 88 instancias × 2 mapas (test_3sat/probe_final_check.jl), +2–5 % de tiempo.
+# Espejo de lean/improves_bingo `finalPass` en `reviewFuel`.
+const FINAL_CHECK = Ref(:on)
 const FINAL_CUTS = Ref(0)      # comprobaciones finales que cambiaron algo (solo para medir)
 const FINAL_RUNS = Ref(0)      # comprobaciones finales hechas
 

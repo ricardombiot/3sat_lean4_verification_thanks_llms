@@ -410,16 +410,32 @@ theorem sec_reviewSons {g : GPathB} (h : SecStruct g V R) : SecStruct g.reviewSo
 theorem sec_reviewPass {g : GPathB} (h : SecStruct g V R) : SecStruct g.reviewPass V R :=
   sec_pruneLinks (sec_reviewSons (sec_reviewParents (sec_pruneLinks (sec_cleanPair h))))
 
-theorem sec_reviewFuel : ∀ (n : Nat) (g : GPathB), SecStruct g V R → SecStruct (reviewFuel n g) V R := by
-  intro n
-  induction n with
-  | zero => intro g h; exact h
-  | succ n ih =>
-    intro g h
-    simp only [reviewFuel]
-    split
-    · exact ih _ (sec_reviewPass (sec_dirty h _))
-    · exact h
+theorem sec_forcedParents {g : GPathB} (h : SecStruct g V R) : SecStruct g.forcedParents V R := by
+  unfold forcedParents
+  split
+  · refine sec_reviewSteps (ks := intRange 1 (g.current_step - 1)) _ g.current_step ?_ _ g h rfl (fun _ hk => hk)
+    intro k g' hc _ id n hid hn w hr hne hk
+    obtain ⟨p, hp, _, hpw⟩ := hc.par hr hne hn (by rw [hid]; exact (intRange_bounds hk).1)
+    exact ⟨p, hp, hpw⟩
+  · exact h
+
+theorem sec_forcedSons {g : GPathB} (h : SecStruct g V R) : SecStruct g.forcedSons V R := by
+  unfold forcedSons
+  split
+  · refine sec_reviewSteps (ks := (intRange 0 (g.current_step - 2)).reverse) _ g.current_step ?_ _ g h rfl
+      (fun _ hk => hk)
+    intro k g' hc hcs id n hid hn w hr hne hk
+    have hk2 := (intRange_bounds (List.mem_reverse.mp hk)).2
+    obtain ⟨s, hs, _, hsw⟩ := hc.son hr hne hn (by rw [hid, hcs]; omega)
+    exact ⟨s, hs, hsw⟩
+  · exact h
+
+theorem sec_finalPass {g : GPathB} (h : SecStruct g V R) : SecStruct g.finalPass V R :=
+  sec_pruneLinks (sec_forcedSons (sec_forcedParents h))
+
+theorem sec_reviewFuel (n : Nat) (g : GPathB) (h : SecStruct g V R) : SecStruct (reviewFuel n g) V R :=
+  reviewFuel_pres (fun h => SecStruct h V R) (fun _ hh => sec_reviewPass (sec_dirty hh _))
+    (fun _ hh => sec_finalPass hh) n g h
 
 /-- **El review conserva toda estructura cerrada por las reglas.** -/
 theorem secStruct_review {g : GPathB} (h : SecStruct g V R) : SecStruct g.review V R := sec_reviewFuel _ _ h

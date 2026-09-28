@@ -163,11 +163,80 @@ def reviewSons (g : GPathB) : GPathB :=
 def reviewPass (g : GPathB) : GPathB :=
   g.cleanPair.pruneLinks.reviewParents.reviewSons.pruneLinks
 
-/-- Vueltas mientras el gpath es válido y algo cambió en la anterior. -/
+/-- Las pasadas de padres e hijos sin la condición de `dirty` (la comprobación final). -/
+def forcedParents (g : GPathB) : GPathB :=
+  if g.isValid then reviewSteps (·.parents) g (intRange 1 (g.current_step - 1)) else g
+
+def forcedSons (g : GPathB) : GPathB :=
+  if g.isValid then reviewSteps (·.sons) g (intRange 0 (g.current_step - 2)).reverse else g
+
+/-- **La comprobación final** (Julia `final_coherence_check!`, informe v201 §5): una vuelta forzada de las pasadas
+de padres e hijos y de los enlaces. Si enciende `dirty`, algo cambió y el review sigue. -/
+def finalPass (g : GPathB) : GPathB := g.forcedParents.forcedSons.pruneLinks
+
+/-- Vueltas mientras el gpath es válido y algo cambió en la anterior. Cuando una vuelta no cambia nada, la
+comprobación final; si ella cambia algo, se sigue. Así el review solo sale cuando una vuelta completa con todas
+las reglas no cambia nada. -/
 def reviewFuel : Nat → GPathB → GPathB
   | 0, g => g
   | fuel + 1, g =>
-    if g.isValid && g.dirty then reviewFuel fuel (reviewPass { g with dirty := false }) else g
+    if g.isValid && g.dirty then
+      let p := reviewPass { g with dirty := false }
+      if p.dirty then reviewFuel fuel p
+      else if p.isValid then
+        let f := finalPass p
+        if f.dirty then reviewFuel fuel f else p
+      else p
+    else g
+
+-- Una vuelta del review, caso por caso (sin desplegar `reviewPass`).
+
+theorem reviewFuel_skip {n : Nat} {g : GPathB} (h : ¬ (g.isValid && g.dirty) = true) : reviewFuel (n + 1) g = g := by
+  rw [reviewFuel.eq_2, if_neg h]
+
+theorem reviewFuel_pass {n : Nat} {g : GPathB} (h : (g.isValid && g.dirty) = true)
+    (hp : (reviewPass { g with dirty := false }).dirty = true) :
+    reviewFuel (n + 1) g = reviewFuel n (reviewPass { g with dirty := false }) := by
+  rw [reviewFuel.eq_2, if_pos h]; simp only [hp, if_true]
+
+theorem reviewFuel_invalid {n : Nat} {g : GPathB} (h : (g.isValid && g.dirty) = true)
+    (hp : (reviewPass { g with dirty := false }).dirty = false)
+    (hv : ¬ (reviewPass { g with dirty := false }).isValid = true) :
+    reviewFuel (n + 1) g = reviewPass { g with dirty := false } := by
+  rw [reviewFuel.eq_2, if_pos h]; simp only [hp, hv, Bool.false_eq_true, if_false]
+
+theorem reviewFuel_final {n : Nat} {g : GPathB} (h : (g.isValid && g.dirty) = true)
+    (hp : (reviewPass { g with dirty := false }).dirty = false)
+    (hv : (reviewPass { g with dirty := false }).isValid = true)
+    (hf : (finalPass (reviewPass { g with dirty := false })).dirty = true) :
+    reviewFuel (n + 1) g = reviewFuel n (finalPass (reviewPass { g with dirty := false })) := by
+  rw [reviewFuel.eq_2, if_pos h]; simp only [hp, hv, hf, Bool.false_eq_true, if_false, if_true]
+
+theorem reviewFuel_done {n : Nat} {g : GPathB} (h : (g.isValid && g.dirty) = true)
+    (hp : (reviewPass { g with dirty := false }).dirty = false)
+    (hv : (reviewPass { g with dirty := false }).isValid = true)
+    (hf : (finalPass (reviewPass { g with dirty := false })).dirty = false) :
+    reviewFuel (n + 1) g = reviewPass { g with dirty := false } := by
+  rw [reviewFuel.eq_2, if_pos h]; simp only [hp, hv, hf, Bool.false_eq_true, if_false, if_true]
+
+/-- **Todo invariante que conservan la vuelta y la comprobación final lo conserva el review.** -/
+theorem reviewFuel_pres (P : GPathB → Prop) (hpass : ∀ g, P g → P (reviewPass { g with dirty := false }))
+    (hfin : ∀ g, P g → P (finalPass g)) : ∀ (n : Nat) (g : GPathB), P g → P (reviewFuel n g) := by
+  intro n
+  induction n with
+  | zero => intro g hg; exact hg
+  | succ n ih =>
+    intro g hg
+    by_cases h : (g.isValid && g.dirty) = true
+    · have hp := hpass g hg
+      cases hpd : (reviewPass { g with dirty := false }).dirty
+      · by_cases hv : (reviewPass { g with dirty := false }).isValid = true
+        · cases hfd : (finalPass (reviewPass { g with dirty := false })).dirty
+          · rw [reviewFuel_done h hpd hv hfd]; exact hp
+          · rw [reviewFuel_final h hpd hv hfd]; exact ih _ (hfin _ hp)
+        · rw [reviewFuel_invalid h hpd hv]; exact hp
+      · rw [reviewFuel_pass h hpd]; exact ih _ hp
+    · rw [reviewFuel_skip h]; exact hg
 
 def review (g : GPathB) : GPathB :=
   reviewFuel (g.measure + 1) g

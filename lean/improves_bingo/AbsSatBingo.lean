@@ -2,6 +2,7 @@
 import AbsSatBingo.Exe.Dump
 import AbsSatBingo.Model.Bookkeeping
 import AbsSatBingo.Model.Carried
+import AbsSatBingo.Model.ClosedReview
 import AbsSatBingo.Model.Decode
 import AbsSatBingo.Model.Driver
 import AbsSatBingo.Model.EdgeClique
