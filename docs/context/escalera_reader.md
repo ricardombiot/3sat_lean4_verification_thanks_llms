@@ -1952,6 +1952,10 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     delicado es la intersección del review contra vecinos y `join`.
   * Formalizarlo como `SecPair g k` y atacar primero `addNode` (el caso de un nodo nuevo por encima de
     `k`).
+  * **Medido como regla del review** (28-sept-2026, `probe_tri_sec.jl`, mismas 88 instancias que §4.4).
+    Hay dos modos: `sec` hace una sección por nodo del mapa de `k`, y `secx` una por nodo del camino.
+    Los dos cortan **0 aristas**, y son unas 3,5 y 5 veces más lentos. `SecPair` ya vale en los estados
+    de la máquina: no hace falta como regla, pero sí como **lema** que el review actual cumple.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
@@ -1964,12 +1968,31 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
 
 ### 4.4 Cambiar el algoritmo: una regla de tríos en el review (creativo)
 
-**Propuesto, con reserva.** Añadir al review una pasada «de tríos»: si `y`, `w`, `x` se poseen dos a dos y
-en un paso `l` no tienen entrada común, se quita `w` de la tabla de `y` (y viceversa).
-* No pierde soluciones: una solución da la entrada común en cada paso. Se prueba como `no-solution-lost`
+**Propuesto, con reserva.** Añadir al review una pasada «de tríos».
+
+**Corrección (28-sept-2026).** La primera redacción era: si `y`, `w`, `x` se poseen dos a dos y en un paso
+`l` no tienen entrada común, se quita `w` de la tabla de `y`. **Esa regla pierde soluciones.** Una solución
+por `y` y `w` que no pasa por `x` no da ninguna entrada común a los tres, y aun así el enlace `y–w` es
+suyo. El trío sin entrada común solo dice que ninguna solución pasa por los **tres**, y eso no permite
+cortar ninguna de sus tres aristas. La forma sólida cuantifica `x` por paso:
+* **Regla de tríos (sólida).** El enlace `y–w` sobrevive si **en cada paso `m`** hay un `x` que posee a los
+  dos y tal que `x`, `y`, `w` comparten entrada en cada paso `l`. En `m` = paso de `y` o de `w` basta
+  `x = y` o `x = w`, que es la regla de parejas.
+* **No pierde soluciones:** el nodo de la solución en `m` hace de `x`. Se prueba como `no-solution-lost`
   de la máquina `improves`.
-* En su punto fijo, `TriPin` vale **para todo `x`**, así que el pin en `k` siempre sobrevive **un paso**
-  (peldaño 7).
+* **Lo que da:** su punto fijo es consistencia de tríos por caminos (un nivel más que la regla de
+  parejas). **No** da `TriPin` para todo `x`, solo para los `x` que son testigos. `TriPin` para todo `x`
+  era la consecuencia de la regla que no es sólida, y §4.2 ya la descarta: en `simple3sat_v3_c2`, `TriPin`
+  falla con un pin que sobrevive. Queda por ver si basta para `NoDeadEnd`.
+* **Medida (28-sept-2026, `julia/improves_bingo/test_3sat/probe_tri_sec.jl`, máquina bingo).** Son 88
+  instancias: el corpus de Julia más `lean/improves_bin/cnf/crafted`, sin `tseitin_petersen_H`. La regla
+  va dentro del review, hasta su punto fijo, y después se recorre el lector por todas sus ramas.
+  * Modo `tri`: **0 aristas cortadas**, en la máquina y en el lector. Veredictos y soluciones iguales
+    que en la base, y 8,4 veces más lento.
+  * El review actual ya está cerrado por tríos sólidos. Los fallos de `TriPin` (3 542 tríos en 10
+    instancias, 264 en `clause_mix`) tienen siempre **otro** `x` del mismo paso que cierra el trío.
+  * En la base, además, **0 pins muertos y 0 callejones** en todas las ramas del lector, y las hojas
+    coinciden con las soluciones del exhaustivo (sin truncar). `NoDeadEnd` vale en todo el corpus.
 * **La reserva.** Para que el estado pinchado vuelva a estar cerrado por tríos, `restrictPin` tendría
   que estarlo. Eso pide cuartetos en el estado anterior, y cada pin sube un nivel de consistencia.
 * La observación de §4.1 lo mitiga en parte: los nodos forzados están en todas las tablas, así que el
