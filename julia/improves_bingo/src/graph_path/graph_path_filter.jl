@@ -36,7 +36,39 @@ function make_review_owners!(gpath :: GPath)
 
         if gpath.review_owners
             make_review_owners!(gpath)
+        elseif FINAL_CHECK[] == :on && gpath.is_valid
+            final_coherence_check!(gpath)
         end
+    end
+end
+
+# Comprobación final (28-sept-2026; propuesta del informe v201, «closed» en lean/improves_bingo). Las pasadas de
+# padres e hijos solo corren con review_owners: si la de hijos corta, el apoyo por padres de un paso superior
+# puede quedar roto y el review salir sin repasarlo. Con :on, al salir se fuerza una vuelta de las dos pasadas (y
+# la poda de enlaces); si cambian algo, el review sigue. Así el review solo sale cuando una vuelta completa con
+# todas las reglas no cambia nada. :off (por defecto) es la máquina de siempre.
+const FINAL_CHECK = Ref(:off)
+const FINAL_CUTS = Ref(0)      # comprobaciones finales que cambiaron algo (solo para medir)
+const FINAL_RUNS = Ref(0)      # comprobaciones finales hechas
+
+function review_size(gpath :: GPath) :: Tuple{Int, Int, Int}
+    nodes = 0; links = 0
+    PathCollectionLines.for_each(gpath.table_lines, n -> (nodes += 1; links += length(n.parents) + length(n.sons)))
+    return (length(gpath.og.edges), nodes, links)
+end
+
+function final_coherence_check!(gpath :: GPath)
+    FINAL_RUNS[] += 1
+    before = review_size(gpath)
+    gpath.review_owners = true
+    review_owners_coherence_with_its_parents_sons!(gpath)
+    LINK_MODE[] == :on && gpath.is_valid && prune_stale_links!(gpath)
+    if !gpath.is_valid || review_size(gpath) != before
+        FINAL_CUTS[] += 1
+        gpath.review_owners = true
+        make_review_owners!(gpath)
+    else
+        gpath.review_owners = false
     end
 end
 
