@@ -5,6 +5,7 @@ import AbsSatBingo.Model.Carried
 import AbsSatBingo.Model.ClosedReview
 import AbsSatBingo.Model.Decode
 import AbsSatBingo.Model.Driver
+import AbsSatBingo.Model.DriverFam
 import AbsSatBingo.Model.EdgeClique
 import AbsSatBingo.Model.EdgeCliqueUp
 import AbsSatBingo.Model.FamKernel

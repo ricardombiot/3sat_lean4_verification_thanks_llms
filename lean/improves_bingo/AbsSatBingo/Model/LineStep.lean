@@ -60,16 +60,20 @@ structure SenderOk (T : Int) (kv : NodeId × GPathB) : Prop where
   step : kv.2.current_step = T
   tid  : TopDocsId kv.2 kv.1
 
-/-- **El paso**: `LTUf` de la línea `L` (paso `T`) da `LTUf` de la siguiente `L'` (paso `T + 1`), con `PinFreeF` en
-`L'`, las entradas de `L'` cubiertas por las llegadas y cada llegada dentro de la entrada de su destino. -/
-theorem ltuf_step {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {Son : NodeId → NodeId → Prop}
+/-- **El núcleo del paso**: una cima del núcleo de la unión de la línea siguiente fijado en `Q` tiene un padre `p`
+en el núcleo de la copia de un remitente (fijado con los requisitos de su fila), con la cima en la fila de esa copia y
+`Q` concordando con ella en su paso. -/
+theorem ltuf_core {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {Son : NodeId → NodeId → Prop}
     (hsnd : ∀ kv, L kv → SenderOk T kv) (hson : ∀ k d, Son k d → d.step = T)
-    (hcov : Covers (famOf L') (Arrivals rq title forb L Son)) (hup : LineUpF rq title forb L L' Son)
-    (hpf : PinFreeF rq L' (T + 1)) (hih : LTUf L T) : LTUf L' (T + 1) := by
-  intro Q t hts hk
+    (hcov : Covers (famOf L') (Arrivals rq title forb L Son))
+    (hpf : PinFreeF rq L' (T + 1)) (hih : LTUf L T) {Q : List NodeId} {t : PathNodeId}
+    (hts : t.id.step = T + 1 - 1) (hk : FamKernel (famOf L') (T + 1) Q t t) :
+    ∃ kv' p, L kv' ∧ Son kv'.1 t.id ∧ (kv'.2.filterAll (rq t.id)).isValid = true ∧
+      t ∈ (kv'.2.filterAll (rq t.id)).newRowIds t.id forb ∧ p ∈ (kv'.2.filterAll (rq t.id)).rowParents t.id t ∧
+      Kernel (kv'.2.filterAll (rq t.id)) Q p p ∧
+      (∀ r ∈ Q, r.step = (kv'.2.filterAll (rq t.id)).current_step → r = t.id) := by
   obtain ⟨V0, R0, hst0, ha0, hr0⟩ := hk
   have hk1 := hpf Q t hts ⟨V0, R0, hst0, ha0, hr0⟩
-  -- las llegadas están cubiertas por las filas nuevas de las copias
   let G : GPathB → NodeId → Prop := fun f d => ∃ kv, L kv ∧ Son kv.1 d ∧ f.isValid = true ∧ f = kv.2.filterAll (rq d)
   have hGok : ∀ f d, G f d → AliveDocs f ∧ Below f ∧ LinksStep f ∧ f.current_step = T ∧ d.step = T := by
     rintro f d ⟨kv, hL, hS, _, rfl⟩
@@ -86,7 +90,6 @@ theorem ltuf_step {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {S
     exact covers_trans (covers_sub (shrinks_review _).1 hnd)
       (covers_of_sub (fun g hg => ⟨_, d, ⟨kv, hL, hS, hv, rfl⟩, hg⟩)) _ rfl
   obtain ⟨V, R, hst, ha, hr⟩ := famKernel_covers (covers_trans hcov hcovA) hk1
-  -- t es de una fila nueva: su padre p, por la regla de nodos
   obtain ⟨a, ⟨f, d, hG, rfl⟩, hta⟩ := hst.alive (hst.dom hr).1
   obtain ⟨hfd, hfb, _, hfs, hds⟩ := hGok f d hG
   have htn : t ∈ f.newRowIds d forb := by
@@ -101,8 +104,7 @@ theorem ltuf_step {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {S
   have hp1 : p ∈ f1.rowParents d1 t := hpn1
   have htd1 : t.id = d1 := mapId_of_mem_shiftRowIds (List.mem_filter.mp htn1).1
   obtain ⟨n0, hn0, hn0p, hps⟩ := step_of_newParents (rowParents_sub hp1)
-  -- la bajada: el padre en la unión de la línea anterior, fijado con los requisitos de la fila
-  have hdown := famStruct_rows_down (title := title) (forb := forb) (c := T) hGok (by rw [show T + 1 = T + 1 from rfl]; exact hst)
+  have hdown := famStruct_rows_down (title := title) (forb := forb) (c := T) hGok hst
   have hcovL : Covers (fun f => ∃ d, G f d) (famOf L) := by
     rintro g ⟨d', kv, hL, _, _, rfl⟩
     exact covers_trans (covers_sub (shrinks_filterAll _ _).1 (hsnd kv hL).nd)
@@ -118,7 +120,6 @@ theorem ltuf_step {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {S
     exact topDocsId_filterAll hok1.tid _ n0 hn0 (by rw [hn0p]; exact hps)
   have hok' := hsnd kv' hL'
   have hSon' : Son kv'.1 t.id := by rw [hkey, hpid, htd1]; exact hS1
-  -- la copia del remitente con los requisitos de la fila
   have hkc : Kernel (kv'.2.filterAll (rq t.id)) Q p p := (kernel_pin_list_iff hok'.docs hok'.nd p p).mpr hk'
   have hcs' : (kv'.2.filterAll (rq t.id)).current_step = T := (shrinks_filterAll _ _).1.step.trans hok'.step
   have hpnew : p ∈ (kv'.2.filterAll (rq t.id)).newParents := by
@@ -132,12 +133,91 @@ theorem ltuf_step {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {S
   have hP : ∀ r ∈ Q, r.step = (kv'.2.filterAll (rq t.id)).current_step → r = t.id := by
     intro r hr' hrs
     exact (ha0 r hr' (hst0.dom hr0).1 (by rw [hrs, hcs']; omega)).symm
-  have hA := kernel_up_of_parent (title := title) (topExact_filterAll hok'.top hok'.docs hok'.nd _)
-    (below_of_shrinks (shrinks_filterAll _ _) hok'.below) (by omega) (by rw [hcs']; omega) hp' htn' hP hkc
   have hv : (kv'.2.filterAll (rq t.id)).isValid = true := by
     obtain ⟨V2, R2, hst2, _, hr2⟩ := hkc
     exact isValid_of_sec hst2 (hst2.dom hr2).1
+  exact ⟨kv', p, hL', hSon', hv, htn', hp', hkc, hP⟩
+
+/-- **El paso**: `LTUf` de la línea `L` (paso `T`) da `LTUf` de la siguiente `L'` (paso `T + 1`), con `PinFreeF` en
+`L'`, las entradas de `L'` cubiertas por las llegadas y cada llegada dentro de la entrada de su destino. -/
+theorem ltuf_step {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {Son : NodeId → NodeId → Prop}
+    (hsnd : ∀ kv, L kv → SenderOk T kv) (hson : ∀ k d, Son k d → d.step = T)
+    (hcov : Covers (famOf L') (Arrivals rq title forb L Son)) (hup : LineUpF rq title forb L L' Son)
+    (hpf : PinFreeF rq L' (T + 1)) (hih : LTUf L T) : LTUf L' (T + 1) := by
+  intro Q t hts hk
+  obtain ⟨kv', p, hL', hSon', hv, htn', hp', hkc, hP⟩ := ltuf_core rq title forb hT hsnd hson hcov hpf hih hts hk
+  have hok' := hsnd kv' hL'
+  have hcs' : (kv'.2.filterAll (rq t.id)).current_step = T := (shrinks_filterAll _ _).1.step.trans hok'.step
+  have hA := kernel_up_of_parent (title := title) (topExact_filterAll hok'.top hok'.docs hok'.nd _)
+    (below_of_shrinks (shrinks_filterAll _ _) hok'.below) (by omega) (by rw [hcs']; omega) hp' htn' hP hkc
   exact hup kv' t.id hL' hSon' hv Q t hA
+
+/-- Cada llegada válida lleva sus camarillas a la entrada de su destino. -/
+def LineUpC (L L' : NodeId × GPathB → Prop) (Son : NodeId → NodeId → Prop) : Prop :=
+  ∀ kv d, L kv → Son kv.1 d → (kv.2.filterAll (rq d)).isValid = true → ∀ S : Int → PathNodeId,
+    Carried (arrival rq title forb kv d) S → ∃ kv', L' kv' ∧ kv'.1 = d ∧ Carried kv'.2 S
+
+/-- **`TopExact` de las entradas de la línea siguiente**, con el mismo núcleo del paso: la camarilla del padre en la
+copia de su remitente se alarga con la cima y llega a la entrada de su destino, que es la de la cima (claves únicas). -/
+theorem topExact_next {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {Son : NodeId → NodeId → Prop}
+    (hsnd : ∀ kv, L kv → SenderOk T kv) (hson : ∀ k d, Son k d → d.step = T)
+    (hcov : Covers (famOf L') (Arrivals rq title forb L Son)) (hupC : LineUpC rq title forb L L' Son)
+    (hpf : PinFreeF rq L' (T + 1)) (hih : LTUf L T)
+    (hkeys : ∀ a b, L' a → L' b → a.1 = b.1 → a = b)
+    (hent : ∀ kv, L' kv → kv.2.current_step = T + 1 ∧ AliveDocs kv.2 ∧ TopDocsId kv.2 kv.1) :
+    ∀ kv, L' kv → TopExact kv.2 := by
+  intro kv hkv P t hts hk
+  obtain ⟨hcs, hdo, htd⟩ := hent kv hkv
+  have hfam : FamKernel (famOf L') (T + 1) P t t := by
+    have := famKernel_of_kernel (F := famOf L') ⟨kv, hkv, rfl⟩ hk
+    rw [hcs] at this; exact this
+  obtain ⟨kv', p, hL', hSon', hv, htn', hp', hkc, hP⟩ :=
+    ltuf_core rq title forb hT hsnd hson hcov hpf hih (by rw [hts, hcs]) hfam
+  have hok' := hsnd kv' hL'
+  have hcs' : (kv'.2.filterAll (rq t.id)).current_step = T := (shrinks_filterAll _ _).1.step.trans hok'.step
+  obtain ⟨_, _, _, hps⟩ := step_of_newParents (rowParents_sub hp')
+  obtain ⟨S, hc, hag, hpS⟩ := topExact_filterAll hok'.top hok'.docs hok'.nd _ P p hps hkc
+  have htop := top_of_onS hc hpS hps
+  obtain ⟨hc', hag', _, hn'⟩ := extend_through (title := title) hc (by omega)
+    (below_of_shrinks (shrinks_filterAll _ _) hok'.below) (by rw [hcs']; omega) hag hP htn' (by rw [htop]; exact hp')
+  obtain ⟨kv'', hL'', hkey'', hc''⟩ := hupC kv' t.id hL' hSon' hv _ (carried_review hc')
+  -- la entrada de la cima es la de su clave
+  have htk : t.id = kv.1 := by
+    obtain ⟨V, R, hst, _, hr⟩ := hk
+    obtain ⟨n, hn, hnid⟩ := hdo t (hst.alive (hst.dom hr).1)
+    rw [← hnid]; exact htd n hn (by rw [hnid]; exact hts)
+  have heq := hkeys kv'' kv hL'' hkv (hkey''.trans htk)
+  subst heq
+  have hstep : (arrival rq title forb kv' t.id).current_step = kv''.2.current_step := by
+    rw [hcs]; unfold arrival; rw [(shrinks_review _).1.step]; show _ + 1 = _; rw [hcs']
+  refine ⟨_, hc'', fun r hr => ?_, ?_⟩
+  · have := hag' r hr; rw [← hstep]; unfold arrival; rw [(shrinks_review _).1.step]; exact this
+  · rw [← hstep]; unfold arrival; rw [(shrinks_review _).1.step]; exact hn'
+
+/-- **El paso con camarillas**: como `ltuf_step`, con `LineUpC` (las camarillas de las llegadas llegan a su entrada)
+en lugar de `LineUpF`. -/
+theorem ltuf_stepC {T : Int} (hT : 1 ≤ T) {L L' : NodeId × GPathB → Prop} {Son : NodeId → NodeId → Prop}
+    (hsnd : ∀ kv, L kv → SenderOk T kv) (hson : ∀ k d, Son k d → d.step = T)
+    (hcov : Covers (famOf L') (Arrivals rq title forb L Son)) (hupC : LineUpC rq title forb L L' Son)
+    (hpf : PinFreeF rq L' (T + 1)) (hih : LTUf L T) (hstep' : ∀ kv, L' kv → kv.2.current_step = T + 1) :
+    LTUf L' (T + 1) := by
+  intro Q t hts hk
+  obtain ⟨kv', p, hL', hSon', hv, htn', hp', hkc, hP⟩ := ltuf_core rq title forb hT hsnd hson hcov hpf hih hts hk
+  have hok' := hsnd kv' hL'
+  have hcs' : (kv'.2.filterAll (rq t.id)).current_step = T := (shrinks_filterAll _ _).1.step.trans hok'.step
+  obtain ⟨_, _, _, hps⟩ := step_of_newParents (rowParents_sub hp')
+  obtain ⟨S, hc, hag, hpS⟩ := topExact_filterAll hok'.top hok'.docs hok'.nd _ Q p hps hkc
+  have htop := top_of_onS hc hpS hps
+  obtain ⟨hc', hag', _, hn'⟩ := extend_through (title := title) hc (by omega)
+    (below_of_shrinks (shrinks_filterAll _ _) hok'.below) (by rw [hcs']; omega) hag hP htn' (by rw [htop]; exact hp')
+  obtain ⟨kv'', hL'', hkey'', hc''⟩ := hupC kv' t.id hL' hSon' hv _ (carried_review hc')
+  refine ⟨kv'', hL'', hkey'', ?_⟩
+  have hcsu : kv''.2.current_step = ((kv'.2.filterAll (rq t.id)).addNode t.id title forb).current_step := by
+    rw [hstep' kv'' hL'']; show T + 1 = _ + 1; rw [hcs']
+  refine kernel_of_clique hc'' (fun r hr => ?_) ?_ ?_
+  · rw [hcsu]; exact hag' r hr
+  · rw [hcsu]; exact hn'
+  · rw [hcsu]; exact hn'
 
 end step
 
