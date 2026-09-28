@@ -28,6 +28,7 @@ import AbsSatBingo.Model.ReaderAbsorb
 import AbsSatBingo.Model.ReaderFinal
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
+import AbsSatBingo.Model.RowAgree
 import AbsSatBingo.Model.Rule
 import AbsSatBingo.Model.SecInduction
 import AbsSatBingo.Model.SecPair
