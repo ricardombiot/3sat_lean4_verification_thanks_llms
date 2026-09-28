@@ -24,3 +24,8 @@ root = "BingoCheckMain"
 [[lean_exe]]
 name = "bingo-dump"
 root = "BingoDumpMain"
+
+# La máquina con etiquetas por fila (docs/plans/lean_row_tags.md, T1) contra la fuerza bruta y la máquina sin etiquetas.
+[[lean_exe]]
+name = "tagged-check"
+root = "TaggedCheckMain"

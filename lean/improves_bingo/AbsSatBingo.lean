@@ -48,3 +48,7 @@ import AbsSatBingo.Model.TopNbr
 import AbsSatBingo.Model.TopsFrom
 import AbsSatBingo.Model.UnionEquiv
 import AbsSatBingo.Model.UnionSplit
+import AbsSatBingo.Tagged.Defs
+import AbsSatBingo.Tagged.Carried
+import AbsSatBingo.Tagged.Keeps
+import AbsSatBingo.Tagged.Machine
