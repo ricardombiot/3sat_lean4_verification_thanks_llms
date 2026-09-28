@@ -2011,6 +2011,16 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     gpath de la línea (10 006 gpaths, 7 570 con algún paso con elección, 88 instancias), **0 fallos** de `SecPair`,
     de `SecPairX` y del cierre por parejas. Es un invariante de la máquina medido, no solo del estado final: la
     inducción natural va a lo largo de la máquina (UP, join y filtro seguidos del review).
+  * **Qué operación la rompe** (`probe_secpair_ops.jl`, 17 775 envíos a destino en 88 instancias):
+    * justo tras la selección (`filter_require!`) y antes de su review, `SecPair` falla en **11 693** (66 %) y el
+      cierre por parejas en 12 299;
+    * tras el review de la selección: **0** fallos (636 gpaths mueren en el review);
+    * tras `add_row!`, sin review: **0** fallos, y el review del UP no corre nunca (`rev` = 0);
+    * el join tampoco pasa review, y la línea sigue con 0 fallos.
+  * Confirma la intuición del autor: **la selección rompe `SecPair` y el review la restaura**; el UP y el join la
+    conservan por sí solos. Plan: invariante `EdgeClique` (toda arista y todo nodo en una camarilla llevada), con el
+    join y el UP por monotonía y herencia, y un solo lema de fondo, `ReviewExact` (tras seleccionar `b` y revisar,
+    toda arista está en una camarilla por `b`).
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
