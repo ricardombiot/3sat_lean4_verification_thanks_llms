@@ -183,3 +183,86 @@ máquina, y la tabla de sincronía al día.
 Los pasos 1 y 2 son baratos y dicen si el 3 tiene sentido. El 4 y el 5 son independientes y se pueden hacer en
 cualquier momento. El criterio para parar el paso 3 es el mismo de siempre: si el argumento de la estrella se mide
 falso en algún caso, se documenta como los de la §4 y se vuelve a pensar, en vez de insistir.
+
+---
+
+## 7. Apéndice: los pasos 1–3, hechos
+
+Tras escribir la §6 se hicieron los pasos 1, 2 y parte del 3. Commits `f2f8cef` … `28bc8eb`, todo sin `sorry`.
+
+### 7.1 Paso 1: absorción local (hecho)
+
+Al formalizarlo salió una simplificación mayor que la prevista. La estrella de una cima de `e` vive entera en los
+vivos de `e` (la cima no está viva en `g`, así que todas sus aristas son de `e`). Por eso basta:
+
+* **`LocalAbsorb`**: una estructura cerrada de la unión que vive en los vivos de un lado tiene sus parejas en él;
+* **`TopsSep`**: ninguna cima está viva en los dos lados.
+
+**`topUnion_of_local`**: `TopUnion` ⇐ `TopStarK` + `LocalAbsorb` + `TopsSep`, y **`readerVerdict_iff_of_local`**. Ya
+no hacen falta `SepAt` ni `SidePinned`. Medido: `TopsSep` 0 fallos; revisar la estrella en la unión da exactamente lo
+mismo que en el lado (0 diferencias en 5 105 cimas).
+
+### 7.2 Paso 2: la cascada en la estrella (hecho)
+
+Dentro de las estrellas hay aristas del otro lado (6 684 en 20 instancias). Ninguna sobrevive y **todas** las corta la
+regla de parejas; nunca la limpieza ni el pin. En el 78 % el paso que falla estaba vacío desde el principio (en ese
+paso, `x` y `z` no tienen vecino común en la estrella; la mayoría en el paso de origen). El 22 % cae en cascada, solo
+por otras aristas del otro lado de la misma estrella.
+
+### 7.3 Paso 3: el hueco y el orden (en parte)
+
+* **`StarGap`** (una propiedad de un solo estado): en la estrella de una cima, dos nodos que no se poseen tienen un
+  paso en que la cima no posee ningún vecino común de ambos. **0 fallos en 2,3 M parejas.** Es la forma del «cono
+  cerrado» que sobrevive: falsa en general (v202), cierta restringida a la estrella de una cima.
+* **`StarCone`** (el hueco está por encima de la pareja): falsa en el 5 % de las parejas del otro lado. Por eso la
+  inducción que baja por el paso más alto no cierra sola.
+* **El orden de la cascada.** Con el orden A = (paso más alto, paso más bajo), toda arista del otro lado de la
+  estrella tiene un hueco en que cada testigo de la unión forma, con uno de sus extremos, otra arista del otro lado
+  **menor**. **0 fallos en 87 372 aristas** (32 instancias). Los otros tres órdenes probados tampoco fallan.
+* **Los tipos de hueco.** El hueco que baja es siempre de uno de cuatro tipos, sin otro caso:
+
+  | tipo | por qué baja | frecuencia (aristas del otro lado) |
+  |---|---|---|
+  | por debajo de la pareja | las dos parejas posibles son menores | la mayoría |
+  | en el paso de origen | no hay testigos (los padres de la cima solo tienen aristas del lado) | |
+  | paso sin testigos de la unión en la estrella | vacío: la pareja cae de golpe | 4 319 |
+  | intermedio, testigos por el extremo bajo | esa pareja es menor | 2 697 |
+
+  Los dos primeros son **automáticos** (salen de la estrella del lado); cubren ~92 %. Como propiedad del lado solo
+  (`StarGapLow`) es falsa en el 8 %, así que los otros dos tipos dependen de la unión.
+
+**Formalizado:**
+* **`noBad_of_descent`**: el descenso bien fundado abstracto (si cada pareja mala tiene un paso cuyos testigos forman
+  parejas malas menores, no hay parejas malas).
+* **`StarOrder`** y **`starAbsorb_of_order`**: con el orden, toda estructura cerrada de la unión dentro de la estrella
+  tiene sus parejas en el lado. **`topUnion_of_order`**: `TopUnion` ⇐ `TopStarK` + `StarOrder` + `TopsSep`.
+* **`keyA`**, **`StarKinds`** (los cuatro tipos de hueco) y **`starOrder_of_kinds`**: los cuatro tipos dan `StarOrder`
+  con el orden A.
+
+### 7.4 Dónde estamos ahora
+
+```
+readerVerdict φ ⇔ Satisfiable φ
+  ⇐ TopUnion
+      ⇐ TopStarK ∧ StarOrder ∧ TopsSep                  [descenso bien fundado en la estrella]
+            StarOrder ⇐ StarKinds                        [los cuatro tipos de hueco, orden A]
+```
+
+Tres hipótesis, las tres medidas sin fallos, y las tres **locales a una cima y su estrella**:
+
+* `TopsSep` (ninguna cima en los dos lados): previsiblemente contabilidad, como `TopNbr`.
+* `StarKinds` (toda arista del otro lado en la estrella tiene un hueco de los cuatro tipos): combinatoria y finita. Dos
+  tipos salen del lado; los otros dos, de la unión.
+* `TopStarK` (la cima sobrevive al review de su estrella): la pieza de existencia.
+
+### 7.5 Lo que espero de los siguientes pasos
+
+* **`TopsSep` como teorema**: contabilidad de la línea, junto a `SepAt` (paso 4 de la §6).
+* **`StarKinds`**: los dos tipos que dependen de la unión (paso vacío en la estrella de la unión, e intermedio por el
+  extremo bajo) son los que hay que entender. El siguiente experimento es medir de dónde vienen: si el paso vacío en
+  la unión coincide con un hueco del otro lado (el lado de `g` tampoco tiene testigo), sería `StarGap` aplicado a `g`,
+  y `StarKinds` saldría de `StarGap` en los dos lados. Espero que sea así en el tipo «vacío»; el intermedio no sé.
+* **`TopStarK`**: con `StarOrder`, la estructura de la estrella en la unión es una estructura del lado; así que
+  `TopStarK` en la unión equivale a que la cima sobreviva en la estrella del lado, que sale de `TopExact` del lado si
+  la cima está en su núcleo… que es `TopUnion`. Es circular tal cual. La idea para romperlo es la de siempre en esta
+  máquina: una inducción sobre los pasos, porque la estrella de una cima nueva se construye desde la de su padre.
