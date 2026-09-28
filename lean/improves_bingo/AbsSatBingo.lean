@@ -8,6 +8,7 @@ import AbsSatBingo.Model.EdgeCliqueUp
 import AbsSatBingo.Model.GPathB
 import AbsSatBingo.Model.Grow
 import AbsSatBingo.Model.Keeps
+import AbsSatBingo.Model.Kernel
 import AbsSatBingo.Model.Machine
 import AbsSatBingo.Model.MachineClique
 import AbsSatBingo.Model.Ops
