@@ -185,6 +185,62 @@ theorem pin_confluent {g : GPathB} {b₁ b₂ : NodeId} (hd : AliveDocs g) (hnd 
   have hd₁ : AliveDocs (g.filterAll [b₁]) := aliveDocs_filterAll hd _
   rw [pinEdge_iff_kernel hd₁ hnd₁ hcl₁, kernel_pin_iff hd hnd, pinEdge_iff_kernel hd hnd hcl]
 
+-- ============================================================
+-- KernelExact: el invariante para ReviewExact
+-- ============================================================
+
+/-- Fijar primero `B` y dentro `P` es fijar `B ++ P`, a nivel de núcleo. -/
+theorem kernel_pin_list_iff {g : GPathB} {B P : List NodeId} (hd : AliveDocs g) (hnd : NodupIds g)
+    (y w : PathNodeId) : Kernel (g.filterAll B) P y w ↔ Kernel g (B ++ P) y w := by
+  constructor
+  · rintro ⟨V, R, hst, ha, hr⟩
+    have hv1 : (g.filterAll B).isValid = true := isValid_of_sec hst (hst.dom hr).1
+    refine ⟨V, R, secStruct_of_sub (shrinks_filterAll g B).1 hnd hst, ?_, hr⟩
+    intro b hb
+    rcases List.mem_append.mp hb with hb | hb
+    · intro q hq hqs
+      exact pinned_filterAll_list hd B hv1 b hb q (hst.alive hq) hqs
+    · exact ha b hb
+  · rintro ⟨V, R, hst, ha, hr⟩
+    exact ⟨V, R, secStruct_filterAll_list hst B (fun b hb => ha b (List.mem_append_left _ hb)),
+      fun b hb => ha b (List.mem_append_right _ hb), hr⟩
+
+/-- **`KernelExact g`**: toda pareja del núcleo de `g` fijado en `P` está en una camarilla de `g` que pasa por `P`. -/
+def KernelExact (g : GPathB) : Prop :=
+  ∀ (P : List NodeId) y w, Kernel g P y w →
+    ∃ S, Carried g S ∧ (∀ r ∈ P, Agrees g.current_step S r) ∧ OnS g.current_step S y ∧ OnS g.current_step S w
+
+/-- **La selección conserva `KernelExact`** (por la confluencia a nivel de núcleo). -/
+theorem kernelExact_filterAll {g : GPathB} (hk : KernelExact g) (hd : AliveDocs g) (hnd : NodupIds g)
+    (B : List NodeId) : KernelExact (g.filterAll B) := by
+  intro P y w hker
+  have hcs : (g.filterAll B).current_step = g.current_step := (shrinks_filterAll g B).1.step
+  obtain ⟨S, hc, ha, hy, hw⟩ := hk (B ++ P) y w ((kernel_pin_list_iff hd hnd y w).mp hker)
+  refine ⟨S, carried_filterAll hc B (fun r hr => ha r (List.mem_append_left _ hr)), ?_, ?_, ?_⟩
+  · intro r hr; rw [hcs]; exact ha r (List.mem_append_right _ hr)
+  · rw [hcs]; exact hy
+  · rw [hcs]; exact hw
+
+/-- Las posesiones unen vivos. -/
+def EdgesAlive (g : GPathB) : Prop := ∀ y w, g.Adj y w → y ∈ g.alive ∧ w ∈ g.alive
+
+/-- **`KernelExact` y el cierre dan `EdgeClique`** (con `P` vacío). -/
+theorem edgeClique_of_kernelExact {g : GPathB} (hk : KernelExact g) (hcl : ClosedState g) (hea : EdgesAlive g) :
+    EdgeClique g := by
+  intro y w hyw
+  obtain ⟨hy, hw⟩ := hea y w hyw
+  have hker : Kernel g [] y w :=
+    ⟨_, _, hcl, ⟨fun b hb => absurd hb List.not_mem_nil, hy, hw, hyw⟩⟩
+  obtain ⟨S, hc, _, hyS, hwS⟩ := hk [] y w hker
+  exact ⟨S, hc, hyS, hwS⟩
+
+/-- **`ReviewExact` a partir de `KernelExact`**: tras seleccionar `B` y revisar, si el estado sale cerrado, todo lo
+que se posee está en una camarilla. -/
+theorem reviewExact_of_kernelExact {g : GPathB} (hk : KernelExact g) (hd : AliveDocs g) (hnd : NodupIds g)
+    (B : List NodeId) (hcl : ClosedState (g.filterAll B)) (hea : EdgesAlive (g.filterAll B)) :
+    EdgeClique (g.filterAll B) :=
+  edgeClique_of_kernelExact (kernelExact_filterAll hk hd hnd B) hcl hea
+
 end GPathB
 
 end AbsSatBingo.Model
