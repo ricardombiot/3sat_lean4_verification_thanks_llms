@@ -1,5 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo/Model/Lineage.lean
 import AbsSatBingo.Model.TopsFrom
+import AbsSatBingo.Model.StarLocal
 
 /-!
 # La inducción por linajes: esqueleto
@@ -187,6 +188,26 @@ theorem lin_step {x y x' y' u u' : GPathB} {d d' kx ky kx' ky' : NodeId}
       hs.bx hs.by_ hs.tx hs.ty hs.ne hdu hnu (hvu R') (by rw [← hfs]; exact hts) hk hta)
   · exact Or.inr (lin_step_side rq title forb hu' (hjd' R') hih' hs'.cs hs'.pos hs'.dst hs'.dx hs'.dy hs'.nx hs'.ny
       hs'.ex hs'.ey hs'.bx hs'.by_ hs'.tx hs'.ty hs'.ne hdu' hnu' (hvu' R') (by rw [← hcs, ← hfs]; exact hts) hk hta)
+
+-- ============================================================
+-- La estrella en el marco cruzado: la partición sin `JoinDownGen`
+-- ============================================================
+
+/-- **La estrella da la partición en el marco cruzado**: si en la unión de las copias de dos estados de la línea (de
+nodos del mapa distintos) se cumplen `TopStarK`, `StarOrder` en las estrellas de cada lado y `TopsSep`, entonces
+`TopUnion` entre las copias, para todo filtro: es decir, `LinIH u u'` directamente, sin `JoinDownGen` y sin
+`LinIH` en el paso anterior. Medido en el marco cruzado (`test_3sat/probe_cross_star.jl`): las tres sin fallos. -/
+theorem linIH_of_star {u u' : GPathB} (μ : PathNodeId → PathNodeId → Nat)
+    (hcs : ∀ R', (u.filterAll R').current_step = (u'.filterAll R').current_step)
+    (hle : ∀ R', LinksInv (u.filterAll R')) (hlg : ∀ R', LinksInv (u'.filterAll R'))
+    (hee : ∀ R', EdgesAlive (u.filterAll R')) (heg : ∀ R', EdgesAlive (u'.filterAll R'))
+    (hstar : ∀ R', TopStarK (join (u.filterAll R') (u'.filterAll R')))
+    (hoe : ∀ R' t, t ∈ (u.filterAll R').alive → t ∉ (u'.filterAll R').alive →
+      StarOrder (join (u.filterAll R') (u'.filterAll R')) (u.filterAll R') t μ)
+    (hog : ∀ R' t, t ∈ (u'.filterAll R').alive → t ∉ (u.filterAll R').alive →
+      StarOrder (join (u.filterAll R') (u'.filterAll R')) (u'.filterAll R') t μ)
+    (hts : ∀ R', TopsSep (u.filterAll R') (u'.filterAll R')) : LinIH u u' :=
+  fun R' => topUnion_of_order (hcs R') (hle R') (hlg R') (hee R') (heg R') (hstar R') μ (hoe R') (hog R') (hts R')
 
 end GPathB
 
