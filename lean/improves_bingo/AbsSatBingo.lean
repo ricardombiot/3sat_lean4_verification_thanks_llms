@@ -11,6 +11,7 @@ import AbsSatBingo.Model.EdgeCliqueUp
 import AbsSatBingo.Model.FamKernel
 import AbsSatBingo.Model.GPathB
 import AbsSatBingo.Model.Grow
+import AbsSatBingo.Model.JoinStar
 import AbsSatBingo.Model.Keeps
 import AbsSatBingo.Model.Kernel
 import AbsSatBingo.Model.KernelCliques
