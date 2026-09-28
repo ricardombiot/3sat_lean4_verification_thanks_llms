@@ -19,6 +19,7 @@ import AbsSatBingo.Model.Machine
 import AbsSatBingo.Model.MachineClique
 import AbsSatBingo.Model.Ops
 import AbsSatBingo.Model.Reader
+import AbsSatBingo.Model.ReaderAbsorb
 import AbsSatBingo.Model.ReaderFinal
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.Rule
@@ -26,6 +27,7 @@ import AbsSatBingo.Model.SecInduction
 import AbsSatBingo.Model.SecPair
 import AbsSatBingo.Model.SecStruct
 import AbsSatBingo.Model.Shrink
+import AbsSatBingo.Model.SideAbsorb
 import AbsSatBingo.Model.SideCone
 import AbsSatBingo.Model.SideDescent
 import AbsSatBingo.Model.SideLinks
