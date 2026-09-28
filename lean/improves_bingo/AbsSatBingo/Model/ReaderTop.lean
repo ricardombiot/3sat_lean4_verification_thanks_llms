@@ -1,6 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo/Model/ReaderTop.lean
 import AbsSatBingo.Model.ReaderFinal
-import AbsSatBingo.Model.TopExact
+import AbsSatBingo.Model.TopNbr
 
 /-!
 # El veredicto del lector con `TopExact`: una sola hipótesis, `TopUnion`
@@ -24,7 +24,8 @@ open GPathB Driver Machine
 
 /-- El invariante de un estado de la línea (además de `StateOk`), con `TopExact` en vez de `KernelExact`. -/
 def KInv (g : GPathB) : Prop :=
-  TopExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g ∧ TopNoSons g ∧ LinksInv g
+  TopExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g ∧ TopNoSons g ∧ LinksInv g ∧ TopsApart g ∧
+    TopNbr g
 
 /-- **La única hipótesis**: en cada join de la máquina, una cima del núcleo de la unión fijada está en el núcleo de
 algún lado (`TopUnion`). `skip` ya no hace falta: el UP conserva `TopExact` con o sin ventana saltada. -/
@@ -42,7 +43,8 @@ theorem kInv_filterAll {g : GPathB} (hk : KInv g) (hd : AliveDocs g) (reqs : Lis
   ⟨topExact_filterAll hk.1 hd hk.2.1 reqs, revPrims_filterAll revPrims_nodupIds _ _ hk.2.1,
    revPrims_filterAll revPrims_edgesAlive _ _ hk.2.2.1, revPrims_filterAll revPrims_linksStep _ _ hk.2.2.2.1,
    revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2.1, revPrims_filterAll revPrims_topNoSons _ _ hk.2.2.2.2.2.1,
-   revPrims_filterAll revPrims_linksInv _ _ hk.2.2.2.2.2.2⟩
+   revPrims_filterAll revPrims_linksInv _ _ hk.2.2.2.2.2.2.1, revPrims_filterAll revPrims_topsApart _ _ hk.2.2.2.2.2.2.2.1,
+   revPrims_filterAll revPrims_topNbr _ _ hk.2.2.2.2.2.2.2.2⟩
 
 theorem kInv_upFiltering {φ : Cnf} {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
     (hk : KInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
@@ -70,7 +72,9 @@ theorem kInv_upFiltering {φ : Cnf} {T : Int} {key d : NodeId} {g : GPathB} (hg 
       revPrims_filterAll revPrims_linksStep _ _ (linksStep_addNode hf.2.2.2.1 hdstep),
       revPrims_filterAll revPrims_aboveZero _ _ (aboveZero_addNode hf.2.2.2.2.1 (by omega)),
       revPrims_filterAll revPrims_topNoSons _ _ (topNoSons_addNode hfb),
-      revPrims_filterAll revPrims_linksInv _ _ (linksInv_addNode hf.2.2.2.2.2.2 hfb hf.2.2.2.2.1 hdstep)⟩
+      revPrims_filterAll revPrims_linksInv _ _ (linksInv_addNode hf.2.2.2.2.2.2.1 hfb hf.2.2.2.2.1 hdstep),
+      revPrims_filterAll revPrims_topsApart _ _ (topsApart_addNode hfd hfb hf.2.2.1),
+      revPrims_filterAll revPrims_topNbr _ _ (topNbr_addNode hfd hfb hf.2.2.1 hf.2.2.2.2.2.2.2.1 hdstep)⟩
   · rename_i hvf
     rw [if_neg hvf] at hv
     exact absurd hv hvf
@@ -84,7 +88,8 @@ def LineK (line : Line) : Prop := ∀ kv ∈ line, KInv kv.2
 theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} (hT : 2 ≤ T) {key : NodeId} {e g : GPathB} (he : StateOk T key e)
     (hg : StateOk T key g) (hke : KInv e) (hkg : KInv g) : KInv (doJoin e g) := by
   refine ⟨topExact_doJoin hke.1 hkg.1 (H.union T key e g hT he hg hke hkg), nodupIds_doJoin hke.2.1 hkg.2.1,
-    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_, ?_, ?_⟩
+    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_, ?_, ?_, topsApart_doJoin hke.2.2.2.2.2.2.2.1 hkg.2.2.2.2.2.2.2.1,
+    topNbr_doJoin hke.2.2.2.2.2.2.2.2 hkg.2.2.2.2.2.2.2.2⟩
   · unfold doJoin; split
     · exact linksStep_join hke.2.2.2.1 hkg.2.2.2.1
     · exact hke.2.2.2.1
@@ -98,8 +103,8 @@ theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} (hT : 2 ≤ T) {key : Nod
       exact topNoSons_join hke.2.2.2.2.2.1 hkg.2.2.2.2.2.1 hok.1.1.1
     · exact hke.2.2.2.2.2.1
   · unfold doJoin; split
-    · exact linksInv_join hke.2.2.2.2.2.2 hkg.2.2.2.2.2.2 hke.2.2.1 hkg.2.2.1
-    · exact hke.2.2.2.2.2.2
+    · exact linksInv_join hke.2.2.2.2.2.2.1 hkg.2.2.2.2.2.2.1 hke.2.2.1 hkg.2.2.1
+    · exact hke.2.2.2.2.2.2.1
 
 theorem lineK_insert {φ : Cnf} (H : Hyps φ) {T : Int} (hT : 2 ≤ T) {line : Line} {key : NodeId} {g : GPathB}
     (hl : LineOk T line) (hlk : LineK line) (hg : StateOk T key g) (hk : KInv g) :
@@ -239,12 +244,18 @@ theorem kInv_initSeed : KInv (initSeed (⟨0, 0⟩ : NodeId) "") := by
       refine ⟨fun p hp => ?_, fun s hs => ?_⟩
       · rw [hp0] at hp; cases hp
       · rw [hs0] at hs; cases hs
+  have hta : TopsApart a := fun y w _ _ h => by obtain ⟨rfl, rfl⟩ := hadj y w h; rfl
+  have htn : TopNbr a := by
+    intro t y _ h2 h
+    obtain ⟨_, rfl⟩ := hadj t y h
+    exact absurd h2 (by show ¬ (0 : Int) = 1 - 2; omega)
   rw [hup]
   have hka : TopExact a := topExact_of_kernelExact hka'
   exact ⟨topExact_filterAll hka hda hnd [], revPrims_filterAll revPrims_nodupIds _ _ hnd,
     revPrims_filterAll revPrims_edgesAlive _ _ hea, revPrims_filterAll revPrims_linksStep _ _ hls,
     revPrims_filterAll revPrims_aboveZero _ _ hz, revPrims_filterAll revPrims_topNoSons _ _ ht,
-    revPrims_filterAll revPrims_linksInv _ _ hli⟩
+    revPrims_filterAll revPrims_linksInv _ _ hli, revPrims_filterAll revPrims_topsApart _ _ hta,
+    revPrims_filterAll revPrims_topNbr _ _ htn⟩
 
 -- ============================================================
 -- La máquina entera
@@ -315,6 +326,35 @@ theorem readerVerdict_iff_of_topUnion {φ : Cnf} (hbd : Bounded φ) (H : Hyps φ
   have hcs : 2 ≤ kv.2.current_step := by rw [hok.step]; unfold stepCount; omega
   have hc := Final.cInv_visited hok.docs hk.2.1 hok.below hk.2.2.2.2.1 hcs h hvis
   exact fun hval => noZombie_of_topExact hv.1 (hc.2.2.2.2.2 hval) (by have := hc.2.2.2.2.1; omega) hval
+
+-- ============================================================
+-- `TopUnion` por la estrella
+-- ============================================================
+
+/-- **Las hipótesis por la estrella**: en cada join, la estrella de una cima del núcleo fijado la sostiene
+(`TopStarK`), los orígenes no se comparten (`SepAt`) y cada lado absorbe la parte compartida del otro (`Absorb`). -/
+structure HypsStar (φ : Cnf) : Prop where
+  star   : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → TopStarK (join e g)
+  sep    : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → SepAt e g (T - 2)
+  absorb : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g →
+             Absorb (join e g) e ∧ Absorb (join e g) g
+
+theorem hyps_of_star {φ : Cnf} (H : HypsStar φ) : Hyps φ := by
+  refine ⟨fun T key e g hT he hg hke hkg => ?_⟩
+  have hcs : e.current_step = g.current_step := he.step.trans hg.step.symm
+  have hjs : (join e g).current_step = T := he.step
+  have hsplit : TopSplit (join e g) (T - 2) := by
+    have := topSplit_of_topStar (H.star T key e g hT he hg hke hkg)
+      (topNbr_join hke.2.2.2.2.2.2.2.2 hkg.2.2.2.2.2.2.2.2 hcs) (by rw [hjs]; exact hT)
+    rw [hjs] at this; exact this
+  obtain ⟨hae, hag⟩ := H.absorb T key e g hT he hg hke hkg
+  exact topUnion_of_absorb (by omega) (by rw [he.step]; omega) hcs hke.2.2.2.2.2.2.1 hkg.2.2.2.2.2.2.1 hke.2.2.1
+    hkg.2.2.1 (H.sep T key e g hT he hg hke hkg) hsplit hae hag
+
+/-- **El veredicto del lector es la satisfacibilidad bajo `TopStarK`, `SepAt` y `Absorb`.** -/
+theorem readerVerdict_iff_of_star {φ : Cnf} (hbd : Bounded φ) (H : HypsStar φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_topUnion hbd (hyps_of_star H)
 
 end FinalTop
 

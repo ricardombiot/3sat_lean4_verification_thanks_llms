@@ -35,5 +35,6 @@ import AbsSatBingo.Model.SideLinks
 import AbsSatBingo.Model.SplitWitness
 import AbsSatBingo.Model.Struct
 import AbsSatBingo.Model.TopExact
+import AbsSatBingo.Model.TopNbr
 import AbsSatBingo.Model.UnionEquiv
 import AbsSatBingo.Model.UnionSplit

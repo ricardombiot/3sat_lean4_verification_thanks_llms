@@ -157,6 +157,41 @@ theorem topUnion_of_absorb {e g : GPathB} {k : Int} (hk0 : 0 ≤ k) (hkc : k < e
   topUnion_of_topSplit hts (sidePinned_of_sideEdges hk0 hkc hcs hle hlg hee heg hsep
     (sideEdgesAt_of_absorb hk0 hkc hcs hle hlg hee heg hae hag))
 
+-- ============================================================
+-- `TopSplit` por la estrella de la cima
+-- ============================================================
+
+/-- **`TopNbr`**: en el paso de origen, una cima solo posee a sus padres (a nodos cuyo id es su `parent_id`). -/
+def TopNbr (g : GPathB) : Prop :=
+  ∀ t y, t.id.step = g.current_step - 1 → y.id.step = g.current_step - 2 → g.Adj t y → t.parent_id = some y.id
+
+/-- **`TopStarK`**: una cima del núcleo fijado en `P` está en una estructura cerrada que concuerda con `P` y vive en
+su estrella (todos sus nodos los posee la cima). Medido como `TopStar` (`test_3sat/probe_topstar.jl`: el review de la
+estrella de la cima la conserva): sin fallos. -/
+def TopStarK (u : GPathB) : Prop :=
+  ∀ (P : List NodeId) (t : PathNodeId), t.id.step = u.current_step - 1 → Kernel u P t t →
+    ∃ (V : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop), SecStruct u V R ∧ (∀ b ∈ P, SecAgrees V b) ∧
+      V t ∧ ∀ y, V y → u.Adj t y
+
+/-- **`TopSplit` ⇐ `TopStarK` + `TopNbr`**: la estructura de la estrella concuerda con el origen de la cima (sus
+nodos del paso de origen los posee la cima, luego son sus padres y tienen su id). Sin Helly: todo pasa por la cima. -/
+theorem topSplit_of_topStar {u : GPathB} (hs : TopStarK u) (hn : TopNbr u) (hc : 2 ≤ u.current_step) :
+    TopSplit u (u.current_step - 2) := by
+  intro P t hts hk
+  obtain ⟨V, R, hst, ha, hvt, hstar⟩ := hs P t hts hk
+  obtain ⟨r, hrs, htr, _⟩ := hst.pair (hst.refl hvt) (u.current_step - 2) (by omega) (by omega)
+  have hpr : t.parent_id = some r.id := hn t r hts hrs (hstar r (hst.dom htr).2)
+  refine ⟨r.id, hrs, V, R, hst, ?_, hst.refl hvt⟩
+  intro b hb
+  rcases List.mem_append.mp hb with hb | hb
+  · exact ha b hb
+  · rw [List.mem_singleton] at hb
+    subst hb
+    intro y hy hys
+    have := hn t y hts (hys.trans hrs) (hstar y hy)
+    rw [hpr] at this
+    exact (Option.some.inj this).symm
+
 end GPathB
 
 end AbsSatBingo.Model
