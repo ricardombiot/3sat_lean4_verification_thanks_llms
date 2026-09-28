@@ -55,3 +55,22 @@ calcula. Sí se pide que cada fila, por separado, se descomponga en piezas cerra
 * **R2** (T3): los enlaces a padres e hijos de la regla (`tag_link_support` en Julia) tienen que casar exactamente
   con los campos `node`, `par` y `son` de `FamStruct`.
 * **R3**: el modelo en listas es lento; el `#eval` de T1 solo con cnf muy pequeñas.
+
+## Estado (29-sept-2026)
+
+* **T1 y T2 hechas** (commit `986b694`): la máquina con etiquetas en Lean y **`machineVerdictT_of_sat`**. La regla no
+  pierde soluciones: la camarilla de una solución lleva su clave en cada fila (`TagCarried`), y ni la regla
+  (`cliqueTags_tagSweep`) ni el corte (`carried_tagCut`) le quitan nada.
+* **Problema encontrado al diseñar T3–T5 (deducido).** La descomposición por filas es **independiente por fila**. La
+  inducción de la línea necesita más:
+  1. en el join de arriba, la pieza de la cima (fila `n`, clave `a`) cae en su llegada;
+  2. al bajar a esa llegada, la estructura tiene que volver a partirse en la fila `n−1` **dentro de la pieza `a`** y
+     con los pins del lector.
+
+  La regla solo garantiza que cada pieza `(n−1, b)` del estado entero es cerrada, no que lo sea su intersección con la
+  pieza `(n, a)`. Pedir las intersecciones a lo largo de toda la bajada es pedir cadenas de claves, una por fila: son
+  combinaciones entre filas, justo lo que las etiquetas por fila evitaban.
+* **La sonda de Julia solo midió la fila del join** (`probe_row_tags_union.jl`: pieza de la fila `n` dentro de su
+  llegada, 0 fallos). La §7.4 del v204, «la bajada respeta las etiquetas», era demasiado optimista.
+* **Siguiente, antes de más Lean:** medir en Julia si las intersecciones de piezas de dos filas (`(n, a) ∩ (ℓ, b)`)
+  son cerradas en los estados del lector fijados. Si no lo son, la regla por filas no basta para el veredicto.
