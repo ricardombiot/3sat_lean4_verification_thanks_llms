@@ -37,5 +37,6 @@ import AbsSatBingo.Model.StarLocal
 import AbsSatBingo.Model.Struct
 import AbsSatBingo.Model.TopExact
 import AbsSatBingo.Model.TopNbr
+import AbsSatBingo.Model.TopsFrom
 import AbsSatBingo.Model.UnionEquiv
 import AbsSatBingo.Model.UnionSplit

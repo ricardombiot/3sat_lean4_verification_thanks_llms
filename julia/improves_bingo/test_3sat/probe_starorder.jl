@@ -21,6 +21,11 @@
 #     k_uempty — en ese paso no hay ningún testigo de U en la estrella (la pareja cae de golpe también en U)
 #     k_midlow — hueco entre sus pasos y todo testigo forma la pareja del otro lado con el extremo más bajo
 #     k_other  — otro caso
+#   Diagnóstico de esos dos tipos (en el paso l del hueco, dentro de la estrella W de la unión):
+#     ue_nox / ue_noz — vacío: x (el extremo alto) / z (el bajo) no tiene ningún vecino en W en l
+#     ue_disj         — vacío: los dos tienen vecinos en W en l, pero ninguno común
+#     ue_xe / ue_ze   — vacío: todos los vecinos de x / z en W en l lo son por aristas del lado (no del otro)
+#     ml_xe           — intermedio: todo testigo tiene con el extremo alto una arista del lado
 #   e_pairs / e_noauto — lo mismo para TODAS las parejas de la estrella del lado que el lado no hace poseerse
 #            (StarGapLow como propiedad de un estado)
 
@@ -124,8 +129,16 @@ function measure!(e, g)
                         ws = wits(l)
                         if isempty(ws)
                             bump!(:k_uempty)
+                            nbx = [w for w in get(h.og.alive, l, SetPathNodesId()) if w in W && PG.has_edge(h.og, xhigh, w)]
+                            nbz = [w for w in get(h.og.alive, l, SetPathNodesId()) if w in W && PG.has_edge(h.og, zlow, w)]
+                            isempty(nbx) && bump!(:ue_nox)
+                            isempty(nbz) && bump!(:ue_noz)
+                            (!isempty(nbx) && !isempty(nbz)) && bump!(:ue_disj)
+                            all(w -> eS(xhigh, w), nbx) && bump!(:ue_xe)
+                            all(w -> eS(zlow, w), nbz) && bump!(:ue_ze)
                         elseif lo(f) < l < hi(f) && all(w -> inF(zlow, w), ws)
                             bump!(:k_midlow)
+                            all(w -> eS(xhigh, w), ws) && bump!(:ml_xe)
                         else
                             bump!(:k_other)
                         end
@@ -155,7 +168,7 @@ Core.eval(GraphPath, quote
     end
 end)
 
-const COLS = (:one, :nogap, :low, :noauto, :k_uempty, :k_midlow, :k_other, :k_none, :bad_A, :bad_B, :bad_C, :bad_D, :e_pairs, :e_noauto)
+const COLS = (:one, :noauto, :k_uempty, :ue_nox, :ue_noz, :ue_disj, :ue_xe, :ue_ze, :k_midlow, :ml_xe, :k_other, :bad_A)
 
 function corpus()
     dirs = [joinpath(ROOT, "test/example_cnf"), joinpath(ROOT, "test_window/instances"),
