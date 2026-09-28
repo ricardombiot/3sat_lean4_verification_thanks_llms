@@ -84,6 +84,81 @@ theorem topUnion_of_local {e g : GPathB} (hcs : e.current_step = g.current_step)
   · exact Or.inr (kernel_side_of_star (isUnion_join_right hcs hle hlg hee heg) hlg heg hee hag
       (fun h => hts t hts' h htg) hst ha hvt hs)
 
+-- ============================================================
+-- El descenso en la estrella
+-- ============================================================
+
+/-- **Descenso**: si toda pareja «mala» (`F`) de una estructura cerrada tiene un paso `l` en que cada testigo forma
+con `x` o con `z` otra pareja mala de medida menor, la estructura no tiene parejas malas. (Inducción fuerte en la
+medida; el testigo lo da la regla de parejas.) -/
+theorem noBad_of_descent {g : GPathB} {V : PathNodeId → Prop} {R : PathNodeId → PathNodeId → Prop}
+    (hst : SecStruct g V R) (F : PathNodeId → PathNodeId → Prop) (μ : PathNodeId → PathNodeId → Nat)
+    (hdesc : ∀ x z, R x z → F x z → ∃ l, 0 ≤ l ∧ l < g.current_step ∧
+      ∀ w, w.id.step = l → R x w → R z w → (F x w ∧ μ x w < μ x z) ∨ (F z w ∧ μ z w < μ x z)) :
+    ∀ x z, R x z → ¬ F x z := by
+  have key : ∀ n, ∀ x z, μ x z = n → R x z → ¬ F x z := by
+    intro n
+    induction n using Nat.strongRecOn with
+    | _ n ih =>
+      intro x z hn hr hf
+      obtain ⟨l, h0, h1, hw⟩ := hdesc x z hr hf
+      obtain ⟨w, hws, hxw, hzw⟩ := hst.pair hr l h0 h1
+      rcases hw w hws hxw hzw with ⟨hf', hlt⟩ | ⟨hf', hlt⟩
+      · exact ih _ (hn ▸ hlt) x w rfl hxw hf'
+      · exact ih _ (hn ▸ hlt) z w rfl hzw hf'
+  exact fun x z hr => key _ x z rfl hr
+
+/-- **`StarOrder u e t μ`**: en la estrella de `t` en `u`, toda arista que `e` no tiene tiene un paso en que cada
+testigo de `u` dentro de la estrella forma con un extremo otra arista que `e` no tiene, de medida menor. Medido con
+μ = (paso más alto, paso más bajo) (`test_3sat/probe_starorder.jl`, orden A): sin fallos. -/
+def StarOrder (u e : GPathB) (t : PathNodeId) (μ : PathNodeId → PathNodeId → Nat) : Prop :=
+  ∀ x z, u.Adj t x → u.Adj t z → u.Adj x z → ¬ e.Adj x z → ∃ l, 0 ≤ l ∧ l < u.current_step ∧
+    ∀ w, w.id.step = l → u.Adj t w → u.Adj x w → u.Adj z w →
+      (¬ e.Adj x w ∧ μ x w < μ x z) ∨ (¬ e.Adj z w ∧ μ z w < μ x z)
+
+/-- **Con `StarOrder`, toda estructura cerrada de la unión que vive en la estrella de `t` tiene sus parejas en `e`.** -/
+theorem starAbsorb_of_order {u e : GPathB} {t : PathNodeId} {μ : PathNodeId → PathNodeId → Nat}
+    (ho : StarOrder u e t μ) {V : PathNodeId → Prop} {R : PathNodeId → PathNodeId → Prop} (hst : SecStruct u V R)
+    (hstar : ∀ y, V y → u.Adj t y) : ∀ {y w}, R y w → e.Adj y w := by
+  intro y w hr
+  by_cases h : e.Adj y w
+  · exact h
+  · exfalso
+    refine noBad_of_descent hst (fun a b => ¬ e.Adj a b) μ ?_ y w hr h
+    intro x z hxz hf
+    obtain ⟨l, h0, h1, hl⟩ := ho x z (hstar x (hst.dom hxz).1) (hstar z (hst.dom hxz).2) (hst.adj hxz) hf
+    exact ⟨l, h0, h1, fun w' hws hxw hzw =>
+      hl w' hws (hstar w' (hst.dom hxw).2) (hst.adj hxw) (hst.adj hzw)⟩
+
+/-- **`TopUnion` ⇐ `TopStarK` + `StarOrder` en las estrellas + `TopsSep`** (sin `LocalAbsorb`). -/
+theorem topUnion_of_order {e g : GPathB} (hcs : e.current_step = g.current_step) (hle : LinksInv e)
+    (hlg : LinksInv g) (hee : EdgesAlive e) (heg : EdgesAlive g) (hstar : TopStarK (join e g))
+    (μ : PathNodeId → PathNodeId → Nat)
+    (hoe : ∀ t, t ∈ e.alive → t ∉ g.alive → StarOrder (join e g) e t μ)
+    (hog : ∀ t, t ∈ g.alive → t ∉ e.alive → StarOrder (join e g) g t μ) (hts : TopsSep e g) :
+    TopUnion e g := by
+  intro P t hts' hk
+  obtain ⟨V, R, hst, ha, hvt, hs⟩ := hstar P t hts' hk
+  rcases (alive_join e g t).mp (hst.alive hvt) with hte | htg
+  · have htg : t ∉ g.alive := fun h => hts t hts' hte h
+    have hu := isUnion_join_left hle hlg hee heg
+    have hal : ∀ {y}, V y → y ∈ e.alive := by
+      intro y hy
+      rcases hu.adj (hs y hy) with h | h
+      · exact (hee t y h).2
+      · exact absurd (heg t y h).1 htg
+    exact Or.inl ⟨V, R, secStruct_of_local hu hst hle hal (starAbsorb_of_order (hoe t hte htg) hst hs), ha,
+      hst.refl hvt⟩
+  · have hte : t ∉ e.alive := fun h => hts t hts' h htg
+    have hu := isUnion_join_right hcs hle hlg hee heg
+    have hal : ∀ {y}, V y → y ∈ g.alive := by
+      intro y hy
+      rcases hu.adj (hs y hy) with h | h
+      · exact (heg t y h).2
+      · exact absurd (hee t y h).1 hte
+    exact Or.inr ⟨V, R, secStruct_of_local hu hst hlg hal (starAbsorb_of_order (hog t htg hte) hst hs), ha,
+      hst.refl hvt⟩
+
 end GPathB
 
 end AbsSatBingo.Model
