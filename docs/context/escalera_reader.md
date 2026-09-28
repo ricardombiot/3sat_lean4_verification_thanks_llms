@@ -1965,6 +1965,17 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     enlaces no cortan nada más. `SecPair` es literalmente «el grafo es la unión de sus pins en cada paso con
     elección». Con `PinEqSec` (el pin de `b` es la mayor sección de `b`), `SecDeadEnd` es inmediato: toda
     arista está en alguna sección no vacía, así que su pin es válido.
+  * **Por qué sobrevive la sección** (`SecInPin`; `julia/improves_bingo/test_3sat/probe_secinpin.jl`, las mismas
+    17 158 comparaciones). Durante el review de los pins, lo que corta es la purga (19,8 M aristas, al quitar
+    nodos), la regla de parejas (19 970) y los enlaces (515 enlaces). **Las pasadas de padres e hijos no cortan
+    nada** (0 y 0), y ninguna regla toca la sección (`s_hit` = 0).
+  * Antes del pin, cada sección está **cerrada por las reglas de estructura**, con 0 fallos:
+    * todo nodo de la sección (no raíz, no cima) tiene un padre y un hijo enlazados dentro de ella;
+    * toda arista `(x, w)` de la sección tiene un padre de `x`, dentro de ella, que posee a `w` (y lo mismo con los
+      hijos).
+  * Así, `SecInPin` es la generalización de `carried_review` de una camarilla a una sección: una estructura
+    cerrada por parejas, por enlaces y por apoyo sobrevive a cada operación del review. El trabajo es demostrar que
+    la mayor sección de `b` hereda esos cierres de un estado del lector.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
