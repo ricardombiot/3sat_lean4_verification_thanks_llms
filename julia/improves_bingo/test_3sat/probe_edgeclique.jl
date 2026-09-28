@@ -19,6 +19,9 @@ const OUT = abspath(ARGS[1])
 const CAP = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 20000
 include(joinpath(ROOT, "src/main.jl"))
 
+# PROBE_MAP=bin: el mapa bin (el del modelo Lean, con ventanas prohibidas); por defecto, el clásico.
+const LOAD = get(ENV, "PROBE_MAP", "classic") == "bin" ? GraphMapBin.load_import_bin! : GraphMap.load_import!
+
 using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
 
 const PG = PathOwnersGraph
@@ -84,7 +87,7 @@ function main()
             name = basename(path)
             for p in PTS; fill!(ACC[p], 0); end
             try
-                machine = SatMachine.new(GraphMap.load_import!(path))
+                machine = SatMachine.new(LOAD(path))
                 redirect_stdout(devnull) do
                     SatMachine.init!(machine)
                 end

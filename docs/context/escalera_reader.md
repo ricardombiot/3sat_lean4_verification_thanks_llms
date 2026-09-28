@@ -2030,6 +2030,14 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     * en la línea tras los joins (10 006).
     Control negativo: una arista falsa sale como 1 sin cubrir, y quitar una arista de una camarilla deja 68–80 sin
     cubrir. **Tras cada paso, todo lo vivo está en una camarilla válida**, que es la frase del autor.
+  * **Ojo, mapa:** las sondas anteriores corrieron con el mapa clásico (`GraphMap.load_import!`); el modelo Lean
+    usa el **mapa bin** (ventanas prohibidas). Con `PROBE_MAP=bin` (`load_import_bin!`):
+    * `EdgeClique` en F (18 947), U (18 704) y L (11 481): **0 sin cubrir**;
+    * tras `add_row!` sin review (A): **923 estados fallan** (1,11 M aristas y 25 581 nodos sin cubrir). Es la
+      ventana saltada: algún nodo de la cima se queda sin hijo, su camarilla no se alarga, y el review del UP corre
+      y la limpia.
+    * Así, en el mapa bin **el UP con ventana saltada es otra instancia de `ReviewExact`** (el review deja solo
+      camarillas válidas), no contabilidad. `edgeClique_up` cubre el UP sin ventana saltada.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**

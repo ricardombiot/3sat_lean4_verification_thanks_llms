@@ -16,6 +16,9 @@ const ROOT = abspath(joinpath(@__DIR__, ".."))
 const OUT = abspath(ARGS[1])
 include(joinpath(ROOT, "src/main.jl"))
 
+# PROBE_MAP=bin: el mapa bin (el del modelo Lean, con ventanas prohibidas); por defecto, el clásico.
+const LOAD = get(ENV, "PROBE_MAP", "classic") == "bin" ? GraphMapBin.load_import_bin! : GraphMap.load_import!
+
 const PTS = (:S, :F, :A, :U)
 const ACC = Dict{Symbol, Vector{Int}}(p => zeros(Int, 4) for p in PTS)
 const REV = Ref(0)
@@ -75,7 +78,7 @@ function main()
             for p in PTS; fill!(ACC[p], 0); end
             REV[] = 0
             try
-                machine = SatMachine.new(GraphMap.load_import!(path))
+                machine = SatMachine.new(LOAD(path))
                 redirect_stdout(devnull) do
                     SatMachine.run!(machine)
                 end
