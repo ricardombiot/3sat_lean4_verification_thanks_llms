@@ -173,7 +173,9 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `SecStruct g V R` (`SecStruct.lean`): `secStruct_review`, `secStruct_filterAll` (el review y el pin la conservan), `secInPin_of_secStructAt` | `sec_struct_fails(gpath, adj)` (`graph_path_secpair.jl`), test en `test_secpair.jl` | demostrado |
 | `secPair_visited`, `noDeadEnd_visited`, `secPair_filterAll` (`SecInduction.lean`) | — | demostrado |
 | `SecMeet` (paso local de la inducción para `SecPair`) | `test_3sat/probe_secmeet.jl`: 21 044 casos que fallan | **FALSO** |
-| `EdgeClique g` (`EdgeClique.lean`): toda pareja que se posee está en una camarilla llevada. Demostrado: `noDeadEnd_of_edgeClique`, `secPair_of_edgeClique`, `edgeClique_doJoin` | `edge_clique_miss(gpath)`, `edge_clique` (`graph_path_edgeclique.jl`), test en `test_secpair.jl`; `test_3sat/probe_edgeclique.jl`: 0 sin cubrir en F/A/U/L | join demostrado; UP y `ReviewExact` pendientes |
+| `EdgeClique g` (`EdgeClique.lean`): toda pareja que se posee está en una camarilla llevada. Demostrado: `noDeadEnd_of_edgeClique`, `secPair_of_edgeClique`, `edgeClique_doJoin` | `edge_clique_miss(gpath)`, `edge_clique` (`graph_path_edgeclique.jl`), test en `test_secpair.jl`; `test_3sat/probe_edgeclique.jl`: 0 sin cubrir en F/A/U/L | join demostrado |
+| `edgeClique_up` (`EdgeCliqueUp.lean`): el UP conserva `EdgeClique` (sin ventanas saltadas, documentos vivos y bajo la cima, estado sin `dirty`) | `probe_secpair_ops.jl` / `probe_edgeclique.jl`: 0 fallos tras `add_row!`, el review del UP no corre | demostrado |
+| `ReviewExact` (abierto): tras seleccionar `b` y revisar, toda pareja está en una camarilla por `b` | `probe_edgeclique.jl` punto F: 0 sin cubrir en 17 139 | medido |
 | `SecStructAt g b` (abierto): toda sección de `b` se extiende a una `SecStruct` que concuerda con `b` | `test_3sat/probe_secinpin.jl`: `sec_struct_fails` = (0, 0, 0) en 17 158 secciones; padres/hijos cortan 0 en los pins | medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 
