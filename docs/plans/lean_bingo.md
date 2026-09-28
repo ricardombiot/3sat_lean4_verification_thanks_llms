@@ -179,7 +179,8 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `Kernel.lean`: núcleo (`pinEdge_iff_kernel`), confluencia (`pin_confluent`), `KernelExact`; la selección lo conserva (`kernelExact_filterAll`) y da `ReviewExact` (`reviewExact_of_kernelExact`), bajo `ClosedState` | `test_3sat/probe_pinexact.jl` (mapa bin): confluencia 30 309 / 0 fallos, `PinExact` 23 297 / 0 fallos | demostrado (bajo `ClosedState`) / medido |
 | `Bookkeeping.lean`: `RevPrims`; `EdgesAlive`, `NodupIds` por review, filtro, fila y join | — | demostrado |
 | `KernelUp.lean`: `kernelExact_addNode`, la fila nueva conserva `KernelExact` (sin ventana saltada; `LinksStep`, `Below`, `AliveDocs`, `EdgesAlive`) | `test_3sat/probe_kernelexact_up.jl` (mapa bin, antes del review del UP): 0 fallos | demostrado |
-| `KernelExact` en el join, y en el UP con ventana saltada | `probe_pinexact.jl` sobre la línea: 0 fallos | **abierto** |
+| `KernelJoin.lean`: `kernelExact_doJoin` bajo `KernelUnion`; `LinksStep`, `Below` | `test_3sat/probe_kernelunion.jl`: 0 diferencias | demostrado bajo `KernelUnion` |
+| **`ReaderFinal.lean`: `readerVerdict_iff_of_hyps`**, el veredicto del lector es la satisfacibilidad bajo `Hyps φ` = `closed` (`ClosedState` en los estados del lector), `union` (`KernelUnion` en los joins), `skip` (el UP con ventana saltada conserva `KernelExact`) | las tres medidas sin fallos | **demostrado bajo tres hipótesis** |
 | `SecStructAt g b` (abierto): toda sección de `b` se extiende a una `SecStruct` que concuerda con `b` | `test_3sat/probe_secinpin.jl`: `sec_struct_fails` = (0, 0, 0) en 17 158 secciones; padres/hijos cortan 0 en los pins | medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 

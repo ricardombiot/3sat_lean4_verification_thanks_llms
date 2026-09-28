@@ -2038,6 +2038,16 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
       y la limpia.
     * Así, en el mapa bin **el UP con ventana saltada es otra instancia de `ReviewExact`** (el review deja solo
       camarillas válidas), no contabilidad. `edgeClique_up` cubre el UP sin ventana saltada.
+  * **La cadena cerrada bajo tres hipótesis** (`lean/improves_bingo`, 28-sept-2026). `readerVerdict_iff_of_hyps`
+    (`ReaderFinal.lean`, sin `sorry`): el veredicto del lector es la satisfacibilidad bajo
+    * `ClosedState`: los estados del lector están cerrados por las reglas; las pasadas de padres e hijos nunca
+      cortan nada;
+    * `KernelUnion`: en cada join, el núcleo de la unión es la unión de los núcleos; medido en 5 728 joins,
+      22 912 comparaciones, 0 diferencias, 70 instancias;
+    * el UP con ventana saltada conserva `KernelExact`; medido 0 fallos.
+    El invariante es `KernelExact`: el núcleo de cualquier pin está hecho de camarillas. La selección lo conserva
+    por la confluencia del núcleo (`Kernel.lean`), el UP sin salto por `kernelExact_addNode` (`KernelUp.lean`), y
+    el join bajo `KernelUnion` (`KernelJoin.lean`).
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
