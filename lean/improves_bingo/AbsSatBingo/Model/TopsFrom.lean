@@ -82,6 +82,31 @@ theorem topDocsId_addNode (hb : Below g) : TopDocsId (g.addNode d title forb) d 
   · obtain ⟨pid, hpid, rfl⟩ := List.mem_map.mp h
     exact mapId_of_mem_shiftRowIds (List.mem_filter.mp hpid).1
 
+-- ============================================================
+-- (A) La subida por el UP
+-- ============================================================
+
+/-- **(A) La subida**: si el padre `p` de una cima nueva `t` está en el núcleo del estado de partida fijado en `P`
+(y `P` fija en el paso nuevo, como mucho, el nodo del mapa de la fila), `t` está en el núcleo del UP fijado igual:
+la camarilla de `p` (por `TopExact`) se alarga con `t`. -/
+theorem kernel_addNode_of_parent (hk : TopExact g) (hb : Below g) (hpos : 0 < g.current_step)
+    (hd : d.step = g.current_step) {P : List NodeId} {p t : PathNodeId} (hp : p ∈ g.rowParents d t)
+    (ht : t ∈ g.newRowIds d forb) (hP : ∀ r ∈ P, r.step = g.current_step → r = d) (hker : Kernel g P p p) :
+    Kernel (g.addNode d title forb) P t t := by
+  obtain ⟨_, _, _, hps⟩ := step_of_newParents (rowParents_sub hp)
+  obtain ⟨S, hc, hag, hpS⟩ := hk P p hps hker
+  have htop := top_of_onS hc hpS hps
+  obtain ⟨hc', hag', _, hn'⟩ := extend_through (title := title) hc hpos hb hd hag hP ht (by rw [htop]; exact hp)
+  exact kernel_of_clique hc' hag' hn' hn'
+
+/-- **(A) con el review**: lo mismo en el estado revisado `review (addNode g d)`, que es el UP de la máquina. -/
+theorem kernel_up_of_parent (hk : TopExact g) (hb : Below g) (hpos : 0 < g.current_step)
+    (hd : d.step = g.current_step) {P : List NodeId} {p t : PathNodeId} (hp : p ∈ g.rowParents d t)
+    (ht : t ∈ g.newRowIds d forb) (hP : ∀ r ∈ P, r.step = g.current_step → r = d) (hker : Kernel g P p p) :
+    Kernel (g.addNode d title forb).review P t t := by
+  obtain ⟨V, R, hst, ha, hr⟩ := kernel_addNode_of_parent (title := title) hk hb hpos hd hp ht hP hker
+  exact ⟨V, R, secStruct_review hst, ha, hr⟩
+
 end GPathB
 
 end AbsSatBingo.Model
