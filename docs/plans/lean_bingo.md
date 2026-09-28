@@ -158,6 +158,17 @@ enunciado es plausible. Se decide después de L6: si el marco de reglas llega an
 La elegida del informe v199 §6 (propuesta: 6.1, apoyo contado), **a la vez** en Julia (`improves_bingo`, detrás de un
 interruptor, medida con `REMOVED_BY`) y en Lean (una `Rule` con su `keepsSol`), y el diferencial de L4 sobre las dos.
 
+### Sincronía Julia ↔ Lean (desde 28-sept-2026)
+
+Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nombres:
+
+| Lean (`lean/improves_bingo`) | Julia (`julia/improves_bingo`) | Estado |
+|---|---|---|
+| `SecClosed`/`SecClosedX`, `SecPair`/`SecPairX` (`Model/SecPair.lean`) | `sec_section`, `sec_fix!`, `sec_pair_bad(og; by = :map/:node)`, `sec_pair` (`src/graph_path/graph_path_secpair.jl`), test `test/graph_path/test_secpair.jl` | consulta, no regla |
+| `choiceAt` (`Driver.lean`) | `choice_at` (`graph_path_secpair.jl`) | igual |
+| `SecPairReader` (abierto) | `test_3sat/probe_tri_sec.jl` modos `sec`/`secx`: 0 cortes en 88 instancias | medido |
+| `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
+
 ## Decisiones antes de L0
 
 1. **Dependencia de `improves_bin`.** (a) `require` por ruta: mismos tipos, puente directo, sin duplicar; pero

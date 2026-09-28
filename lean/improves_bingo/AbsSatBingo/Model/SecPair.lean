@@ -16,6 +16,11 @@ parejas.
 Es decir, el grafo es la unión de sus fijaciones por el paso, que es la forma de «el kernel de un estado fijado es
 la unión de sus fijaciones por cualquier fila».
 
+**Espejo en Julia**: `julia/improves_bingo/src/graph_path/graph_path_secpair.jl`. Ahí `sec_pair_bad(og; by)` calcula
+la mayor sección de cada grupo (`by = :map` para `SecClosed`, `:node` para `SecClosedX`) en los pasos con
+elección (`choice_at` = `choiceAt`); si no devuelve nada, vale `SecPair`/`SecPairX`. Test en
+`test/graph_path/test_secpair.jl`.
+
 `SecPairX` es lo mismo con una sección por nodo del camino (el ancla es un solo `x` para toda la sección); es más
 fuerte (`secPair_of_secPairX`).
 

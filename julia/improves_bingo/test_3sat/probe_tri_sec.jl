@@ -9,7 +9,7 @@
 #   tri  — regla 2, versión sólida: la arista (y,w) sobrevive si en cada paso m hay un x vivo que posee a
 #          los dos y tal que x, y, w comparten entrada en cada paso. (La versión de §4.4, «se corta (y,w) si
 #          un x cualquiera no comparte», pierde soluciones cuando x no está en ellas; no se mide.)
-#   sec  — regla 3 (SecPair, §4.3) a grano de mapa: para cada paso k con dos o más nodos del mapa y cada
+#   sec  — regla 3 (SecPair, §4.3; GraphPath.sec_pair_bad, espejo de SecPair.lean) a grano de mapa: para cada paso k con dos o más nodos del mapa y cada
 #          nodo b del mapa en k, se restringe el grafo a lo compatible con b (aristas (y,w) con algún x de
 #          b que posee a los dos) y se lleva a su punto fijo de la regla de parejas; la arista sobrevive
 #          si está en alguna sección. Es la unión de las fijaciones de k, hecha en el review.
@@ -67,76 +67,7 @@ end
 
 tri_bad(og) = [(e.a, e.b) for e in values(og.edges) if !tri_edge_ok(og, e.a, e.b)]
 
-# ---------------- regla 3: secciones por nodo del mapa ----------------
-
-const Adj = Dict{PathNodeId, Dict{Step, SetPathNodesId}}
-
-# La sección de b: y está si algún x de b lo posee; su tabla en la sección es ∪_x (inc[y] ∩ inc[x]).
-function section(og, xs)
-    adj = Adj()
-    for x in xs, y in PG.neighbors_all(og, x)
-        t = get!(adj, y, Dict{Step, SetPathNodesId}())
-        iy = og.inc[y]; ix = og.inc[x]
-        for (l, ys) in iy
-            xl = get(ix, l, nothing); xl === nothing && continue
-            s = get!(t, l, SetPathNodesId())
-            for r in ys
-                r in xl && push!(s, r)
-            end
-        end
-    end
-    return adj
-end
-
-# Punto fijo de la regla de parejas dentro de la sección (con purga de nodos sin entrada en algún paso).
-function section_fix!(adj, nsteps)
-    changed = true
-    while changed
-        changed = false
-        dead = [y for (y, t) in adj if any(l -> isempty(get(t, l, SetPathNodesId())), 0:nsteps-1)]
-        for y in dead
-            for (_, ws) in adj[y], w in ws
-                w != y && haskey(adj, w) && delete!(get(adj[w], step_of(y), SetPathNodesId()), y)
-            end
-            delete!(adj, y)
-            changed = true
-        end
-        bad = Tuple{PathNodeId, PathNodeId}[]
-        for (y, t) in adj, (l, ws) in t, w in ws
-            (w == y || !haskey(adj, w) || PG.node_ord(w) < PG.node_ord(y)) && continue
-            tw = adj[w]
-            ok = all(0:nsteps-1) do s
-                a = get(t, s, nothing); b = get(tw, s, nothing)
-                a !== nothing && b !== nothing && any(r -> r in b, a)
-            end
-            ok || push!(bad, (y, w))
-        end
-        for (y, w) in bad
-            delete!(adj[y][step_of(w)], w); delete!(adj[w][step_of(y)], y)
-            changed = true
-        end
-    end
-    return adj
-end
-
-in_section(adj, y, w) = haskey(adj, y) && w in get(adj[y], step_of(w), SetPathNodesId())
-
-# key: agrupa los vivos de k en secciones (por nodo del mapa en `sec`, uno a uno en `secx`).
-function sec_bad(og; key = x -> x.id)
-    bad = Set{Tuple{PathNodeId, PathNodeId}}()
-    for k in 0:og.nsteps-1
-        groups = Dict{Any, Vector{PathNodeId}}()
-        for x in get(og.alive, k, SetPathNodesId())
-            push!(get!(groups, key(x), PathNodeId[]), x)
-        end
-        length(groups) < 2 && continue
-        secs = [section_fix!(section(og, xs), og.nsteps) for xs in values(groups)]
-        for e in values(og.edges)
-            any(adj -> in_section(adj, e.a, e.b), secs) || push!(bad, (e.a, e.b))
-        end
-    end
-    return collect(bad)
-end
+# ---------------- regla 3: secciones (src/graph_path/graph_path_secpair.jl, espejo de SecPair.lean) ----------------
 
 # ---------------- el review con la regla ----------------
 
@@ -157,8 +88,8 @@ Core.eval(GraphPath, quote
     end
 end)
 
-extra_bad(og) = MODE == :tri ? tri_bad(og) : MODE == :sec ? sec_bad(og) :
-                MODE == :secx ? sec_bad(og; key = identity) : Tuple{PathNodeId, PathNodeId}[]
+extra_bad(og) = MODE == :tri ? tri_bad(og) : MODE == :sec ? GraphPath.sec_pair_bad(og; by = :map) :
+                MODE == :secx ? GraphPath.sec_pair_bad(og; by = :node) : Tuple{PathNodeId, PathNodeId}[]
 
 if MODE != :base
     Core.eval(GraphPath, quote

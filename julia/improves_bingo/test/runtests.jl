@@ -57,6 +57,10 @@ end
     include("./graph_path/test_pair_mode.jl")
 end
 
+@time @testset "SecPair" begin
+    include("./graph_path/test_secpair.jl")
+end
+
 @time @testset "ExaustiveSolver" begin
     #include("./exaustive/test_exaustive_solver.jl")
 end
