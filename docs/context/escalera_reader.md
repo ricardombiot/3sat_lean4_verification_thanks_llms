@@ -1981,6 +1981,13 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     `R p w`). Con ellos, `secInPin_of_secStructAt`: `SecInPin` se reduce a **`SecStructAt`**, que toda sección de
     `b` se extienda a una `SecStruct` que concuerde con `b`. Medido con el apoyo reforzado (`R x p` y `R p w`):
     0 fallos en las 17 158 secciones.
+  * **Inducción a lo largo del lector** (`SecInduction.lean`). Demostrados el esqueleto (`secPair_visited`,
+    `noDeadEnd_visited`) y el paso condicional `secPair_filterAll`: `SecPair` en `h` más `SecMeet` dan `SecPair` en el
+    pin de `b`. `SecMeet` pide que la intersección de las secciones de `b` y de `b'` sea una sección de `b'` en el pin.
+    **`SecMeet` es FALSO** (`probe_secmeet.jl`): 21 044 casos en 13 de 22 instancias, incluida `basic_v3_c1`, con
+    2,3 M aristas que faltan; la inclusión contraria vale siempre. `SecPair` sigue valiendo en el pin (0 cortes), pero
+    la cubre **otro** `b''`: al fijar `b`, cambia la sección que cubre cada arista. El paso no es local por
+    intersección; hace falta otro invariante o un argumento directo en cada estado fijado.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**

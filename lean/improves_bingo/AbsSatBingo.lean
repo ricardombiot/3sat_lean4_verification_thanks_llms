@@ -11,6 +11,7 @@ import AbsSatBingo.Model.Ops
 import AbsSatBingo.Model.Reader
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.Rule
+import AbsSatBingo.Model.SecInduction
 import AbsSatBingo.Model.SecPair
 import AbsSatBingo.Model.SecStruct
 import AbsSatBingo.Model.Shrink

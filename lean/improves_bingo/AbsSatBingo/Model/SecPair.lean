@@ -79,12 +79,12 @@ structure SecClosedX (g : GPathB) (x : PathNodeId) (R : PathNodeId → PathNodeI
 
 /-- **`SecPair`**: en cada paso con elección, cada arista está en una sección de un nodo del mapa de ese paso. -/
 def SecPair (g : GPathB) : Prop :=
-  ∀ k, choiceAt g k = true → ∀ y w, g.Adj y w → y ≠ w →
+  ∀ k, choiceAt g k = true → ∀ y w, y ∈ g.alive → w ∈ g.alive → g.Adj y w → y ≠ w →
     ∃ b R, b.step = k ∧ SecClosed g b R ∧ R y w
 
 /-- **`SecPairX`**: lo mismo con secciones por nodo del camino. -/
 def SecPairX (g : GPathB) : Prop :=
-  ∀ k, choiceAt g k = true → ∀ y w, g.Adj y w → y ≠ w →
+  ∀ k, choiceAt g k = true → ∀ y w, y ∈ g.alive → w ∈ g.alive → g.Adj y w → y ≠ w →
     ∃ x R, x ∈ g.alive ∧ x.id.step = k ∧ SecClosedX g x R ∧ R y w
 
 theorem SecClosedX.toSecClosed {g : GPathB} {x : PathNodeId} {R : PathNodeId → PathNodeId → Prop}
@@ -96,8 +96,8 @@ theorem SecClosedX.toSecClosed {g : GPathB} {x : PathNodeId} {R : PathNodeId →
   pair := h.pair
 
 theorem secPair_of_secPairX {g : GPathB} (h : SecPairX g) : SecPair g := by
-  intro k hk y w hyw hne
-  obtain ⟨x, R, hx, hxk, hsec, hr⟩ := h k hk y w hyw hne
+  intro k hk y w hy hw hyw hne
+  obtain ⟨x, R, hx, hxk, hsec, hr⟩ := h k hk y w hy hw hyw hne
   exact ⟨x.id, R, hxk, hsec.toSecClosed hx, hr⟩
 
 -- ============================================================
@@ -140,8 +140,8 @@ theorem commonAt_of_secClosed {g : GPathB} {b : NodeId} {R : PathNodeId → Path
 
 /-- **`SecPair` implica la regla de parejas** en cada arista, en cuanto hay un paso con elección. -/
 theorem pairOk_of_secPair {g : GPathB} (h : SecPair g) {k : Int} (hk : choiceAt g k = true) {y w : PathNodeId}
-    (hyw : g.Adj y w) (hne : y ≠ w) : g.pairOk y w = true := by
-  obtain ⟨b, R, _, hs, hr⟩ := h k hk y w hyw hne
+    (hy : y ∈ g.alive) (hw : w ∈ g.alive) (hyw : g.Adj y w) (hne : y ≠ w) : g.pairOk y w = true := by
+  obtain ⟨b, R, _, hs, hr⟩ := h k hk y w hy hw hyw hne
   unfold pairOk
   rw [List.all_eq_true]
   intro l hl
@@ -296,10 +296,10 @@ theorem pinEqSec_of_secInPin {g : GPathB} (hd : AliveDocs g) (hv : g.isValid = t
 /-- **`SecPair` y la mitad difícil dan `NoDeadEnd`**: en un estado con alguna arista, en cada paso con elección el
 nodo del mapa de la sección que contiene esa arista deja un pin válido. -/
 theorem noDeadEnd_of_secInPin {g : GPathB} (hsp : SecPair g) (hin : ∀ b, SecInPin g b)
-    (hedge : ∃ y w, g.Adj y w ∧ y ≠ w) : NoDeadEndAt g := by
+    (hedge : ∃ y w, y ∈ g.alive ∧ w ∈ g.alive ∧ g.Adj y w ∧ y ≠ w) : NoDeadEndAt g := by
   intro k hk
-  obtain ⟨y, w, hyw, hne⟩ := hedge
-  obtain ⟨b, R, hbk, hs, hr⟩ := hsp k hk y w hyw hne
+  obtain ⟨y, w, hy, hw, hyw, hne⟩ := hedge
+  obtain ⟨b, R, hbk, hs, hr⟩ := hsp k hk y w hy hw hyw hne
   obtain ⟨x, hx, hxb, _, _⟩ := hs.anchor hr
   refine ⟨x, hx, by rw [hxb, hbk], ?_⟩
   rw [hxb]

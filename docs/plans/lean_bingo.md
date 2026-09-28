@@ -171,6 +171,8 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `PairClosed` (`ReviewClean.lean`): `pairClosed_review'` demostrado sin hipótesis (`review_exits_clean`: el review que sale válido sale sin `dirty`, `measure + 1` vueltas bastan) | `pair_closed(gpath)` (`graph_path_filter_pair.jl`), test en `test_secpair.jl`; el `while` de Julia llega al punto fijo sin combustible | demostrado / por construcción |
 | `noDeadEnd_of_secInPin`: `SecPair` + `SecInPin` ⇒ `NoDeadEndAt` | `dead_pins` = 0 | demostrado / medido |
 | `SecStruct g V R` (`SecStruct.lean`): `secStruct_review`, `secStruct_filterAll` (el review y el pin la conservan), `secInPin_of_secStructAt` | `sec_struct_fails(gpath, adj)` (`graph_path_secpair.jl`), test en `test_secpair.jl` | demostrado |
+| `secPair_visited`, `noDeadEnd_visited`, `secPair_filterAll` (`SecInduction.lean`) | — | demostrado |
+| `SecMeet` (paso local de la inducción para `SecPair`) | `test_3sat/probe_secmeet.jl`: 21 044 casos que fallan | **FALSO** |
 | `SecStructAt g b` (abierto): toda sección de `b` se extiende a una `SecStruct` que concuerda con `b` | `test_3sat/probe_secinpin.jl`: `sec_struct_fails` = (0, 0, 0) en 17 158 secciones; padres/hijos cortan 0 en los pins | medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 
