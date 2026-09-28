@@ -1976,6 +1976,11 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
   * Así, `SecInPin` es la generalización de `carried_review` de una camarilla a una sección: una estructura
     cerrada por parejas, por enlaces y por apoyo sobrevive a cada operación del review. El trabajo es demostrar que
     la mayor sección de `b` hereda esos cierres de un estado del lector.
+  * **Demostrado** (`lean/improves_bingo/AbsSatBingo/Model/SecStruct.lean`): `secStruct_review` y
+    `secStruct_filterAll`, el review y el pin conservan toda `SecStruct` (parejas, enlaces, y apoyo con `R x p` y
+    `R p w`). Con ellos, `secInPin_of_secStructAt`: `SecInPin` se reduce a **`SecStructAt`**, que toda sección de
+    `b` se extienda a una `SecStruct` que concuerde con `b`. Medido con el apoyo reforzado (`R x p` y `R p w`):
+    0 fallos en las 17 158 secciones.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**

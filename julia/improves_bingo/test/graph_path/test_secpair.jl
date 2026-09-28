@@ -10,6 +10,15 @@
         @test GraphPath.pair_closed(g)                 # Lean PairClosed
         @test GraphPath.sec_pair(g)
         @test GraphPath.sec_pair(g; by = :node)
+        # Lean SecStruct: cada sección de un paso con elección está cerrada por enlaces y apoyo
+        for k in 0:g.og.nsteps-1
+            GraphPath.choice_at(g.og, k) || continue
+            for b in unique(x.id for x in g.og.alive[k])
+                xs = [x for x in g.og.alive[k] if x.id == b]
+                adj = GraphPath.sec_fix!(GraphPath.sec_section(g.og, xs), g.og.nsteps)
+                @test GraphPath.sec_struct_fails(g, adj) == (0, 0, 0)
+            end
+        end
         # una arista falsa entre dos vivos sin entrada común en algún paso queda fuera de toda sección
         og = g.og
         ids = collect(GraphPath.alive_ids(g))

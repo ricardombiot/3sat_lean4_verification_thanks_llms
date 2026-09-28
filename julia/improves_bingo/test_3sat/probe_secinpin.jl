@@ -10,7 +10,7 @@
 #    s_hit: aristas de S que el pin no conserva (0 si la sección sobrevive).
 # 2. Si S está cerrada por las reglas de estructura, en el estado antes del pin:
 #    link_fail    — nodo de S (no raíz) sin padre enlazado en S, o (no cima) sin hijo enlazado en S;
-#    par_fail     — arista (x,w) de S sin padre p de x (enlazado, en S) con p = w o (p,w) en S;
+#    par_fail     — arista (x,w) de S sin padre p de x con (x,p) y (p,w) en S (p = w vale);
 #    son_fail     — lo mismo con los hijos.
 #    Si las tres son 0, S es una estructura cerrada por todas las reglas del review (parejas por construcción),
 #    y SecInPin sería la generalización de carried_review de una camarilla a una sección.
@@ -25,9 +25,6 @@ using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
 const PG = PathOwnersGraph
 const RULES = (:clean, :pair, :parents, :sons)
 
-sec_nodes(adj) = Set(y for (y, t) in adj if any(ws -> any(w -> w != y, ws), values(t)))
-sec_adj(adj, y, w) = y == w ? haskey(adj, y) : GraphPath.sec_has(adj, y, w)
-
 mutable struct Acc
     cmp :: Int; states :: Int; trunc :: Bool
     cut :: Dict{Symbol, Int}; links :: Int; s_hit :: Int
@@ -35,29 +32,10 @@ mutable struct Acc
 end
 Acc() = Acc(0, 0, false, Dict(r => 0 for r in RULES), 0, 0, 0, 0, 0)
 
+# Los cierres, con GraphPath.sec_struct_fails (espejo de SecStruct.lean).
 function structure_fails!(acc, gpath, adj)
-    nodes = sec_nodes(adj)
-    top = gpath.current_step - 1
-    for y in nodes
-        n = PathCollectionLines.get_node(gpath.table_lines, y)
-        n === nothing && (acc.link_fail += 1; continue)
-        is_root = y.parent_id === nothing
-        is_top = y.id.step == top
-        ok_p = is_root || any(p -> p in nodes && sec_adj(adj, y, p), n.parents)
-        ok_s = is_top || any(s -> s in nodes && sec_adj(adj, y, s), n.sons)
-        (ok_p && ok_s) || (acc.link_fail += 1)
-    end
-    for (y, t) in adj, (_, ws) in t, w in ws
-        (w == y || !(y in nodes) || !(w in nodes)) && continue
-        n = PathCollectionLines.get_node(gpath.table_lines, y)
-        n === nothing && continue
-        if y.parent_id !== nothing
-            any(p -> p in nodes && sec_adj(adj, p, w), n.parents) || (acc.par_fail += 1)
-        end
-        if y.id.step != top
-            any(s -> s in nodes && sec_adj(adj, s, w), n.sons) || (acc.son_fail += 1)
-        end
-    end
+    l, p, s = GraphPath.sec_struct_fails(gpath, adj)
+    acc.link_fail += l; acc.par_fail += p; acc.son_fail += s
 end
 
 function compare_state!(acc, gpath)
