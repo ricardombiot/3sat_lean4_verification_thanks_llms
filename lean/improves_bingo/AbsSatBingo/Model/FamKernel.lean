@@ -295,6 +295,53 @@ theorem famStruct_rows_down {G : GPathB → NodeId → Prop} {c : Int}
 
 end down
 
+-- ============================================================
+-- Las filas nuevas: documentos y padres
+-- ============================================================
+
+section rows
+variable {f : GPathB} {d : NodeId} {title : String} {forb : PathNodeId → Bool}
+
+open AbsSatBin.GraphPath.Model.GPathM (shiftPid dedupPids mem_dedupPids)
+
+/-- El documento de un nodo del paso nuevo es el de la fila: el nodo es de la fila. -/
+theorem node?_addNode_top (hb : Below f) {t : PathNodeId} {n : PNodeB}
+    (h : (f.addNode d title forb).node? t = some n) (ht : t.id.step = f.current_step) :
+    t ∈ f.newRowIds d forb ∧ n = f.rowNode d title t := by
+  have hnone : f.node? t = none := by
+    cases hm : f.node? t with
+    | none => rfl
+    | some m =>
+      have := hb m (node?_mem hm)
+      rw [node?_id hm] at this; omega
+  have h' : List.find? (fun n => n.id == t)
+      (f.nodes.map (f.withGained d forb) ++ (f.newRowIds d forb).map (f.rowNode d title)) = some n := h
+  rw [List.find?_append, find?_map_id (f.withGained d forb) (fun _ => rfl)] at h'
+  change (Option.map (f.withGained d forb) (f.node? t)).or _ = _ at h'
+  rw [hnone] at h'
+  simp only [Option.map_none, Option.none_or] at h'
+  have hmem := List.mem_of_find?_eq_some h'
+  have hid : n.id = t := by simpa using List.find?_some h'
+  obtain ⟨pid, hpid, rfl⟩ := List.mem_map.mp hmem
+  have : pid = t := hid
+  subst this
+  exact ⟨hpid, rfl⟩
+
+/-- Un padre candidato cuyo desplazamiento no está prohibido da un nodo de la fila con él de padre. -/
+theorem row_of_parent (hpos : 0 < f.current_step) {p t : PathNodeId} (hp : p ∈ f.newParents)
+    (hsh : shiftPid p d = t) (hf : forb t = false) : t ∈ f.newRowIds d forb ∧ p ∈ f.rowParents d t := by
+  have hmem : t ∈ f.shiftRowIds d := by
+    unfold shiftRowIds
+    rw [if_pos hpos, mem_dedupPids]
+    exact List.mem_map.mpr ⟨p, hp, hsh⟩
+  refine ⟨List.mem_filter.mpr ⟨hmem, by simp [hf]⟩, List.mem_filter.mpr ⟨hp, by simp [hsh]⟩⟩
+
+theorem forb_of_newRow {t : PathNodeId} (ht : t ∈ f.newRowIds d forb) : forb t = false := by
+  have := (List.mem_filter.mp ht).2
+  simpa using this
+
+end rows
+
 end GPathB
 
 end AbsSatBingo.Model

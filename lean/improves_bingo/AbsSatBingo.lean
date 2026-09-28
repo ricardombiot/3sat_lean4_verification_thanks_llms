@@ -7,6 +7,7 @@ import AbsSatBingo.Model.Decode
 import AbsSatBingo.Model.Driver
 import AbsSatBingo.Model.EdgeClique
 import AbsSatBingo.Model.EdgeCliqueUp
+import AbsSatBingo.Model.FamKernel
 import AbsSatBingo.Model.GPathB
 import AbsSatBingo.Model.Grow
 import AbsSatBingo.Model.Keeps
@@ -15,6 +16,7 @@ import AbsSatBingo.Model.KernelCliques
 import AbsSatBingo.Model.KernelJoin
 import AbsSatBingo.Model.KernelSkip
 import AbsSatBingo.Model.KernelUp
+import AbsSatBingo.Model.LineStep
 import AbsSatBingo.Model.Lineage
 import AbsSatBingo.Model.Machine
 import AbsSatBingo.Model.MachineClique
