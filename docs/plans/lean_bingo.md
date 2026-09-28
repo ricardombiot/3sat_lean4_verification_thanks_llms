@@ -167,6 +167,7 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `SecClosed`/`SecClosedX`, `SecPair`/`SecPairX` (`Model/SecPair.lean`) | `sec_section`, `sec_fix!`, `sec_pair_bad(og; by = :map/:node)`, `sec_pair` (`src/graph_path/graph_path_secpair.jl`), test `test/graph_path/test_secpair.jl` | consulta, no regla |
 | `choiceAt` (`Driver.lean`) | `choice_at` (`graph_path_secpair.jl`) | igual |
 | `SecPairReader` (abierto) | `test_3sat/probe_tri_sec.jl` modos `sec`/`secx`: 0 cortes en 88 instancias | medido |
+| `PinEqSec` (por enunciar): el pin de `b` es la mayor sección de `b` | `test_3sat/probe_sec_vs_pin.jl`: 17 158 / 17 158 iguales | medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 
 ## Decisiones antes de L0

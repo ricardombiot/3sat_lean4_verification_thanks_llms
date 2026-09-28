@@ -1956,6 +1956,15 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     Hay dos modos: `sec` hace una sección por nodo del mapa de `k`, y `secx` una por nodo del camino.
     Los dos cortan **0 aristas**, y son unas 3,5 y 5 veces más lentos. `SecPair` ya vale en los estados
     de la máquina: no hace falta como regla, pero sí como **lema** que el review actual cumple.
+  * **La sección es el pin** (28-sept-2026, `julia/improves_bingo/test_3sat/probe_sec_vs_pin.jl`). En cada
+    estado del lector (1 615 estados, todas las ramas, 88 instancias) y en cada paso con elección, se compara la
+    sección de cada nodo del mapa `b` con las aristas que deja `filter!(b)` (el review entero). **17 158 de
+    17 158 son iguales**: 0 veces mayor la sección, 0 aristas del pin fuera de ella, 0 pins muertos con
+    sección no vacía. No es trivial: en `clause_mix`, el pin baja de 2 991 aristas a entre 359 y 2 058.
+  * Así, tras un pin, el review se reduce a restringir y hacer el punto fijo de parejas; padres, hijos y
+    enlaces no cortan nada más. `SecPair` es literalmente «el grafo es la unión de sus pins en cada paso con
+    elección». Con `PinEqSec` (el pin de `b` es la mayor sección de `b`), `SecDeadEnd` es inmediato: toda
+    arista está en alguna sección no vacía, así que su pin es válido.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
