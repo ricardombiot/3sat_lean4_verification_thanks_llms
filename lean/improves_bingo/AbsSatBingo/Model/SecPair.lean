@@ -1,0 +1,162 @@
+-- lean/improves_bingo/AbsSatBingo/Model/SecPair.lean
+import AbsSatBingo.Model.Reader
+
+/-!
+# `SecPair`: el grafo de owners es la unión de sus secciones por nodo del mapa
+
+Propuesta §4.3 de `docs/context/escalera_reader.md` (tablas descomponibles por bit), en el grafo de owners.
+
+**Una sección** de `g` por el nodo del mapa `b` (en el paso `b.step`) es una relación `R` entre vivos, simétrica,
+dentro de la posesión, **anclada** en `b` (cada pareja de `R` tiene un nodo vivo de `b` que posee a los dos) y
+**cerrada por la regla de parejas dentro de ella** (cada pareja de `R` tiene, en cada paso, una entrada común que
+forma pareja de `R` con los dos). Es la parte del grafo compatible con fijar `b`, llevada a su punto fijo de
+parejas.
+
+**`SecPair g`**: en cada paso con elección, cada arista está en alguna sección de algún nodo del mapa de ese paso.
+Es decir, el grafo es la unión de sus fijaciones por el paso, que es la forma de «el kernel de un estado fijado es
+la unión de sus fijaciones por cualquier fila».
+
+`SecPairX` es lo mismo con una sección por nodo del camino (el ancla es un solo `x` para toda la sección); es más
+fuerte (`secPair_of_secPairX`).
+
+## Lo demostrado aquí
+
+* `secClosed_of_carried`: la camarilla llevada de una solución es una sección de cada uno de sus nodos. Por eso
+  `SecPair` como regla del review **no pierde soluciones**.
+* `secPair_of_secPairX`.
+* `pairOk_of_secPair`: `SecPair` implica la regla de parejas en cada arista (si hay algún paso con elección).
+
+## Lo medido, abierto
+
+* **`SecPairReader g₀`**: todo estado válido que visita el lector desde `g₀` cumple `SecPairX` (y así `SecPair`).
+  Medido en Julia bingo (`julia/improves_bingo/test_3sat/probe_tri_sec.jl`, modos `sec`/`secx`, 28-sept-2026):
+  como regla del review hasta su punto fijo, en la máquina y en todas las ramas del lector, **0 aristas cortadas**
+  en 88 instancias. La sonda mira los pasos con al menos dos grupos, que son los de `choiceAt` en `sec`.
+* **`SecDeadEnd`**: el puente hacia `NoDeadEnd`, que en un estado del lector `SecPair` deje algún pin válido en
+  cada paso con elección. No es inmediato: la sección solo está cerrada por parejas, y el review también corta por
+  padres e hijos y por enlaces.
+-/
+
+namespace AbsSatBingo.Model
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.GraphPath.Model.GPathM (intRange)
+
+namespace GPathB
+
+open Driver
+
+-- ============================================================
+-- Secciones
+-- ============================================================
+
+/-- `R` es una sección de `g` anclada en el nodo del mapa `b`. -/
+structure SecClosed (g : GPathB) (b : NodeId) (R : PathNodeId → PathNodeId → Prop) : Prop where
+  symm   : ∀ {y w}, R y w → R w y
+  alive  : ∀ {y w}, R y w → y ∈ g.alive ∧ w ∈ g.alive
+  adj    : ∀ {y w}, R y w → g.Adj y w
+  anchor : ∀ {y w}, R y w → ∃ x, x ∈ g.alive ∧ x.id = b ∧ g.Adj x y ∧ g.Adj x w
+  pair   : ∀ {y w}, R y w → ∀ l, 0 ≤ l → l < g.current_step → ∃ r, r.id.step = l ∧ R y r ∧ R w r
+
+/-- `R` es una sección de `g` anclada en el nodo del camino `x`: un único ancla para todas sus parejas. -/
+structure SecClosedX (g : GPathB) (x : PathNodeId) (R : PathNodeId → PathNodeId → Prop) : Prop where
+  symm   : ∀ {y w}, R y w → R w y
+  alive  : ∀ {y w}, R y w → y ∈ g.alive ∧ w ∈ g.alive
+  adj    : ∀ {y w}, R y w → g.Adj y w
+  anchor : ∀ {y w}, R y w → g.Adj x y ∧ g.Adj x w
+  pair   : ∀ {y w}, R y w → ∀ l, 0 ≤ l → l < g.current_step → ∃ r, r.id.step = l ∧ R y r ∧ R w r
+
+/-- **`SecPair`**: en cada paso con elección, cada arista está en una sección de un nodo del mapa de ese paso. -/
+def SecPair (g : GPathB) : Prop :=
+  ∀ k, choiceAt g k = true → ∀ y w, g.Adj y w → y ≠ w →
+    ∃ b R, b.step = k ∧ SecClosed g b R ∧ R y w
+
+/-- **`SecPairX`**: lo mismo con secciones por nodo del camino. -/
+def SecPairX (g : GPathB) : Prop :=
+  ∀ k, choiceAt g k = true → ∀ y w, g.Adj y w → y ≠ w →
+    ∃ x R, x ∈ g.alive ∧ x.id.step = k ∧ SecClosedX g x R ∧ R y w
+
+theorem SecClosedX.toSecClosed {g : GPathB} {x : PathNodeId} {R : PathNodeId → PathNodeId → Prop}
+    (hx : x ∈ g.alive) (h : SecClosedX g x R) : SecClosed g x.id R where
+  symm := h.symm
+  alive := h.alive
+  adj := h.adj
+  anchor := fun hr => ⟨x, hx, rfl, h.anchor hr⟩
+  pair := h.pair
+
+theorem secPair_of_secPairX {g : GPathB} (h : SecPairX g) : SecPair g := by
+  intro k hk y w hyw hne
+  obtain ⟨x, R, hx, hxk, hsec, hr⟩ := h k hk y w hyw hne
+  exact ⟨x.id, R, hxk, hsec.toSecClosed hx, hr⟩
+
+-- ============================================================
+-- No pierde soluciones: la camarilla llevada es una sección
+-- ============================================================
+
+/-- **La camarilla de una solución es una sección de cada uno de sus nodos.** Con `R` = «los dos están en la
+selección», anclada en `S k`. -/
+theorem secClosed_of_carried {g : GPathB} {S : Int → PathNodeId} (hc : Carried g S) {k : Int} (hk0 : 0 ≤ k)
+    (hk1 : k < g.current_step) :
+    SecClosedX g (S k) (fun y w => OnS g.current_step S y ∧ OnS g.current_step S w) where
+  symm := fun ⟨hy, hw⟩ => ⟨hw, hy⟩
+  alive := fun ⟨⟨a, ha0, ha1, hya⟩, ⟨b, hb0, hb1, hwb⟩⟩ =>
+    ⟨hya ▸ hc.alive a ha0 ha1, hwb ▸ hc.alive b hb0 hb1⟩
+  adj := fun ⟨hy, hw⟩ => hc.adj_on hy hw
+  anchor := fun ⟨hy, hw⟩ => ⟨hc.adj_on ⟨k, hk0, hk1, rfl⟩ hy, hc.adj_on ⟨k, hk0, hk1, rfl⟩ hw⟩
+  pair := fun ⟨hy, hw⟩ l hl0 hl1 =>
+    ⟨S l, hc.step l hl0 hl1, ⟨hy, ⟨l, hl0, hl1, rfl⟩⟩, ⟨hw, ⟨l, hl0, hl1, rfl⟩⟩⟩
+
+/-- Por eso toda pareja de la camarilla está en una sección del nodo que la solución elige en cada paso. -/
+theorem sec_of_carried {g : GPathB} {S : Int → PathNodeId} (hc : Carried g S) {k : Int} (hk0 : 0 ≤ k)
+    (hk1 : k < g.current_step) {y w : PathNodeId} (hy : OnS g.current_step S y) (hw : OnS g.current_step S w) :
+    ∃ x R, x ∈ g.alive ∧ x.id.step = k ∧ SecClosedX g x R ∧ R y w :=
+  ⟨S k, _, hc.alive k hk0 hk1, hc.step k hk0 hk1, secClosed_of_carried hc hk0 hk1, hy, hw⟩
+
+-- ============================================================
+-- SecPair da la regla de parejas
+-- ============================================================
+
+/-- Dentro de una sección, cada pareja tiene entrada común viva en cada paso (`commonAt`). -/
+theorem commonAt_of_secClosed {g : GPathB} {b : NodeId} {R : PathNodeId → PathNodeId → Prop}
+    (hs : SecClosed g b R) {y w : PathNodeId} (hr : R y w) {l : Int} (hl0 : 0 ≤ l) (hl1 : l < g.current_step) :
+    g.commonAt y w l = true := by
+  obtain ⟨r, hrl, hyr, hwr⟩ := hs.pair hr l hl0 hl1
+  unfold commonAt
+  refine List.any_eq_true.mpr ⟨r, (hs.alive hyr).2, ?_⟩
+  have h1 : g.adjb y r = true := hs.adj hyr
+  have h2 : g.adjb w r = true := hs.adj hwr
+  simp [hrl, h1, h2]
+
+/-- **`SecPair` implica la regla de parejas** en cada arista, en cuanto hay un paso con elección. -/
+theorem pairOk_of_secPair {g : GPathB} (h : SecPair g) {k : Int} (hk : choiceAt g k = true) {y w : PathNodeId}
+    (hyw : g.Adj y w) (hne : y ≠ w) : g.pairOk y w = true := by
+  obtain ⟨b, R, _, hs, hr⟩ := h k hk y w hyw hne
+  unfold pairOk
+  rw [List.all_eq_true]
+  intro l hl
+  obtain ⟨hl0, hl1⟩ := intRange_bounds hl
+  exact commonAt_of_secClosed hs hr hl0 (by omega)
+
+-- ============================================================
+-- Lo medido y el puente, como enunciados abiertos
+-- ============================================================
+
+/-- **Medido, abierto**: todo estado válido del lector desde `g₀` cumple `SecPairX`. -/
+def SecPairReader (g₀ : GPathB) : Prop :=
+  ∀ h, Visited g₀ h → h.isValid = true → SecPairX h
+
+/-- `NoDeadEnd` en un estado: en cada paso con elección, algún pin deja el estado válido. -/
+def NoDeadEndAt (h : GPathB) : Prop :=
+  ∀ k, choiceAt h k = true → ∃ q ∈ h.alive, q.id.step = k ∧ (h.filterAll [q.id]).isValid = true
+
+/-- **El puente, abierto**: en un estado del lector, `SecPair` no deja callejones. -/
+def SecDeadEnd (g₀ : GPathB) : Prop :=
+  ∀ h, Visited g₀ h → h.isValid = true → SecPair h → NoDeadEndAt h
+
+theorem noDeadEnd_of_secPair {g₀ : GPathB} (hr : SecPairReader g₀) (hb : SecDeadEnd g₀) {h : GPathB}
+    (hv : Visited g₀ h) (hval : h.isValid = true) : NoDeadEndAt h :=
+  hb h hv hval (secPair_of_secPairX (hr h hv hval))
+
+end GPathB
+
+end AbsSatBingo.Model

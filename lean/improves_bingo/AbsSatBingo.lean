@@ -10,5 +10,6 @@ import AbsSatBingo.Model.Machine
 import AbsSatBingo.Model.Ops
 import AbsSatBingo.Model.Reader
 import AbsSatBingo.Model.Rule
+import AbsSatBingo.Model.SecPair
 import AbsSatBingo.Model.Shrink
 import AbsSatBingo.Model.Struct
