@@ -18,6 +18,12 @@ hipótesis explícita. La cadena: cima viva en la unión de copias → `JoinDown
 de los remitentes con el filtro compuesto `req d ++ R'` → `LinIH` → padre en la copia de su linaje → (A) → la cima en
 el UP → en `u` → en su copia `u.filterAll R'`.
 
+**La inducción conjunta** (`ltu_step`): `LTU` (la partición de la unión de la línea por remitentes) pasa de un paso
+al siguiente con `PinFree` en el siguiente (fijar los requisitos de la fila de una cima no la mata) y la bajada y la
+subida estructurales (`LineDown`, `LineUp`, monotonía). `PinFree` sale de `TopStarK` en esa unión
+(`pinFree_of_topStar`); ninguna de las dos se deduce del paso anterior. Medido (`test_3sat/probe_pinfree.jl`):
+`PinFree` y, con lados = remitentes y el pin ampliado, `TopsSep`, `TopStar` y `StarKinds`, sin fallos.
+
 **Caso base**: en el paso 1 la línea tiene un solo estado (la semilla), así que no hay pares de estados de nodos del
 mapa distintos y `LinIH` es vacía.
 
@@ -208,6 +214,68 @@ theorem linIH_of_star {u u' : GPathB} (μ : PathNodeId → PathNodeId → Nat)
       StarOrder (join (u.filterAll R') (u'.filterAll R')) (u'.filterAll R') t μ)
     (hts : ∀ R', TopsSep (u.filterAll R') (u'.filterAll R')) : LinIH u u' :=
   fun R' => topUnion_of_order (hcs R') (hle R') (hlg R') (hee R') (heg R') (hstar R') μ (hoe R') (hog R') (hts R')
+
+-- ============================================================
+-- La inducción conjunta con `PinFree`
+-- ============================================================
+
+/-- **`LTU`**: en la unión `U` de la línea (un estado por nodo del mapa, `S k` el de la clave `k`), una cima del núcleo
+fijado está en el núcleo de su propio estado, fijado igual. Es la partición por remitentes. -/
+def LTU (S : NodeId → GPathB) (U : GPathB) : Prop :=
+  ∀ (Q : List NodeId) (p : PathNodeId), p.id.step = U.current_step - 1 → Kernel U Q p p → Kernel (S p.id) Q p p
+
+/-- **`PinFree`**: fijar por los requisitos de la fila de una cima no la mata en la unión. -/
+def PinFree (U : GPathB) : Prop :=
+  ∀ (Q : List NodeId) (t : PathNodeId), t.id.step = U.current_step - 1 → Kernel U Q t t → Kernel U (rq t.id ++ Q) t t
+
+/-- **La bajada estructural** de la unión de un paso a la del anterior, ya con el pin de la fila: la cima es hija, en
+la fila de su estado `t.id`, de un padre del núcleo de la unión anterior fijado igual (en la copia de su remitente).
+Es monotonía: la estructura fijada con `rq t.id` concuerda con esos requisitos y baja por las filas nuevas. -/
+def LineDown (S : NodeId → GPathB) (U U' : GPathB) : Prop :=
+  ∀ (Q : List NodeId) (t : PathNodeId), t.id.step = U'.current_step - 1 → Kernel U' (rq t.id ++ Q) t t →
+    ∃ p, p.id.step = U.current_step - 1 ∧ p ∈ ((S p.id).filterAll (rq t.id)).rowParents t.id t ∧
+      t ∈ ((S p.id).filterAll (rq t.id)).newRowIds t.id forb ∧ Kernel U (rq t.id ++ Q) p p
+
+/-- **La subida al estado siguiente** (monotonía): el UP de un remitente hacia `d` está dentro del estado `S' d`. -/
+def LineUp (S S' : NodeId → GPathB) : Prop :=
+  ∀ (k d : NodeId) (Q : List NodeId) (t : PathNodeId), Kernel (upL rq title forb (S k) d) Q t t → Kernel (S' d) Q t t
+
+/-- **El paso de la inducción conjunta**: `LTU` en un paso da `LTU` en el siguiente, con `PinFree` en el siguiente y la
+bajada y la subida estructurales. La estrella no hace falta en el paso: la partición entre remitentes la da la
+hipótesis de inducción, y la elección de copia, `PinFree`. -/
+theorem ltu_step {S S' : NodeId → GPathB} {U U' : GPathB}
+    (hpos : ∀ k, 0 < (S k).current_step) (hst : ∀ k, (S k).current_step = U.current_step)
+    (hdoc : ∀ k, AliveDocs (S k)) (hnd : ∀ k, NodupIds (S k)) (hte : ∀ k, TopExact (S k)) (hb : ∀ k, Below (S k))
+    (hdst : ∀ (t : PathNodeId), t.id.step = U'.current_step - 1 → t.id.step = U.current_step)
+    (hdown : LineDown rq forb S U U') (hup : LineUp rq title forb S S') (hpf : PinFree rq U')
+    (hih : LTU S U) : LTU S' U' := by
+  intro Q t hts hk
+  obtain ⟨p, hps, hp, htn, hkp⟩ := hdown Q t hts (hpf Q t hts hk)
+  have hk1 := hih (rq t.id ++ Q) p hps hkp
+  have hk2 : Kernel ((S p.id).filterAll (rq t.id)) Q p p := (kernel_pin_list_iff (hdoc _) (hnd _) p p).mpr hk1
+  have hfs : ((S p.id).filterAll (rq t.id)).current_step = U.current_step := by
+    rw [(shrinks_filterAll _ _).1.step, hst]
+  have hP : ∀ r ∈ Q, r.step = ((S p.id).filterAll (rq t.id)).current_step → r = t.id := by
+    intro r hr hrs
+    obtain ⟨V, R, hst', ha, hr'⟩ := hk
+    exact (ha r hr (hst'.dom hr').1 (by rw [hdst t hts, hrs, hfs])).symm
+  have hup' := kernel_up_of_parent (title := title) (topExact_filterAll (hte _) (hdoc _) (hnd _) _)
+    (below_of_shrinks (shrinks_filterAll _ _) (hb _)) (by rw [(shrinks_filterAll _ _).1.step]; exact hpos _)
+    (by rw [hfs]; exact hdst t hts) hp htn hP hk2
+  exact hup p.id t.id Q t hup'
+
+/-- **`PinFree` ⇐ `TopStarK`**: la estructura de la estrella de una cima vive en su propio estado (la cima solo posee
+nodos de él) y ese estado concuerda con los requisitos de su fila. -/
+theorem pinFree_of_topStar {S' : NodeId → GPathB} {U' : GPathB} (hs : TopStarK U')
+    (hown : ∀ (t y : PathNodeId), t.id.step = U'.current_step - 1 → U'.Adj t y → y ∈ (S' t.id).alive)
+    (hag : ∀ (d : NodeId), ∀ b ∈ rq d, ∀ q ∈ (S' d).alive, q.id.step = b.step → q.id = b) : PinFree rq U' := by
+  intro Q t hts hk
+  obtain ⟨V, R, hst, ha, hvt, hstar⟩ := hs Q t hts hk
+  refine ⟨V, R, hst, fun b hb => ?_, hst.refl hvt⟩
+  rcases List.mem_append.mp hb with hb | hb
+  · intro q hq hqs
+    exact hag t.id b hb q (hown t q hts (hstar q hq)) hqs
+  · exact ha b hb
 
 end GPathB
 
