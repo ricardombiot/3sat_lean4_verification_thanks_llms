@@ -11,6 +11,7 @@ import AbsSatBingo.Model.GPathB
 import AbsSatBingo.Model.Grow
 import AbsSatBingo.Model.Keeps
 import AbsSatBingo.Model.Kernel
+import AbsSatBingo.Model.KernelCliques
 import AbsSatBingo.Model.KernelJoin
 import AbsSatBingo.Model.KernelSkip
 import AbsSatBingo.Model.KernelUp
