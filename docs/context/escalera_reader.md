@@ -2007,6 +2007,10 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     * No es una propiedad de los estados del lector: vale en todo estado revisado que sale de la máquina por pins.
       La prueba debería ir por el punto fijo del review sobre la salida de la máquina, no por una inducción a lo
       largo del lector.
+  * **`SecPair` durante la ejecución de la máquina** (`probe_secpair_machine.jl`): después de cada paso, en cada
+    gpath de la línea (10 006 gpaths, 7 570 con algún paso con elección, 88 instancias), **0 fallos** de `SecPair`,
+    de `SecPairX` y del cierre por parejas. Es un invariante de la máquina medido, no solo del estado final: la
+    inducción natural va a lo largo de la máquina (UP, join y filtro seguidos del review).
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
