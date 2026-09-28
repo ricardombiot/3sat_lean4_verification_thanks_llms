@@ -21,6 +21,7 @@ import AbsSatBingo.Model.Ops
 import AbsSatBingo.Model.Reader
 import AbsSatBingo.Model.ReaderAbsorb
 import AbsSatBingo.Model.ReaderFinal
+import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.Rule
 import AbsSatBingo.Model.SecInduction
@@ -33,5 +34,6 @@ import AbsSatBingo.Model.SideDescent
 import AbsSatBingo.Model.SideLinks
 import AbsSatBingo.Model.SplitWitness
 import AbsSatBingo.Model.Struct
+import AbsSatBingo.Model.TopExact
 import AbsSatBingo.Model.UnionEquiv
 import AbsSatBingo.Model.UnionSplit
