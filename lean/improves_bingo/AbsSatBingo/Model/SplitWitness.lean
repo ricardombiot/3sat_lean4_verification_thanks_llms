@@ -132,6 +132,35 @@ theorem witSplit_of_own {e g : GPathB} {k : Int} (hw : OwnWitness e g k) (hg : O
   · obtain ⟨r, hr, hrg, h1, h2⟩ := (hw P y w h).2 ha
     exact ⟨r, hr, h1, h2, hg P y w r h hr h1 h2 (Or.inr ⟨ha, hrg⟩)⟩
 
+-- ============================================================
+-- `OwnSideGood` por el triángulo dentro del lado
+-- ============================================================
+
+/-- **`WitAll g k`**: dentro de un estado, cualquier testigo del núcleo sirve: si `r` (paso `k`) empareja en el
+núcleo fijado en `P` con `y` y con `w`, la pareja sobrevive fijando además `r.id`. Medido dentro de los lados de los
+joins (`test_3sat/probe_triangle.jl`): 0 fallos. -/
+def WitAll (g : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) y w (r : PathNodeId), r.id.step = k → Kernel g P y w → Kernel g P y r → Kernel g P w r →
+    Kernel g (P ++ [r.id]) y w
+
+/-- **`TriIn`**: un triángulo del núcleo de la unión con las tres aristas de un lado (y el testigo vivo en él) es un
+triángulo del núcleo de ese lado. Medido (`probe_triangle.jl`, `tri_out`): 0 fallos. -/
+def TriIn (e g : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) y w (r : PathNodeId), r.id.step = k → Kernel (join e g) P y w → Kernel (join e g) P y r →
+    Kernel (join e g) P w r →
+    (e.Adj y w → r ∈ e.alive → Kernel e P y w ∧ Kernel e P y r ∧ Kernel e P w r) ∧
+    (g.Adj y w → r ∈ g.alive → Kernel g P y w ∧ Kernel g P y r ∧ Kernel g P w r)
+
+/-- **`OwnSideGood` ⇐ `TriIn` + `WitAll` en los dos lados** (la monotonía lleva el núcleo del lado a la unión). -/
+theorem ownSideGood_of_tri {e g : GPathB} {k : Int} (hcs : e.current_step = g.current_step) (ht : TriIn e g k)
+    (hwe : WitAll e k) (hwg : WitAll g k) : OwnSideGood e g k := by
+  intro P y w r h hr h1 h2 hside
+  rcases hside with ⟨ha, hre⟩ | ⟨ha, hrg⟩
+  · obtain ⟨k1, k2, k3⟩ := (ht P y w r hr h h1 h2).1 ha hre
+    exact kernel_join_left (hwe P y w r hr k1 k2 k3)
+  · obtain ⟨k1, k2, k3⟩ := (ht P y w r hr h h1 h2).2 ha hrg
+    exact kernel_join_right hcs (hwg P y w r hr k1 k2 k3)
+
 end GPathB
 
 end AbsSatBingo.Model
