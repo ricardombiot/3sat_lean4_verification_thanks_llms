@@ -159,6 +159,78 @@ theorem topUnion_of_order {e g : GPathB} (hcs : e.current_step = g.current_step)
     exact Or.inr ⟨V, R, secStruct_of_local hu hst hlg hal (starAbsorb_of_order (hog t htg hte) hst hs), ha,
       hst.refl hvt⟩
 
+-- ============================================================
+-- El orden A y los tipos de hueco
+-- ============================================================
+
+/-- **El orden A**: (paso más alto, paso más bajo), lexicográfico, codificado en `Nat` para pasos en `[0, c)`. -/
+def keyA (c : Int) (x z : PathNodeId) : Nat :=
+  (max x.id.step z.id.step).toNat * (c.toNat + 1) + (min x.id.step z.id.step).toNat
+
+theorem keyA_lt {c : Int} {a b a' b' : Int} (ha : 0 ≤ a) (hb : 0 ≤ b) (ha' : 0 ≤ a') (hb' : 0 ≤ b')
+    (hb1 : b < c) (hb1' : b' < c)
+    (h : a < a' ∨ (a = a' ∧ b < b')) : a.toNat * (c.toNat + 1) + b.toNat < a'.toNat * (c.toNat + 1) + b'.toNat := by
+  have hbc : b.toNat < c.toNat + 1 := by omega
+  have hbc' : b'.toNat < c.toNat + 1 := by omega
+  rcases h with h | ⟨rfl, h⟩
+  · have hlt : a.toNat + 1 ≤ a'.toNat := by omega
+    have : (a.toNat + 1) * (c.toNat + 1) ≤ a'.toNat * (c.toNat + 1) := Nat.mul_le_mul_right _ hlt
+    rw [Nat.add_mul, Nat.one_mul] at this
+    omega
+  · omega
+
+/-- **Los tipos de hueco** (medidos en `test_3sat/probe_starorder.jl`, sin otro caso): toda arista que `e` no tiene en
+la estrella de `t` tiene un paso `l` que es
+* un hueco de `e` **por debajo** de la pareja (ningún testigo con aristas de `e` a los dos), o
+* un paso sin testigos de `u` en la estrella (el paso de origen, o un hueco de la propia unión), o
+* un hueco **intermedio** en que todo testigo de `u` forma con el extremo más bajo una arista que `e` no tiene. -/
+def StarKinds (u e : GPathB) (t : PathNodeId) : Prop :=
+  ∀ x z, u.Adj t x → u.Adj t z → u.Adj x z → ¬ e.Adj x z → ∃ l, 0 ≤ l ∧ l < u.current_step ∧
+    ((l < min x.id.step z.id.step ∧ ∀ w, w.id.step = l → u.Adj t w → u.Adj x w → u.Adj z w →
+        ¬ (e.Adj x w ∧ e.Adj z w)) ∨
+     (∀ w, w.id.step = l → u.Adj t w → u.Adj x w → u.Adj z w → False) ∨
+     (min x.id.step z.id.step < l ∧ l < max x.id.step z.id.step ∧
+        ∀ w, w.id.step = l → u.Adj t w → u.Adj x w → u.Adj z w →
+          ¬ e.Adj (if x.id.step ≤ z.id.step then x else z) w))
+
+/-- **`StarKinds` da `StarOrder` con el orden A** (con los pasos de los vivos en `[0, c)`). -/
+theorem starOrder_of_kinds {u e : GPathB} {t : PathNodeId} (hea : EdgesAlive u)
+    (hsteps : ∀ q ∈ u.alive, 0 ≤ q.id.step ∧ q.id.step < u.current_step) (hk : StarKinds u e t) :
+    StarOrder u e t (keyA u.current_step) := by
+  intro x z htx htz hxz hne
+  obtain ⟨l, h0, h1, hcase⟩ := hk x z htx htz hxz hne
+  have hx := hsteps x (hea x z hxz).1
+  have hz := hsteps z (hea x z hxz).2
+  refine ⟨l, h0, h1, fun w hws htw hxw hzw => ?_⟩
+  have hw := hsteps w (hea x w hxw).2
+  rcases hcase with ⟨hlow, hgap⟩ | hemp | ⟨hlo, hhi, hmid⟩
+  · -- por debajo: las dos parejas posibles son menores
+    have hlx : keyA u.current_step x w < keyA u.current_step x z := by
+      unfold keyA
+      apply keyA_lt (by omega) (by omega) (by omega) (by omega) (by omega) (by omega)
+      rw [hws]; omega
+    have hlz : keyA u.current_step z w < keyA u.current_step x z := by
+      unfold keyA
+      apply keyA_lt (by omega) (by omega) (by omega) (by omega) (by omega) (by omega)
+      rw [hws]; omega
+    by_cases h1 : e.Adj x w
+    · exact Or.inr ⟨fun h2 => hgap w hws htw hxw hzw ⟨h1, h2⟩, hlz⟩
+    · exact Or.inl ⟨h1, hlx⟩
+  · exact (hemp w hws htw hxw hzw).elim
+  · -- intermedio: la pareja con el extremo más bajo es menor
+    have hm := hmid w hws htw hxw hzw
+    by_cases hxz' : x.id.step ≤ z.id.step
+    · rw [if_pos hxz'] at hm
+      refine Or.inl ⟨hm, ?_⟩
+      unfold keyA
+      apply keyA_lt (by omega) (by omega) (by omega) (by omega) (by omega) (by omega)
+      rw [hws]; omega
+    · rw [if_neg hxz'] at hm
+      refine Or.inr ⟨hm, ?_⟩
+      unfold keyA
+      apply keyA_lt (by omega) (by omega) (by omega) (by omega) (by omega) (by omega)
+      rw [hws]; omega
+
 end GPathB
 
 end AbsSatBingo.Model

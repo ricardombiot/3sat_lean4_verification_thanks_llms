@@ -17,6 +17,10 @@
 #            Con el orden A, un hueco por debajo baja siempre (las dos parejas posibles son menores), y en el origen no
 #            hay testigos de la unión (los padres de la cima solo tienen aristas del lado). Si noauto = 0, la inducción
 #            cierra con StarGapLow, una propiedad del lado solo.
+#   Para las de noauto, el primer hueco que baja con A, por tipo:
+#     k_uempty — en ese paso no hay ningún testigo de U en la estrella (la pareja cae de golpe también en U)
+#     k_midlow — hueco entre sus pasos y todo testigo forma la pareja del otro lado con el extremo más bajo
+#     k_other  — otro caso
 #   e_pairs / e_noauto — lo mismo para TODAS las parejas de la estrella del lado que el lado no hace poseerse
 #            (StarGapLow como propiedad de un estado)
 
@@ -106,7 +110,27 @@ function measure!(e, g)
                         !any(w -> w in W && eS(x, w) && eS(z, w), get(h.og.alive, l, SetPathNodesId()))]
                 isempty(gaps) && (bump!(:nogap); continue)
                 any(l -> l > hi(f), gaps) || bump!(:low)
-                any(l -> l < lo(f) || l == c - 2, gaps) || bump!(:noauto)
+                if !any(l -> l < lo(f) || l == c - 2, gaps)
+                    bump!(:noauto)
+                    zlow = x.id.step < z.id.step ? x : z
+                    xhigh = zlow == x ? z : x
+                    wits(l) = [w for w in get(h.og.alive, l, SetPathNodesId()) if w in W && PG.has_edge(h.og, x, w) && PG.has_edge(h.og, z, w)]
+                    goodA(l) = all(w -> (inF(x, w) && ORDERS[:A](PG.edge_key(x, w), f)) || (inF(z, w) && ORDERS[:A](PG.edge_key(z, w), f)), wits(l))
+                    gl = findfirst(goodA, gaps)
+                    if gl === nothing
+                        bump!(:k_none)
+                    else
+                        l = gaps[gl]
+                        ws = wits(l)
+                        if isempty(ws)
+                            bump!(:k_uempty)
+                        elseif lo(f) < l < hi(f) && all(w -> inF(zlow, w), ws)
+                            bump!(:k_midlow)
+                        else
+                            bump!(:k_other)
+                        end
+                    end
+                end
                 for (name, lt) in ORDERS
                     ok = any(gaps) do l
                         all(w -> !(w in W && PG.has_edge(h.og, x, w) && PG.has_edge(h.og, z, w)) ||
@@ -131,7 +155,7 @@ Core.eval(GraphPath, quote
     end
 end)
 
-const COLS = (:one, :nogap, :low, :noauto, :bad_A, :bad_B, :bad_C, :bad_D, :e_pairs, :e_noauto)
+const COLS = (:one, :nogap, :low, :noauto, :k_uempty, :k_midlow, :k_other, :k_none, :bad_A, :bad_B, :bad_C, :bad_D, :e_pairs, :e_noauto)
 
 function corpus()
     dirs = [joinpath(ROOT, "test/example_cnf"), joinpath(ROOT, "test_window/instances"),
