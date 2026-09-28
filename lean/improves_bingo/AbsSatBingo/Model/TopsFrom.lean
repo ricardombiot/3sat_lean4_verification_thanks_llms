@@ -107,6 +107,85 @@ theorem kernel_up_of_parent (hk : TopExact g) (hb : Below g) (hpos : 0 < g.curre
   obtain ⟨V, R, hst, ha, hr⟩ := kernel_addNode_of_parent (title := title) hk hb hpos hd hp ht hP hker
   exact ⟨V, R, secStruct_review hst, ha, hr⟩
 
+-- ============================================================
+-- ¿Es (C) un paso inductivo? `TopUnion` en el paso anterior ⇒ `TopUnion` en el join
+-- ============================================================
+
+/-- **(C) como bajada por el join de dos UP** (estructural): una cima viva en la unión fijada de dos UP de la misma
+fila `d` es hija, en la fila de uno de ellos, de un padre vivo en la unión fijada **de los dos estados de partida**.
+Es la versión para joins de `secStruct_addNode_down` (aún sin demostrar: hace falta la monotonía del join por `Sub` y
+comparar el join de dos filas nuevas con la fila nueva del join). -/
+def JoinDown (fe fg : GPathB) (d : NodeId) (title : String) (forb : PathNodeId → Bool) : Prop :=
+  ∀ (P : List NodeId) (t : PathNodeId), t.id.step = fe.current_step →
+    Kernel (join (fe.addNode d title forb).review (fg.addNode d title forb).review) P t t →
+    ∃ p, ((p ∈ fe.rowParents d t ∧ t ∈ fe.newRowIds d forb) ∨ (p ∈ fg.rowParents d t ∧ t ∈ fg.newRowIds d forb)) ∧
+      Kernel (join fe fg) P p p
+
+/-- **`TopUnion` en el paso anterior, entre los estados de partida (nodos del mapa distintos `a ≠ b`), da `TopUnion`
+en el join de sus UP**, con la bajada estructural `JoinDown`. La hipótesis de inducción que hace falta es, por tanto,
+`TopUnion` entre estados de **nodos del mapa distintos** con el filtro común del destino, no la de la máquina (que
+solo junta estados del mismo nodo del mapa). -/
+theorem topUnion_of_prev {fe fg : GPathB} {d : NodeId} {title : String} {forb : PathNodeId → Bool} {a b : NodeId}
+    (hcs : fe.current_step = fg.current_step) (hpos : 0 < fe.current_step) (hd : d.step = fe.current_step)
+    (hbe : Below fe) (hbg : Below fg) (hke : TopExact fe) (hkg : TopExact fg)
+    (hta : TopDocsId fe a) (htb : TopDocsId fg b) (hde : AliveDocs fe) (hdg : AliveDocs fg) (hab : a ≠ b)
+    (hdown : JoinDown fe fg d title forb) (hu : TopUnion fe fg) :
+    TopUnion (fe.addNode d title forb).review (fg.addNode d title forb).review := by
+  intro P t hts hk
+  have hcs1 : (fe.addNode d title forb).review.current_step = fe.current_step + 1 :=
+    (shrinks_review _).1.step
+  have hts' : t.id.step = fe.current_step := by omega
+  -- lo que P fija en el paso de t es d
+  have hP : ∀ r ∈ P, r.step = fe.current_step → r = d := by
+    intro r hr hrs
+    obtain ⟨V, R, hst, ha, hr'⟩ := hk
+    have htd : t.id = r := ha r hr (hst.dom hr').1 (by rw [hts', hrs])
+    have hta' : t ∈ (join (fe.addNode d title forb).review (fg.addNode d title forb).review).alive :=
+      hst.alive (hst.dom hr').1
+    rcases (alive_join _ _ t).mp hta' with h | h
+    · have h' := (shrinks_review (fe.addNode d title forb)).1.alive t h
+      rcases alive_addNode_cases (title := title) hde hbe hd h' with ⟨_, hh⟩ | ⟨hn, _⟩
+      · omega
+      · rw [← htd]; exact mapId_of_mem_shiftRowIds (List.mem_filter.mp hn).1
+    · have h' := (shrinks_review (fg.addNode d title forb)).1.alive t h
+      rcases alive_addNode_cases (title := title) hdg hbg (hcs ▸ hd) h' with ⟨_, hh⟩ | ⟨hn, _⟩
+      · omega
+      · rw [← htd]; exact mapId_of_mem_shiftRowIds (List.mem_filter.mp hn).1
+  obtain ⟨p, hside, hpk⟩ := hdown P t hts' hk
+  -- el id del padre dice de qué lado es
+  have hpid_e : ∀ {p}, p ∈ fe.rowParents d t → p.id = a := by
+    intro p hp
+    obtain ⟨n, hn, hnp, hps⟩ := step_of_newParents (rowParents_sub hp)
+    rw [← hnp]; exact hta n hn (by rw [hnp]; exact hps)
+  have hpid_g : ∀ {p}, p ∈ fg.rowParents d t → p.id = b := by
+    intro p hp
+    obtain ⟨n, hn, hnp, hps⟩ := step_of_newParents (rowParents_sub hp)
+    rw [← hnp]; exact htb n hn (by rw [hnp]; exact hps)
+  -- un vivo de un estado con la cima en `a` que es cima tiene id `a`
+  have hoff_g : ∀ {q}, q.id.step = fe.current_step - 1 → q ∈ fg.alive → q.id = b := by
+    intro q hqs hq
+    obtain ⟨n, hn, rfl⟩ := hdg q hq
+    exact htb n hn (by rw [← hcs]; exact hqs)
+  have hoff_e : ∀ {q}, q.id.step = fe.current_step - 1 → q ∈ fe.alive → q.id = a := by
+    intro q hqs hq
+    obtain ⟨n, hn, rfl⟩ := hde q hq
+    exact hta n hn hqs
+  rcases hside with ⟨hp, ht⟩ | ⟨hp, ht⟩
+  · have hpa := hpid_e hp
+    obtain ⟨_, _, _, hps⟩ := step_of_newParents (rowParents_sub hp)
+    rcases hu P p hps hpk with h | h
+    · exact Or.inl (kernel_up_of_parent hke hbe hpos hd hp ht hP h)
+    · exfalso
+      obtain ⟨V, R, hst, _, hr⟩ := h
+      exact hab (hpa.symm.trans (hoff_g hps (hst.alive (hst.dom hr).1)))
+  · have hpb := hpid_g hp
+    obtain ⟨_, _, _, hps⟩ := step_of_newParents (rowParents_sub hp)
+    rcases hu P p (by rw [hcs]; exact hps) hpk with h | h
+    · exfalso
+      obtain ⟨V, R, hst, _, hr⟩ := h
+      exact hab ((hoff_e (by rw [hcs]; exact hps) (hst.alive (hst.dom hr).1)).symm.trans hpb)
+    · exact Or.inr (kernel_up_of_parent hkg hbg (hcs ▸ hpos) (hcs ▸ hd) hp ht (hcs ▸ hP) h)
+
 end GPathB
 
 end AbsSatBingo.Model
