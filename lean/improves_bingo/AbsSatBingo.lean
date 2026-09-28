@@ -15,6 +15,7 @@ import AbsSatBingo.Model.KernelCliques
 import AbsSatBingo.Model.KernelJoin
 import AbsSatBingo.Model.KernelSkip
 import AbsSatBingo.Model.KernelUp
+import AbsSatBingo.Model.Lineage
 import AbsSatBingo.Model.Machine
 import AbsSatBingo.Model.MachineClique
 import AbsSatBingo.Model.Ops
