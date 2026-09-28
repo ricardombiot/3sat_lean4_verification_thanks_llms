@@ -38,6 +38,7 @@ import AbsSatBingo.Model.SideCone
 import AbsSatBingo.Model.SideDescent
 import AbsSatBingo.Model.SideLinks
 import AbsSatBingo.Model.SplitWitness
+import AbsSatBingo.Model.StarCore
 import AbsSatBingo.Model.StarLocal
 import AbsSatBingo.Model.Struct
 import AbsSatBingo.Model.TopExact
