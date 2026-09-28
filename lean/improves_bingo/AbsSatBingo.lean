@@ -27,3 +27,4 @@ import AbsSatBingo.Model.SecPair
 import AbsSatBingo.Model.SecStruct
 import AbsSatBingo.Model.Shrink
 import AbsSatBingo.Model.Struct
+import AbsSatBingo.Model.UnionSplit
