@@ -1,5 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo/Model/ReaderFinal.lean
 import AbsSatBingo.Model.KernelSkip
+import AbsSatBingo.Model.SideLinks
 
 /-!
 # El veredicto del lector bajo tres hipótesis con nombre
@@ -35,11 +36,11 @@ open GPathB Driver Machine
 
 /-- El invariante de un estado de la línea (además de `StateOk`). -/
 def KInv (g : GPathB) : Prop :=
-  KernelExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g ∧ TopNoSons g
+  KernelExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g ∧ TopNoSons g ∧ LinksInv g
 
 /-- **Las dos hipótesis** (la tercera, `closed`, es ya el teorema `closedState_review`). -/
 structure Hyps (φ : Cnf) : Prop where
-  union  : ∀ T key e g, StateOk T key e → StateOk T key g → KInv e → KInv g → KernelUnion e g
+  union  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → KernelUnion e g
   skip   : ∀ T key g d, StateOk T key g → KInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
              (g.filterAll (reqOf φ d)).isValid = true →
              (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
@@ -55,7 +56,8 @@ theorem kInv_filterAll {g : GPathB} (hk : KInv g) (hd : AliveDocs g) (reqs : Lis
     KInv (g.filterAll reqs) :=
   ⟨kernelExact_filterAll hk.1 hd hk.2.1 reqs, revPrims_filterAll revPrims_nodupIds _ _ hk.2.1,
    revPrims_filterAll revPrims_edgesAlive _ _ hk.2.2.1, revPrims_filterAll revPrims_linksStep _ _ hk.2.2.2.1,
-   revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2.1, revPrims_filterAll revPrims_topNoSons _ _ hk.2.2.2.2.2⟩
+   revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2.1, revPrims_filterAll revPrims_topNoSons _ _ hk.2.2.2.2.2.1,
+   revPrims_filterAll revPrims_linksInv _ _ hk.2.2.2.2.2.2⟩
 
 theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
     (hk : KInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
@@ -79,7 +81,7 @@ theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g 
       · exact avoidExact_of_noSkip hf.1 hfpos hsk
       · exact H.skip T key g d hg hk hT hd hvf hsk
     have hka : KernelExact a :=
-      kernelExact_addNode_gen hf.1 hav hfd hfb hf.2.2.2.1 hf.2.2.1 hf.2.2.2.2.2 hfpos hdstep
+      kernelExact_addNode_gen hf.1 hav hfd hfb hf.2.2.2.1 hf.2.2.1 hf.2.2.2.2.2.1 hfpos hdstep
     have hnd : NodupIds a := nodupIds_addNode hf.2.1 hfb hdstep
     have hda : AliveDocs a := aliveDocs_addNode hfd
     rw [review_eq_filterAll]
@@ -87,7 +89,8 @@ theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g 
       revPrims_filterAll revPrims_edgesAlive _ _ (edgesAlive_addNode hf.2.2.1),
       revPrims_filterAll revPrims_linksStep _ _ (linksStep_addNode hf.2.2.2.1 hdstep),
       revPrims_filterAll revPrims_aboveZero _ _ (aboveZero_addNode hf.2.2.2.2.1 (by omega)),
-      revPrims_filterAll revPrims_topNoSons _ _ (topNoSons_addNode hfb)⟩
+      revPrims_filterAll revPrims_topNoSons _ _ (topNoSons_addNode hfb),
+      revPrims_filterAll revPrims_linksInv _ _ (linksInv_addNode hf.2.2.2.2.2.2 hfb hf.2.2.2.2.1 hdstep)⟩
   · rename_i hvf
     rw [if_neg hvf] at hv
     exact absurd hv hvf
@@ -98,10 +101,10 @@ theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g 
 
 def LineK (line : Line) : Prop := ∀ kv ∈ line, KInv kv.2
 
-theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} {key : NodeId} {e g : GPathB} (he : StateOk T key e)
+theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} (hT : 2 ≤ T) {key : NodeId} {e g : GPathB} (he : StateOk T key e)
     (hg : StateOk T key g) (hke : KInv e) (hkg : KInv g) : KInv (doJoin e g) := by
-  refine ⟨kernelExact_doJoin hke.1 hkg.1 (H.union T key e g he hg hke hkg), nodupIds_doJoin hke.2.1 hkg.2.1,
-    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_, ?_⟩
+  refine ⟨kernelExact_doJoin hke.1 hkg.1 (H.union T key e g hT he hg hke hkg), nodupIds_doJoin hke.2.1 hkg.2.1,
+    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_, ?_, ?_⟩
   · unfold doJoin; split
     · exact linksStep_join hke.2.2.2.1 hkg.2.2.2.1
     · exact hke.2.2.2.1
@@ -112,10 +115,13 @@ theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} {key : NodeId} {e g : GPa
     · rename_i hok
       unfold okJoin at hok
       simp only [Bool.and_eq_true, beq_iff_eq] at hok
-      exact topNoSons_join hke.2.2.2.2.2 hkg.2.2.2.2.2 hok.1.1.1
-    · exact hke.2.2.2.2.2
+      exact topNoSons_join hke.2.2.2.2.2.1 hkg.2.2.2.2.2.1 hok.1.1.1
+    · exact hke.2.2.2.2.2.1
+  · unfold doJoin; split
+    · exact linksInv_join hke.2.2.2.2.2.2 hkg.2.2.2.2.2.2 hke.2.2.1 hkg.2.2.1
+    · exact hke.2.2.2.2.2.2
 
-theorem lineK_insert {φ : Cnf} (H : Hyps φ) {T : Int} {line : Line} {key : NodeId} {g : GPathB}
+theorem lineK_insert {φ : Cnf} (H : Hyps φ) {T : Int} (hT : 2 ≤ T) {line : Line} {key : NodeId} {g : GPathB}
     (hl : LineOk T line) (hlk : LineK line) (hg : StateOk T key g) (hk : KInv g) :
     LineK (Driver.insert line key g) := by
   unfold Driver.insert
@@ -127,7 +133,7 @@ theorem lineK_insert {φ : Cnf} (H : Hyps φ) {T : Int} {line : Line} {key : Nod
     intro kv hkv
     obtain ⟨kv0, hkv0, rfl⟩ := List.mem_map.mp hkv
     split
-    · exact kInv_doJoin H (hl _ hmem) hg (hlk _ hmem) hk
+    · exact kInv_doJoin H hT (hl _ hmem) hg (hlk _ hmem) hk
     · exact hlk kv0 hkv0
   · intro kv hkv
     rcases List.mem_append.mp hkv with h | h
@@ -161,7 +167,7 @@ theorem lineK_advance {φ : Cnf} (H : Hyps φ) {T : Int} (hT : 1 ≤ T) {line : 
             dsimp only
             split
             · rename_i hv
-              exact lineK_insert H a b (stateOk_upFiltering (hl kv hkv) hd hv)
+              exact lineK_insert H (by omega) a b (stateOk_upFiltering (hl kv hkv) hd hv)
                 (kInv_upFiltering H (hl kv hkv) (hlk kv hkv) hT hd hv)
             · exact b
       simp only [List.foldl_cons]
@@ -238,10 +244,26 @@ theorem kInv_initSeed : KInv (initSeed (⟨0, 0⟩ : NodeId) "") := by
     rw [hnodes, List.mem_singleton] at hn
     subst hn
     rfl
+  have hli : LinksInv a := by
+    refine ⟨hda, ?_, ?_⟩
+    · intro n hn p _ ha
+      rw [hnodes, List.mem_singleton] at hn
+      subst hn
+      obtain ⟨_, rfl⟩ := hadj _ _ ha
+      refine ⟨fun hc => ?_, fun hc => ?_⟩ <;> (have := hc.2.2; exact absurd this (by show ¬ (0 : Int) + 1 = 0; omega))
+    · intro n hn
+      rw [hnodes, List.mem_singleton] at hn
+      subst hn
+      have hp0 : (GPathB.empty.rowNode d "" root).parents = [] := rfl
+      have hs0 : (GPathB.empty.rowNode d "" root).sons = [] := rfl
+      refine ⟨fun p hp => ?_, fun s hs => ?_⟩
+      · rw [hp0] at hp; cases hp
+      · rw [hs0] at hs; cases hs
   rw [hup]
   exact ⟨kernelExact_filterAll hka hda hnd [], revPrims_filterAll revPrims_nodupIds _ _ hnd,
     revPrims_filterAll revPrims_edgesAlive _ _ hea, revPrims_filterAll revPrims_linksStep _ _ hls,
-    revPrims_filterAll revPrims_aboveZero _ _ hz, revPrims_filterAll revPrims_topNoSons _ _ ht⟩
+    revPrims_filterAll revPrims_aboveZero _ _ hz, revPrims_filterAll revPrims_topNoSons _ _ ht,
+    revPrims_filterAll revPrims_linksInv _ _ hli⟩
 
 -- ============================================================
 -- La máquina entera
@@ -393,6 +415,35 @@ theorem readerVerdict_iff_of_hyps {φ : Cnf} (hbd : Bounded φ) (H : Hyps φ) :
   have hc := cInv_visited hok.docs hk.2.1 hok.below hk.2.2.2.2.1 hcs h hvis
   intro hval
   exact noZombie_of_edgeClique (edgeClique_of_kernelExact hv.1 (hc.2.2.2.2.2 hval) hv.2.2.1) hval
+
+-- ============================================================
+-- `union` por partes (SideLinks.lean)
+-- ============================================================
+
+/-- **Las hipótesis por partes**: `union` se sustituye por sus tres piezas en el paso de origen `T - 2`
+(`kernelUnion_of_sideEdges`): el núcleo de la unión se parte por el origen (`SplitAt`), los orígenes no se comparten
+(`SepAt`, medido: 0 fallos) y las parejas de la unión fijada en un origen son aristas del lado que lo tiene
+(`SideEdgesAt`). -/
+structure HypsParts (φ : Cnf) : Prop where
+  split : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → SplitAt (join e g) (T - 2)
+  sep   : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → SepAt e g (T - 2)
+  side  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → KInv e → KInv g → SideEdgesAt e g (T - 2)
+  skip  : ∀ T key g d, StateOk T key g → KInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
+            (g.filterAll (reqOf φ d)).isValid = true →
+            (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
+            AvoidExact (g.filterAll (reqOf φ d)) d (isProhibited φ)
+
+theorem hyps_of_parts {φ : Cnf} (H : HypsParts φ) : Hyps φ := by
+  refine ⟨fun T key e g hT he hg hke hkg => ?_, H.skip⟩
+  have hcs : e.current_step = g.current_step := he.step.trans hg.step.symm
+  exact kernelUnion_of_sideEdges (by omega) (by rw [he.step]; omega) hcs hke.2.2.2.2.2.2 hkg.2.2.2.2.2.2
+    hke.2.2.1 hkg.2.2.1 (H.split T key e g hT he hg hke hkg) (H.sep T key e g hT he hg hke hkg)
+    (H.side T key e g hT he hg hke hkg)
+
+/-- **El veredicto del lector es la satisfacibilidad bajo las hipótesis por partes.** -/
+theorem readerVerdict_iff_of_parts {φ : Cnf} (hbd : Bounded φ) (H : HypsParts φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_hyps hbd (hyps_of_parts H)
 
 end Final
 
