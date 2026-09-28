@@ -1,5 +1,6 @@
 -- lean/improves_bingo/AbsSatBingo.lean  (generado por scripts/gen_root.sh)
 import AbsSatBingo.Exe.Dump
+import AbsSatBingo.Model.Bookkeeping
 import AbsSatBingo.Model.Carried
 import AbsSatBingo.Model.Decode
 import AbsSatBingo.Model.Driver
