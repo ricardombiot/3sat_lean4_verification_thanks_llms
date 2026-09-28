@@ -1998,6 +1998,15 @@ Hay que elegir una propiedad de las tablas que (a) implique `AmbHigh` y (b) cons
     * Conclusión: fijar `b` rompe compatibilidades entre una arista y otro `b''` vivo, que es un efecto de tríos
       (`b`, `b''`, arista). Es la reserva de §4.4 («cada pin sube un nivel»), que vuelve a aparecer en forma de
       secciones. El paso no se reduce a ninguna de las tres formas locales medidas.
+  * **`SecPair` con pins cualesquiera** (`probe_secpair_anypin.jl`, 30 paseos al azar por instancia desde el estado
+    final, pins en cualquier paso con elección y en cualquier orden, uno de cada tres movimientos doble, y el review
+    entero tras cada pin).
+    * Por nodo del mapa: 5 027 estados, 6 891 pins, 145 dobles: **0 fallos de `SecPair`/`SecPairX`, 0 pins muertos**.
+    * Por nodo del camino (se deja vivo solo `x` en su paso): 4 552 estados, 8 022 pins, 53 dobles: **0 fallos,
+      0 pins muertos**. Todo nodo vivo, fijado, deja el estado válido.
+    * No es una propiedad de los estados del lector: vale en todo estado revisado que sale de la máquina por pins.
+      La prueba debería ir por el punto fijo del review sobre la salida de la máquina, no por una inducción a lo
+      largo del lector.
 * **`PairExact` conservado por el pin** (propuesta B del v191). Da `TriPin` directamente si el pin no
   rompe la exactitud por parejas. Riesgo: en bin ya no existe la escalera débil sobre la que se medía.
 * **Inducción a lo largo del lector.**
