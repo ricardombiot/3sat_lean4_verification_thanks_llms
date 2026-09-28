@@ -112,8 +112,10 @@ def OwnWitness (e g : GPathB) (k : Int) : Prop :=
     (e.Adj y w → ∃ r : PathNodeId, r.id.step = k ∧ r ∈ e.alive ∧ Kernel (join e g) P y r ∧ Kernel (join e g) P w r) ∧
     (g.Adj y w → ∃ r : PathNodeId, r.id.step = k ∧ r ∈ g.alive ∧ Kernel (join e g) P y r ∧ Kernel (join e g) P w r)
 
-/-- **`OwnSideGood`**: fijar la unión en un testigo del mismo lado que la arista conserva la pareja. Medido
-(`test_3sat/probe_badwit.jl`): todos los testigos malos son del otro lado. -/
+/-- **`OwnSideGood`**: fijar la unión en un testigo del mismo lado que la arista conserva la pareja. **FALSO**
+(medido, `test_3sat/probe_triangle.jl`): 61 casos de 19,3 millones, todos en `set5830_20211201_i3_v8_c30`; son
+parejas que son arista de los dos lados, para las que solo sirve el testigo de uno. (`probe_badwit.jl` no los vio
+porque clasifica por «arista del lado de `b`» y estas lo son de los dos.) -/
 def OwnSideGood (e g : GPathB) (k : Int) : Prop :=
   ∀ (P : List NodeId) y w (r : PathNodeId), Kernel (join e g) P y w → r.id.step = k →
     Kernel (join e g) P y r → Kernel (join e g) P w r →
@@ -137,14 +139,15 @@ theorem witSplit_of_own {e g : GPathB} {k : Int} (hw : OwnWitness e g k) (hg : O
 -- ============================================================
 
 /-- **`WitAll g k`**: dentro de un estado, cualquier testigo del núcleo sirve: si `r` (paso `k`) empareja en el
-núcleo fijado en `P` con `y` y con `w`, la pareja sobrevive fijando además `r.id`. Medido dentro de los lados de los
-joins (`test_3sat/probe_triangle.jl`): 0 fallos. -/
+núcleo fijado en `P` con `y` y con `w`, la pareja sobrevive fijando además `r.id`. En el paso de origen de un lado
+que sale de un UP es trivial (un solo nodo del mapa, `witAll_of_single`); en los demás pasos es **FALSO** incluso en
+estados revisados (`test_3sat/probe_witall.jl`: p. ej. 90 639 casos en `rand3sat_v8_c10`). -/
 def WitAll (g : GPathB) (k : Int) : Prop :=
   ∀ (P : List NodeId) y w (r : PathNodeId), r.id.step = k → Kernel g P y w → Kernel g P y r → Kernel g P w r →
     Kernel g (P ++ [r.id]) y w
 
 /-- **`TriIn`**: un triángulo del núcleo de la unión con las tres aristas de un lado (y el testigo vivo en él) es un
-triángulo del núcleo de ese lado. Medido (`probe_triangle.jl`, `tri_out`): 0 fallos. -/
+triángulo del núcleo de ese lado. **FALSO** (`probe_triangle.jl`, `tri_out`: 61 casos, ver `OwnSideGood`). -/
 def TriIn (e g : GPathB) (k : Int) : Prop :=
   ∀ (P : List NodeId) y w (r : PathNodeId), r.id.step = k → Kernel (join e g) P y w → Kernel (join e g) P y r →
     Kernel (join e g) P w r →
@@ -190,7 +193,8 @@ theorem witAll_of_single {g : GPathB} {k : Int} {b : NodeId} (hs : SingleAt g k 
   exact kernel_pin_single hs (hrb ▸ hr) h
 
 /-- **`PairIn`**: una pareja del núcleo de la unión que es arista de un lado y tiene un testigo de ese lado está en
-el núcleo de ese lado (la primera pieza de `TriIn`; medida en `probe_triangle.jl`). -/
+el núcleo de ese lado (la primera pieza de `TriIn`). **FALSO** en los mismos 61 casos que `OwnSideGood`: la forma
+correcta elige el lado cuyo núcleo contiene la pareja, y eso es `KernelUnion`. -/
 def PairIn (e g : GPathB) (k : Int) : Prop :=
   ∀ (P : List NodeId) y w (r : PathNodeId), r.id.step = k → Kernel (join e g) P y w → Kernel (join e g) P y r →
     Kernel (join e g) P w r →
