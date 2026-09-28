@@ -34,6 +34,11 @@ function make_review_owners!(gpath :: GPath)
             v === nothing || error("grafo de owners: $v")
         end
 
+        # regla de la estrella (graph_path_star.jl): solo con las demás reglas en su punto fijo
+        if STAR_RULE[] == :on && !gpath.review_owners && gpath.is_valid && gpath.table_lines.is_valid
+            star_rule!(gpath)
+        end
+
         if gpath.review_owners
             make_review_owners!(gpath)
         elseif FINAL_CHECK[] == :on && gpath.is_valid
