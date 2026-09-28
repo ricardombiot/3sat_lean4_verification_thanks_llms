@@ -1,5 +1,5 @@
 -- lean/improves_bingo/AbsSatBingo/Model/ReaderFinal.lean
-import AbsSatBingo.Model.ClosedReview
+import AbsSatBingo.Model.KernelSkip
 
 /-!
 # El veredicto del lector bajo tres hipótesis con nombre
@@ -13,8 +13,10 @@ hipótesis `closed`, que los estados del lector estén cerrados por las reglas, 
 con la comprobación final del review; aquí, `cInv_visited`.)
 * `union` — en cada join de la máquina, el núcleo de la unión es la unión de los núcleos (`KernelUnion`; medido:
   `probe_kernelunion.jl`);
-* `skip` — el UP con una ventana saltada conserva `KernelExact` en su fila (medido: `probe_kernelexact_up.jl`,
-  `probe_edgeclique.jl` punto U).
+* `skip` — con una ventana saltada, `AvoidExact` antes del UP (`KernelSkip.lean`): las parejas de una
+  estructura cerrada con cimas de hijo permitido están en camarillas con cima de hijo permitido. Es una propiedad
+  de unión (evitar la ventana es la unión de dos pins), como `union`. Medido indirectamente: el UP con ventana
+  saltada conserva `KernelExact` (`probe_kernelexact_up.jl`, `probe_edgeclique.jl` punto U).
 
 Las hipótesis `union` y `skip` se piden sobre los estados con el invariante de línea (una sobreaproximación de los
 alcanzables).
@@ -32,7 +34,8 @@ namespace Final
 open GPathB Driver Machine
 
 /-- El invariante de un estado de la línea (además de `StateOk`). -/
-def KInv (g : GPathB) : Prop := KernelExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g
+def KInv (g : GPathB) : Prop :=
+  KernelExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g ∧ TopNoSons g
 
 /-- **Las dos hipótesis** (la tercera, `closed`, es ya el teorema `closedState_review`). -/
 structure Hyps (φ : Cnf) : Prop where
@@ -40,7 +43,7 @@ structure Hyps (φ : Cnf) : Prop where
   skip   : ∀ T key g d, StateOk T key g → KInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
              (g.filterAll (reqOf φ d)).isValid = true →
              (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
-             KernelExact ((g.filterAll (reqOf φ d)).addNode d "" (isProhibited φ))
+             AvoidExact (g.filterAll (reqOf φ d)) d (isProhibited φ)
 
 theorem review_eq_filterAll (g : GPathB) : g.review = g.filterAll [] := rfl
 
@@ -52,7 +55,7 @@ theorem kInv_filterAll {g : GPathB} (hk : KInv g) (hd : AliveDocs g) (reqs : Lis
     KInv (g.filterAll reqs) :=
   ⟨kernelExact_filterAll hk.1 hd hk.2.1 reqs, revPrims_filterAll revPrims_nodupIds _ _ hk.2.1,
    revPrims_filterAll revPrims_edgesAlive _ _ hk.2.2.1, revPrims_filterAll revPrims_linksStep _ _ hk.2.2.2.1,
-   revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2⟩
+   revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2.1, revPrims_filterAll revPrims_topNoSons _ _ hk.2.2.2.2.2⟩
 
 theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
     (hk : KInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
@@ -70,18 +73,21 @@ theorem kInv_upFiltering {φ : Cnf} (H : Hyps φ) {T : Int} {key d : NodeId} {g 
   · rename_i hvf
     let f := g.filterAll (reqOf φ d)
     let a := f.addNode d "" (isProhibited φ)
-    have hka : KernelExact a := by
+    have hfpos : 0 < f.current_step := by show 0 < (g.filterAll (reqOf φ d)).current_step; omega
+    have hav : AvoidExact f d (isProhibited φ) := by
       cases hsk : f.skipsWindow d (isProhibited φ)
-      · exact kernelExact_addNode hf.1 hfd hfb hf.2.2.2.1 hf.2.2.1
-          (by show 0 < (g.filterAll (reqOf φ d)).current_step; omega) hsk hdstep
+      · exact avoidExact_of_noSkip hf.1 hfpos hsk
       · exact H.skip T key g d hg hk hT hd hvf hsk
+    have hka : KernelExact a :=
+      kernelExact_addNode_gen hf.1 hav hfd hfb hf.2.2.2.1 hf.2.2.1 hf.2.2.2.2.2 hfpos hdstep
     have hnd : NodupIds a := nodupIds_addNode hf.2.1 hfb hdstep
     have hda : AliveDocs a := aliveDocs_addNode hfd
     rw [review_eq_filterAll]
     exact ⟨kernelExact_filterAll hka hda hnd [], revPrims_filterAll revPrims_nodupIds _ _ hnd,
       revPrims_filterAll revPrims_edgesAlive _ _ (edgesAlive_addNode hf.2.2.1),
       revPrims_filterAll revPrims_linksStep _ _ (linksStep_addNode hf.2.2.2.1 hdstep),
-      revPrims_filterAll revPrims_aboveZero _ _ (aboveZero_addNode hf.2.2.2.2 (by omega))⟩
+      revPrims_filterAll revPrims_aboveZero _ _ (aboveZero_addNode hf.2.2.2.2.1 (by omega)),
+      revPrims_filterAll revPrims_topNoSons _ _ (topNoSons_addNode hfb)⟩
   · rename_i hvf
     rw [if_neg hvf] at hv
     exact absurd hv hvf
@@ -95,13 +101,19 @@ def LineK (line : Line) : Prop := ∀ kv ∈ line, KInv kv.2
 theorem kInv_doJoin {φ : Cnf} (H : Hyps φ) {T : Int} {key : NodeId} {e g : GPathB} (he : StateOk T key e)
     (hg : StateOk T key g) (hke : KInv e) (hkg : KInv g) : KInv (doJoin e g) := by
   refine ⟨kernelExact_doJoin hke.1 hkg.1 (H.union T key e g he hg hke hkg), nodupIds_doJoin hke.2.1 hkg.2.1,
-    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_⟩
+    edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_, ?_⟩
   · unfold doJoin; split
     · exact linksStep_join hke.2.2.2.1 hkg.2.2.2.1
     · exact hke.2.2.2.1
   · unfold doJoin; split
-    · exact aboveZero_join hke.2.2.2.2 hkg.2.2.2.2
-    · exact hke.2.2.2.2
+    · exact aboveZero_join hke.2.2.2.2.1 hkg.2.2.2.2.1
+    · exact hke.2.2.2.2.1
+  · unfold doJoin; split
+    · rename_i hok
+      unfold okJoin at hok
+      simp only [Bool.and_eq_true, beq_iff_eq] at hok
+      exact topNoSons_join hke.2.2.2.2.2 hkg.2.2.2.2.2 hok.1.1.1
+    · exact hke.2.2.2.2.2
 
 theorem lineK_insert {φ : Cnf} (H : Hyps φ) {T : Int} {line : Line} {key : NodeId} {g : GPathB}
     (hl : LineOk T line) (hlk : LineK line) (hg : StateOk T key g) (hk : KInv g) :
@@ -221,10 +233,15 @@ theorem kInv_initSeed : KInv (initSeed (⟨0, 0⟩ : NodeId) "") := by
     subst hn
     show 0 ≤ d.step
     decide
+  have ht : TopNoSons a := by
+    intro n hn _
+    rw [hnodes, List.mem_singleton] at hn
+    subst hn
+    rfl
   rw [hup]
   exact ⟨kernelExact_filterAll hka hda hnd [], revPrims_filterAll revPrims_nodupIds _ _ hnd,
     revPrims_filterAll revPrims_edgesAlive _ _ hea, revPrims_filterAll revPrims_linksStep _ _ hls,
-    revPrims_filterAll revPrims_aboveZero _ _ hz⟩
+    revPrims_filterAll revPrims_aboveZero _ _ hz, revPrims_filterAll revPrims_topNoSons _ _ ht⟩
 
 -- ============================================================
 -- La máquina entera
@@ -373,7 +390,7 @@ theorem readerVerdict_iff_of_hyps {φ : Cnf} (hbd : Bounded φ) (H : Hyps φ) :
   obtain ⟨hok, hk⟩ := run_kInv H kv hkv
   have hv := vInv_visited hk hok.docs h hvis
   have hcs : 2 ≤ kv.2.current_step := by rw [hok.step]; unfold stepCount; omega
-  have hc := cInv_visited hok.docs hk.2.1 hok.below hk.2.2.2.2 hcs h hvis
+  have hc := cInv_visited hok.docs hk.2.1 hok.below hk.2.2.2.2.1 hcs h hvis
   intro hval
   exact noZombie_of_edgeClique (edgeClique_of_kernelExact hv.1 (hc.2.2.2.2.2 hval) hv.2.2.1) hval
 

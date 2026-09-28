@@ -182,7 +182,8 @@ Todo lo que se enuncia en un lado tiene su espejo en el otro, con los mismos nom
 | `KernelJoin.lean`: `kernelExact_doJoin` bajo `KernelUnion`; `LinksStep`, `Below` | `test_3sat/probe_kernelunion.jl`: 0 diferencias | demostrado bajo `KernelUnion` |
 | Comprobación final del review: Lean `finalPass` en `reviewFuel` (`Ops.lean`) ↔ Julia `FINAL_CHECK = :on`, `final_coherence_check!` | `test_3sat/probe_final_check.jl`: 0 cambios en 176 ejecuciones | **adoptado** (v201 §5) |
 | `closedState_review` (`ClosedReview.lean`): el review deja el estado cerrado (antes la hipótesis `closed`) | — | demostrado |
-| **`ReaderFinal.lean`: `readerVerdict_iff_of_hyps`**, el veredicto del lector es la satisfacibilidad bajo `Hyps φ` = `union` (`KernelUnion` en los joins), `skip` (el UP con ventana saltada conserva `KernelExact`) | las dos medidas sin fallos | **demostrado bajo dos hipótesis** |
+| `KernelSkip.lean`: `kernelExact_addNode_gen`, el UP con o sin ventana saltada conserva `KernelExact` bajo `AvoidExact` (camarillas con cima de hijo permitido); sin salto, `AvoidExact` sale de `KernelExact` (`avoidExact_of_noSkip`); `TopNoSons` | `probe_kernelexact_up.jl` (indirecto) | demostrado bajo `AvoidExact` |
+| **`ReaderFinal.lean`: `readerVerdict_iff_of_hyps`**, el veredicto del lector es la satisfacibilidad bajo `Hyps φ` = `union` (`KernelUnion` en los joins), `skip` (`AvoidExact` antes del UP con ventana saltada) | las dos medidas sin fallos | **demostrado bajo dos hipótesis, las dos de la forma «el núcleo de una unión es la unión de los núcleos»** |
 | `SecStructAt g b` (abierto): toda sección de `b` se extiende a una `SecStruct` que concuerda con `b` | `test_3sat/probe_secinpin.jl`: `sec_struct_fails` = (0, 0, 0) en 17 158 secciones; padres/hijos cortan 0 en los pins | medido |
 | `NoDeadEndAt`, `SecDeadEnd` (abierto) | `probe_tri_sec.jl`: `dead_pins`/`dead_ends` = 0 | medido |
 

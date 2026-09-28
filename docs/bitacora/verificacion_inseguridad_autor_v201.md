@@ -164,6 +164,18 @@ Lean), y demostrar `closed`.
 > `union` y `skip`. `lake exe bingo-check` con el review nuevo: 0 fallos frente a la fuerza bruta en las instancias
 > pequeñas.
 
+### Adenda: `skip` (28-sept-2026)
+
+`skip` no se reduce a la confluencia, como esperaba. Evitar una ventana prohibida (⟨c-1,0⟩, ⟨c-2,0⟩) es la **unión
+de dos pins** (c-1 = 1, o c-1 = 0 y c-2 = 1), no un pin solo. `KernelSkip.lean` demuestra la parte mecánica:
+`kernelExact_addNode_gen`, el UP con o sin ventana saltada conserva `KernelExact` bajo `AvoidExact` (toda pareja
+de una estructura cerrada con cimas de hijo permitido está en una camarilla con cima de hijo permitido). Sin
+ventana saltada, `AvoidExact` sale de `KernelExact`. La hipótesis `skip` de `Hyps` es ahora `AvoidExact` antes del
+UP.
+
+**Las dos hipótesis que quedan tienen la misma forma: el núcleo de una unión es la unión de los núcleos.** En el
+join, la unión de dos estados (`union`); en la ventana saltada, la unión de dos pins (`skip`).
+
 ## 6. El plan
 
 1. **Si adoptas §5:** el cambio en Lean y Julia, y `closed` como teorema. Quedarían `union` y `skip`.
