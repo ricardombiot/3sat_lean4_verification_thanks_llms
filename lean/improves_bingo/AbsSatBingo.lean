@@ -9,6 +9,7 @@ import AbsSatBingo.Model.GPathB
 import AbsSatBingo.Model.Grow
 import AbsSatBingo.Model.Keeps
 import AbsSatBingo.Model.Machine
+import AbsSatBingo.Model.MachineClique
 import AbsSatBingo.Model.Ops
 import AbsSatBingo.Model.Reader
 import AbsSatBingo.Model.ReviewClean
