@@ -101,6 +101,37 @@ theorem witSplit_of_kernelUnion {e g : GPathB} {k : Int} (hk0 : 0 ≤ k) (hkc : 
   · obtain ⟨r, hr, h1, h2, h3⟩ := wit_of_exact hkg h hk0 (hcs ▸ hkc)
     exact ⟨r, hr, kernel_join_right hcs h1, kernel_join_right hcs h2, kernel_join_right hcs h3⟩
 
+-- ============================================================
+-- `WitSplit` por lados: testigo del propio lado, y que ese testigo sirva
+-- ============================================================
+
+/-- **`OwnWitness`**: una pareja del núcleo de la unión que es arista de un lado tiene, en el núcleo, un testigo en
+el paso `k` vivo en ese lado. -/
+def OwnWitness (e g : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) y w, Kernel (join e g) P y w →
+    (e.Adj y w → ∃ r : PathNodeId, r.id.step = k ∧ r ∈ e.alive ∧ Kernel (join e g) P y r ∧ Kernel (join e g) P w r) ∧
+    (g.Adj y w → ∃ r : PathNodeId, r.id.step = k ∧ r ∈ g.alive ∧ Kernel (join e g) P y r ∧ Kernel (join e g) P w r)
+
+/-- **`OwnSideGood`**: fijar la unión en un testigo del mismo lado que la arista conserva la pareja. Medido
+(`test_3sat/probe_badwit.jl`): todos los testigos malos son del otro lado. -/
+def OwnSideGood (e g : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) y w (r : PathNodeId), Kernel (join e g) P y w → r.id.step = k →
+    Kernel (join e g) P y r → Kernel (join e g) P w r →
+    ((e.Adj y w ∧ r ∈ e.alive) ∨ (g.Adj y w ∧ r ∈ g.alive)) → Kernel (join e g) (P ++ [r.id]) y w
+
+/-- **`WitSplit` ⇐ `OwnWitness` + `OwnSideGood`.** -/
+theorem witSplit_of_own {e g : GPathB} {k : Int} (hw : OwnWitness e g k) (hg : OwnSideGood e g k) :
+    WitSplit (join e g) k := by
+  intro P y w h
+  have hadj : (join e g).Adj y w := by
+    obtain ⟨V, R, hst, _, hr⟩ := h
+    exact hst.adj hr
+  rcases adj_join_cases hadj with ha | ha
+  · obtain ⟨r, hr, hre, h1, h2⟩ := (hw P y w h).1 ha
+    exact ⟨r, hr, h1, h2, hg P y w r h hr h1 h2 (Or.inl ⟨ha, hre⟩)⟩
+  · obtain ⟨r, hr, hrg, h1, h2⟩ := (hw P y w h).2 ha
+    exact ⟨r, hr, h1, h2, hg P y w r h hr h1 h2 (Or.inr ⟨ha, hrg⟩)⟩
+
 end GPathB
 
 end AbsSatBingo.Model
