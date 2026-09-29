@@ -11,6 +11,7 @@
 #   (ii) mixed_v: V con los dos colores en k; pres_t / pres_f: colores presentes en V que (no) sobreviven al fijarlos
 #   nc_t / nc_f: NodeCliqueIn — vivos de la estructura (tras el UP y en la unión) que (no) están en una camarilla dentro
 #   de ella
+#   ncol_t / ncol_f: NodeColour — vivos de V que (no) sobreviven a fijar dentro de V el color de algún lado
 #   node_t / node_f: nodos de V en k que (no) siguen vivos al fijar su propio color dentro de V
 #   J (en el join): si la restricción de la unión V es válida, ¿la de e o la de g a los vivos de V es válida?
 #     sp_t / sp_f; y SecExactIn en V: jin_t / jin_f
@@ -175,6 +176,13 @@ function on_join_post(u)
                 bump(:pres_t)
                 ok || bump(:pres_f)
             end
+            # NodeColour: todo vivo x de V sigue vivo al fijar dentro de V el color de algún lado
+            Aa = pa ? (h = deepcopy(V); GraphPath.filter!(h, SetNodesId([cols[1]])); Set(x for (_, xs) in h.og.alive for x in xs)) : Set{PathNodeId}()
+            As = ps ? (h = deepcopy(V); GraphPath.filter!(h, SetNodesId([cols[2]])); Set(x for (_, xs) in h.og.alive for x in xs)) : Set{PathNodeId}()
+            for (_, xs) in V.og.alive, x in xs
+                bump(:ncol_t)
+                (x in Aa || x in As) || bump(:ncol_f)
+            end
             # nodo a nodo: cada vivo x de V en k, ¿sigue vivo al fijar su color dentro de V?
             for c in present
                 h = deepcopy(V); GraphPath.filter!(h, SetNodesId([c]))
@@ -191,7 +199,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:in_t, :in_f, :sp_t, :sp_f, :jin_t, :jin_f, :s2_t, :s2_f, :s2_both, :mixed_v, :pres_t, :pres_f, :node_t, :node_f, :nc_t, :nc_f, :trunc)
+    cols = (:in_t, :in_f, :sp_t, :sp_f, :jin_t, :jin_f, :s2_t, :s2_f, :s2_both, :mixed_v, :pres_t, :pres_f, :node_t, :node_f, :nc_t, :nc_f, :ncol_t, :ncol_f, :trunc)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
