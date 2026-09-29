@@ -98,6 +98,7 @@ function pair_consistency_after_clean!(gpath :: GPath)
         #! [for] $ O(|E|*S*7) $ (con TRIO_RULE, $ O(|E|*S*7*S*7) $)
         for e in values(og.edges)
             if !shares_every_step(og, e.a, e.b)
+                @probe :pair_bad og e.a e.b
                 push!(bad, (e.a, e.b))
             elseif trio && !shares_every_step3(og, e.a, e.b, steps)
                 push!(bad, (e.a, e.b))

@@ -488,6 +488,34 @@ theorem nodeSplitIn_iff_nodeIn_union (hbd : Bounded φ) (n : Nat) {kv₁ kv₂ :
     rw [hj] at hst
     exact Or.inl ⟨V, R, hst, ha, hx, fun _ h => h⟩
 
+-- ============================================================
+-- SideEdges desde un lema local
+-- ============================================================
+
+/-- **`OneSideSupport u e g`**: toda posesión de `g` entre dos vivos de `e` que `e` no tiene tiene un paso en el que
+todos sus testigos comunes en la unión están fuera de `e`. (Medido: 14 773 parejas en un sentido, 0 fallos; en el
+otro, 20 fallos de 16 071, todos en las instancias con tríos muertos.) -/
+def OneSideSupport (u e g : GPathB) : Prop :=
+  ∀ y w, y ∈ e.alive → w ∈ e.alive → g.Adj y w → ¬ e.Adj y w →
+    ∃ l, 0 ≤ l ∧ l < u.current_step ∧ ∀ r ∈ u.alive, r.id.step = l → u.Adj y r → u.Adj w r → r ∉ e.alive
+
+/-- **`OneSideSupport` ⟹ `SideEdges`**: fijada la unión en un nodo del mapa que `g` no tiene, toda estructura
+cerrada vive en `e` (`alive_side`), así que una pareja que fuera solo de `g` no tendría testigo en el paso que da
+`OneSideSupport`. -/
+theorem sideEdges_of_oneSideSupport {u e g : GPathB} (hu : IsUnion u e g) {b : NodeId} (hb0 : 0 ≤ b.step)
+    (hbc : b.step < e.current_step) (hoff : OffSide g b) (hee : EdgesAlive e) (heg : EdgesAlive g)
+    (hos : OneSideSupport u e g) : SideEdges u e b := by
+  intro V R hst ha y w hr
+  have hal : ∀ {z}, V z → z ∈ e.alive := fun hz => alive_side hu hst ha hb0 hbc hoff hee heg hz
+  have hy := hal (hst.dom hr).1
+  have hw := hal (hst.dom hr).2
+  rcases hu.adj (hst.adj hr) with h | h
+  · exact h
+  · refine Classical.byContradiction fun hne => ?_
+    obtain ⟨l, h0, h1, hout⟩ := hos y w hy hw h hne
+    obtain ⟨r, hrs, hyr, hwr⟩ := hst.pair hr l h0 h1
+    exact hout r (hst.alive (hst.dom hyr).2) hrs (hst.adj hyr) (hst.adj hwr) (hal (hst.dom hyr).2)
+
 end CliqueSplit
 
 end AbsSatBingo.Model
