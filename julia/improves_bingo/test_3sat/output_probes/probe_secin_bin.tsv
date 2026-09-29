@@ -1,43 +1,43 @@
-instance	truth	in_t	in_f	sp_t	sp_f	jin_t	jin_f	trunc	secs
-clause_mix.cnf	true	589	0	281	0	281	0	0	5.3
-clause_mix_sep.cnf	true	767	0	308	0	308	0	0	7.3
-force_chain.cnf	true	459	0	218	0	218	0	0	1.3
-force_first.cnf	true	371	0	159	0	159	0	0	0.5
-force_last.cnf	true	345	0	168	0	168	0	0	0.5
-unique_sol.cnf	true	366	0	176	0	176	0	0	0.7
-xor3.cnf	true	362	0	180	0	180	0	0	0.5
-xor_pair.cnf	true	466	0	262	0	262	0	0	2.5
-basic_v3_c1.cnf	true	269	0	91	0	91	0	0	0.1
-bin_v3_c2.cnf	true	334	0	150	0	150	0	0	0.2
-complete_v3.cnf	true	342	0	143	0	143	0	0	0.2
-rand3sat_v4_c20.cnf	true	486	0	229	0	229	0	0	9.0
-rand3sat_v8_c10.cnf	true	842	0	422	0	422	0	0	27.6
-simple3sat_v3_c2.cnf	true	413	0	155	0	155	0	0	0.5
-v4_c12_i1.cnf	true	464	0	235	0	235	0	0	4.6
-v4_c12_i2.cnf	true	501	0	234	0	234	0	0	3.5
-v4_c12_i3.cnf	true	496	0	258	0	258	0	0	6.0
-v4_c12_i4.cnf	true	506	0	182	0	182	0	0	4.8
-v4_c12_i5.cnf	true	506	0	212	0	212	0	0	5.9
-v4_c12_i6.cnf	true	473	0	243	0	243	0	0	4.9
-v5_c20_i1.cnf	true	534	0	262	0	262	0	0	14.9
-v5_c20_i2.cnf	false	586	0	270	0	270	0	0	10.4
-v5_c20_i3.cnf	true	558	0	267	0	267	0	0	20.0
-v5_c20_i4.cnf	true	531	0	250	0	250	0	0	19.5
-v5_c20_i5.cnf	true	567	0	268	0	268	0	0	15.4
-v5_c20_i6.cnf	true	581	0	292	0	292	0	0	13.0
-v6_c26_i1.cnf	false	645	0	334	0	334	0	0	27.0
-v6_c26_i2.cnf	true	634	0	281	0	281	0	0	28.2
-v6_c26_i3.cnf	true	611	0	327	0	327	0	0	41.8
-v6_c26_i4.cnf	true	639	0	290	0	290	0	0	52.2
-v6_c26_i5.cnf	true	680	0	331	0	331	0	0	55.8
-v6_c26_i6.cnf	false	636	0	296	0	296	0	0	16.9
-set011221_1951_i0_v5_c20.cnf	true	569	0	316	0	316	0	0	22.6
-set011221_1951_i10_v5_c20.cnf	true	551	0	254	0	254	0	0	14.8
-set011221_1951_i11_v5_c20.cnf	true	564	0	259	0	259	0	0	16.0
-set011221_1951_i12_v5_c20.cnf	true	611	0	263	0	263	0	0	19.7
-set011221_1951_i13_v5_c20.cnf	true	601	0	294	0	294	0	0	18.6
-set011221_1951_i14_v5_c20.cnf	true	602	0	282	0	282	0	0	23.9
-set011221_1951_i15_v5_c20.cnf	false	594	0	266	0	266	0	0	14.3
-set011221_1951_i16_v5_c20.cnf	true	596	0	272	0	272	0	0	11.3
-set011221_1951_i17_v5_c20.cnf	true	579	0	259	0	259	0	0	18.9
-set011221_1951_i18_v5_c20.cnf	true	591	0	279	0	279	0	0	25.7
+instance	truth	in_t	in_f	sp_t	sp_f	jin_t	jin_f	s2_t	s2_f	s2_both	trunc	secs
+clause_mix.cnf	true	589	0	281	0	281	0	281	0	148	0	6.2
+clause_mix_sep.cnf	true	767	0	308	0	308	0	308	0	171	0	8.6
+force_chain.cnf	true	459	0	218	0	218	0	218	0	91	0	1.5
+force_first.cnf	true	371	0	159	0	159	0	159	0	76	0	0.5
+force_last.cnf	true	345	0	168	0	168	0	168	0	63	0	0.5
+unique_sol.cnf	true	366	0	176	0	176	0	176	0	71	0	0.8
+xor3.cnf	true	362	0	180	0	180	0	180	0	48	0	0.6
+xor_pair.cnf	true	466	0	262	0	262	0	262	0	98	0	3.0
+basic_v3_c1.cnf	true	269	0	91	0	91	0	91	0	37	0	0.1
+bin_v3_c2.cnf	true	334	0	150	0	150	0	150	0	58	0	0.2
+complete_v3.cnf	true	342	0	143	0	143	0	143	0	59	0	0.3
+rand3sat_v4_c20.cnf	true	486	0	229	0	229	0	229	0	78	0	9.8
+rand3sat_v8_c10.cnf	true	842	0	422	0	422	0	422	0	216	0	30.7
+simple3sat_v3_c2.cnf	true	413	0	155	0	155	0	155	0	73	0	0.5
+v4_c12_i1.cnf	true	464	0	235	0	235	0	235	0	85	0	5.0
+v4_c12_i2.cnf	true	501	0	234	0	234	0	234	0	94	0	4.1
+v4_c12_i3.cnf	true	496	0	258	0	258	0	258	0	84	0	7.7
+v4_c12_i4.cnf	true	506	0	182	0	182	0	182	0	73	0	5.3
+v4_c12_i5.cnf	true	506	0	212	0	212	0	212	0	84	0	6.5
+v4_c12_i6.cnf	true	473	0	243	0	243	0	243	0	107	0	5.7
+v5_c20_i1.cnf	true	534	0	262	0	262	0	262	0	115	0	17.2
+v5_c20_i2.cnf	false	586	0	270	0	270	0	270	0	107	0	12.0
+v5_c20_i3.cnf	true	558	0	267	0	267	0	267	0	118	0	22.4
+v5_c20_i4.cnf	true	531	0	250	0	250	0	250	0	97	0	21.4
+v5_c20_i5.cnf	true	567	0	268	0	268	0	268	0	90	0	17.1
+v5_c20_i6.cnf	true	581	0	292	0	292	0	292	0	118	0	14.5
+v6_c26_i1.cnf	false	645	0	334	0	334	0	334	0	156	0	26.5
+v6_c26_i2.cnf	true	634	0	281	0	281	0	281	0	109	0	27.7
+v6_c26_i3.cnf	true	611	0	327	0	327	0	327	0	150	0	44.2
+v6_c26_i4.cnf	true	639	0	290	0	290	0	290	0	137	0	57.5
+v6_c26_i5.cnf	true	680	0	331	0	331	0	331	0	145	0	61.2
+v6_c26_i6.cnf	false	636	0	296	0	296	0	296	0	128	0	17.6
+set011221_1951_i0_v5_c20.cnf	true	569	0	316	0	316	0	316	0	128	0	23.9
+set011221_1951_i10_v5_c20.cnf	true	551	0	254	0	254	0	254	0	91	0	15.9
+set011221_1951_i11_v5_c20.cnf	true	564	0	259	0	259	0	259	0	97	0	16.6
+set011221_1951_i12_v5_c20.cnf	true	611	0	263	0	263	0	263	0	118	0	18.2
+set011221_1951_i13_v5_c20.cnf	true	601	0	294	0	294	0	294	0	125	0	16.4
+set011221_1951_i14_v5_c20.cnf	true	602	0	282	0	282	0	282	0	104	0	20.4
+set011221_1951_i15_v5_c20.cnf	false	594	0	266	0	266	0	266	0	138	0	12.8
+set011221_1951_i16_v5_c20.cnf	true	596	0	272	0	272	0	272	0	120	0	10.4
+set011221_1951_i17_v5_c20.cnf	true	579	0	259	0	259	0	259	0	109	0	17.4
+set011221_1951_i18_v5_c20.cnf	true	591	0	279	0	279	0	279	0	103	0	27.6
