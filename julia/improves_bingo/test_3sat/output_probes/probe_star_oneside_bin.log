@@ -1,1 +1,1 @@
-run_capped: reason=exit peak_footprint_mb=822 code=0 elapsed_s=216
+run_capped: reason=exit peak_footprint_mb=811 code=0 elapsed_s=223

@@ -8,7 +8,11 @@
 #   stars / both (t en los dos lados) / np (parejas que no son de L) / nf (sin paso sin testigo: StarOneSide falla)
 #   dónde está el paso sin testigo (una pareja puede contar en varios): at_k (el paso del remitente k = T-2), above (por
 #   encima del extremo más alto), between (entre los dos extremos), below (por debajo del más bajo); hi_is_k: el extremo
-#   más alto está en k
+#   más alto está en k; at_hm1 / at_hp1: libre en el paso de los padres del más alto (hi-1) / justo encima (hi+1);
+#   same: los dos en el mismo paso. nfreeL / nfree: pasos libres con aristas de L / de la unión; all_help0: parejas en
+#   las que las aristas de fuera de L no ayudan en ningún paso libre de L; helped: pasos libres de L que la unión llena;
+#   help_edges: aristas de fuera de L usadas por esos testigos. Padres (en L) del más alto: nopar (ninguno vivo), par_L (alguno posee al otro en L),
+#   par_u (alguno lo posee en la unión), par_in_S (alguno está en la estrella)
 
 const OUT = abspath(ARGS[1])
 include(joinpath(@__DIR__, "..", "src/main.jl"))
@@ -53,6 +57,37 @@ function on_join_post(u)
                 any(l -> lo < l < hi, free) && bump(:between)
                 any(l -> l < lo, free) && bump(:below)
                 (hi == k) && bump(:hi_is_k)
+                # pasos libres usando solo aristas de L (testigos en S): contienen a los libres en u
+                freeL = [l for l in 0:u.current_step-1 if
+                         all(r -> !(PG.has_edge(L.og, y, r) && PG.has_edge(L.og, w, r)), get(byl, l, PathNodeId[]))]
+                bump(:nfreeL, length(freeL)); bump(:nfree, length(free))
+                all(l -> l in free, freeL) && bump(:all_help0)     # las aristas del otro lado no ayudan en ningún paso
+                # los pasos donde el otro lado sí ayuda: el testigo nuevo usa una arista de fuera de L con y o con w
+                for l in freeL
+                    l in free && continue
+                    bump(:helped)
+                    rs = [r for r in get(byl, l, PathNodeId[]) if PG.has_edge(og, y, r) && PG.has_edge(og, w, r)]
+                    # ¿la arista de fuera de L del testigo es a su vez una pareja fuera de L sin testigos en algún paso?
+                    for r in rs
+                        for (a, b) in ((y, r), (w, r))
+                            PG.has_edge(L.og, a, b) && continue
+                            bump(:help_edges)
+                        end
+                    end
+                end
+                (hi - 1) in free && bump(:at_hm1)
+                (hi + 1) in free && bump(:at_hp1)
+                (lo == hi) && bump(:same)
+                # el más alto de la pareja y sus padres en e (documentos de L): ¿poseen al otro?
+                yh = y.id.step >= w.id.step ? y : w; wl = yh == y ? w : y
+                n = PathCollectionLines.get_node(L.table_lines, yh)
+                if n !== nothing
+                    ps = [q for q in n.parents if PG.is_alive(L.og, q)]
+                    isempty(ps) && bump(:nopar)
+                    any(q -> PG.has_edge(L.og, q, wl), ps) && bump(:par_L)
+                    any(q -> PG.has_edge(og, q, wl), ps) && bump(:par_u)
+                    any(q -> q in S, ps) && bump(:par_in_S)
+                end
             end
         end
     end
@@ -60,7 +95,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:stars, :both, :np, :nf, :at_k, :above, :between, :below, :hi_is_k)
+    cols = (:stars, :both, :np, :nf, :at_k, :above, :between, :below, :hi_is_k, :at_hm1, :at_hp1, :same, :nopar, :par_L, :par_u, :par_in_S, :nfreeL, :nfree, :all_help0, :helped, :help_edges)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
