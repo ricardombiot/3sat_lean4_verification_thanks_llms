@@ -1,0 +1,7 @@
+instance	truth	g_n	g_inval	g_mixedtops	g_edges	g_off	g_oneside	g_b1_t	g_b1_f	r_n	r_inval	r_mixedtops	r_edges	r_off	r_oneside	r_b1_t	r_b1_f	secs
+clause_mix.cnf	true	68	0	0	54212	0	68	102	0	122	558	0	31891	0	122	140	0	2.8
+clause_mix_sep.cnf	true	80	0	0	132424	0	80	114	0	171	629	0	91043	0	171	192	0	2.1
+rand3sat_v8_c10.cnf	true	148	0	0	491118	0	148	242	0	202	1278	0	124612	0	202	235	0	9.6
+v5_c20_i1.cnf	true	164	0	0	191023	0	164	208	0	112	1528	0	25029	0	112	118	0	4.2
+v6_c26_i1.cnf	false	186	0	0	316958	0	186	264	0	158	1702	0	51373	0	158	174	0	7.2
+v7_c30_i1.cnf	false	212	0	0	588841	0	212	306	0	186	1934	0	73440	0	186	209	0	13.9
