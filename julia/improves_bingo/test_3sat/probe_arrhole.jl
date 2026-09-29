@@ -20,14 +20,40 @@ const SENDER = Dict{Any, Any}()
 const ARR = Dict{Any, Any}()
 const REQS = Dict{Any, Any}()
 
+
+Core.eval(PathOwnersGraph, quote
+    const LOGHOOK = Ref{Any}(nothing)
+    function remove_edge!(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId; rule :: Symbol)
+        x == w && return false
+        k = edge_key(x, w)
+        haskey(g.edges, k) || return false
+        e = g.edges[k]
+        delete!(g.edges, k)
+        dx = _drop!(g.inc[x], w)
+        dw = _drop!(g.inc[w], x)
+        Undo.active() && Undo.record!(function ()
+            g.edges[k] = e
+            dx && push!(g.inc[x][step_of(w)], w)
+            dw && push!(g.inc[w][step_of(x)], x)
+        end)
+        REMOVED_BY[rule] = get(REMOVED_BY, rule, 0) + 1
+        LOGHOOK[] === nothing || LOGHOOK[](x, w, rule)
+        return true
+    end
+end)
+const REMOVALS = Dict{Any, Any}()
 Core.eval(GraphPath, quote
     function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
                               prohibited :: Set{PathNodeId} = Set{PathNodeId}())
         key = (gpath.map_parent_id, Int(gpath.current_step))
         haskey($(SENDER), key) || ($(SENDER)[key] = deepcopy(gpath))
         gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
+        log = Dict{Any, Symbol}()
+        PathOwnersGraph.LOGHOOK[] = (x, w, r) -> (log[Set([x, w])] = r)
         filter!(gpath, requires)
         do_up!(gpath, map_id_node, title, prohibited)
+        PathOwnersGraph.LOGHOOK[] = nothing
+        $(REMOVALS)[(map_id_node, key[1], key[2])] = log
         $(ARR)[(map_id_node, key[1], key[2])] = deepcopy(gpath)
         $(REQS)[(map_id_node, key[1], key[2])] = copy(requires)
     end
@@ -100,6 +126,43 @@ function judge_arr(bystep)
         for (y, w) in keys(S.og.edges)
             (y == w || !PG.is_alive(X.og, y) || !PG.is_alive(X.og, w) || PG.has_edge(X.og, y, w)) && continue
             bump(:np)
+            rl = get(get(REMOVALS, (D, sk, k), Dict()), Set([y, w]), :none)
+            # apoyo de la pareja añadida en X: padres/hijos de y poseídos por w y al revés
+            function supp(a, b)
+                nd = PathCollectionLines.get_node(X.table_lines, a)
+                nd === nothing && return false
+                okp = Int(a.id.step) < 1 || any(p -> PG.has_edge(X.og, a, p) && PG.has_edge(X.og, p, b), nd.parents)
+                oks = Int(a.id.step) + 1 >= Int(X.current_step) || any(q -> PG.has_edge(X.og, a, q) && PG.has_edge(X.og, q, b), nd.sons)
+                okp && oks
+            end
+            (supp(y, w) && supp(w, y)) ? bump(:supp_ok) : bump(:supp_fail)
+            # hueco con las aristas de la propia X (lo que da la contradicción)
+            any(0:k) do l
+                (l == Int(y.id.step) || l == Int(w.id.step)) && return false
+                all(r -> Int(r.id.step) != l || !(PG.has_edge(X.og, y, r) && PG.has_edge(X.og, w, r)), AX)
+            end && bump(:hole_own)
+            rl in (:pair, :none) ? bump(Symbol("rule_", rl)) : (bump(:rule_other); println(stderr, "RULE ", rl))
+            Sp = [E for E in values(es) if E !== S]
+            hS(l) = all(r -> Int(r.id.step) != l || !(PG.has_edge(S.og, y, r) && PG.has_edge(S.og, w, r)), AX)
+            hF(l) = all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), AX)
+            HS = [l for l in 0:k-1 if hS(l)]
+            all(hF, HS) && bump(:sholes_full)
+            # en los pasos del hueco de S que no son hueco completo: ¿quién tapa?
+            for l in HS
+                hF(l) && continue
+                bump(:blk)
+                for r in AX
+                    Int(r.id.step) == l || continue
+                    (adjK(y, r) && adjK(w, r)) || continue
+                    sy = PG.has_edge(S.og, y, r); sw = PG.has_edge(S.og, w, r)
+                    oy = any(E -> PG.has_edge(E.og, y, r), Sp); ow = any(E -> PG.has_edge(E.og, w, r), Sp)
+                    (oy && ow) ? bump(:blk_oo) : bump(:blk_mix)
+                    # ¿y, w, r vivos en la otra entrada?
+                    all(E -> PG.is_alive(E.og, y) && PG.is_alive(E.og, w), Sp) && bump(:blk_yw_in_o)
+                    # ¿la otra entrada tiene la arista y–w?
+                    any(E -> PG.has_edge(E.og, y, w), Sp) && bump(:blk_o_has_yw)
+                end
+            end
             hol(adj) = any(0:k-1) do l
                 all(r -> Int(r.id.step) != l || !(adj(y, r) && adj(w, r)), AX)
             end
@@ -112,13 +175,13 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :hole, :holeS, :holeArr, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :supp_ok, :supp_fail, :hole_own, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C); empty!(SENDER); empty!(ARR); empty!(REQS)
+        empty!(C); empty!(SENDER); empty!(ARR); empty!(REMOVALS); empty!(REQS)
         machine = SatMachine.new(loader(path))
         t = @elapsed begin
             redirect_stdout(devnull) do
