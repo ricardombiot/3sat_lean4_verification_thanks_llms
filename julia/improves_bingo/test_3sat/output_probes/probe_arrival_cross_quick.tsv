@@ -1,0 +1,5 @@
+instance	truth	arrivals	xc_np	xc_nf	xc_abs	xc_rem	xc_nf_abs	xc_nf_rem	np	nf	secs
+clause_mix.cnf	true	84	1008	4	614	394	4	0	447	0	0.6
+clause_mix_sep.cnf	true	102	2614	16	1538	1076	16	0	1145	0	0.7
+rand3sat_v8_c10.cnf	true	168	10952	0	6820	4132	0	0	4136	0	4.1
+v5_c20_i1.cnf	true	211	1512	0	976	536	0	0	713	0	1.9
