@@ -39,6 +39,7 @@ import AbsSatBingo.Model.AvoidSplit
 import AbsSatBingo.Model.SecIn
 import AbsSatBingo.Model.SecSplitInParts
 import AbsSatBingo.Model.NodeIn
+import AbsSatBingo.Model.CliqueSplit
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
