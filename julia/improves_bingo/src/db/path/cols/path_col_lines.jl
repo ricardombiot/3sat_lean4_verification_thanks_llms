@@ -18,6 +18,13 @@ module PathCollectionLines
         PathColLines(table, is_valid)
     end
 
+    function copy_lines(col_lines :: PathColLines) :: PathColLines
+        table = copy(col_lines.table);  map!(PathCollectionNodes.copy_line, values(table))
+        return PathColLines(table, col_lines.is_valid)
+    end
+
+    Base.deepcopy_internal(col :: PathColLines, stackdict :: IdDict) = get!(() -> copy_lines(col), stackdict, col)
+
     function union!(col_lines :: PathColLines, col_lines_b :: PathColLines)
         #! [for] $ O(S) $
         for (step, col_nodes_b) in col_lines_b.table
@@ -26,7 +33,7 @@ module PathCollectionLines
             if col_nodes != nothing
                 PathCollectionNodes.union!(col_nodes, col_nodes_b)
             else
-                col_lines.table[step] = deepcopy(col_nodes_b)
+                col_lines.table[step] = PathCollectionNodes.copy_line(col_nodes_b)
             end
         end
     end

@@ -19,6 +19,13 @@ module PathCollectionNodes
         PathColNodesLine(step, table, node_ids, count, is_valid)
     end
 
+    function copy_line(col :: PathColNodesLine) :: PathColNodesLine
+        table = copy(col.table);  map!(PathDocumentNode.copy_node, values(table))
+        return PathColNodesLine(col.step, table, copy(col.node_ids), col.count, col.is_valid)
+    end
+
+    Base.deepcopy_internal(col :: PathColNodesLine, stackdict :: IdDict) = get!(() -> copy_line(col), stackdict, col)
+
     function union!(col_nodes :: PathColNodesLine, col_nodes_b :: PathColNodesLine)
         #! [for] $ O(7*7) $
         for (path_node_id, node_b) in col_nodes_b.table
@@ -27,7 +34,7 @@ module PathCollectionNodes
             if node != nothing
                 PathDocumentNode.union!(node, node_b)
             else
-                node_copy = deepcopy(node_b)
+                node_copy = PathDocumentNode.copy_node(node_b)
                 push_node!(col_nodes, node_copy)
             end
         end

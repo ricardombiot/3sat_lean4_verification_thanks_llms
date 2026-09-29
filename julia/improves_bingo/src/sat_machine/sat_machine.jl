@@ -107,7 +107,7 @@ module SatMachine
         title = map_node_destine.title
         requires = map_node_destine.requires
 
-        gpath = deepcopy(inmutable_gpath)
+        gpath = GraphPath.copy_gpath(inmutable_gpath)
         GraphPath.do_up_filtering!(gpath, requires, id_destine, title, map_prohibited(machine.gmap))
 
         if gpath.is_valid

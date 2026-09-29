@@ -44,6 +44,11 @@ module PathDocumentNode
         add_son!(node_parent, node_son.id)
     end
 
+    # Copia por estructura: los ids y el título son inmutables, solo se copian los conjuntos.
+    copy_node(node :: PathDocNode) :: PathDocNode = PathDocNode(node.id, node.title, copy(node.parents), copy(node.sons))
+
+    Base.deepcopy_internal(node :: PathDocNode, stackdict :: IdDict) = get!(() -> copy_node(node), stackdict, node)
+
     function union!(node :: PathDocNode, node_b :: PathDocNode)
         if node.id == node_b.id
             Base.union!(node.parents, node_b.parents)

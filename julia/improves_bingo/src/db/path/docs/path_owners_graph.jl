@@ -229,11 +229,15 @@ module PathOwnersGraph
     # ---------- copia ----------
     # El grafo solo guarda ids (inmutables) en Dicts y Sets, sin referencias cruzadas: se copia por
     # estructura, sin el IdDict del deepcopy genérico. Es la copia de cada UP (sat_machine.jl, send_to_destine!).
+    # Los Dict se copian enteros (sin volver a hashear) y luego se sustituyen sus valores en su sitio con map!.
     function copy_graph(g :: OwnersGraph) :: OwnersGraph
-        alive = Dict{Step, SetPathNodesId}(k => copy(v) for (k, v) in g.alive)
-        edges = Dict{EdgeKey, Edge}(k => Edge(e.a, e.b, e.born, tags_on() ? copy(e.tags) : EMPTY_TAGS) for (k, e) in g.edges)
-        inc = Dict{PathNodeId, Inc}(x => Inc(s => copy(ws) for (s, ws) in r) for (x, r) in g.inc)
-        ntags = Dict{PathNodeId, Tags}(x => copy(t) for (x, t) in g.ntags)
+        alive = copy(g.alive);  map!(copy, values(alive))
+        edges = copy(g.edges);  map!(e -> Edge(e.a, e.b, e.born, tags_on() ? copy(e.tags) : EMPTY_TAGS), values(edges))
+        inc = copy(g.inc)
+        map!(values(inc)) do r
+            r2 = copy(r); map!(copy, values(r2)); r2
+        end
+        ntags = copy(g.ntags);  map!(copy, values(ntags))
         return OwnersGraph(alive, edges, inc, g.nsteps, g.valid, ntags, g.krows)
     end
 
