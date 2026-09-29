@@ -288,6 +288,54 @@ theorem readerVerdict_iff_of_senders2 (hbd : Bounded φ) (H : HypsSenders2 φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
   readerVerdict_iff_of_senders hbd ⟨H.b1, H.cross, H.gap, fun n _ _ _ hp => d2_of_pair hbd (n := n) hp⟩
 
+/-- **ArrivalGap**: si la llegada `X` quita una pareja que su remitente `S` tenía (y conserva a los dos nodos), hay un
+paso en el que ningún vivo de `X` es testigo común de la pareja por las posesiones `E`. Medido
+(`probe_arrival_gap.jl`, sonda rápida): 6 441 parejas quitadas, 0 fallos con `E` = las aristas de todas las llegadas
+del paso. -/
+def ArrivalGap (S X : GPathB) (E : PathNodeId → PathNodeId → Prop) : Prop :=
+  ∀ y w, y ∈ X.alive → w ∈ X.alive → S.Adj y w → ¬ X.Adj y w →
+    ∃ l, 0 ≤ l ∧ l < X.current_step ∧ ∀ r, r ∈ X.alive → r.id.step = l → ¬ (E y r ∧ E w r)
+
+/-- **`GapDead` ⇐ `ArrivalGap`** con las aristas de las dos llegadas. -/
+theorem gapDead_of_arrivalGap {A e g u : GPathB} (hu : ∀ {a b}, u.Adj a b → e.Adj a b ∨ g.Adj a b)
+    (hcs : u.current_step = e.current_step) (heaE : EdgesAlive e) (heaG : EdgesAlive g)
+    (hD2 : ∀ t, t ∈ e.alive → t.id.step = e.current_step - 1 → t ∉ g.alive)
+    (hAG : ArrivalGap A e (fun a b => e.Adj a b ∨ g.Adj a b)) : GapDead A e g u := by
+  intro t hte hts y w hty htw _ hne hA
+  have htg := hD2 t hte (by rw [hts, hcs])
+  have hin : ∀ {z}, u.Adj t z → z ∈ e.alive := by
+    intro z h
+    rcases hu h with h | h
+    · exact (heaE t z h).2
+    · exact absurd (heaG t z h).1 htg
+  obtain ⟨l, h0, h1, hl⟩ := hAG y w (hin hty) (hin htw) hA hne
+  exact ⟨l, h0, by rw [hcs]; exact h1, fun r hr hrl hyr => hl r hr hrl ⟨hu hyr.1, hu hyr.2⟩⟩
+
+/-- Una llegada válida tiene las posesiones entre vivos (desde su remitente). -/
+theorem edgesAlive_arr (hbd : Bounded φ) {n : Nat} {kv : NodeId × GPathB} (hkv : kv ∈ steps φ n (init φ))
+    {d : NodeId} (hv : (arr φ kv d).isValid = true) : EdgesAlive (arr φ kv d) := by
+  obtain ⟨_, hent, _, _, _⟩ := line_facts hbd n
+  have hea : EdgesAlive kv.2 := (hent kv hkv).1.2.1
+  rw [arr_eq hv, review_eq_filterAll]
+  exact revPrims_filterAll revPrims_edgesAlive _ _
+    (edgesAlive_addNode (revPrims_filterAll revPrims_edgesAlive _ _ hea))
+
+/-- **Las hipótesis**: B1 en los joins, y `CrossAt` y `ArrivalGap` sobre pares de remitentes. -/
+structure HypsSenders3 (φ : Cnf) : Prop where
+  b1 : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInvC e → SInvC g → okJoin e g = true →
+    StarNodes (join e g)
+  cross : ∀ n kvA kvB d, SenderPair φ n kvA kvB d → ∀ t, t ∈ (kvA.2.filterAll (reqOf φ d)).newRowIds d (isProhibited φ) →
+    CrossAt kvA.2 kvB.2 (GroupStar kvA.2 (kvA.2.filterAll (reqOf φ d)) d t)
+  agap : ∀ n kvA kvB d, SenderPair φ n kvA kvB d →
+    ArrivalGap kvA.2 (arr φ kvA d) (fun a b => (arr φ kvA d).Adj a b ∨ (arr φ kvB d).Adj a b)
+
+/-- **El veredicto del lector bajo B1, `CrossAt` y `ArrivalGap`.** -/
+theorem readerVerdict_iff_of_senders3 (hbd : Bounded φ) (H : HypsSenders3 φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_senders2 hbd ⟨H.b1, H.cross, fun n kvA kvB d hp =>
+    gapDead_of_arrivalGap adj_join_cases rfl (edgesAlive_arr hbd hp.1 hp.2.2.2.2.2.1)
+      (edgesAlive_arr hbd hp.2.1 hp.2.2.2.2.2.2) (d2_of_pair hbd hp) (H.agap n kvA kvB d hp)⟩
+
 end SecLine
 
 end AbsSatBingo.Model
