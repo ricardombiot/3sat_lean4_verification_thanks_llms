@@ -149,7 +149,42 @@ function spine!(V, pre)
                 (w1, w2) = (ws[i], ws[j])
                 (Int(w1.id.step) == Int(w2.id.step) || !adj(w1, w2)) && continue
                 bump(Symbol(pre, "pt_n"))
-                any(p -> adj(p, w1) && adj(p, w2), ps) || bump(Symbol(pre, "pt_fail"))
+                okp = any(p -> adj(p, w1) && adj(p, w2), ps)
+                okp || bump(Symbol(pre, "pt_fail"))
+                tops = [t for t in get(bystep, top, PathNodeId[]) if adj(t, x) && adj(t, w1) && adj(t, w2)]
+                if !isempty(tops)
+                    bump(Symbol(pre, "pt_top_n")); okp || bump(Symbol(pre, "pt_top_fail"))
+                end
+                # descendientes de x por hijos (documentos de V, poseídos), y cadena común
+                function desc(z)
+                    D = Set{PathNodeId}(); todo = [z]
+                    while !isempty(todo)
+                        a = pop!(todo)
+                        nd = PathCollectionLines.get_node(V.table_lines, a)
+                        nd === nothing && continue
+                        for s2 in nd.sons
+                            (s2 in AV && adj(a, s2) && !(s2 in D)) || continue
+                            push!(D, s2); push!(todo, s2)
+                        end
+                    end
+                    D
+                end
+                Dx = desc(x)
+                onchain = (w1 in Dx && w2 in Dx) && (w2 in desc(w1) || w1 in desc(w2))
+                if onchain
+                    bump(Symbol(pre, "pt_chain_n")); okp || bump(Symbol(pre, "pt_chain_fail"))
+                end
+                if !okp
+                    (w1 in Dx) && bump(Symbol(pre, "pt_fail_w1desc"))
+                    (w1 in Dx && w2 in Dx) && bump(Symbol(pre, "pt_fail_bothdesc"))
+                end
+                if !okp
+                    # ¿está el triángulo en alguna camarilla completa?
+                    C0 = Dict(Int(x.id.step) => x, Int(w1.id.step) => w1, Int(w2.id.step) => w2)
+                    EXH[] = false
+                    inq = dfs(C0, Ref(5000))
+                    inq ? bump(Symbol(pre, "pt_fail_inclique")) : (EXH[] ? bump(Symbol(pre, "pt_fail_budget")) : bump(Symbol(pre, "pt_fail_dead")))
+                end
             end
         end
         for w in AV
@@ -464,7 +499,7 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = Symbol[]
-    for pre in ("u_", "r_"), c in ("pairs", "st_full", "st_stuck", "st_zero", "forced_steps", "all_steps", "stuck_clique", "stuck_noclique", "stuck_budget", "g_cands", "g_bad", "g_pair_bad", "g_first_ok", "g_first_dead", "c_rel", "c_norel", "c_isolated", "g_docpath", "g_nodocpath", "f_docpath", "f_nodocpath", "h_twopar", "h_threepar", "pt_n", "pt_fail", "h_up_n", "h_up_fail", "h_up_fail_two", "h_dn_n", "h_dn_fail", "h_dn_none")
+    for pre in ("u_", "r_"), c in ("pairs", "st_full", "st_stuck", "st_zero", "forced_steps", "all_steps", "stuck_clique", "stuck_noclique", "stuck_budget", "g_cands", "g_bad", "g_pair_bad", "g_first_ok", "g_first_dead", "c_rel", "c_norel", "c_isolated", "g_docpath", "g_nodocpath", "f_docpath", "f_nodocpath", "h_twopar", "h_threepar", "pt_n", "pt_fail", "pt_top_n", "pt_top_fail", "pt_chain_n", "pt_chain_fail", "pt_fail_w1desc", "pt_fail_bothdesc", "pt_fail_inclique", "pt_fail_dead", "pt_fail_budget", "h_up_n", "h_up_fail", "h_up_fail_two", "h_dn_n", "h_dn_fail", "h_dn_none")
         push!(cols, Symbol(pre, c))
     end
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
