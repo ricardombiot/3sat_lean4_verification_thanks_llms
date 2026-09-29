@@ -58,6 +58,34 @@ function star_check(V, pre)
         end
         AW = alive(W)
         issubset(S, AW) || bump(Symbol(pre, "_lostnode"))
+        # testigos fuera de la estrella en las parejas cortadas
+        if pre == "sib" || pre == "sibr"
+            others = [q for q in alive_at(V, top) if q != t]
+            nd = PathCollectionLines.get_node(V.table_lines, t)
+            pars = nd === nothing ? PathNodeId[] : [p for p in nd.parents if PG.is_alive(V.og, p) && PG.has_edge(V.og, t, p)]
+            for (a, b) in keys(V.og.edges)
+                (a == b || !(a in S) || !(b in S) || a == t || b == t) && continue
+                PG.has_edge(W.og, a, b) && continue
+                bump(Symbol(pre, "_cut"))
+                for l in 0:top-1
+                    wit = [r for r in alive_at(V, l) if (r == a || PG.has_edge(V.og, a, r)) && (r == b || PG.has_edge(V.og, b, r))]
+                    any(r -> r in S, wit) && continue
+                    for r in wit
+                        bump(Symbol(pre, "_w"))
+                        any(p -> r == p || PG.has_edge(V.og, r, p), pars) ? bump(Symbol(pre, "_w_parown")) : bump(Symbol(pre, "_w_noparown"))
+                        any(q -> PG.has_edge(V.og, r, q), others) && bump(Symbol(pre, "_w_instar2"))
+                        # color del abuelo de t: ¿r posee algún nodo de ese color en el paso del abuelo?
+                        if t.gparent_id !== nothing
+                            gp = t.gparent_id
+                            gpl = Int(gp.step)
+                            hasgp = any(q -> q.id == gp && (q == r || PG.has_edge(V.og, r, q)), alive_at(V, gpl))
+                            hasgp || bump(Symbol(pre, "_w_nogp"))
+                        end
+                    end
+                    break
+                end
+            end
+        end
         all(z -> z == t || (z in AW && PG.has_edge(W.og, z, t)), S) || bump(Symbol(pre, "_lostedge"))
     end
 end
@@ -86,7 +114,7 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:entries, :multigroup, :sib_two, :whole_t, :whole_inval, :whole_lostnode, :whole_lostedge,
-            :sib_t, :sib_inval, :sib_lostnode, :sib_lostedge, :sibr_t, :sibr_inval, :sibr_lostnode, :sibr_lostedge,
+            :sib_t, :sib_inval, :sib_lostnode, :sib_lostedge, :sib_cut, :sib_w, :sib_w_parown, :sib_w_noparown, :sib_w_instar2, :sib_w_nogp, :sibr_t, :sibr_inval, :sibr_lostnode, :sibr_lostedge, :sibr_cut, :sibr_w, :sibr_w_parown, :sibr_w_noparown, :sibr_w_instar2, :sibr_w_nogp,
             :final_t, :final_inval, :final_lostnode, :final_lostedge)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
