@@ -1,0 +1,5 @@
+instance	truth	nosender	np	abs	two_par	one_par	inh	inh_all	split	split_free	sp_at_k	sp_at_k1	sp_at_k2	sp_ids_k1	secs
+clause_mix.cnf	true	0	422	414	307	320	320	320	94	94	94	94	94	0	2.4
+clause_mix_sep.cnf	true	0	1398	1342	777	1136	1136	1136	206	206	206	206	206	0	0.5
+rand3sat_v8_c10.cnf	true	0	2914	2886	2352	1594	1594	1594	1292	1292	1292	685	958	0	2.5
+v5_c20_i1.cnf	true	0	352	350	191	183	183	183	167	167	167	143	152	0	1.4
