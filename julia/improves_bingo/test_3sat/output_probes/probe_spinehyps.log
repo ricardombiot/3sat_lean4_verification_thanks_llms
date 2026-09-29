@@ -1,0 +1,1 @@
+STUCK pins=2 top=PathNodeId((step = 24, index = 1), (step = 25, index = 1), (step = 26, index = 0)) at_step=18 of 26 prior_choices=3 other_choices_ok=true n_tops=2 live_parents_last=2
