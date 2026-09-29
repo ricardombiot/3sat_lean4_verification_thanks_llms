@@ -7,9 +7,7 @@ function filter!(gpath :: GPath, requires :: SetNodesId)
     make_review_owners!(gpath)
 end
 
-# Contador de vueltas del review (solo para medir; no cambia nada). Heredado: lo usan measure_bingo y dump_final;
-# los probes nuevos usan el punto de sonda :review_round.
-const REVIEW_ROUNDS = Ref(0)
+# Las vueltas del review se miden con el punto de sonda :review_round (src/utils/probes.jl).
 
 # Comprobación de los invariantes del grafo de owners al final de cada review (plan
 # docs/plans/graph_owners.md, F2). Solo para tests y diferenciales: con :on es lento.
@@ -18,7 +16,6 @@ const CHECK_OG = Ref(:off)
 function make_review_owners!(gpath :: GPath)
     #! [recursive-if] $ O(S*7*7) $
     if gpath.is_valid && gpath.review_owners
-        REVIEW_ROUNDS[] += 1
         @probe :review_round gpath
         gpath.review_owners = false
         clean_invalid_nodes!(gpath)

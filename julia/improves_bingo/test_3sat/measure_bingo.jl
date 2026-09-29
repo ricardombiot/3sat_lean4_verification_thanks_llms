@@ -21,6 +21,10 @@ const OUT = abspath(ARGS[2])
 const VARIANT = length(ARGS) >= 3 ? ARGS[3] : "plain"
 include(joinpath(ROOT, "src/main.jl"))
 
+# improves_bin no tiene puntos de sonda: allí las vueltas salen de su contador global.
+const PROBES = isdefined(AbsSat, :Probes)
+PROBES && @eval using .AbsSat.Probes
+
 const GRAPH = isdefined(GraphPath, :owners_table)
 
 if VARIANT == "copy"
@@ -76,11 +80,19 @@ end
 
 function timed_run(path)
     machine = SatMachine.new(GraphMap.load_import!(path))
-    GraphPath.REVIEW_ROUNDS[] = 0
-    st = @timed redirect_stdout(devnull) do
+    run() = redirect_stdout(devnull) do
         SatMachine.run!(machine)
     end
-    return st, GraphPath.REVIEW_ROUNDS[], SatMachine.have_solution(machine)
+    if PROBES
+        Probes.reset!()
+        st = @timed Probes.with(run, :review_round => _ -> Probes.bump!(:rounds))
+        rounds = Probes.counted(:rounds)
+    else
+        GraphPath.REVIEW_ROUNDS[] = 0
+        st = @timed run()
+        rounds = GraphPath.REVIEW_ROUNDS[]
+    end
+    return st, rounds, SatMachine.have_solution(machine)
 end
 
 function main()

@@ -16,6 +16,10 @@ const ROOT = abspath(ARGS[1])
 const OUT = abspath(ARGS[2])
 include(joinpath(ROOT, "src/main.jl"))
 
+# improves_bin no tiene puntos de sonda: allí las vueltas salen de su contador global.
+const PROBES = isdefined(AbsSat, :Probes)
+PROBES && @eval using .AbsSat.Probes
+
 const GRAPH = isdefined(GraphPath, :owners_table)
 
 function corpus()
@@ -74,18 +78,24 @@ function main()
         for path in corpus()
             name = basename(path)
             tr = truth(path)
-            GraphPath.REVIEW_ROUNDS[] = 0
             local machine, t
             try
                 machine = SatMachine.new(GraphMap.load_import!(path))
-                t = @elapsed redirect_stdout(devnull) do
+                run() = redirect_stdout(devnull) do
                     SatMachine.run!(machine)
+                end
+                if PROBES
+                    Probes.reset!()
+                    t = @elapsed Probes.with(run, :review_round => _ -> Probes.bump!(:rounds))
+                else
+                    GraphPath.REVIEW_ROUNDS[] = 0
+                    t = @elapsed run()
                 end
             catch e
                 println(sio, "$name\t$(something(tr, "?"))\tERROR\t\t\t\t")
                 continue
             end
-            rounds = GraphPath.REVIEW_ROUNDS[]
+            rounds = PROBES ? Probes.counted(:rounds) : GraphPath.REVIEW_ROUNDS[]
             sat = SatMachine.have_solution(machine)
             sols = String[]
             sols_ok = true

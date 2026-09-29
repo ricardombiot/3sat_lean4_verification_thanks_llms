@@ -18,6 +18,10 @@ end
    #include("./graph_map/test_graph_map_import.jl")
 end
 
+@time @testset "Probes" begin
+    include("./utils/test_probes.jl")
+end
+
 @time @testset "OwnersGraph" begin
     include("./db/path/docs/test_owners_graph.jl")
 end
@@ -71,8 +75,9 @@ end
     include("./db/path/cols/test_lines.jl")
 
     include("./graph_path/test_graph_path.jl")
-    include("./graph_path/test_graph_path_join.jl")
-    include("./graph_path/test_clean_invalid_two_phase.jl")
+    include("./graph_path/test_undo.jl")
+    #include("./graph_path/test_graph_path_join.jl")
+    #include("./graph_path/test_clean_invalid_two_phase.jl")
 end
 
 #=

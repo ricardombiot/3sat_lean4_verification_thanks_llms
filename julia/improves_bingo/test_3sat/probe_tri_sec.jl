@@ -76,7 +76,7 @@ tri_bad(og) = [(e.a, e.b) for e in values(og.edges) if !tri_edge_ok(og, e.a, e.b
 Core.eval(GraphPath, quote
     function base_review!(gpath :: GPath)
         if gpath.is_valid && gpath.review_owners
-            REVIEW_ROUNDS[] += 1
+            @probe :review_round gpath
             gpath.review_owners = false
             clean_invalid_nodes!(gpath)
             PAIR_MODE[] == :on && pair_consistency_after_clean!(gpath)
