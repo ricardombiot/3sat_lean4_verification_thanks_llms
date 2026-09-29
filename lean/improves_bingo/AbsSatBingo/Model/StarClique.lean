@@ -87,6 +87,57 @@ theorem readerVerdict_iff_of_starClique {φ : Cnf} (hbd : Bounded φ) (H : HypsS
     starJoinDown_of_starClique (he.step.trans hg.step.symm) (by rw [he.step]; omega)
       hke.1.1.2.2.2.1 hkg.1.1.2.2.2.1 ht.1 ht.2, H.side⟩
 
+/-- **`StarJoinDown` ⟹ `NodeSplitIn`**: un nodo `x` de una estructura de la unión tiene una cima testigo `t`
+(regla de parejas); la estructura del lado que da `StarJoinDown` para `x` y `t` vive dentro de `V`, así que concuerda
+con `P`. No hace falta `SideEdgesAt`. -/
+theorem nodeSplitIn_of_starJoinDown {e g : GPathB} (hcs : e.current_step = g.current_step)
+    (hpos : 1 ≤ e.current_step) (hjd : StarJoinDown e g) : NodeSplitIn e g := by
+  intro P V R hst ha x hx
+  unfold doJoin at hst
+  split at hst
+  · have hje : (join e g).current_step = e.current_step := rfl
+    obtain ⟨t, hts, hxt, _⟩ := hst.pair (hst.refl hx) (e.current_step - 1) (by omega) (by rw [hje]; omega)
+    obtain ⟨V', R', hside, hxV', _, _, hsub⟩ :=
+      hjd V R hst t (hst.dom hxt).2 (by rw [hts, hje]) x hx hxt
+    have hag : ∀ b ∈ P, SecAgrees V' b := fun b hb y hy hys => ha b hb (hsub y hy) hys
+    rcases hside with h | h
+    · exact Or.inl ⟨V', R', h, hag, hxV', hsub⟩
+    · exact Or.inr ⟨V', R', h, hag, hxV', hsub⟩
+  · exact Or.inl ⟨V, R, hst, ha, hx, fun _ hy => hy⟩
+
+/-- El paso del join con solo `StarJoinDown`. -/
+theorem joinStep_down {U : Int} (hU : 2 ≤ U) {key : NodeId} {e g : GPathB} (he : StateOk U key e)
+    (hg : StateOk U key g) (hke : SInvS e) (hkg : SInvS g) (hjd : StarJoinDown e g) : SInvS (doJoin e g) := by
+  have hcs : e.current_step = g.current_step := he.step.trans hg.step.symm
+  have hsp : NodeSplitIn e g := nodeSplitIn_of_starJoinDown hcs (by rw [he.step]; omega) hjd
+  exact ⟨⟨⟨nodeIn_doJoin hke.1.1.1 hkg.1.1.1 hsp,
+      sInv_doJoin_of (secSplit_of_in (secSplitIn_of_node hsp)) hke.1.1.2 hkg.1.1.2⟩,
+    topsApart_doJoin hke.1.2.1 hkg.1.2.1, topNbr_doJoin hke.1.2.2 hkg.1.2.2⟩,
+    starInv_doJoin hke.2 hkg.2 (fun _ => hjd)⟩
+
+/-- **Una sola hipótesis**: `StarJoinDown` en cada join. -/
+structure HypsDown (φ : Cnf) : Prop where
+  down : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInvS e → SInvS g → StarJoinDown e g
+
+/-- **El veredicto del lector es la satisfacibilidad bajo `StarJoinDown` en los joins**, sin `SideEdgesAt`. -/
+theorem readerVerdict_iff_of_down {φ : Cnf} (hbd : Bounded φ) (H : HypsDown φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_final hbd (fun kv hkv =>
+    let h := run_prov (upProv_S φ)
+      (fun _ hU key _ e g _ he hg hke hkg _ _ _ _ _ => joinStep_down hU he hg hke hkg (H.down _ key e g hU he hg hke hkg))
+      sInvS_initSeed kv hkv
+    ⟨h.1, h.2.1.1.2⟩)
+
+/-- **Una sola hipótesis, en camarillas**: `StarCliqueSide` en los dos lados de cada join. -/
+theorem readerVerdict_iff_of_starCliqueOnly {φ : Cnf} (hbd : Bounded φ)
+    (H : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInvS e → SInvS g →
+      StarCliqueSide (join e g) e ∧ StarCliqueSide (join e g) g) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_down hbd ⟨fun T key e g hT he hg hke hkg =>
+    have ht := H T key e g hT he hg hke hkg
+    starJoinDown_of_starClique (he.step.trans hg.step.symm) (by rw [he.step]; omega)
+      hke.1.1.2.2.2.1 hkg.1.1.2.2.2.1 ht.1 ht.2⟩
+
 end SecLine
 
 end AbsSatBingo.Model
