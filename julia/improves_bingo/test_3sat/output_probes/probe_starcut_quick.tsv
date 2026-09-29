@@ -1,0 +1,6 @@
+instance	truth	r_st	r_nodelost	r_cut_side	r_cut_off	r_fs	r_fs_now	r_fw	r_fw_parent_has	r_fw_hist_incompat	r_fw_notL	k_st	k_nodelost	k_cut_side	k_cut_off	k_fs	k_fs_now	k_fw	k_fw_parent_has	k_fw_hist_incompat	k_fw_notL	secs
+clause_mix.cnf	true	146	0	62	10	62	0	62	30	32	0	102	0	491	0	491	0	491	0	491	0	2.7
+rand3sat_v8_c10.cnf	true	221	0	106	0	106	0	106	44	62	12	242	0	3065	0	3065	0	3234	0	3234	0	8.1
+v5_c20_i1.cnf	true	134	0	0	0	0	0	0	0	0	0	208	0	64	0	64	0	64	0	64	0	3.0
+v6_c26_i1.cnf	false	158	0	15	20	15	0	15	15	0	0	264	0	119	0	119	0	119	0	119	0	5.3
+v7_c30_i1.cnf	false	180	0	0	0	0	0	0	0	0	0	306	0	275	0	275	0	275	0	275	0	10.3
