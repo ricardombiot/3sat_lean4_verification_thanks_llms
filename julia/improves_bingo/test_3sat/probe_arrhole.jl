@@ -56,6 +56,47 @@ function judge_arr(bystep)
         adjK(a, b) = a == b || any(o -> PG.has_edge(o, a, b), ogsK)
         arrD = [Y.og for ((D2, _, k2), Y) in ARR if D2 == D && k2 == k && Y.is_valid]
         adjD(a, b) = a == b || any(o -> PG.has_edge(o, a, b), arrD)
+        # parejas ausentes: y–w de otra entrada del nivel k, no de S, con y, w vivos en X
+        for E in values(es)
+            E === S && continue
+            for (y, w) in keys(E.og.edges)
+                (y == w || PG.has_edge(S.og, y, w) || !PG.is_alive(X.og, y) || !PG.is_alive(X.og, w)) && continue
+                bump(:abs)
+                PG.has_edge(X.og, y, w) && (bump(:abs_inX); continue)
+                hh = any(0:k-1) do l
+                    all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), AX)
+                end
+                hh && bump(:abs_hole)
+                topsX = [q for q in AX if Int(q.id.step) == Int(X.current_step) - 1]
+                if any(q -> PG.has_edge(X.og, y, q) && PG.has_edge(X.og, w, q), topsX)
+                    bump(:abs_ctop); hh && bump(:abs_ctop_hole)
+                end
+            end
+        end
+        # ausentes con la arista en otra entrada del nivel SIGUIENTE (no en la de D)
+        nx = get(bystep, k + 1, nothing)
+        if nx !== nothing
+            for (key2, B) in nx
+                key2 == D && continue
+                AD = get(nx, D, nothing)
+                for (y, w) in keys(B.og.edges)
+                    (y == w || PG.has_edge(S.og, y, w) || !PG.is_alive(X.og, y) || !PG.is_alive(X.og, w)) && continue
+                    (AD !== nothing && PG.has_edge(AD.og, y, w)) && continue
+                    bump(:ab1)
+                    hh = any(0:k-1) do l
+                        all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), AX)
+                    end
+                    hh && bump(:ab1_hole)
+                    topsX = [q for q in AX if Int(q.id.step) == Int(X.current_step) - 1]
+                    if any(q -> PG.has_edge(X.og, y, q) && PG.has_edge(X.og, w, q), topsX)
+                        bump(:ab1_ctop); hh && bump(:ab1_ctop_hole)
+                    end
+                    if any(q -> PG.has_edge(X.og, y, q), topsX) && any(q -> PG.has_edge(X.og, w, q), topsX)
+                        bump(:ab1_star); hh && bump(:ab1_star_hole)
+                    end
+                end
+            end
+        end
         for (y, w) in keys(S.og.edges)
             (y == w || !PG.is_alive(X.og, y) || !PG.is_alive(X.og, w) || PG.has_edge(X.og, y, w)) && continue
             bump(:np)
@@ -71,7 +112,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :hole, :holeS, :holeArr); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    cols = (:np, :hole, :holeS, :holeArr, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _

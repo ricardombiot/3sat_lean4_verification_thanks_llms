@@ -101,6 +101,26 @@ function judge(A, B, bystep, N)
                 s -= 1
             end
             haskey(free, N) && free[N] && bump(:freeN)
+            # hueco en la llegada Y que trajo el grupo Q (nivel N), con las aristas del nivel N-1
+            let q0 = first(Q)
+                Ytop = get(ARR, (q0.id, q0.parent_id, N - 1), nothing)
+                Etop = get(get(bystep, N - 1, Dict()), q0.parent_id, nothing)
+                if Ytop !== nothing && Etop !== nothing && PG.is_alive(Ytop.og, y) && PG.is_alive(Ytop.og, w)
+                    esT = get(bystep, N - 1, Dict())
+                    adjT(a, b) = a == b || any(E -> PG.has_edge(E.og, a, b), values(esT))
+                    AYt = alive(Ytop)
+                    hh = any(0:N-2) do l
+                        all(r -> Int(r.id.step) != l || !(adjT(y, r) && adjT(w, r)), AYt)
+                    end
+                    if PG.has_edge(Etop.og, y, w)
+                        bump(:top_rem); hh && bump(:top_rem_hole)
+                    else
+                        bump(:top_abs); hh && bump(:top_abs_hole)
+                    end
+                else
+                    bump(:top_noY)
+                end
+            end
             any(values(free)) && bump(:anyfree)
             for (k, v) in free
                 v && haskey(free, k + 1) && !free[k + 1] && (bump(:mono_fail); break)
@@ -266,6 +286,30 @@ function judge(A, B, bystep, N)
                         HLs = [Set(l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), P)) for P in parts]
                         isempty(intersect(HLs...)) || bump(:multi_common)
                         # paso más alto del hueco local de la llegada que quita; testigos de la parte de X1
+                        # subir al primer nivel j0 > k+1 con los antepasados en UNA llegada
+                        j0 = s1 + 1
+                        while j0 <= N && haskey(anc, j0) && length(unique((p.id, p.parent_id) for p in anc[j0])) > 1
+                            j0 += 1
+                        end
+                        if j0 <= N && haskey(anc, j0) && !isempty(anc[j0])
+                            bump(:c_found)
+                            p0 = anc[j0][1]
+                            Ej = get(get(bystep, j0 - 1, Dict()), p0.parent_id, nothing)
+                            Y = get(ARR, (p0.id, p0.parent_id, j0 - 1), nothing)
+                            if Ej !== nothing && Y !== nothing
+                                PG.has_edge(Ej.og, y, w) || bump(:c_absent)
+                                (PG.is_alive(Y.og, y) && PG.is_alive(Y.og, w)) && bump(:c_yw_inY)
+                                esj = get(bystep, j0 - 1, Dict())
+                                adjJ(a, b) = a == b || any(E -> PG.has_edge(E.og, a, b), values(esj))
+                                AY = alive(Y)
+                                any(0:j0-2) do l
+                                    all(r -> Int(r.id.step) != l || !(adjJ(y, r) && adjJ(w, r)), AY)
+                                end && bump(:c_hole)
+                                cls[j0] == :P && bump(:c_P)
+                            end
+                        elseif j0 > N
+                            bump(:c_top)
+                        end
                         nrem = count(X -> any(t3 -> t3[3] === X, rems), Xs)
                         bump(Symbol("m_nrem", nrem))
                         nrem == 1 || @goto afterdetail
@@ -322,7 +366,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole, :m_lstar_free, :m_wk, :m_wk_inX, :m_miss_lost, :m_miss_fromX, :m_miss_otherD, :m_have_lost, :m_none_in_X1, :m_nrem0, :m_nrem1, :m_nrem2, :anc_ids1, :cone_inED, :entryHole)
+    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole, :m_lstar_free, :m_wk, :m_wk_inX, :m_miss_lost, :m_miss_fromX, :m_miss_otherD, :m_have_lost, :m_none_in_X1, :m_nrem0, :m_nrem1, :m_nrem2, :anc_ids1, :cone_inED, :entryHole, :c_found, :c_absent, :c_yw_inY, :c_hole, :c_P, :c_top, :top_rem, :top_rem_hole, :top_abs, :top_abs_hole, :top_noY)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _

@@ -56,6 +56,7 @@ import AbsSatBingo.Model.LineCtxT
 import AbsSatBingo.Model.SenderLink
 import AbsSatBingo.Model.ConeAnc
 import AbsSatBingo.Model.ConeHole
+import AbsSatBingo.Model.StarHole
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
