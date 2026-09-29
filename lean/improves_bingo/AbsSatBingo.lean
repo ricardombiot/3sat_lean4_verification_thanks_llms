@@ -54,6 +54,7 @@ import AbsSatBingo.Model.StarSplit
 import AbsSatBingo.Model.OneSideHist
 import AbsSatBingo.Model.LineCtxT
 import AbsSatBingo.Model.SenderLink
+import AbsSatBingo.Model.ConeAnc
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
