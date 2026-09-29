@@ -1,0 +1,9 @@
+instance	truth	r_pr_t	r_pr_f	r_fx_t	r_fx_f	r_tk_f	r_yk_t	r_yk_f	k_pr_t	k_pr_f	k_fx_t	k_fx_f	k_tk_f	k_yk_t	k_yk_f	secs
+clause_mix.cnf	true	93	3	93	0	0	122	0	102	20	102	0	0	164	0	9.8
+clause_mix_sep.cnf	true	104	1	104	0	0	141	0	114	20	114	0	0	188	0	36.1
+rand3sat_v8_c10.cnf	true	147	1	147	0	0	194	0	242	45	242	0	0	402	0	253.0
+v5_c20_i1.cnf	true	67	2	67	0	0	80	0	208	5	208	0	0	253	0	44.7
+v5_c20_i4.cnf	true	81	0	81	0	0	104	0	214	10	214	0	0	283	0	63.9
+v6_c26_i3.cnf	true	132	0	132	0	0	169	0	323	32	323	0	0	468	0	197.1
+v6_c26_i5.cnf	true	107	0	107	0	0	142	0	339	22	339	0	0	466	0	306.8
+set011221_1951_i0_v5_c20.cnf	true	88	1	88	0	0	100	0	251	13	251	0	0	344	0	72.4
