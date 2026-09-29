@@ -196,15 +196,41 @@ $t$ en la cima debe estar en una solución de un lado dentro de la estructura. T
 El siguiente paso es conectar `CliqueSplit`, que está enunciado sobre llegadas concretas de la línea, al marco
 `JoinProv`, que solo ve estados abstractos.
 
+## 8. `CliqueSplit` conectado: la hipótesis, sobre la unión sola (`ArrTree`, `LineCtx`, `StarUnion`)
+
+`cliqueSplit` estaba enunciado sobre dos llegadas concretas de la línea, y el marco `JoinProv` solo ve estados
+abstractos. Para conectarlos:
+
+* **Árboles de llegadas** (`ArrTree.lean`). Un árbol es una llegada `arr φ kv d` de un remitente de
+  `steps φ n (init φ)`, o el `doJoin` de dos árboles. Cada entrada de la línea siguiente es un árbol, y serlo se
+  conserva al insertar sin llevar la cuenta de los remitentes.
+  * `tree_carried`: una selección válida cuyo nodo del remitente vive en el árbol es camarilla del árbol. El nodo es
+    de la clave de una hoja; la completitud lo lleva en el remitente, y `carried_arrival` en la llegada.
+  * **`cliqueSplitTree`**: en el `doJoin` de dos árboles, toda camarilla es de uno de los dos. Demostrado sin
+    hipótesis.
+* **La inducción con contexto** (`LineCtx.lean`): `run_provC` lleva los árboles por el paso de la máquina y entrega a
+  cada join el hecho **`CSplit e g`**.
+* **La hipótesis, sin lados** (`StarUnion.lean`):
+  > **`UnionTopClique u`**: en toda estructura cerrada $(V,R)$ de la unión, para toda cima $t$ y todo $z$ con
+  > $R\,z\,t$, hay una camarilla de la unión con $t$ en la cima, que pasa por $z$ y tiene sus nodos en $V$.
+
+  `CSplit` baja esa camarilla a un lado; la unión de las camarillas de ese lado por $t$ dentro de $V$ es cerrada y da
+  `StarJoinDown`.
+
+**`readerVerdict_iff_of_unionClique`**: el veredicto del lector es la satisfacibilidad bajo `UnionTopClique` en los
+joins, **como única hipótesis**. Es una afirmación sobre la unión sola: *una pareja de una cima con su estrella está
+en una solución de la unión dentro de la estructura*. La medida del §7 la cubre: las camarillas del lado son
+camarillas de la unión.
+
 ---
 
 **Ficheros nuevos (Lean, `lean/improves_bingo/AbsSatBingo/Model/`):** `StarTrio`, `StarUp`, `StarLine`, `StarSide`,
-`StarClique`.
+`StarClique`, `ArrTree`, `LineCtx`, `StarUnion`.
 En `StarNodes`, el paso del join queda extraído como `joinStep_T`.
 
 **Julia (`julia/improves_bingo/test_3sat/`):**
 * sondas: `probe_star_fixpoint`, `probe_join_down`, `probe_join_star_fix`, `probe_trio_clique`;
 * con `ROW_TAGS=on`: `probe_topstar_union_tags_bin` y `probe_onesided_tags_bin` en `output_probes`.
 
-**Commits:** de `27b0e6c` a `ee65ad8` en la rama `reader-stuck`. Los §1–§6 se escribieron en `4af26f9`; el §7 se
-añadió después.
+**Commits:** de `27b0e6c` a `88c1a6a` en la rama `reader-stuck`. Los §1–§6 se escribieron en `4af26f9`; los §7–§8
+se añadieron después.
