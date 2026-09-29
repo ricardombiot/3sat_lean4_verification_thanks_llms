@@ -20,6 +20,54 @@ const PAIR_MODE = Ref(:on)
 const PAIR_REMOVED = Ref(0)     # parejas deshechas (cada arista cuenta una vez)
 const PAIR_ROUNDS  = Ref(0)     # vueltas regla + purga
 
+# Regla de tríos (29-sept-2026, rama reader-stuck; sonda dump_colour_helly.jl). Un trío muerto (x, w, z se poseen
+# dos a dos pero sus tablas no comparten entrada en algún paso) no está en ninguna solución, y aun así la regla de
+# parejas lo deja servir de testigo. Con TRIO_RULE la regla de parejas pide testigos buenos: la arista x–w sobrevive si
+# en cada paso comparten una entrada r con la que el trío (x, w, r) tiene entrada común en cada paso. No pierde
+# soluciones: el nodo de una solución en cada paso es un testigo bueno (los tres están en la solución).
+# No borra el trío (sus parejas pueden tener otros testigos): el grafo de posesiones no puede decir «estos tres no».
+#   :off    — (por defecto) la regla de parejas de siempre.
+#   :on     — el trío se comprueba en todos los pasos.
+#   :clause — el trío se comprueba solo en los pasos de cláusula (TRIO_STEPS, lo fija la máquina con el mapa bin).
+const TRIO_RULE = Ref(Symbol(get(ENV, "TRIO_RULE", "off")))
+const TRIO_STEPS = Ref{Union{Nothing, Set{Step}}}(nothing)
+const TRIO_REMOVED = Ref(0)     # aristas que corta la regla de tríos y no la de parejas
+
+# ¿Tienen x, w y r una entrada común en cada paso de `steps` (nothing: todos) que tienen los tres?
+function trio_ok(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId, r :: PathNodeId,
+                 steps :: Union{Nothing, Set{Step}}) :: Bool
+    inc_w = g.inc[w]; inc_r = g.inc[r]
+    #! [for] $ O(S) $
+    for (l, set_x) in g.inc[x]
+        (steps === nothing || l in steps) || continue
+        set_w = get(inc_w, l, nothing); set_w === nothing && continue
+        set_r = get(inc_r, l, nothing); set_r === nothing && continue
+        #! [fixed] $ O(7) $
+        any(q -> q in set_w && q in set_r, set_x) || return false
+    end
+    return true
+end
+
+# La regla de parejas con testigos buenos (TRIO_RULE).
+function shares_every_step3(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId,
+                            steps :: Union{Nothing, Set{Step}}) :: Bool
+    inc_w = g.inc[w]
+    #! [for] $ O(S) $
+    for (step, set_x) in g.inc[x]
+        set_w = get(inc_w, step, nothing)
+        set_w === nothing && continue
+        #! [fixed] $ O(7 * S * 7) $
+        any(r -> r in set_w && trio_ok(g, x, w, r, steps), set_x) || return false
+    end
+    return true
+end
+
+function trio_steps() :: Union{Nothing, Set{Step}}
+    TRIO_RULE[] == :clause || return nothing
+    TRIO_STEPS[] === nothing && error("TRIO_RULE=:clause sin TRIO_STEPS (solo con el mapa bin)")
+    return TRIO_STEPS[]
+end
+
 # ¿Comparten las tablas de x y w al menos una entrada en cada paso que tienen las dos?
 # (antes PathDocumentOwners.shares_every_step; una línea vacía cuenta como paso sin entrada común)
 function shares_every_step(g :: OwnersGraph, x :: PathNodeId, w :: PathNodeId) :: Bool
@@ -45,9 +93,16 @@ function pair_consistency_after_clean!(gpath :: GPath)
 
         # Fase 1: las parejas malas, contra el estado de ahora. Cada arista se mira una vez.
         bad = Tuple{PathNodeId, PathNodeId}[]
-        #! [for] $ O(|E|*S*7) $
+        trio = TRIO_RULE[] != :off
+        steps = trio ? trio_steps() : nothing
+        #! [for] $ O(|E|*S*7) $ (con TRIO_RULE, $ O(|E|*S*7*S*7) $)
         for e in values(og.edges)
-            shares_every_step(og, e.a, e.b) || push!(bad, (e.a, e.b))
+            if !shares_every_step(og, e.a, e.b)
+                push!(bad, (e.a, e.b))
+            elseif trio && !shares_every_step3(og, e.a, e.b, steps)
+                push!(bad, (e.a, e.b))
+                TRIO_REMOVED[] += 1
+            end
         end
 
         # Fase 2: se quitan todas.

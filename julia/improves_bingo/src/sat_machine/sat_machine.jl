@@ -25,9 +25,20 @@ module SatMachine
     end
 
     function new(gmap :: Union{GMap, GMapBin})
+        set_trio_steps!(gmap)
         timeline = CollectionTimeline.new()
         current_step = Step(0)
         MSat(gmap, timeline, current_step)
+    end
+
+    # Los pasos de cláusula del mapa bin (L1, L2, L3 de cada ventana prohibida), para TRIO_RULE = :clause.
+    set_trio_steps!(gmap :: GMap) = (GraphPath.TRIO_STEPS[] = nothing)
+    function set_trio_steps!(gmap :: GMapBin)
+        st = Set{Step}()
+        for w in gmap.prohibited_windows
+            push!(st, w.id.step, w.parent_id.step, w.gparent_id.step)
+        end
+        GraphPath.TRIO_STEPS[] = st
     end
 
     # Acceso polimórfico al mapa: la máquina lee tanto GMap (clásico) como GMapBin (bin).
