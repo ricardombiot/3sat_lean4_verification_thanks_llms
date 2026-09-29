@@ -1,8 +1,10 @@
 function do_join!(gpath :: GPath, gpath_inmutable :: GPath)
     if is_valid_join(gpath, gpath_inmutable)
+        @probe :join_pre gpath gpath_inmutable
         # union! copia lo que toma de gpath_inmutable (nodos, líneas, aristas): no se comparte nada.
         PathCollectionLines.union!(gpath.table_lines, gpath_inmutable.table_lines)
         PathOwnersGraph.union!(gpath.og, gpath_inmutable.og)
+        @probe :join_post gpath
     end
 end
 

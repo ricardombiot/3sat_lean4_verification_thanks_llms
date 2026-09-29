@@ -23,6 +23,7 @@ function do_up!(gpath :: GPath, map_id_node :: NodeId, title :: String,
             # la cima), como en el mapa clásico. Va después de avanzar el paso: la fila nueva es la
             # cima y no necesita hijos.
             make_review_owners!(gpath)
+            @probe :up_done gpath
         end
     end
 end
