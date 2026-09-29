@@ -448,6 +448,46 @@ theorem cliqueSplit (hbd : Bounded φ) (n : Nat) {kv₁ kv₂ : NodeId × GPathB
     rw [hj] at hS
     exact Or.inl hS
 
+-- ============================================================
+-- La pieza que falta, en su forma más limpia
+-- ============================================================
+
+/-- La estructura de una camarilla concuerda con los requisitos con los que concuerda la camarilla. -/
+theorem secAgrees_onS {g : GPathB} {S : Int → PathNodeId} (hc : Carried g S) {b : NodeId}
+    (ha : Agrees g.current_step S b) : SecAgrees (OnS g.current_step S) b := by
+  rintro y ⟨j, h0, h1, rfl⟩ hjs
+  have hj : (S j).id.step = j := hc.step j h0 h1
+  rw [hj] at hjs
+  subst hjs
+  exact ha h0 h1
+
+/-- **En el join de dos llegadas de la máquina, con `NodeIn` en los lados, `NodeSplitIn` equivale a `NodeIn` de la
+unión.** La dirección difícil sale de `cliqueSplit`: la camarilla por `x` dentro de `V` es de un lado. -/
+theorem nodeSplitIn_iff_nodeIn_union (hbd : Bounded φ) (n : Nat) {kv₁ kv₂ : NodeId × GPathB}
+    (h₁ : kv₁ ∈ steps φ n (init φ)) (h₂ : kv₂ ∈ steps φ n (init φ)) {d : NodeId}
+    (hd₁ : d ∈ sonsOfMap φ kv₁.1) (hd₂ : d ∈ sonsOfMap φ kv₂.1)
+    (he : NodeIn (arr φ kv₁ d)) (hg : NodeIn (arr φ kv₂ d)) :
+    NodeSplitIn (arr φ kv₁ d) (arr φ kv₂ d) ↔ NodeIn (doJoin (arr φ kv₁ d) (arr φ kv₂ d)) := by
+  refine ⟨nodeIn_doJoin he hg, fun hu => ?_⟩
+  intro P V R hst ha x hx
+  by_cases hok : okJoin (arr φ kv₁ d) (arr φ kv₂ d) = true
+  · obtain ⟨S, hS, hag, hin, hon⟩ := hu P V R hst ha x hx
+    have hcs₁ : (doJoin (arr φ kv₁ d) (arr φ kv₂ d)).current_step = (arr φ kv₁ d).current_step := step_doJoin _ _
+    have hcs₂ : (arr φ kv₁ d).current_step = (arr φ kv₂ d).current_step := step_eq_of_okJoin hok
+    rcases cliqueSplit hbd n h₁ h₂ hd₁ hd₂ hS with hc | hc
+    · refine Or.inl ⟨OnS (arr φ kv₁ d).current_step S, _, secStruct_of_carried hc,
+        fun b hb => secAgrees_onS hc (by rw [← hcs₁]; exact hag b hb), by rw [← hcs₁]; exact hon, ?_⟩
+      rintro y ⟨j, h0, h1, rfl⟩
+      exact hin j h0 (by rw [hcs₁]; exact h1)
+    · refine Or.inr ⟨OnS (arr φ kv₂ d).current_step S, _, secStruct_of_carried hc,
+        fun b hb => secAgrees_onS hc (by rw [← hcs₂, ← hcs₁]; exact hag b hb),
+        by rw [← hcs₂, ← hcs₁]; exact hon, ?_⟩
+      rintro y ⟨j, h0, h1, rfl⟩
+      exact hin j h0 (by rw [hcs₁, hcs₂]; exact h1)
+  · have hj : doJoin (arr φ kv₁ d) (arr φ kv₂ d) = arr φ kv₁ d := by unfold doJoin; rw [if_neg hok]
+    rw [hj] at hst
+    exact Or.inl ⟨V, R, hst, ha, hx, fun _ h => h⟩
+
 end CliqueSplit
 
 end AbsSatBingo.Model
