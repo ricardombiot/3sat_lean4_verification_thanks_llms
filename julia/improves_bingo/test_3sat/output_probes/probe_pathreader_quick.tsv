@@ -1,0 +1,7 @@
+instance	truth	sat	col_ok	col_secs	path_ok	path_stuck	path_two	path_parent	path_secs	spine_ok	spine_stuck	spine_two	spine_parent	spine_secs	machine_secs
+clause_mix.cnf	true	true	true	0.016	true	0	2	true	0.033	true	0	2	true	0.0	0.24
+clause_mix_sep.cnf	true	true	true	0.052	true	0	5	true	0.047	true	0	5	true	0.0	0.3
+rand3sat_v8_c10.cnf	true	true	true	0.152	true	0	4	true	0.155	true	0	4	true	0.0	1.75
+v5_c20_i1.cnf	true	true	true	0.016	true	0	1	true	0.334	true	0	1	true	0.0	0.85
+v6_c26_i1.cnf	false	false	-	-	-	-	-	-	-	-	-	-	-	-	1.34
+v7_c30_i1.cnf	false	false	-	-	-	-	-	-	-	-	-	-	-	-	2.74
