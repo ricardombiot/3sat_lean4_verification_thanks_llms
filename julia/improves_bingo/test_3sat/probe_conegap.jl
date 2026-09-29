@@ -237,6 +237,17 @@ function judge(A, B, bystep, N)
                         isempty(HL) || (hl = true)
                         (!isempty(H) && maximum(H) in HL) && (hlmax = true)
                     end
+                    length(unique(p.id for p in anc[s1])) == 1 && bump(:anc_ids1)
+                    Dk = anc[s1][1].id
+                    es1b = get(bystep, s1, Dict()); ED = get(es1b, Dk, nothing)
+                    if ED !== nothing
+                        adjK1b(a, b) = a == b || any(E -> PG.has_edge(E.og, a, b), values(es1b))
+                        AE = alive(ED)
+                        all(r -> r in AE, Ck1) && bump(:cone_inED)
+                        any(0:k-1) do l
+                            all(r -> Int(r.id.step) != l || !(adjK1b(y, r) && adjK1b(w, r)), AE)
+                        end && bump(:entryHole)
+                    end
                     inx && bump(:cone_inX); ids1 && bump(:anc_oneX); hl && bump(:holeL); hlmax && bump(:holeL_max)
                     (inx && hl) && bump(:suff)
                     if !inx
@@ -254,6 +265,37 @@ function judge(A, B, bystep, N)
                         parts = [part(X, a) for (X, a) in zip(Xs, arrs)]
                         HLs = [Set(l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), P)) for P in parts]
                         isempty(intersect(HLs...)) || bump(:multi_common)
+                        # paso más alto del hueco local de la llegada que quita; testigos de la parte de X1
+                        nrem = count(X -> any(t3 -> t3[3] === X, rems), Xs)
+                        bump(Symbol("m_nrem", nrem))
+                        nrem == 1 || @goto afterdetail
+                        (Xr, ar) = [(X, a) for (X, a) in zip(Xs, arrs) if any(t3 -> t3[3] === X, rems)][1]
+                        (X1, a1) = [(X, a) for (X, a) in zip(Xs, arrs) if !any(t3 -> t3[3] === X, rems)][1]
+                        HLr = [l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), alive(Xr))]
+                        lstar = maximum(HLr)
+                        es1 = get(bystep, s1, Dict())
+                        adjK1(a, b) = a == b || any(E -> PG.has_edge(E.og, a, b), values(es1))
+                        arrs1 = [(key3, Y) for (key3, Y) in ARR if key3[3] == k && Y.is_valid]
+                        P1 = part(X1, a1); Pr = part(Xr, ar)
+                        freeAll = all(r -> Int(r.id.step) != lstar || !(adjK1(y, r) && adjK1(w, r)), union(P1, Pr))
+                        freeAll && bump(:m_lstar_free)
+                        yin = PG.is_alive(X1.og, y); win = PG.is_alive(X1.og, w)
+                        miss = yin ? w : y; have = yin ? y : w
+                        for r in P1
+                            Int(r.id.step) == lstar || continue
+                            (adjK(y, r) && adjK(w, r)) || continue
+                            bump(:m_wk)
+                            r in alive(Xr) && bump(:m_wk_inX)
+                            src = [key3 for (key3, Y) in arrs1 if PG.has_edge(Y.og, miss, r)]
+                            isempty(src) && bump(:m_miss_lost)
+                            any(k3 -> k3 == (ar[1], ar[2], k), src) && bump(:m_miss_fromX)
+                            any(k3 -> k3[1] != ar[1], src) && bump(:m_miss_otherD)
+                            srch = [key3 for (key3, Y) in arrs1 if PG.has_edge(Y.og, have, r)]
+                            isempty(srch) && bump(:m_have_lost)
+                        end
+                        # también: ¿y o w vivos en X1? ¿la cima común de X1?
+                        (yin || win) || bump(:m_none_in_X1)
+                        @label afterdetail
                         # llegadas sin antepasado común (no quitan): ¿y, w vivos en ellas?
                         for (X, a) in zip(Xs, arrs)
                             any(t3 -> t3[3] === X, rems) && continue
@@ -280,7 +322,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole, :m_lstar_free, :m_wk, :m_wk_inX, :m_miss_lost, :m_miss_fromX, :m_miss_otherD, :m_have_lost, :m_none_in_X1, :m_nrem0, :m_nrem1, :m_nrem2, :anc_ids1, :cone_inED, :entryHole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
