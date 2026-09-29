@@ -228,6 +228,68 @@ function judge_arr(bystep)
                 any(fullh, tg) && bump(:trig_full_any)
                 HS0 = [l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(PG.has_edge(S.og, y, r) && PG.has_edge(S.og, w, r)), AX)]
                 all(l -> l in HS0, tg) && bump(:trig_in_S)
+                # con las aristas de las entradas del nivel SIGUIENTE (tras las llegadas)
+                nxt = get(bystep, k + 1, nothing)
+                if nxt !== nothing
+                    adjN(a, b) = a == b || any(E -> PG.has_edge(E.og, a, b), values(nxt))
+                    fullN(l) = all(r -> Int(r.id.step) != l || !(adjN(y, r) && adjN(w, r)), AX)
+                    bump(:n_has)
+                    all(fullN, tg) && bump(:n_trig_all)
+                    any(fullN, tg) && bump(:n_trig_any)
+                    all(l -> fullN(l), [l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(PG.has_edge(X.og, y, r) && PG.has_edge(X.og, w, r)), AX)]) && bump(:n_ownX_all)
+                    # ¿la entrada del destino tiene y–w? (en el uso, kvA no la tiene)
+                    ED = get(nxt, D, nothing)
+                    (ED !== nothing && PG.has_edge(ED.og, y, w)) && bump(:n_ED_yw)
+                    if !(ED !== nothing && PG.has_edge(ED.og, y, w))
+                        bump(:c_n)
+                        all(fullN, tg) && bump(:c_trig_allN)
+                        all(fullh, tg) && bump(:c_trig_allK)
+                    end
+                end
+                # los casos en que la otra entrada tapa algún paso disparador
+                if !all(fullh, tg)
+                    bump(:f_pairs)
+                    if get(ENV, "DETAIL", "") == "1" && C[:f_pairs] <= 3
+                        sid(z) = string(Int(z.id.step), ":", Int(z.id.index))
+                        println(stderr, "PAIR y=", sid(y), " w=", sid(w), " k=", k, " D=", D, " trig=", sort(tg))
+                        for l in sort(tg)
+                            fl = fullh(l)
+                            fills = [r for r in AX if Int(r.id.step) == l && adjK(y, r) && adjK(w, r)]
+                            dead = [r for r in alive(S) if Int(r.id.step) == l && PG.has_edge(S.og, y, r) && PG.has_edge(S.og, w, r)]
+                            nx = [r for r in AX if Int(r.id.step) == l]
+                            println(stderr, "  l=", l, fl ? " LIBRE" : " TAPADO", " vivosX=", length(nx),
+                                    " testigosS_muertos=", length(dead), " valores_vivosX=", sort(unique(Int(r.id.index) for r in nx)))
+                            for r in fills
+                                Sy = PG.has_edge(S.og, y, r); Sw = PG.has_edge(S.og, w, r)
+                                src_y = [key for (key, E) in es if PG.has_edge(E.og, y, r)]
+                                src_w = [key for (key, E) in es if PG.has_edge(E.og, w, r)]
+                                println(stderr, "     r=", r, " S:y=", Sy, " S:w=", Sw, " y<-", src_y, " w<-", src_w)
+                            end
+                        end
+                    end
+                    Sp2 = [E for E in values(es) if E !== S]
+                    for E1 in Sp2
+                        PG.has_edge(E1.og, y, w) && bump(:f_E1_yw)
+                        (PG.is_alive(E1.og, y) && PG.is_alive(E1.og, w)) && bump(:f_E1_alive)
+                    end
+                    AS = alive(S)
+                    for l in tg
+                        tag = fullh(l) ? "u" : "t"
+                        bump(Symbol("f_", tag, "_steps"))
+                        for E1 in Sp2
+                            W1 = [r for r in alive(E1) if Int(r.id.step) == l && (r == y || PG.has_edge(E1.og, y, r)) &&
+                                  (r == w || PG.has_edge(E1.og, w, r))]
+                            isempty(W1) && bump(Symbol("f_", tag, "_noW1"))
+                            for r in W1
+                                bump(Symbol("f_", tag, "_w1"))
+                                r in AS && bump(Symbol("f_", tag, "_w1_inS"))
+                                r in AX && bump(Symbol("f_", tag, "_w1_inX"))
+                                (r in AS && PG.has_edge(S.og, y, r)) && bump(Symbol("f_", tag, "_w1_Sy"))
+                                (r in AS && PG.has_edge(S.og, w, r)) && bump(Symbol("f_", tag, "_w1_Sw"))
+                            end
+                        end
+                    end
+                end
                 # hueco de valor en todo el nivel: vecinos (en cualquier entrada del nivel) de y y de w en l
                 allK = Set(z for E in values(es) for z in alive(E))
                 gv(a, l) = Set(z.id for z in allK if Int(z.id.step) == l && (z == a || adjK(a, z)))
@@ -272,7 +334,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :trig, :trig_none, :trig_emptyset, :trig_full_all, :trig_full_any, :trig_in_S, :trig_gval_any, :gval_any, :trig_xval_any, :supp_ok, :supp_fail, :hole_own, :ch_single, :ch_reach, :ch_noreach, :ch_supp, :ch_S, :ch_hole, :ch_inh_any, :ch_inh_all, :ch_y_is_bnd, :hy_steps, :hy_value, :hy_path, :hy_empty, :two_par, :two_I, :two_noI, :two_I_sub_y, :two_y_extra, :pos_below, :pos_between, :pos_above, :pos_only_above, :two_Il, :two_Il_sub_y, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :trig, :trig_none, :trig_emptyset, :trig_full_all, :trig_full_any, :trig_in_S, :n_has, :n_trig_all, :n_trig_any, :n_ownX_all, :n_ED_yw, :c_n, :c_trig_allN, :c_trig_allK, :f_pairs, :f_E1_yw, :f_E1_alive, :f_t_steps, :f_t_noW1, :f_t_w1, :f_t_w1_inS, :f_t_w1_inX, :f_t_w1_Sy, :f_t_w1_Sw, :f_u_steps, :f_u_noW1, :f_u_w1, :f_u_w1_inS, :f_u_w1_inX, :f_u_w1_Sy, :f_u_w1_Sw, :trig_gval_any, :gval_any, :trig_xval_any, :supp_ok, :supp_fail, :hole_own, :ch_single, :ch_reach, :ch_noreach, :ch_supp, :ch_S, :ch_hole, :ch_inh_any, :ch_inh_all, :ch_y_is_bnd, :hy_steps, :hy_value, :hy_path, :hy_empty, :two_par, :two_I, :two_noI, :two_I_sub_y, :two_y_extra, :pos_below, :pos_between, :pos_above, :pos_only_above, :two_Il, :two_Il_sub_y, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
