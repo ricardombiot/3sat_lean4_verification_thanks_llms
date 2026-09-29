@@ -1,0 +1,5 @@
+instance	truth	u_pairs	u_st_full	u_st_stuck	u_st_zero	u_forced_steps	u_all_steps	u_stuck_clique	u_stuck_noclique	u_stuck_budget	u_g_cands	u_g_bad	u_g_pair_bad	u_g_first_ok	u_g_first_dead	r_pairs	r_st_full	r_st_stuck	r_st_zero	r_forced_steps	r_all_steps	r_stuck_clique	r_stuck_noclique	r_stuck_budget	r_g_cands	r_g_bad	r_g_pair_bad	r_g_first_ok	r_g_first_dead	secs
+clause_mix.cnf	true	4033	539	3494	0	42785	77241	3494	0	0	6988	0	0	3494	0	1891	704	1187	0	20663	27785	1187	0	0	2374	0	0	1187	0	2.7
+rand3sat_v8_c10.cnf	true	19197	943	18254	0	295132	657934	18254	0	0	36508	0	0	18254	0	4559	1120	3439	0	80376	113223	3439	0	0	6878	0	0	3439	0	9.2
+v5_c20_i1.cnf	true	9282	5717	3565	0	278244	326672	3565	0	0	7130	0	0	3565	0	1454	960	494	0	24928	27682	494	0	0	988	0	0	494	0	2.2
+v6_c26_i1.cnf	false	14070	6169	7901	0	417632	530102	7901	0	0	15802	0	0	7901	0	2184	1205	979	0	38860	45284	979	0	0	1958	0	0	979	0	4.2
