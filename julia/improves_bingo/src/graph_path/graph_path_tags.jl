@@ -135,9 +135,12 @@ function tag_rule!(gpath :: GPath) :: Bool
 
     TAG_BITS_CUT[] += length(node_clear) + length(edge_clear)
     for (x, ℓ, a) in node_clear
-        og.ntags[x][ℓ + 1] &= ~a
+        t = og.ntags[x]
+        if Undo.active(); old = t[ℓ + 1]; Undo.record!(() -> (t[ℓ + 1] = old)); end
+        t[ℓ + 1] &= ~a
     end
     for (e, ℓ, a) in edge_clear
+        if Undo.active(); old = e.tags[ℓ + 1]; Undo.record!(() -> (e.tags[ℓ + 1] = old)); end
         e.tags[ℓ + 1] &= ~a
     end
 

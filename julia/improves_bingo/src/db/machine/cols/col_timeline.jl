@@ -72,6 +72,12 @@ module CollectionTimeline
         end
     end
 
+    # Como impact!, pero sin quedarse con `gpath`: la primera llegada guarda una copia, las demás se unen.
+    function impact_copy!(timeline :: ColTimeline, step :: Step, gpath :: GPath)
+        timeline_step = get_if_dontexiste_create_it!(timeline, step)
+        CollectionTimelineStep.impact_copy!(timeline_step, gpath)
+    end
+
     function impact!(timeline :: ColTimeline, step :: Step, gpath :: GPath)
         timeline_step = get_if_dontexiste_create_it!(timeline, step)
 

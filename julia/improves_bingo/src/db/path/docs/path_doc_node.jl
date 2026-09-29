@@ -1,5 +1,6 @@
 module PathDocumentNode
     using Main.AbsSat.Alias: Step, PathNodeId, SetPathNodesId
+    using Main.AbsSat.Undo
 
     # Los owners ya no viven en el nodo: son las aristas del grafo de owners del gpath
     # (PathOwnersGraph, plan docs/plans/graph_owners.md). El nodo guarda solo la estructura.
@@ -23,21 +24,25 @@ module PathDocumentNode
         return node.id.id.step
     end
 
-    function add_son!(node :: PathDocNode, id :: PathNodeId)
-        push!(node.sons, id)
+    # Toda modificación de los enlaces pasa por aquí (para poder deshacerla).
+    function add_link!(set :: SetPathNodesId, id :: PathNodeId)
+        if !(id in set)
+            push!(set, id)
+            Undo.active() && Undo.record!(() -> delete!(set, id))
+        end
     end
 
-    function add_parent!(node :: PathDocNode, id :: PathNodeId)
-        push!(node.parents, id)
+    function delete_link!(set :: SetPathNodesId, id :: PathNodeId)
+        if id in set
+            delete!(set, id)
+            Undo.active() && Undo.record!(() -> push!(set, id))
+        end
     end
 
-    function remove_son!(node :: PathDocNode, id :: PathNodeId)
-        delete!(node.sons, id)
-    end
-
-    function remove_parent!(node :: PathDocNode, id :: PathNodeId)
-        delete!(node.parents, id)
-    end
+    add_son!(node :: PathDocNode, id :: PathNodeId) = add_link!(node.sons, id)
+    add_parent!(node :: PathDocNode, id :: PathNodeId) = add_link!(node.parents, id)
+    remove_son!(node :: PathDocNode, id :: PathNodeId) = delete_link!(node.sons, id)
+    remove_parent!(node :: PathDocNode, id :: PathNodeId) = delete_link!(node.parents, id)
 
     function link!(node_parent :: PathDocNode, node_son :: PathDocNode)
         add_parent!(node_son, node_parent.id)

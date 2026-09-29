@@ -102,8 +102,8 @@ function prune_stale_links!(gpath :: GPath)
             for c_id in collect(links)
                 node_c = PathCollectionLines.get_node(gpath.table_lines, c_id)
                 if node_c === nothing || !PathOwnersGraph.has_edge(gpath.og, node.id, c_id)
-                    delete!(links, c_id)
-                    node_c !== nothing && delete!(getfield(node_c, back), node.id)
+                    PathDocumentNode.delete_link!(links, c_id)
+                    node_c !== nothing && PathDocumentNode.delete_link!(getfield(node_c, back), node.id)
                     LINK_PRUNED[] += 1
                     gpath.review_owners = true
                 end

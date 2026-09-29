@@ -107,16 +107,14 @@ module SatMachine
         title = map_node_destine.title
         requires = map_node_destine.requires
 
-        gpath = GraphPath.copy_gpath(inmutable_gpath)
-        GraphPath.do_up_filtering!(gpath, requires, id_destine, title, map_prohibited(machine.gmap))
-
-        if gpath.is_valid
+        # El UP se aplica sobre el propio gpath del remitente y se deshace: solo se copia la primera
+        # llegada a un destino; las demás se unen directamente (impact_copy!). Sin copiar los rechazados.
+        snap = GraphPath.up_in_place!(inmutable_gpath, requires, id_destine, title, map_prohibited(machine.gmap))
+        if inmutable_gpath.is_valid
             next_step = machine.current_step + 1
-            #println("gpath to $next_step")
-            CollectionTimeline.impact!(machine.timeline, next_step, gpath)
-        #else
-        #    println("gpath rejected... after up... $title")
+            CollectionTimeline.impact_copy!(machine.timeline, next_step, inmutable_gpath)
         end
+        GraphPath.undo_up!(inmutable_gpath, snap)
     end
 
     function have_gpaths_step(machine :: MSat) :: Bool

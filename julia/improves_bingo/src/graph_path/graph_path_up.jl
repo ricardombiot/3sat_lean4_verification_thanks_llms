@@ -99,3 +99,25 @@ function create_node_from_parents!(gpath :: GPath, path_id_node :: PathNodeId,
 
     return node
 end
+
+# UP en sitio y reversible (rama optimizations-undo). up_in_place! aplica el UP a `gpath` anotando cómo
+# deshacerlo; el llamador lee el resultado (is_valid, unir al destino, copiarlo) y llama a undo_up!, que
+# devuelve `gpath` exactamente a su estado anterior. Sustituye a copiar el gpath en cada envío.
+function up_in_place!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
+                      prohibited :: Set{PathNodeId} = Set{PathNodeId}())
+    snap = (gpath.current_step, gpath.map_parent_id, gpath.review_owners, gpath.is_valid, gpath.og.nsteps, gpath.og.valid, gpath.og.krows)
+    Undo.begin!()
+    try
+        do_up_filtering!(gpath, requires, map_id_node, title, prohibited)
+    finally
+        Undo.stop!()
+    end
+    return snap
+end
+
+function undo_up!(gpath :: GPath, snap)
+    Undo.rollback!()
+    gpath.current_step, gpath.map_parent_id, gpath.review_owners, gpath.is_valid = snap[1], snap[2], snap[3], snap[4]
+    gpath.og.nsteps, gpath.og.valid, gpath.og.krows = snap[5], snap[6], snap[7]
+    return gpath
+end

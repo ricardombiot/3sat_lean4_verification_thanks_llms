@@ -29,6 +29,19 @@ module CollectionTimelineStep
         end
     end
 
+    function impact_copy!(timeline_step :: ColTimelineStep, gpath :: GPath)
+        if gpath.is_valid
+            map_node_id = gpath.map_parent_id
+            current_gpath = get_gpath!(timeline_step, map_node_id)
+            if current_gpath == nothing
+                timeline_step.table[map_node_id] = GraphPath.copy_gpath(gpath)
+                timeline_step.counter_graphs += 1
+            else
+                GraphPath.do_join!(current_gpath, gpath)
+            end
+        end
+    end
+
     function impact!(timeline_step :: ColTimelineStep, gpath :: GPath)
         if gpath.is_valid
             map_node_id = gpath.map_parent_id

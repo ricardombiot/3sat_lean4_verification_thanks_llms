@@ -7,6 +7,7 @@ module GraphPath
 
 
     using Main.AbsSat.Alias
+    using Main.AbsSat.Undo
     using Main.AbsSat.DBDocuments.PathDocumentNode
     using Main.AbsSat.DBDocuments.PathOwnersGraph
     using Main.AbsSat.DBCollections.PathCollectionNodes

@@ -1,5 +1,6 @@
 module PathCollectionLines
     using Main.AbsSat.Alias: Step, PathNodeId, SetPathNodesId
+    using Main.AbsSat.Undo
 
     using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode
     using Main.AbsSat.DBCollections.PathCollectionNodes: PathColNodesLine
@@ -106,6 +107,7 @@ module PathCollectionLines
 
         if !haskey(col_lines.table, step)
             col_lines.table[step] = PathCollectionNodes.new(step)
+            Undo.active() && Undo.record!(() -> delete!(col_lines.table, step))
         end
 
         PathCollectionNodes.push_node!(col_lines.table[step], node)
@@ -123,7 +125,10 @@ module PathCollectionLines
         line = get_step(col_lines, step)
 
         if PathCollectionNodes.is_empty(line)
-            col_lines.is_valid = false
+            if col_lines.is_valid
+                col_lines.is_valid = false
+                Undo.active() && Undo.record!(() -> (col_lines.is_valid = true))
+            end
         end
     end
 

@@ -2,6 +2,7 @@ module PathCollectionNodes
     using Main.AbsSat.Alias: Step, PathNodeId, SetPathNodesId
     using Main.AbsSat.DBDocuments.PathDocumentNode: PathDocNode
     using Main.AbsSat.DBDocuments.PathDocumentNode
+    using Main.AbsSat.Undo
 
     mutable struct PathColNodesLine
         step :: Step
@@ -72,13 +73,24 @@ module PathCollectionNodes
         col_nodes.table[node.id] = node
         col_nodes.count += 1
         push!(col_nodes.node_ids, node.id)
+        Undo.active() && Undo.record!(function ()
+            delete!(col_nodes.table, node.id)
+            delete!(col_nodes.node_ids, node.id)
+            col_nodes.count -= 1
+        end)
     end
 
     function remove_node!(col_nodes :: PathColNodesLine, id :: PathNodeId)
         if haskey(col_nodes.table, id)
+            node = col_nodes.table[id]
             delete!(col_nodes.table, id)
             delete!(col_nodes.node_ids, id)
             col_nodes.count -= 1
+            Undo.active() && Undo.record!(function ()
+                col_nodes.table[id] = node
+                push!(col_nodes.node_ids, id)
+                col_nodes.count += 1
+            end)
         end
     end
 

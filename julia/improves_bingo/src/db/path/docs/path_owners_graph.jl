@@ -6,6 +6,7 @@
 # reflexiva de forma implícita (x es owner de sí mismo, sin objeto Edge).
 module PathOwnersGraph
     using Main.AbsSat.Alias: Step, NodeId, PathNodeId, SetPathNodesId
+    using Main.AbsSat.Undo
 
     # ---------- etiquetas por fila (informe v204 §7; rama row-tags) ----------
     # Cada arista (y cada nodo, por su arista reflexiva) guarda, por cada fila de claves ℓ, la máscara de las
@@ -76,6 +77,11 @@ module PathOwnersGraph
         for e in values(g.edges); push!(e.tags, b); end
         for t in values(g.ntags); push!(t, b); end
         g.krows += 1
+        Undo.active() && Undo.record!(function ()
+            g.krows -= 1
+            for e in values(g.edges); pop!(e.tags); end
+            for t in values(g.ntags); pop!(t); end
+        end)
     end
 
     # Aristas quitadas por cada regla, en todo el proceso (solo para medir). Global y no por grafo: el
@@ -86,11 +92,23 @@ module PathOwnersGraph
 
     # ---------- vértices ----------
     function add_step!(g :: OwnersGraph)
-        g.alive[g.nsteps] = SetPathNodesId()
+        n = g.nsteps
+        g.alive[n] = SetPathNodesId()
         g.nsteps += 1
+        Undo.active() && Undo.record!(() -> (delete!(g.alive, n); g.nsteps = n))
     end
 
     function register!(g :: OwnersGraph, x :: PathNodeId, tags :: Union{Nothing, Tags} = nothing)
+        if Undo.active()
+            s = step_of(x)
+            line_new = !haskey(g.alive, s)
+            Undo.record!(function ()
+                delete!(g.alive[s], x)
+                line_new && delete!(g.alive, s)
+                delete!(g.inc, x)
+                delete!(g.ntags, x)
+            end)
+        end
         push!(get!(g.alive, step_of(x), SetPathNodesId()), x)
         g.inc[x] = Inc(step_of(x) => SetPathNodesId([x]))   # reflexiva, sin objeto Edge
         tags_on() && (g.ntags[x] = tags === nothing ? zeros(Mask, g.krows) : copy(tags))
@@ -103,6 +121,16 @@ module PathOwnersGraph
         is_alive(g, x) || return
         for w in collect(neighbors_all(g, x))
             w == x || remove_edge!(g, x, w; rule)
+        end
+        if Undo.active()
+            inc_x = g.inc[x]; nt_x = get(g.ntags, x, nothing); valid = g.valid
+            line0 = g.alive[step_of(x)]
+            Undo.record!(function ()
+                g.inc[x] = inc_x
+                nt_x === nothing || (g.ntags[x] = nt_x)
+                push!(line0, x)
+                g.valid = valid
+            end)
         end
         delete!(g.inc, x)
         delete!(g.ntags, x)
@@ -118,12 +146,27 @@ module PathOwnersGraph
         k = edge_key(x, w)
         e = get(g.edges, k, nothing)
         if e !== nothing
-            tags_on() && tags !== nothing && (e.tags .|= tags)
+            if tags_on() && tags !== nothing
+                if Undo.active()
+                    old = copy(e.tags)
+                    Undo.record!(() -> copyto!(e.tags, old))
+                end
+                e.tags .|= tags
+            end
             return e
         end
         e = Edge(k[1], k[2], g.nsteps - 1,
                  !tags_on() ? EMPTY_TAGS : tags === nothing ? zeros(Mask, g.krows) : copy(tags))
         g.edges[k] = e
+        if Undo.active()
+            ix = g.inc[x]; iw = g.inc[w]; sw = step_of(w); sx = step_of(x)
+            new_x = !haskey(ix, sw); new_w = !haskey(iw, sx)
+            Undo.record!(function ()
+                delete!(g.edges, k)
+                delete!(ix[sw], w); new_x && delete!(ix, sw)
+                delete!(iw[sx], x); new_w && delete!(iw, sx)
+            end)
+        end
         push!(get!(g.inc[x], step_of(w), SetPathNodesId()), w)
         push!(get!(g.inc[w], step_of(x), SetPathNodesId()), x)
         return e
@@ -133,9 +176,15 @@ module PathOwnersGraph
         x == w && return false
         k = edge_key(x, w)
         haskey(g.edges, k) || return false
+        e = g.edges[k]
         delete!(g.edges, k)
-        _drop!(g.inc[x], w)
-        _drop!(g.inc[w], x)
+        dx = _drop!(g.inc[x], w)
+        dw = _drop!(g.inc[w], x)
+        Undo.active() && Undo.record!(function ()
+            g.edges[k] = e
+            dx && push!(g.inc[x][step_of(w)], w)
+            dw && push!(g.inc[w][step_of(x)], x)
+        end)
         REMOVED_BY[rule] = get(REMOVED_BY, rule, 0) + 1
         return true
     end
@@ -143,7 +192,9 @@ module PathOwnersGraph
     # La línea vacía se queda: is_valid_owners la ve (como hoy empty_steps).
     function _drop!(inc :: Inc, w :: PathNodeId)
         ws = get(inc, step_of(w), nothing)
-        ws === nothing || delete!(ws, w)
+        (ws === nothing || !(w in ws)) && return false
+        delete!(ws, w)
+        return true
     end
 
     # Por la incidencia (una búsqueda en Dict y otra en Set), sin construir la clave de la arista:
