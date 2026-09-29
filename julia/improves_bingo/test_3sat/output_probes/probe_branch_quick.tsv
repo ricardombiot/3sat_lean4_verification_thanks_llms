@@ -1,0 +1,6 @@
+instance	truth	k_n	k_never_mix	k_mix_d1	k_mix_d2	k_mix_d3	k_mix_d4	k_oneval_notinE	secs
+clause_mix.cnf	true	68	4	34	27	2	1	0	2.2
+rand3sat_v8_c10.cnf	true	148	4	94	43	3	4	0	4.0
+v5_c20_i1.cnf	true	164	39	44	39	11	31	0	2.1
+v6_c26_i1.cnf	false	186	32	78	48	10	18	0	3.4
+v7_c30_i1.cnf	false	212	23	94	51	20	24	0	6.8
