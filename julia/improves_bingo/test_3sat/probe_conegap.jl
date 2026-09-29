@@ -182,6 +182,88 @@ function judge(A, B, bystep, N)
                         any(r -> PG.has_edge(S.og, y, r), req_alive) && bump(:y_has)
                         any(r -> PG.has_edge(S.og, w, r), req_alive) && bump(:w_has)
                     end
+                    # seguir a los testigos del nivel k en el paso más alto del hueco
+                    function coneof(sl)
+                        es = get(bystep, sl, Dict())
+                        Cn = Set{PathNodeId}(anc[sl])
+                        for p in anc[sl]
+                            E = get(es, p.id, nothing); E === nothing && continue
+                            for z in alive(E); PG.has_edge(E.og, z, p) && push!(Cn, z); end
+                        end
+                        return Cn, es
+                    end
+                    haskey(anc, k) && haskey(anc, s1) || @goto skip
+                    Ck, esk = coneof(k)
+                    Ck1, esk1 = coneof(s1)
+                    for ((q, S, X), H) in zip(rems, hs_all)
+                        isempty(H) && continue
+                        l = maximum(H)
+                        for r in Ck
+                            Int(r.id.step) == l || continue
+                            ay = [key for (key, E) in esk if r == y || PG.has_edge(E.og, y, r)]
+                            aw = [key for (key, E) in esk if r == w || PG.has_edge(E.og, w, r)]
+                            (isempty(ay) || isempty(aw)) && continue
+                            bump(:wk)
+                            sk = q.parent_id   # clave de S
+                            (sk in ay && sk in aw) && bump(:wk_SS)
+                            (!(sk in ay) && !(sk in aw)) && bump(:wk_OO)
+                            ((sk in ay) != (sk in aw)) && bump(:wk_mix)
+                            aliveK1 = any(E -> PG.is_alive(E.og, r), values(esk1))
+                            by1 = any(E -> r == y || PG.has_edge(E.og, y, r), values(esk1))
+                            bw1 = any(E -> r == w || PG.has_edge(E.og, w, r), values(esk1))
+                            if !aliveK1
+                                bump(:wk_dead)
+                            elseif !(r in Ck1)
+                                bump(:wk_outcone)
+                            elseif !by1 && !bw1
+                                bump(:wk_lost_both)
+                            elseif !by1 || !bw1
+                                bump(:wk_lost_one)
+                            else
+                                bump(:wk_BUG)
+                            end
+                            # ¿mueren r, o la arista, dentro de X?
+                            PG.is_alive(X.og, r) ? bump(:wk_inX) : bump(:wk_notX)
+                        end
+                    end
+                    # ¿cabe el cono del nivel k+1 en X? ¿hay hueco local con las aristas de todo el nivel k?
+                    adjK(a, b) = a == b || any(E -> PG.has_edge(E.og, a, b), values(esk))
+                    inx = false; hl = false; hlmax = false; ids1 = false
+                    for ((q, S, X), H) in zip(rems, hs_all)
+                        AX = alive(X)
+                        all(r -> r in AX, Ck1) && (inx = true)
+                        all(p -> p.id == q.id && p.parent_id == q.parent_id, anc[s1]) && (ids1 = true)
+                        HL = [l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), AX)]
+                        isempty(HL) || (hl = true)
+                        (!isempty(H) && maximum(H) in HL) && (hlmax = true)
+                    end
+                    inx && bump(:cone_inX); ids1 && bump(:anc_oneX); hl && bump(:holeL); hlmax && bump(:holeL_max)
+                    (inx && hl) && bump(:suff)
+                    if !inx
+                        bump(:multi)
+                        # llegadas que llevan antepasados del nivel k+1: (destino, remitente)
+                        arrs = unique([(p.id, p.parent_id) for p in anc[s1]])
+                        length(arrs) == 2 && bump(:multi2)
+                        Xs = [get(ARR, (a[1], a[2], k), nothing) for a in arrs]
+                        any(isnothing, Xs) && (bump(:multi_nox); @goto skip)
+                        # hueco en la parte del cono de cada llegada (vecinos de los antepasados en ella), aristas del nivel k
+                        function part(X, a)
+                            ps = [p for p in anc[s1] if (p.id, p.parent_id) == a]
+                            Set(z for z in alive(X) if any(p -> z == p || PG.has_edge(X.og, z, p), ps))
+                        end
+                        parts = [part(X, a) for (X, a) in zip(Xs, arrs)]
+                        HLs = [Set(l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), P)) for P in parts]
+                        isempty(intersect(HLs...)) || bump(:multi_common)
+                        # llegadas sin antepasado común (no quitan): ¿y, w vivos en ellas?
+                        for (X, a) in zip(Xs, arrs)
+                            any(t3 -> t3[3] === X, rems) && continue
+                            bump(:multi_other)
+                            (PG.is_alive(X.og, y) && PG.is_alive(X.og, w)) && bump(:multi_other_yw)
+                            HLo = Set(l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), alive(X)))
+                            isempty(HLo) || bump(:multi_other_hole)
+                        end
+                    end
+                    @label skip
                     common = intersect([Set(H) for H in hs_all]...)
                     isempty(common) || bump(:hole_common)
                     any(l -> l in FC, common) && bump(:hole_common_free)
@@ -198,7 +280,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has)
+    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _

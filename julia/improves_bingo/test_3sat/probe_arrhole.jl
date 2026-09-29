@@ -1,0 +1,101 @@
+# ArrHole sin contexto (29-sept-2026, rama reader-stuck; sonda rápida).
+#
+#   PROBE_MAP=bin PROBE_ONLY=a.cnf,b.cnf julia --project=. test_3sat/probe_arrhole.jl <salida.tsv>
+#
+# Para cada llegada X (remitente S del nivel k, destino D) y cada arista y–w de S con y, w vivos en X que X no tiene:
+#   hole: hay un paso l en el que ningún vivo de X es vecino común de y y w con las aristas de las entradas del nivel k.
+#   holeS: lo mismo con las aristas de S (G1). holeArr: con las aristas de las llegadas a D (ArrivalGap).
+
+const OUT = abspath(ARGS[1])
+include(joinpath(@__DIR__, "..", "src/main.jl"))
+include(joinpath(@__DIR__, "probes_lib.jl"))
+
+using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
+using .AbsSat.Probes
+
+const PG = PathOwnersGraph
+const C = Dict{Symbol, Int}()
+bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
+const SENDER = Dict{Any, Any}()
+const ARR = Dict{Any, Any}()
+const REQS = Dict{Any, Any}()
+
+Core.eval(GraphPath, quote
+    function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
+                              prohibited :: Set{PathNodeId} = Set{PathNodeId}())
+        key = (gpath.map_parent_id, Int(gpath.current_step))
+        haskey($(SENDER), key) || ($(SENDER)[key] = deepcopy(gpath))
+        gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
+        filter!(gpath, requires)
+        do_up!(gpath, map_id_node, title, prohibited)
+        $(ARR)[(map_id_node, key[1], key[2])] = deepcopy(gpath)
+        $(REQS)[(map_id_node, key[1], key[2])] = copy(requires)
+    end
+end)
+
+alive(h) = [x for (_, xs) in h.og.alive for x in xs]
+tops(h) = collect(get(h.og.alive, Int(h.current_step) - 1, SetPathNodesId()))
+function groups_of(h)
+    gr = Dict{Any, Vector{PathNodeId}}()
+    for q in tops(h)
+        push!(get!(gr, (q.id, q.parent_id), PathNodeId[]), q)
+    end
+    return gr
+end
+star(h, Q) = Set(z for z in alive(h) if any(q -> PG.has_edge(h.og, z, q), Q))
+
+
+
+function judge_arr(bystep)
+    for ((D, sk, k), X) in ARR
+        X.is_valid || continue
+        es = get(bystep, k, nothing); es === nothing && continue
+        S = get(es, sk, nothing); S === nothing && continue
+        AX = alive(X)
+        ogsK = [E.og for E in values(es)]
+        adjK(a, b) = a == b || any(o -> PG.has_edge(o, a, b), ogsK)
+        arrD = [Y.og for ((D2, _, k2), Y) in ARR if D2 == D && k2 == k && Y.is_valid]
+        adjD(a, b) = a == b || any(o -> PG.has_edge(o, a, b), arrD)
+        for (y, w) in keys(S.og.edges)
+            (y == w || !PG.is_alive(X.og, y) || !PG.is_alive(X.og, w) || PG.has_edge(X.og, y, w)) && continue
+            bump(:np)
+            hol(adj) = any(0:k-1) do l
+                all(r -> Int(r.id.step) != l || !(adj(y, r) && adj(w, r)), AX)
+            end
+            hol(adjK) && bump(:hole)
+            hol((a, b) -> a == b || PG.has_edge(S.og, a, b)) && bump(:holeS)
+            hol(adjD) && bump(:holeArr)
+        end
+    end
+end
+
+function main()
+    _, loader, _ = ProbeLib.map_of_env()
+    cols = (:np, :hole, :holeS, :holeArr); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
+    ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
+                                                   dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
+        ex = ProbeLib.exhaustive(path)
+        truth = ex === nothing ? "?" : string(!isempty(ex))
+        empty!(C); empty!(SENDER); empty!(ARR); empty!(REQS)
+        machine = SatMachine.new(loader(path))
+        t = @elapsed begin
+            redirect_stdout(devnull) do
+                SatMachine.run!(machine)
+            end
+            bystep = Dict{Int, Dict{Any, Any}}()
+            for ((k, st), g) in SENDER
+                g.is_valid || continue
+                bystep[st] = get(bystep, st, Dict{Any, Any}())
+                bystep[st][k] = g
+            end
+            judge_arr(bystep)
+            for (st, es) in bystep
+                nothing
+            end
+        end
+        return (truth, (get(C, c, 0) for c in cols)..., round(t, digits = 1))
+    end
+end
+
+main()

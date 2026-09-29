@@ -1,0 +1,5 @@
+instance	truth	np	hole	holeS	holeArr	secs
+clause_mix.cnf	true	447	447	447	447	0.6
+clause_mix_sep.cnf	true	1145	1145	1145	1145	0.5
+rand3sat_v8_c10.cnf	true	4136	4136	4136	4136	2.5
+v5_c20_i1.cnf	true	713	713	713	713	1.5
