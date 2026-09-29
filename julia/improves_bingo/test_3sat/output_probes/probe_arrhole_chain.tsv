@@ -1,0 +1,6 @@
+instance	truth	np	hole	holeS	holeArr	rule_pair	rule_none	rule_other	supp_ok	supp_fail	hole_own	ch_single	ch_reach	ch_noreach	ch_supp	ch_S	ch_hole	ch_inh_any	ch_inh_all	ch_y_is_bnd	sholes_full	blk	blk_oo	blk_mix	blk_yw_in_o	blk_o_has_yw	abs	abs_inX	abs_hole	abs_ctop	abs_ctop_hole	ab1	ab1_hole	ab1_ctop	ab1_ctop_hole	ab1_star	ab1_star_hole	secs
+clause_mix.cnf	true	447	447	447	447	447	0	0	0	447	447	352	447	0	0	272	447	447	204	95	447	0	0	0	0	0	646	0	642	362	358	16	16	10	10	16	16	1.1
+rand3sat_v8_c10.cnf	true	4136	4136	4136	4136	4136	0	0	0	4136	4136	1906	4136	0	0	2770	4136	4136	1585	914	4081	360	232	152	240	232	6834	0	6834	2850	2850	474	474	268	268	474	474	3.8
+v5_c20_i1.cnf	true	713	713	713	713	713	0	0	0	713	713	617	713	0	0	495	713	713	272	148	703	22	0	22	0	0	986	0	986	376	376	351	351	22	22	351	351	1.9
+v6_c26_i1.cnf	false	1073	1073	1073	1073	1073	0	0	0	1073	1073	816	1073	0	0	699	1073	1073	462	248	1059	60	26	38	26	26	1665	0	1665	594	594	538	538	83	83	538	538	3.2
+v7_c30_i1.cnf	false	893	893	893	893	893	0	0	0	893	893	715	893	0	0	641	893	893	347	252	893	0	0	0	0	0	1323	0	1323	363	363	239	239	69	69	239	239	7.7
