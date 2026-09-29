@@ -134,6 +134,39 @@ function spine!(V, pre)
         end
         return false
     end
+    # herencia por padres: para x y su padre p (poseídos), ¿todo vecino w de x por encima (resp. por debajo de p) posee a p?
+    for x in AV
+        nd = PathCollectionLines.get_node(V.table_lines, x)
+        nd === nothing && continue
+        ps = [p for p in nd.parents if p in AV && adj(x, p)]
+        isempty(ps) && continue
+        length(ps) >= 2 && bump(Symbol(pre, "h_twopar"))
+        length(ps) >= 3 && bump(Symbol(pre, "h_threepar"))
+        # ParentTrio: w, w' vecinos de x y entre sí, en pasos distintos al de los padres
+        if length(ps) >= 2
+            ws = [w for w in AV if w != x && adj(x, w) && !(w in ps) && Int(w.id.step) != Int(x.id.step) - 1]
+            for i in 1:length(ws), j in i+1:length(ws)
+                (w1, w2) = (ws[i], ws[j])
+                (Int(w1.id.step) == Int(w2.id.step) || !adj(w1, w2)) && continue
+                bump(Symbol(pre, "pt_n"))
+                any(p -> adj(p, w1) && adj(p, w2), ps) || bump(Symbol(pre, "pt_fail"))
+            end
+        end
+        for w in AV
+            (w == x || !adj(x, w)) && continue
+            for p in ps
+                w == p && continue
+                if Int(w.id.step) > Int(x.id.step)
+                    bump(Symbol(pre, "h_up_n")); adj(w, p) || bump(Symbol(pre, "h_up_fail"))
+                    (length(ps) >= 2 && !adj(w, p)) && bump(Symbol(pre, "h_up_fail_two"))
+                elseif Int(w.id.step) < Int(p.id.step)
+                    bump(Symbol(pre, "h_dn_n")); adj(w, p) || bump(Symbol(pre, "h_dn_fail"))
+                    # al menos un padre de x posee a w
+                    any(q -> adj(w, q), ps) || bump(Symbol(pre, "h_dn_none"))
+                end
+            end
+        end
+    end
     for t in get(bystep, top, PathNodeId[])
         for a in AV
             (a == t || !PG.has_edge(og, a, t)) && continue
@@ -143,6 +176,13 @@ function spine!(V, pre)
             bump(Symbol(pre, "st_", st))
             bump(Symbol(pre, "forced_steps"), length(C) - 2)
             bump(Symbol(pre, "all_steps"), cs - 2)
+            if st == :full
+                docpath = all(0:top-1) do l
+                    nd = PathCollectionLines.get_node(V.table_lines, C[l + 1])
+                    nd !== nothing && C[l] in nd.parents
+                end
+                docpath ? bump(Symbol(pre, "f_docpath")) : bump(Symbol(pre, "f_nodocpath"))
+            end
             if st == :stuck
                 # voraz: en cada paso atascado, probar CADA candidato una vez y propagar; ¿alguno lleva a contradicción?
                 l0 = first(l for l in 0:top if !haskey(C, l))
@@ -165,6 +205,26 @@ function spine!(V, pre)
                     gst = propagate(C3)
                 end
                 gst == :full ? bump(Symbol(pre, "g_first_ok")) : bump(Symbol(pre, "g_first_dead"))
+                # relación de los candidatos del paso atascado con lo ya elegido (documentos de V)
+                for r in cands
+                    rel = false
+                    for (lx, x) in C
+                        nd = PathCollectionLines.get_node(V.table_lines, x)
+                        nd === nothing && continue
+                        (lx == l0 + 1 && r in nd.parents) && (rel = true)
+                        (lx == l0 - 1 && r in nd.sons) && (rel = true)
+                    end
+                    bump(Symbol(pre, rel ? "c_rel" : "c_norel"))
+                    # ¿hay elegidos en l0±1?
+                    (haskey(C, l0 + 1) || haskey(C, l0 - 1)) || bump(Symbol(pre, "c_isolated"))
+                end
+                if gst == :full
+                    docpath = all(0:top-1) do l
+                        nd = PathCollectionLines.get_node(V.table_lines, C3[l + 1])
+                        nd !== nothing && C3[l] in nd.parents
+                    end
+                    docpath ? bump(Symbol(pre, "g_docpath")) : bump(Symbol(pre, "g_nodocpath"))
+                end
                 EXH[] = false
                 ok = dfs(C, Ref(20000))
                 ok ? bump(Symbol(pre, "stuck_clique")) : (EXH[] ? bump(Symbol(pre, "stuck_budget")) : bump(Symbol(pre, "stuck_noclique")))
@@ -404,7 +464,7 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = Symbol[]
-    for pre in ("u_", "r_"), c in ("pairs", "st_full", "st_stuck", "st_zero", "forced_steps", "all_steps", "stuck_clique", "stuck_noclique", "stuck_budget", "g_cands", "g_bad", "g_pair_bad", "g_first_ok", "g_first_dead")
+    for pre in ("u_", "r_"), c in ("pairs", "st_full", "st_stuck", "st_zero", "forced_steps", "all_steps", "stuck_clique", "stuck_noclique", "stuck_budget", "g_cands", "g_bad", "g_pair_bad", "g_first_ok", "g_first_dead", "c_rel", "c_norel", "c_isolated", "g_docpath", "g_nodocpath", "f_docpath", "f_nodocpath", "h_twopar", "h_threepar", "pt_n", "pt_fail", "h_up_n", "h_up_fail", "h_up_fail_two", "h_dn_n", "h_dn_fail", "h_dn_none")
         push!(cols, Symbol(pre, c))
     end
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
