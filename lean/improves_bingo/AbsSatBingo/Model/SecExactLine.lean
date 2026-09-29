@@ -194,13 +194,17 @@ open GPathB Driver Machine Final
 def SInv (g : GPathB) : Prop :=
   SecExact g ∧ NodupIds g ∧ EdgesAlive g ∧ LinksStep g ∧ AboveZero g ∧ TopNoSons g ∧ LinksInv g
 
+/-- `AvoidSat` en las ventanas saltadas. -/
+def SkipHyp (φ : Cnf) : Prop :=
+  ∀ T key g d, StateOk T key g → SInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
+    (g.filterAll (reqOf φ d)).isValid = true →
+    (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
+    AvoidSat (g.filterAll (reqOf φ d)) d (isProhibited φ)
+
 /-- **Las dos hipótesis de existencia**: `SecSplit` en los joins y `AvoidSat` en las ventanas saltadas. -/
 structure HypsSec (φ : Cnf) : Prop where
   split : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SecSplit e g
-  skip  : ∀ T key g d, StateOk T key g → SInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
-            (g.filterAll (reqOf φ d)).isValid = true →
-            (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
-            AvoidSat (g.filterAll (reqOf φ d)) d (isProhibited φ)
+  skip  : SkipHyp φ
 
 theorem sInv_filterAll {g : GPathB} (hk : SInv g) (hd : AliveDocs g) (reqs : List NodeId) :
     SInv (g.filterAll reqs) :=
@@ -209,7 +213,7 @@ theorem sInv_filterAll {g : GPathB} (hk : SInv g) (hd : AliveDocs g) (reqs : Lis
    revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2.1, revPrims_filterAll revPrims_topNoSons _ _ hk.2.2.2.2.2.1,
    revPrims_filterAll revPrims_linksInv _ _ hk.2.2.2.2.2.2⟩
 
-theorem sInv_upFiltering {φ : Cnf} (H : HypsSec φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
+theorem sInv_upFiltering {φ : Cnf} (Hs : SkipHyp φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
     (hk : SInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
     (hv : (g.upFiltering (reqOf φ d) d "" (isProhibited φ)).isValid = true) :
     SInv (g.upFiltering (reqOf φ d) d "" (isProhibited φ)) := by
@@ -229,7 +233,7 @@ theorem sInv_upFiltering {φ : Cnf} (H : HypsSec φ) {T : Int} {key d : NodeId} 
     have hav : AvoidSat f d (isProhibited φ) := by
       cases hsk : f.skipsWindow d (isProhibited φ)
       · exact avoidSat_of_noSkip hf.1 hfpos hsk
-      · exact H.skip T key g d hg hk hT hd hvf hsk
+      · exact Hs T key g d hg hk hT hd hvf hsk
     have hka : SecExact a :=
       secExact_addNode hav hfd hfb hf.2.2.2.1 hf.2.2.2.2.2.1 hfpos hdstep
     have hnd : NodupIds a := nodupIds_addNode hf.2.1 hfb hdstep
@@ -247,9 +251,8 @@ theorem sInv_upFiltering {φ : Cnf} (H : HypsSec φ) {T : Int} {key d : NodeId} 
 
 def LineS (line : Line) : Prop := ∀ kv ∈ line, SInv kv.2
 
-theorem sInv_doJoin {φ : Cnf} (H : HypsSec φ) {T : Int} (hT : 2 ≤ T) {key : NodeId} {e g : GPathB}
-    (he : StateOk T key e) (hg : StateOk T key g) (hke : SInv e) (hkg : SInv g) : SInv (doJoin e g) := by
-  refine ⟨secExact_doJoin hke.1 hkg.1 (H.split T key e g hT he hg hke hkg), nodupIds_doJoin hke.2.1 hkg.2.1,
+theorem sInv_doJoin_of {e g : GPathB} (hsp : SecSplit e g) (hke : SInv e) (hkg : SInv g) : SInv (doJoin e g) := by
+  refine ⟨secExact_doJoin hke.1 hkg.1 hsp, nodupIds_doJoin hke.2.1 hkg.2.1,
     edgesAlive_doJoin hke.2.2.1 hkg.2.2.1, ?_, ?_, ?_, ?_⟩
   · unfold doJoin; split
     · exact linksStep_join hke.2.2.2.1 hkg.2.2.2.1
@@ -266,6 +269,10 @@ theorem sInv_doJoin {φ : Cnf} (H : HypsSec φ) {T : Int} (hT : 2 ≤ T) {key : 
   · unfold doJoin; split
     · exact linksInv_join hke.2.2.2.2.2.2 hkg.2.2.2.2.2.2 hke.2.2.1 hkg.2.2.1
     · exact hke.2.2.2.2.2.2
+
+theorem sInv_doJoin {φ : Cnf} (H : HypsSec φ) {T : Int} (hT : 2 ≤ T) {key : NodeId} {e g : GPathB}
+    (he : StateOk T key e) (hg : StateOk T key g) (hke : SInv e) (hkg : SInv g) : SInv (doJoin e g) :=
+  sInv_doJoin_of (H.split T key e g hT he hg hke hkg) hke hkg
 
 theorem lineS_insert {φ : Cnf} (H : HypsSec φ) {T : Int} (hT : 2 ≤ T) {line : Line} {key : NodeId} {g : GPathB}
     (hl : LineOk T line) (hlk : LineS line) (hg : StateOk T key g) (hk : SInv g) :
@@ -313,7 +320,7 @@ theorem lineS_advance {φ : Cnf} (H : HypsSec φ) {T : Int} (hT : 1 ≤ T) {line
             split
             · rename_i hv
               exact lineS_insert H (by omega) a b (stateOk_upFiltering (hl kv hkv) hd hv)
-                (sInv_upFiltering H (hl kv hkv) (hlk kv hkv) hT hd hv)
+                (sInv_upFiltering H.skip (hl kv hkv) (hlk kv hkv) hT hd hv)
             · exact b
       simp only [List.foldl_cons]
       obtain ⟨a, b⟩ := hsend _ (fun _ h => h) next h1 h2
@@ -364,12 +371,13 @@ theorem run_sInv {φ : Cnf} (H : HypsSec φ) : ∀ kv ∈ run φ, StateOk (stepC
 -- El lector
 -- ============================================================
 
-/-- **El veredicto del lector es la satisfacibilidad bajo `SecSplit` y `AvoidSat`.** -/
-theorem readerVerdict_iff_of_secSplit {φ : Cnf} (hbd : Bounded φ) (H : HypsSec φ) :
+/-- **El veredicto del lector es la satisfacibilidad si todo estado de la línea final cumple `SInv`.** -/
+theorem readerVerdict_iff_of_final {φ : Cnf} (hbd : Bounded φ)
+    (hfin : ∀ kv ∈ run φ, StateOk (stepCount φ) kv.1 kv.2 ∧ SInv kv.2) :
     readerVerdict φ = true ↔ Satisfiable φ := by
   apply Decode.readerVerdict_iff_of_noZombie hbd
   intro kv hkv h hvis hval
-  obtain ⟨hok, hk⟩ := run_sInv H kv hkv
+  obtain ⟨hok, hk⟩ := hfin kv hkv
   have hcs : 2 ≤ kv.2.current_step := by rw [hok.step]; unfold stepCount; omega
   have hcl := (cInv_visited hok.docs hk.2.1 hok.below hk.2.2.2.2.1 hcs h hvis).2.2.2.2.2 hval
   obtain ⟨P, rfl⟩ := visited_pinSeq hvis
@@ -388,6 +396,11 @@ theorem readerVerdict_iff_of_secSplit {φ : Cnf} (hbd : Bounded φ) (H : HypsSec
   obtain ⟨y, hy, _⟩ := alive_zero_of_valid hval hcs1
   obtain ⟨S, hS, hag⟩ := hse1 P _ _ hst ha ⟨y, hy⟩
   exact ⟨S, carried_pinSeq P _ hS hag⟩
+
+/-- **El veredicto del lector es la satisfacibilidad bajo `SecSplit` y `AvoidSat`.** -/
+theorem readerVerdict_iff_of_secSplit {φ : Cnf} (hbd : Bounded φ) (H : HypsSec φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_final hbd (run_sInv H)
 
 /-- **`KernelUnion` ⟹ `SecSplit`**: la versión de existencia es más débil. -/
 theorem secSplit_of_kernelUnion {e g : GPathB} (hu : KernelUnion e g) : SecSplit e g := by

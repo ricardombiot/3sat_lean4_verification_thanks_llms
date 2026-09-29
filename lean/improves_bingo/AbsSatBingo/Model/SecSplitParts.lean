@@ -74,10 +74,7 @@ structure HypsSecParts (φ : Cnf) : Prop where
   split : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SplitSat (join e g) (T - 2)
   sep   : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SepAt e g (T - 2)
   side  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SideEdgesAt e g (T - 2)
-  skip  : ∀ T key g d, StateOk T key g → SInv g → 1 ≤ T → d ∈ sonsOfMap φ key →
-            (g.filterAll (reqOf φ d)).isValid = true →
-            (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
-            AvoidSat (g.filterAll (reqOf φ d)) d (isProhibited φ)
+  skip  : SkipHyp φ
 
 theorem hypsSec_of_parts {φ : Cnf} (H : HypsSecParts φ) : HypsSec φ := by
   refine ⟨fun T key e g hT he hg hke hkg => ?_, H.skip⟩
