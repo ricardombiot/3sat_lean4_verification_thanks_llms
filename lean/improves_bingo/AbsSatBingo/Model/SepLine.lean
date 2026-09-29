@@ -392,6 +392,25 @@ theorem splitSat2_of_splitSat {u : GPathB} {k : Int} {a s : NodeId} (hk0 : 0 ≤
   · exact Or.inl ⟨V', R', h1, by rw [← hrb, hra] at h2; exact h2, y, hy⟩
   · exact Or.inr ⟨V', R', h1, by rw [← hrb, hrs'] at h2; exact h2, y, hy⟩
 
+/-- **Color = lado**: en la unión, una posesión con un nodo del color `a` (que `g` no tiene vivo) es de `e`, y sus dos
+extremos viven en `e`. -/
+theorem colour_side {e g : GPathB} {a : NodeId} (hoff : OffSide g a) (hee : EdgesAlive e) (heg : EdgesAlive g)
+    {y r : PathNodeId} (hr : r.id = a) (h : (join e g).Adj y r) : e.Adj y r ∧ y ∈ e.alive ∧ r ∈ e.alive := by
+  have hrg : r ∉ g.alive := fun h' => hoff r h' hr
+  have he := adj_left_of_dead heg hrg h
+  exact ⟨he, hee y r he⟩
+
+/-- **Una pareja con un testigo del color `a` vive en `e`**: sus dos extremos y las posesiones con el testigo. Así, en
+una estructura cerrada de la unión, las parejas que solo tienen testigos de `a` son de `e` en sus extremos, y las que
+solo tienen testigos de `s`, de `g`: la «mezcla» de `SplitSat2` está en las posesiones entre extremos compartidos. -/
+theorem pair_side_of_witness {e g : GPathB} {a : NodeId} (hoff : OffSide g a) (hee : EdgesAlive e)
+    (heg : EdgesAlive g) {V : PathNodeId → Prop} {R : PathNodeId → PathNodeId → Prop}
+    (hst : SecStruct (join e g) V R) {y w r : PathNodeId} (hr : r.id = a) (hyr : R y r) (hwr : R w r) :
+    y ∈ e.alive ∧ w ∈ e.alive ∧ e.Adj y r ∧ e.Adj w r := by
+  obtain ⟨h1, h2, _⟩ := colour_side hoff hee heg hr (hst.adj hyr)
+  obtain ⟨h3, h4, _⟩ := colour_side hoff hee heg hr (hst.adj hwr)
+  exact ⟨h2, h4, h1, h3⟩
+
 /-- **Las hipótesis de dos lados**: `SplitSat2` en cada join, con los colores de los dos lados (uno cada uno,
 distintos); `SideSat` en los joins separados; `AvoidSat` en las ventanas saltadas. -/
 structure HypsTwo (φ : Cnf) : Prop where
