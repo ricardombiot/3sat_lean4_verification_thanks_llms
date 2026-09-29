@@ -9,7 +9,7 @@ veredicto bajo B1 + `ArrHole` + `AbsHole`, y proponía atacar el "acuerdo entre 
 * **una corrección**: te dije que la hipótesis nueva del join, `PinKeeps2`, era más débil que B1. Es equivalente.
 
 Al final (§9) hay una sección con las ideas siguientes planteadas con el método de demostraciones de Solow, como
-pediste.
+pediste, y (§10) lo que dieron dos de ellas al probarlas: el primer corte y la construcción de la "espina".
 
 **La conclusión, por adelantado.**
 * **Demostrado en Lean** (sin `sorry`, solo los axiomas estándar):
@@ -192,12 +192,74 @@ lo digas. Si la autorizas, sería la forma más barata de saber si el enunciado 
 `ArrHole`. Tanto si aparece una razón uniforme como si no, dirá si merece la pena el candidato 4 de §9.2 o el refuerzo
 de §9.4.
 
+## 10. Lo que dieron el primer corte y la espina (añadido tras escribir §9)
+
+Seguí la recomendación de §9.3 y, a partir de lo que salió, construí el candidato 2 de §9.2 de forma explícita. Las
+dos vías llevan al mismo sitio.
+
+### 10.1 El primer corte (`probe_firstcut.jl`, `ae25e8c`)
+
+Registré la revisión fijada (color del padre y del abuelo de $t$) evento a evento, en 4 instancias:
+* **en el 75-90 % de los casos no corta nada dentro de la estrella** de $t$;
+* cuando corta, **el primer corte es siempre de la regla de parejas y nunca toca a $t$**;
+* los testigos que faltan en ese primer corte **están siempre fuera de la estrella**. Los mató la cascada (~91 %) o la
+  fijación directa (~9 %). Es el fenómeno de tríos de B1;
+* las aristas hacia $t$ **nunca** se quedan sin testigo (1,9 M celdas, un nodo de la estrella y un paso), y en el
+  55-90 % de las celdas tienen **exactamente uno**. La estrella es **fina**.
+
+La contradicción sobre el primer corte no aparece, porque la cascada nunca llega a una arista hacia $t$. Explicar
+por qué es otra vez el núcleo.
+
+### 10.2 La espina (`probe_spine.jl`, `0110e08`, `eb5f25d`, `d9f3416`)
+
+La finura sugirió construir la camarilla por $z$ y $t$ a mano. Se parte de una pareja $(a,t)$; en cada paso, los
+candidatos son los nodos vecinos de **todos** los ya elegidos; si hay uno solo se elige, y si no se elige cualquiera y
+se vuelve a propagar. En estructuras cerradas de la unión (4 instancias, ~56 000 parejas):
+* la propagación **nunca** llega a contradicción;
+* completa la camarilla sola en el 13-60 % de las parejas;
+* cuando se atasca hay **exactamente 2 candidatos**, y **cualquiera de los dos se completa** (0 callejones en 74 000
+  elecciones). Elegir siempre el primero termina en camarilla en el 100 %;
+* toda camarilla construida es un **camino de documentos**: cada nodo es padre del siguiente. Los candidatos de un paso
+  atascado son padres o hijos de un nodo ya elegido en el paso contiguo.
+
+Tu observación lo explica: *el lector revisa tras cada elección y poda los nodos incompatibles; por eso cualquier
+elección lleva a una solución*. La espina hace lo mismo sin revisión, exigiendo adyacencia a todo lo elegido. En
+cambio, bajar mirando solo **parejas** (`ChainPin`, v210) sí se atascaba.
+
+### 10.3 Por qué existe el candidato, y dónde se para la explicación
+
+* **Nunca hay más de dos padres** (0 nodos con tres en todas las instancias).
+* **Con un solo padre, la herencia es total**: todo vecino de $x$ por encima de $x$ es vecino de su padre. Ese paso
+  de la espina es forzado y funciona siempre.
+* **Con dos padres**, un vecino de $x$ puede serlo solo de uno. Aquí hay un **lema combinatorio demostrable**:
+  subconjuntos no vacíos de un conjunto de 2 elementos que se cortan dos a dos comparten un elemento. Por tanto, el
+  Helly para todo lo elegido en el paso del padre se reduce a **tríos** (ParentTrio): para cada triángulo $x$, $w$,
+  $w'$, algún padre de $x$ es vecino de $w$ y de $w'$.
+* **ParentTrio no vale en general** (falla en el 0,2-0,7 % de los triángulos de las estructuras cerradas del join),
+  y **todos los que fallan son triángulos muertos**: no están en ninguna camarilla (56 849/56 849). Para un triángulo
+  que está en una camarilla, ParentTrio es automático.
+* **Nada local excluye a los muertos**: la mayoría se extienden con una cima, y 2 181 están sobre una misma cadena de
+  documentos.
+
+La espina nunca forma un triángulo muerto porque exige adyacencia a todo lo elegido, que es la misma garantía que la
+revisión del lector. "La espina nunca se atasca" es **la ausencia de zombis del lector en miniatura**, dentro de una
+estructura cerrada de la unión. El círculo se cierra: construir la camarilla y que el lector no se atasque son el
+mismo problema.
+
+### 10.4 Qué queda de esto
+
+* **Formalizable ya:** el lema de los dos padres, y el paso forzado de la espina cuando hay un solo padre, porque la
+  herencia hacia arriba es total. Son piezas pequeñas pero seguras.
+* **El núcleo, en su forma más concreta:** en una estructura cerrada de la unión, toda camarilla parcial que contiene
+  una arista cima–estrella y es "cerrada por propagación" se extiende. Todo indica que esa garantía es global, como la
+  del lector, y no sale de una propiedad local de tríos.
+
 ---
 
 **Ficheros nuevos (Lean, `lean/improves_bingo/AbsSatBingo/Model/`):** `PinSide`, `PinJoin`.
 
 **Julia (`julia/improves_bingo/test_3sat/`), sondas nuevas o ampliadas:** `probe_arrhole` (relleno, camino muerto,
-requisitos), `probe_starcut`, `probe_kernelstar`, `probe_groupside`,
-`probe_branch`, `probe_pinstar`.
+requisitos), `probe_starcut`, `probe_kernelstar`, `probe_groupside`, `probe_branch`, `probe_pinstar`,
+`probe_firstcut`, `probe_spine`.
 
-**Commits:** de `b5f9ccf` a `7cb7217` en la rama `reader-stuck`.
+**Commits:** de `b5f9ccf` a `7cb7217`, y (§10) de `ae25e8c` a `d9f3416`, en la rama `reader-stuck`.
