@@ -49,6 +49,7 @@ import AbsSatBingo.Model.StarClique
 import AbsSatBingo.Model.ArrTree
 import AbsSatBingo.Model.LineCtx
 import AbsSatBingo.Model.StarUnion
+import AbsSatBingo.Model.ChainPin
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
