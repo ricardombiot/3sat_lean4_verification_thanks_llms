@@ -24,6 +24,7 @@ const C = Dict{Symbol, Int}()
 bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
 const SENDER = Dict{Any, Any}()
 const ARR = Dict{Any, Any}()
+const REQS = Dict{Any, Any}()
 
 Core.eval(GraphPath, quote
     function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
@@ -34,6 +35,7 @@ Core.eval(GraphPath, quote
         filter!(gpath, requires)
         do_up!(gpath, map_id_node, title, prohibited)
         $(ARR)[(map_id_node, key[1], key[2])] = deepcopy(gpath)
+        $(REQS)[(map_id_node, key[1], key[2])] = copy(requires)
     end
 end)
 
@@ -166,6 +168,20 @@ function judge(A, B, bystep, N)
                     any(H -> !isempty(H) && minimum(H) in FC, hs_all) && bump(:min_free)
                     all(H -> !isempty(H) && maximum(H) in FC, hs_all) && bump(:max_free_all)
                     # hueco común a todas las llegadas que quitan
+                    for ((q, S, X), H) in zip(rems, hs_all)
+                        isempty(H) && continue
+                        rq = get(REQS, (q.id, q.parent_id, k), nothing)
+                        rq === nothing && continue
+                        rsteps = Set(Int(z.step) for z in rq)
+                        bump(:rq_n)
+                        maximum(H) in rsteps && bump(:rq_max)
+                        all(l -> l in rsteps, H) && bump(:rq_all)
+                        # en el paso del hueco, ¿y o w poseen algún nodo requerido vivo en X?
+                        l = maximum(H)
+                        req_alive = [r for r in alive(X) if Int(r.id.step) == l]
+                        any(r -> PG.has_edge(S.og, y, r), req_alive) && bump(:y_has)
+                        any(r -> PG.has_edge(S.og, w, r), req_alive) && bump(:w_has)
+                    end
                     common = intersect([Set(H) for H in hs_all]...)
                     isempty(common) || bump(:hole_common)
                     any(l -> l in FC, common) && bump(:hole_common_free)
@@ -182,13 +198,13 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3)
+    cols = (:np, :freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C); empty!(SENDER); empty!(ARR)
+        empty!(C); empty!(SENDER); empty!(ARR); empty!(REQS)
         machine = SatMachine.new(loader(path))
         t = @elapsed begin
             redirect_stdout(devnull) do
