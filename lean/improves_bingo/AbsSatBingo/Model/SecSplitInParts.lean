@@ -115,6 +115,30 @@ theorem sideSubIn_of_parts {e g : GPathB} {k : Int} {a s : NodeId} (ha : a.step 
     exact Or.inr ⟨W, R', h1, fun b hb => h2 b (List.mem_append_left _ hb), h3, h4,
       fun hr => ((hse s hs).2 hos) W R' h1 hWs hr⟩
 
+-- ============================================================
+-- A nivel de nodo
+-- ============================================================
+
+/-- **`ColourSurvive`**: todo nodo `x` de `V` en el paso `k` sigue vivo en una estructura cerrada dentro de `V` que
+concuerda además con su color. (Medido: `probe_secin.jl`, 7 183 nodos, 0 fallos.) -/
+def ColourSurvive (u : GPathB) (k : Int) : Prop :=
+  ∀ (P : List NodeId) (V : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop),
+    SecStruct u V R → (∀ b ∈ P, SecAgrees V b) → ∀ x, V x → x.id.step = k →
+    ∃ (W : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop), SecStruct u W R' ∧
+      (∀ c ∈ P ++ [x.id], SecAgrees W c) ∧ W x ∧ ∀ y, W y → V y
+
+/-- **`ColourSurvive` ⟹ `SplitIn2`**: el testigo del paso `k` de cualquier nodo de `V` es de `a` o de `s`, y su
+color sobrevive. -/
+theorem splitIn2_of_colourSurvive {u : GPathB} {k : Int} {a s : NodeId} (hk0 : 0 ≤ k) (hkc : k < u.current_step)
+    (ho : OriginIn u k (fun c => c = a ∨ c = s)) (h : ColourSurvive u k) : SplitIn2 u a s := by
+  intro P V R hst hag ⟨y, hy⟩
+  obtain ⟨x, hxs, hyx, _⟩ := hst.pair (hst.refl hy) k hk0 hkc
+  have hxV := (hst.dom hyx).2
+  obtain ⟨W, R', h1, h2, h3, h4⟩ := h P V R hst hag x hxV hxs
+  rcases ho x (hst.alive hxV) hxs with hxa | hxs'
+  · exact Or.inl ⟨W, R', h1, by rw [← hxa]; exact h2, ⟨x, h3⟩, h4⟩
+  · exact Or.inr ⟨W, R', h1, by rw [← hxs']; exact h2, ⟨x, h3⟩, h4⟩
+
 end GPathB
 
 namespace SecLine
@@ -156,6 +180,28 @@ theorem hypsSideSub_of_parts {φ : Cnf} (H : HypsSplitIn φ) : HypsSideSub φ :=
 theorem readerVerdict_iff_of_splitIn {φ : Cnf} (hbd : Bounded φ) (H : HypsSplitIn φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
   readerVerdict_iff_of_sideSubIn hbd (hypsSideSub_of_parts H)
+
+
+/-- **Local**: `ColourSurvive` en cada join (a nivel de nodo) y `SideEdgesAt`. -/
+structure HypsLocal (φ : Cnf) : Prop where
+  survive : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInvIn e → SInvIn g →
+              ColourSurvive (join e g) (T - 2)
+  side    : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInvIn e → SInvIn g →
+              SideEdgesAt e g (T - 2)
+
+theorem hypsSplitIn_of_local {φ : Cnf} (H : HypsLocal φ) : HypsSplitIn φ := by
+  refine ⟨fun T key e g a s hT he hg hke hkg _ _ _ hoe hog => ?_, H.side⟩
+  refine splitIn2_of_colourSurvive (by omega) (by show T - 2 < e.current_step; rw [he.step]; omega) ?_
+    (H.survive T key e g hT he hg hke hkg)
+  intro q hq hk
+  rcases (alive_join e g q).mp hq with h | h
+  · exact Or.inl (hoe q h hk)
+  · exact Or.inr (hog q h hk)
+
+/-- **El veredicto del lector bajo `ColourSurvive` y `SideEdgesAt`.** -/
+theorem readerVerdict_iff_of_local {φ : Cnf} (hbd : Bounded φ) (H : HypsLocal φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_splitIn hbd (hypsSplitIn_of_local H)
 
 end SecLine
 
