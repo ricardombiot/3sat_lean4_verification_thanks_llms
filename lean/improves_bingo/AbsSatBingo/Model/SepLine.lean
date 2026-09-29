@@ -132,22 +132,31 @@ def Key (k : Int) (a : NodeId) : Prop := a.step = k ∧ (a.index = 0 ∨ a.index
 
 /-- **Quien resuelve el join** de la línea, con lo que la inducción sabe en ese momento: el estado del destino tiene
 sus orígenes en remitentes anteriores (`A`, claves del paso de origen), y la llegada los tiene en su remitente `s`. -/
-def JoinProv (U : Int) : Prop :=
-  ∀ (key s : NodeId) (e g : GPathB) (A : NodeId → Prop), StateOk U key e → StateOk U key g → SInv e → SInv g →
+def JoinProv (I : GPathB → Prop) (U : Int) : Prop :=
+  ∀ (key s : NodeId) (e g : GPathB) (A : NodeId → Prop), StateOk U key e → StateOk U key g → I e → I g →
     OriginIn e (U - 2) A → OriginIn g (U - 2) (· = s) → ¬ A s → (∀ a, A a → Key (U - 2) a) → Key (U - 2) s →
-    SInv (doJoin e g)
+    I (doJoin e g)
 
-theorem joinProv_exist {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) : JoinProv U :=
+/-- **Quien resuelve la llegada**: el invariante pasa por el UP. -/
+def UpProv (φ : Cnf) (I : GPathB → Prop) : Prop :=
+  ∀ T key g d, StateOk T key g → I g → 1 ≤ T → d ∈ sonsOfMap φ key →
+    (g.upFiltering (reqOf φ d) d "" (isProhibited φ)).isValid = true →
+    I (g.upFiltering (reqOf φ d) d "" (isProhibited φ))
+
+theorem upProv_sInv {φ : Cnf} (Hs : SkipHyp φ) : UpProv φ SInv :=
+  fun _ _ _ _ hg hk hT hd hv => sInv_upFiltering Hs hg hk hT hd hv
+
+theorem joinProv_exist {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) : JoinProv SInv U :=
   fun _ _ _ _ _ he hg hke hkg hoe hog hsA _ _ => sInv_doJoin_sep H hU he hg hke hkg (sepAt_of_origin hoe hog hsA)
 
 /-- **Insertar una llegada**, llevando los orígenes: el estado del destino solo tiene orígenes anteriores. -/
-theorem lineO_insert {U : Int} (J : JoinProv U) {line : Line} {key s : NodeId}
+theorem lineO_insert {I : GPathB → Prop} {U : Int} (J : JoinProv I U) {line : Line} {key s : NodeId}
     {g : GPathB} {A : NodeId → Prop} {done : List NodeId}
-    (hl : LineOk U line) (hlk : LineS line)
+    (hl : LineOk U line) (hlk : ∀ kv ∈ line, I kv.2)
     (ho : ∀ kv ∈ line, OriginIn kv.2 (U - 2) (fun a => A a ∨ (a = s ∧ kv.1 ∈ done)))
     (hkey : key ∉ done) (hsA : ¬ A s) (hAk : ∀ a, A a → Key (U - 2) a) (hsk : Key (U - 2) s)
-    (hg : StateOk U key g) (hk : SInv g) (hog : OriginIn g (U - 2) (· = s)) :
-    LineS (Driver.insert line key g) ∧
+    (hg : StateOk U key g) (hk : I g) (hog : OriginIn g (U - 2) (· = s)) :
+    (∀ kv ∈ Driver.insert line key g, I kv.2) ∧
       ∀ kv ∈ Driver.insert line key g, OriginIn kv.2 (U - 2) (fun a => A a ∨ (a = s ∧ kv.1 ∈ key :: done)) := by
   have wk : ∀ {h : GPathB} {k' : NodeId}, OriginIn h (U - 2) (fun a => A a ∨ (a = s ∧ k' ∈ done)) →
       OriginIn h (U - 2) (fun a => A a ∨ (a = s ∧ k' ∈ key :: done)) :=
@@ -190,19 +199,20 @@ theorem lineO_insert {U : Int} (J : JoinProv U) {line : Line} {key s : NodeId}
         exact originIn_mono hog (fun a h => Or.inr ⟨h, List.mem_cons_self ..⟩)
 
 /-- **El paso de la máquina sin `SepAt`**: cada remitente, una vez; cada hijo, una vez. -/
-theorem lineO_advance {φ : Cnf} (Hs : SkipHyp φ) {T : Int} (J : JoinProv (T + 1)) (hT : 1 ≤ T) {line : Line}
-    (hl : LineOk T line) (hlk : LineS line) (hent : ∀ kv ∈ line, EntOk kv) (hnd : (line.map (·.1)).Nodup)
+theorem lineO_advance {φ : Cnf} {I : GPathB → Prop} (Hup : UpProv φ I) {T : Int} (J : JoinProv I (T + 1))
+    (hT : 1 ≤ T) {line : Line}
+    (hl : LineOk T line) (hlk : ∀ kv ∈ line, I kv.2) (hent : ∀ kv ∈ line, EntOk kv) (hnd : (line.map (·.1)).Nodup)
     (hidx : ∀ kv ∈ line, kv.1.index = 0 ∨ kv.1.index = 1) :
-    LineS (advance φ line) := by
+    ∀ kv ∈ advance φ line, I kv.2 := by
   have hk2 : T + 1 - 2 = T - 1 := by omega
   have hkey : ∀ kv ∈ line, Key (T - 1) kv.1 := fun kv hkv => ⟨(hl kv hkv).key, hidx kv hkv⟩
   -- los envíos de un remitente kv, con orígenes A ∨ kv.1 en los destinos ya servidos
   have hsend : ∀ (kv : NodeId × GPathB), kv ∈ line → ∀ (A : NodeId → Prop), ¬ A kv.1 →
       (∀ a, A a → Key (T - 1) a) →
       ∀ (ds : List NodeId) (done : List NodeId), ds.Nodup → (∀ d ∈ ds, d ∉ done) →
-      (∀ d ∈ ds, d ∈ sonsOfMap φ kv.1) → ∀ nx, LineOk (T + 1) nx → LineS nx →
+      (∀ d ∈ ds, d ∈ sonsOfMap φ kv.1) → ∀ nx, LineOk (T + 1) nx → (∀ kv' ∈ nx, I kv'.2) →
       (∀ kv' ∈ nx, OriginIn kv'.2 (T - 1) (fun a => A a ∨ (a = kv.1 ∧ kv'.1 ∈ done))) →
-      LineOk (T + 1) (ds.foldl (sendTo φ kv.2) nx) ∧ LineS (ds.foldl (sendTo φ kv.2) nx) ∧
+      LineOk (T + 1) (ds.foldl (sendTo φ kv.2) nx) ∧ (∀ kv' ∈ ds.foldl (sendTo φ kv.2) nx, I kv'.2) ∧
         ∀ kv' ∈ ds.foldl (sendTo φ kv.2) nx, OriginIn kv'.2 (T - 1) (fun a => A a ∨ a = kv.1) := by
     intro kv hkv A hA hAk ds
     have hAk' : ∀ a, A a → Key (T + 1 - 2) a := fun a h => hk2 ▸ hAk a h
@@ -224,7 +234,7 @@ theorem lineO_advance {φ : Cnf} (Hs : SkipHyp φ) {T : Int} (J : JoinProv (T + 
         have hog := originIn_upFiltering (hl kv hkv) (hent kv hkv).2 hd
         rw [← hk2] at hog c
         obtain ⟨b', c'⟩ := lineO_insert J a b c (hdone d (List.mem_cons_self ..)) hA hAk' hsk' hok
-          (sInv_upFiltering Hs (hl kv hkv) (hlk kv hkv) hT hd hv) hog
+          (Hup _ _ _ _ (hl kv hkv) (hlk kv hkv) hT hd hv) hog
         rw [hk2] at c'
         exact ihd (d :: done) hdnd.2
           (fun d' hd' hmem => by
@@ -236,9 +246,9 @@ theorem lineO_advance {φ : Cnf} (Hs : SkipHyp φ) {T : Int} (J : JoinProv (T + 
       · exact ihd done hdnd.2 (fun d' hd' => hdone d' (List.mem_cons_of_mem _ hd'))
           (fun d' hd' => hds d' (List.mem_cons_of_mem _ hd')) nx a b c
   have key : ∀ (l : Line), (∀ kv ∈ l, kv ∈ line) → (l.map (·.1)).Nodup → ∀ (A : NodeId → Prop),
-      (∀ kv ∈ l, ¬ A kv.1) → (∀ a, A a → Key (T - 1) a) → ∀ next, LineOk (T + 1) next → LineS next →
+      (∀ kv ∈ l, ¬ A kv.1) → (∀ a, A a → Key (T - 1) a) → ∀ next, LineOk (T + 1) next → (∀ kv ∈ next, I kv.2) →
       (∀ kv ∈ next, OriginIn kv.2 (T - 1) A) →
-      LineS (l.foldl (fun next kv => sendAll φ kv next) next) := by
+      ∀ kv ∈ l.foldl (fun next kv => sendAll φ kv next) next, I kv.2 := by
     intro l
     induction l with
     | nil => intro _ _ _ _ _ next _ h2 _; exact h2
@@ -309,38 +319,41 @@ theorem advance_index (φ : Cnf) {line : Line} (h : ∀ kv ∈ line, kv.1.index 
 -- ============================================================
 
 /-- El invariante de la línea sin `SepAt`: `SInv`, la contabilidad de las entradas, las claves únicas y del mapa. -/
-def LineP (T : Int) (line : Line) : Prop :=
-  LineOk T line ∧ LineS line ∧ (∀ kv ∈ line, EntOk kv) ∧ (line.map (·.1)).Nodup ∧
+def LineP (I : GPathB → Prop) (T : Int) (line : Line) : Prop :=
+  LineOk T line ∧ (∀ kv ∈ line, I kv.2) ∧ (∀ kv ∈ line, EntOk kv) ∧ (line.map (·.1)).Nodup ∧
     ∀ kv ∈ line, kv.1.index = 0 ∨ kv.1.index = 1
 
-theorem lineP_init (φ : Cnf) : LineP 1 (init φ) := by
+theorem lineP_init (φ : Cnf) {I : GPathB → Prop} (hseed : I (initSeed (⟨0, 0⟩ : NodeId) "")) :
+    LineP I 1 (init φ) := by
   obtain ⟨hl, hent, hnd, _⟩ := lineInv_init φ
   refine ⟨hl, ?_, fun kv hkv => (hent kv hkv).1, hnd, ?_⟩
   · rw [init_eq]
     intro kv hkv
     rw [List.mem_singleton] at hkv; subst hkv
-    exact sInv_initSeed
+    exact hseed
   · rw [init_eq]
     intro kv hkv
     rw [List.mem_singleton] at hkv; subst hkv
     exact Or.inl rfl
 
-theorem lineP_steps {φ : Cnf} (Hs : SkipHyp φ) (J : ∀ U : Int, 2 ≤ U → JoinProv U) :
-    ∀ n : Nat, LineP ((n : Int) + 1) (steps φ n (init φ)) := by
+theorem lineP_steps {φ : Cnf} {I : GPathB → Prop} (Hup : UpProv φ I) (J : ∀ U : Int, 2 ≤ U → JoinProv I U)
+    (hseed : I (initSeed (⟨0, 0⟩ : NodeId) "")) :
+    ∀ n : Nat, LineP I ((n : Int) + 1) (steps φ n (init φ)) := by
   intro n
   induction n with
-  | zero => exact lineP_init φ
+  | zero => exact lineP_init φ hseed
   | succ n ih =>
     obtain ⟨hl, hs, he, hnd, hidx⟩ := ih
     rw [steps_succ]
     rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
-    exact ⟨lineOk_advance hl, lineO_advance Hs (J _ (by omega)) (by omega) hl hs he hnd hidx,
+    exact ⟨lineOk_advance hl, lineO_advance Hup (J _ (by omega)) (by omega) hl hs he hnd hidx,
       advance_entOk (by omega) hl he, advance_nodup φ _, advance_index φ hidx⟩
 
-theorem run_sInv_prov {φ : Cnf} (Hs : SkipHyp φ) (J : ∀ U : Int, 2 ≤ U → JoinProv U) :
-    ∀ kv ∈ run φ, StateOk (stepCount φ) kv.1 kv.2 ∧ SInv kv.2 := by
+theorem run_prov {φ : Cnf} {I : GPathB → Prop} (Hup : UpProv φ I) (J : ∀ U : Int, 2 ≤ U → JoinProv I U)
+    (hseed : I (initSeed (⟨0, 0⟩ : NodeId) "")) :
+    ∀ kv ∈ run φ, StateOk (stepCount φ) kv.1 kv.2 ∧ I kv.2 := by
   have hpos := stepCount_pos φ
-  obtain ⟨hl, hs, _, _, _⟩ := lineP_steps Hs J (stepCount φ - 1).toNat
+  obtain ⟨hl, hs, _, _, _⟩ := lineP_steps Hup J hseed (stepCount φ - 1).toNat
   have hrun : run φ = steps φ (stepCount φ - 1).toNat (init φ) := rfl
   rw [← hrun, show ((stepCount φ - 1).toNat : Int) + 1 = stepCount φ by rw [Int.toNat_of_nonneg (by omega)]; omega]
     at hl
@@ -351,7 +364,7 @@ theorem run_sInv_prov {φ : Cnf} (Hs : SkipHyp φ) (J : ∀ U : Int, 2 ≤ U →
 en joins separados) y `AvoidSat`. -/
 theorem readerVerdict_iff_of_exist {φ : Cnf} (hbd : Bounded φ) (H : HypsExist φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
-  readerVerdict_iff_of_final hbd (run_sInv_prov H.skip (fun _ hU => joinProv_exist H hU))
+  readerVerdict_iff_of_final hbd (run_prov (upProv_sInv H.skip) (fun _ hU => joinProv_exist H hU) sInv_initSeed)
 
 /-- **El veredicto del lector es la satisfacibilidad bajo `SplitSat`, `SideEdgesAt` y `AvoidSat`** (la separación
 por el origen, demostrada). -/
@@ -432,7 +445,7 @@ theorem eq_other {k : Int} {a s : NodeId} (ha : Key k a) (hs : Key k s) (hne : a
   congr 1 <;> omega
 
 /-- **En cada join, el estado del destino tiene un solo color, el otro.** -/
-theorem joinProv_two {φ : Cnf} (H : HypsTwo φ) {U : Int} (hU : 2 ≤ U) : JoinProv U := by
+theorem joinProv_two {φ : Cnf} (H : HypsTwo φ) {U : Int} (hU : 2 ≤ U) : JoinProv SInv U := by
   intro key s e g A he hg hke hkg hoe hog hsA hAk hsk
   have hne : ∀ c, A c → c ≠ s := fun c hc h => hsA (h ▸ hc)
   have hoe' : OriginIn e (U - 2) (· = other s) :=
@@ -465,7 +478,7 @@ theorem hypsTwo_of_exist {φ : Cnf} (H : HypsExist φ) : HypsTwo φ := by
 /-- **El veredicto del lector es la satisfacibilidad bajo las hipótesis de dos lados.** -/
 theorem readerVerdict_iff_of_two {φ : Cnf} (hbd : Bounded φ) (H : HypsTwo φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
-  readerVerdict_iff_of_final hbd (run_sInv_prov H.skip (fun _ hU => joinProv_two H hU))
+  readerVerdict_iff_of_final hbd (run_prov (upProv_sInv H.skip) (fun _ hU => joinProv_two H hU) sInv_initSeed)
 
 end SecLine
 

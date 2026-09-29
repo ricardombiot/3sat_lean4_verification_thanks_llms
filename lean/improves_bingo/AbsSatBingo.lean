@@ -36,6 +36,7 @@ import AbsSatBingo.Model.SecExactLine
 import AbsSatBingo.Model.SecSplitParts
 import AbsSatBingo.Model.SepLine
 import AbsSatBingo.Model.AvoidSplit
+import AbsSatBingo.Model.SecIn
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree

@@ -213,8 +213,12 @@ theorem sInv_filterAll {g : GPathB} (hk : SInv g) (hd : AliveDocs g) (reqs : Lis
    revPrims_filterAll revPrims_aboveZero _ _ hk.2.2.2.2.1, revPrims_filterAll revPrims_topNoSons _ _ hk.2.2.2.2.2.1,
    revPrims_filterAll revPrims_linksInv _ _ hk.2.2.2.2.2.2⟩
 
-theorem sInv_upFiltering {φ : Cnf} (Hs : SkipHyp φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
+/-- La llegada conserva `SInv`, con `AvoidSat` del estado filtrado cuando se salta la ventana. -/
+theorem sInv_upFiltering_of {φ : Cnf} {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
     (hk : SInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
+    (havf : (g.filterAll (reqOf φ d)).isValid = true →
+      (g.filterAll (reqOf φ d)).skipsWindow d (isProhibited φ) = true →
+      AvoidSat (g.filterAll (reqOf φ d)) d (isProhibited φ))
     (hv : (g.upFiltering (reqOf φ d) d "" (isProhibited φ)).isValid = true) :
     SInv (g.upFiltering (reqOf φ d) d "" (isProhibited φ)) := by
   have hs := shrinks_filterAll g (reqOf φ d)
@@ -233,7 +237,7 @@ theorem sInv_upFiltering {φ : Cnf} (Hs : SkipHyp φ) {T : Int} {key d : NodeId}
     have hav : AvoidSat f d (isProhibited φ) := by
       cases hsk : f.skipsWindow d (isProhibited φ)
       · exact avoidSat_of_noSkip hf.1 hfpos hsk
-      · exact Hs T key g d hg hk hT hd hvf hsk
+      · exact havf hvf hsk
     have hka : SecExact a :=
       secExact_addNode hav hfd hfb hf.2.2.2.1 hf.2.2.2.2.2.1 hfpos hdstep
     have hnd : NodupIds a := nodupIds_addNode hf.2.1 hfb hdstep
@@ -248,6 +252,12 @@ theorem sInv_upFiltering {φ : Cnf} (Hs : SkipHyp φ) {T : Int} {key d : NodeId}
   · rename_i hvf
     rw [if_neg hvf] at hv
     exact absurd hv hvf
+
+theorem sInv_upFiltering {φ : Cnf} (Hs : SkipHyp φ) {T : Int} {key d : NodeId} {g : GPathB} (hg : StateOk T key g)
+    (hk : SInv g) (hT : 1 ≤ T) (hd : d ∈ sonsOfMap φ key)
+    (hv : (g.upFiltering (reqOf φ d) d "" (isProhibited φ)).isValid = true) :
+    SInv (g.upFiltering (reqOf φ d) d "" (isProhibited φ)) :=
+  sInv_upFiltering_of hg hk hT hd (fun hvf hsk => Hs T key g d hg hk hT hd hvf hsk) hv
 
 def LineS (line : Line) : Prop := ∀ kv ∈ line, SInv kv.2
 
