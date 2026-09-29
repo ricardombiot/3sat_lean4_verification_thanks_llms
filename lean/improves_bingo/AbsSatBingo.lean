@@ -30,6 +30,8 @@ import AbsSatBingo.Model.ReaderFinal
 import AbsSatBingo.Model.ReaderStuck
 import AbsSatBingo.Model.PinKeeps
 import AbsSatBingo.Model.SeqExact
+import AbsSatBingo.Model.SeqMachine
+import AbsSatBingo.Model.SeqUp
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
