@@ -1,0 +1,5 @@
+instance	truth	pairs	groups	np	nf	all_groups	all_np	all_nf	secs
+clause_mix.cnf	true	48	80	402	0	48	566	4	0.5
+clause_mix_sep.cnf	true	60	98	1066	0	60	1152	16	0.4
+rand3sat_v8_c10.cnf	true	92	164	4560	0	92	7523	0	2.1
+v5_c20_i1.cnf	true	114	191	885	0	114	2369	0	1.0
