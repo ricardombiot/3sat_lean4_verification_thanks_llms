@@ -1,4 +1,6 @@
 # Comprobación final del review (FINAL_CHECK, propuesta del informe v201): ¿cambia algo, se pierde alguna solución?
+# Migrada al microframework de probes (probes_lib.jl, src/utils/probes.jl): las cuentas salen de los puntos de
+# sonda :review_round, :final_run y :final_cut.
 #
 #   julia --project=. test_3sat/probe_final_check.jl <salida.tsv>
 #
@@ -15,40 +17,12 @@
 #   final_runs, final_cuts   — comprobaciones finales hechas / que cambiaron algo (máquina y lector, con :on)
 #   t_off, t_on              — tiempo de máquina + lector
 
-const ROOT = abspath(joinpath(@__DIR__, ".."))
 const OUT = abspath(ARGS[1])
-include(joinpath(ROOT, "src/main.jl"))
+include(joinpath(@__DIR__, "..", "src/main.jl"))
+include(joinpath(@__DIR__, "probes_lib.jl"))
 
 using .AbsSat.Alias: Step
-
-function corpus()
-    dirs = [joinpath(ROOT, "test/example_cnf"), joinpath(ROOT, "test_window/instances"),
-            joinpath(ROOT, "test_3sat/output/instances"), joinpath(ROOT, "test_3sat/output_test1/instances"),
-            joinpath(ROOT, "test_3sat/output_test2/instances"), joinpath(ROOT, "test_3sat/output_test3/instances"),
-            joinpath(ROOT, "../../lean/improves_bin/cnf/crafted")]
-    files = String[]
-    for d in dirs
-        isdir(d) || continue
-        for f in sort(readdir(d))
-            endswith(f, ".cnf") && f != "tseitin_petersen_H.cnf" && push!(files, joinpath(d, f))
-        end
-    end
-    return files
-end
-
-function exhaustive(path)
-    ex = replace(replace(path, "/instances/" => "/solver_exhaustive/"), ".cnf" => ".txt")
-    if isfile(ex)
-        ls = strip.(readlines(ex))
-        return first(ls) == "SAT" ? Set(String.(ls[2:end])) : Set{String}()
-    end
-    try
-        s = ExhaustiveSolver.new(path); ExhaustiveSolver.run!(s)
-        return Set(join(Int.(x)) for x in s.list_solutions)
-    catch
-        return nothing
-    end
-end
+using .AbsSat.Probes
 
 key(id) = Alias.as_key(id)
 
@@ -69,12 +43,12 @@ end
 
 function run(path, loader, first_lit, mode)
     GraphPath.FINAL_CHECK[] = mode
-    GraphPath.REVIEW_ROUNDS[] = 0
-    GraphPath.FINAL_RUNS[] = 0
-    GraphPath.FINAL_CUTS[] = 0
+    Probes.reset!()
     machine = SatMachine.new(loader(path))
     sols = Set{String}()
-    t = @elapsed begin
+    t = @elapsed Probes.with(:review_round => _ -> Probes.bump!(:rounds),
+                             :final_run => _ -> Probes.bump!(:runs),
+                             :final_cut => _ -> Probes.bump!(:cuts)) do
         redirect_stdout(devnull) do
             SatMachine.run!(machine)
         end
@@ -87,32 +61,23 @@ function run(path, loader, first_lit, mode)
         end
     end
     return (sat = SatMachine.have_solution(machine), sols = sols, fp = fingerprint(machine), t = t,
-            rounds = GraphPath.REVIEW_ROUNDS[], runs = GraphPath.FINAL_RUNS[], cuts = GraphPath.FINAL_CUTS[])
+            rounds = Probes.counted(:rounds), runs = Probes.counted(:runs), cuts = Probes.counted(:cuts))
 end
 
 function main()
-    open(OUT, "w") do io
-        println(io, "instance\tmap\ttruth\tv_off\tv_on\tns_off\tns_on\tns_ex\tsols_same\tsols_ok\tstate_same\t" *
-                    "rounds_off\trounds_on\tfinal_runs\tfinal_cuts\tt_off\tt_on")
-        for path in corpus(), (mname, loader, fl) in (("classic", GraphMap.load_import!, Step(0)),
-                                                       ("bin", GraphMapBin.load_import_bin!, Step(1)))
-            name = basename(path)
-            ex = exhaustive(path)
-            local a, b
-            try
-                a = run(path, loader, fl, :off)
-                b = run(path, loader, fl, :on)
-            catch e
-                println(io, "$name\t$mname\tERROR $(typeof(e))"); flush(io); continue
-            end
-            truth = ex === nothing ? "?" : string(!isempty(ex))
-            ok = ex === nothing ? "?" :
-                 string(b.sols == ex && (isempty(b.sols) || CheckerCnf.test_all([BitVector(c == '1' for c in s) for s in b.sols], path)))
-            println(io, "$name\t$mname\t$truth\t$(a.sat)\t$(b.sat)\t$(length(a.sols))\t$(length(b.sols))\t" *
-                        "$(ex === nothing ? "?" : length(ex))\t$(a.sols == b.sols)\t$ok\t$(a.fp == b.fp)\t" *
-                        "$(a.rounds)\t$(b.rounds)\t$(b.runs)\t$(b.cuts)\t$(round(a.t, digits = 3))\t$(round(b.t, digits = 3))")
-            flush(io)
-        end
+    header = "instance\tmap\ttruth\tv_off\tv_on\tns_off\tns_on\tns_ex\tsols_same\tsols_ok\tstate_same\t" *
+             "rounds_off\trounds_on\tfinal_runs\tfinal_cuts\tt_off\tt_on"
+    ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf"]),
+                           variants = ProbeLib.MAPS) do path, (_, loader, fl)
+        ex = ProbeLib.exhaustive(path)
+        a = run(path, loader, fl, :off)
+        b = run(path, loader, fl, :on)
+        truth = ex === nothing ? "?" : string(!isempty(ex))
+        ok = ex === nothing ? "?" :
+             string(b.sols == ex && (isempty(b.sols) || CheckerCnf.test_all([BitVector(c == '1' for c in s) for s in b.sols], path)))
+        return (truth, a.sat, b.sat, length(a.sols), length(b.sols), ex === nothing ? "?" : length(ex),
+                a.sols == b.sols, ok, a.fp == b.fp, a.rounds, b.rounds, b.runs, b.cuts,
+                round(a.t, digits = 3), round(b.t, digits = 3))
     end
     GraphPath.FINAL_CHECK[] = :off
 end

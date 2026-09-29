@@ -2,6 +2,7 @@ module AbsSat
 
     include("./utils/alias.jl")
     include("./utils/undo.jl")
+    include("./utils/probes.jl")
 
     include("./db/db_documents.jl")
     include("./db/db_collections.jl")

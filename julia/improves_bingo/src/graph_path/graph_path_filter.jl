@@ -7,7 +7,8 @@ function filter!(gpath :: GPath, requires :: SetNodesId)
     make_review_owners!(gpath)
 end
 
-# Contador de vueltas del review (solo para medir; no cambia nada).
+# Contador de vueltas del review (solo para medir; no cambia nada). Heredado: lo usan measure_bingo y dump_final;
+# los probes nuevos usan el punto de sonda :review_round.
 const REVIEW_ROUNDS = Ref(0)
 
 # Comprobación de los invariantes del grafo de owners al final de cada review (plan
@@ -18,6 +19,7 @@ function make_review_owners!(gpath :: GPath)
     #! [recursive-if] $ O(S*7*7) $
     if gpath.is_valid && gpath.review_owners
         REVIEW_ROUNDS[] += 1
+        @probe :review_round gpath
         gpath.review_owners = false
         clean_invalid_nodes!(gpath)
         if PAIR_MODE[] == :on
@@ -60,8 +62,7 @@ end
 # veredicto, solución ni estado en 88 instancias × 2 mapas (test_3sat/probe_final_check.jl), +2–5 % de tiempo.
 # Espejo de lean/improves_bingo `finalPass` en `reviewFuel`.
 const FINAL_CHECK = Ref(:on)
-const FINAL_CUTS = Ref(0)      # comprobaciones finales que cambiaron algo (solo para medir)
-const FINAL_RUNS = Ref(0)      # comprobaciones finales hechas
+# Para medirlas: puntos de sonda :final_run (comprobación hecha) y :final_cut (cambió algo), src/utils/probes.jl.
 
 function review_size(gpath :: GPath) :: Tuple{Int, Int, Int}
     nodes = 0; links = 0
@@ -70,13 +71,13 @@ function review_size(gpath :: GPath) :: Tuple{Int, Int, Int}
 end
 
 function final_coherence_check!(gpath :: GPath)
-    FINAL_RUNS[] += 1
+    @probe :final_run gpath
     before = review_size(gpath)
     gpath.review_owners = true
     review_owners_coherence_with_its_parents_sons!(gpath)
     LINK_MODE[] == :on && gpath.is_valid && prune_stale_links!(gpath)
     if !gpath.is_valid || review_size(gpath) != before
-        FINAL_CUTS[] += 1
+        @probe :final_cut gpath
         gpath.review_owners = true
         make_review_owners!(gpath)
     else
