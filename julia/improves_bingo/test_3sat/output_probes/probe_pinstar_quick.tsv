@@ -1,0 +1,7 @@
+instance	truth	u_t	u_mixed	u_lost_edge	u_oneside	u_multitop	u_t2	u_pin2_inval	u_pin2_fail	u_pin2_offside	r_t	r_mixed	r_lost_edge	r_oneside	r_multitop	r_t2	r_pin2_inval	r_pin2_fail	r_pin2_offside	secs
+clause_mix.cnf	true	102	102	0	102	68	102	0	0	0	207	150	0	207	56	207	0	0	0	3.0
+clause_mix_sep.cnf	true	114	114	0	114	68	114	0	0	0	209	151	0	209	48	209	0	0	0	2.4
+rand3sat_v8_c10.cnf	true	242	242	0	242	188	242	0	0	0	302	184	0	302	96	302	0	0	0	11.1
+v5_c20_i1.cnf	true	208	208	0	208	88	208	0	0	0	147	80	0	147	12	147	0	0	0	3.9
+v6_c26_i1.cnf	false	264	264	0	264	156	264	0	0	0	205	130	0	205	34	205	0	0	0	6.9
+v7_c30_i1.cnf	false	306	306	0	306	188	306	0	0	0	221	145	0	221	64	221	0	0	0	13.6
