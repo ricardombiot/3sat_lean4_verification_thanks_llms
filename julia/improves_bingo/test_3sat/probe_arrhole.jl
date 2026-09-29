@@ -19,6 +19,8 @@ bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
 const SENDER = Dict{Any, Any}()
 const ARR = Dict{Any, Any}()
 const REQS = Dict{Any, Any}()
+const FORB = Dict{Any, Any}()
+const SEQS = Dict{Any, Any}()
 
 
 Core.eval(PathOwnersGraph, quote
@@ -45,6 +47,8 @@ const REMOVALS = Dict{Any, Any}()
 const TRIGS = Dict{Any, Any}()
 const CURTRIG = Ref{Any}(nothing)
 const REQS = Dict{Any, Any}()
+const FORB = Dict{Any, Any}()
+const SEQS = Dict{Any, Any}()
 Core.eval(GraphPath, quote
     function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
                               prohibited :: Set{PathNodeId} = Set{PathNodeId}())
@@ -55,8 +59,12 @@ Core.eval(GraphPath, quote
         $(CURTRIG)[] = trig
         $(TRIGS)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = trig
         $(REQS)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = copy(requires)
+        $(FORB)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = copy(prohibited)
         log = Dict{Any, Symbol}()
-        PathOwnersGraph.LOGHOOK[] = (x, w, r) -> (log[Set([x, w])] = r)
+        cnt = Ref(0)
+        seq = Any[]
+        $(SEQS)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = seq
+        PathOwnersGraph.LOGHOOK[] = (x, w, r) -> (cnt[] += 1; log[Set([x, w])] = r; push!(seq, (cnt[], x, w, r)))
         filter!(gpath, requires)
         do_up!(gpath, map_id_node, title, prohibited)
         PathOwnersGraph.LOGHOOK[] = nothing
@@ -288,6 +296,62 @@ function judge_arr(bystep)
                     reqhole2(l) = all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)) || !(r in live), allK2)
                     any(reqhole2, 0:k-1) && bump(:reqhole_casc)
                     (y in live && w in live) && bump(:yw_live)
+                    # segundo orden: aristas incompatibles con los requisitos, y cascada de nodos y aristas
+                    if !any(reqhole, 0:k-1)
+                        bump(:h_rest)
+                        live2 = copy(live)
+                        eok(a, b) = a in live2 && b in live2 && PG.has_edge(S.og, a, b) &&
+                            all(((st, z),) -> any(q -> q.id == z && q in live2 && (q == a || PG.has_edge(S.og, a, q)) &&
+                                                       (q == b || PG.has_edge(S.og, b, q)), AS2), collect(reqat))
+                        ch = true; it = 0
+                        while ch && it < 50
+                            ch = false; it += 1
+                            for r in collect(live2)
+                                ok = all(0:k-1) do st
+                                    st == Int(r.id.step) && return true
+                                    any(q -> Int(q.id.step) == st && eok(r, q), live2)
+                                end
+                                ok || (delete!(live2, r); ch = true)
+                            end
+                        end
+                        # fila nueva: un nodo viejo necesita un top vivo que lo posea y cuyo hijo no esté prohibido
+                        fb = get(FORB, (D, sk, k), Set{PathNodeId}())
+                        live3 = copy(live2)
+                        childok(p) = !(PathNodeId(D, p.id, p.parent_id) in fb)
+                        ch = true; it = 0
+                        while ch && it < 50
+                            ch = false; it += 1
+                            for r in collect(live3)
+                                okr = all(0:k-1) do st
+                                    st == Int(r.id.step) && return true
+                                    any(q -> Int(q.id.step) == st && q in live3 && PG.has_edge(S.og, r, q), AS2)
+                                end
+                                tops3 = [p for p in live3 if Int(p.id.step) == k - 1 && childok(p) && (p == r || PG.has_edge(S.og, r, p))]
+                                (okr && !isempty(tops3)) || (delete!(live3, r); ch = true)
+                            end
+                        end
+                        rh4(l) = all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)) || !(r in live3), allK2)
+                        any(rh4, 0:k-1) && bump(:h_rest_forb)
+                        isempty(fb) || bump(:h_rest_hasforb)
+                        if get(ENV, "DETAIL", "") == "1" && C[:h_rest] <= 2
+                            sq = get(SEQS, (D, sk, k), Any[])
+                            iyw = findfirst(e -> Set([e[2], e[3]]) == Set([y, w]), sq)
+                            sid(z) = string(Int(z.id.step), ":", Int(z.id.index), "/", z.parent_id === nothing ? "-" : string(Int(z.parent_id.step), ":", Int(z.parent_id.index)))
+                            println(stderr, "REST y=", sid(y), " w=", sid(w), " k=", k, " yw_removed_at=", iyw === nothing ? "?" : sq[iyw][1], " de ", length(sq))
+                            for l in sort(tg)[1:min(3, length(tg))]
+                                for r in [r for r in AS2 if Int(r.id.step) == l && PG.has_edge(S.og, y, r) && PG.has_edge(S.og, w, r)]
+                                    evs = [(e[1], e[4], sid(e[2] == r ? e[3] : e[2])) for e in sq if e[2] == r || e[3] == r]
+                                    rules = Dict{Symbol, Int}(); for e in evs; rules[e[2]] = get(rules, e[2], 0) + 1; end
+                                    first3 = evs[1:min(4, length(evs))]
+                                    println(stderr, "  l=", l, " r=", sid(r), " live=", r in live, " n_quitadas=", length(evs), " reglas=", rules, " primeras=", first3)
+                                end
+                            end
+                        end
+                        rh3(l) = all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)) || !(r in live2), allK2)
+                        any(rh3, 0:k-1) && bump(:h_rest_edge)
+                        (y in live2 && w in live2) && bump(:h_rest_yw_live)
+                        eok(y, w) || bump(:h_rest_yw_edge_incompat)
+                    end
                     all(r -> r in live, (r for r in AX if Int(r.id.step) < k)) && bump(:X_in_live)
                     any(reqhole, tg) && bump(:reqhole_trig)
                     # ¿y los supervivientes de X compatibles? (incompat solo de primer orden)
@@ -391,13 +455,13 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :trig, :trig_none, :trig_emptyset, :trig_full_all, :trig_full_any, :trig_in_S, :w_single, :w_nonempty, :w_someX, :w_clique, :r_has, :r_none_below, :w_direct, :w_incompat_any, :w_incompat_all, :yw_incompat, :fl_r, :fl_adj_path, :reqhole, :reqhole_trig, :reqhole_casc, :yw_live, :X_in_live, :X_all_compat, :n_has, :n_trig_all, :n_trig_any, :n_ownX_all, :n_ED_yw, :c_n, :c_trig_allN, :c_trig_allK, :f_pairs, :f_E1_yw, :f_E1_alive, :f_t_steps, :f_t_noW1, :f_t_w1, :f_t_w1_inS, :f_t_w1_inX, :f_t_w1_Sy, :f_t_w1_Sw, :f_u_steps, :f_u_noW1, :f_u_w1, :f_u_w1_inS, :f_u_w1_inX, :f_u_w1_Sy, :f_u_w1_Sw, :trig_gval_any, :gval_any, :trig_xval_any, :supp_ok, :supp_fail, :hole_own, :ch_single, :ch_reach, :ch_noreach, :ch_supp, :ch_S, :ch_hole, :ch_inh_any, :ch_inh_all, :ch_y_is_bnd, :hy_steps, :hy_value, :hy_path, :hy_empty, :two_par, :two_I, :two_noI, :two_I_sub_y, :two_y_extra, :pos_below, :pos_between, :pos_above, :pos_only_above, :two_Il, :two_Il_sub_y, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :trig, :trig_none, :trig_emptyset, :trig_full_all, :trig_full_any, :trig_in_S, :w_single, :w_nonempty, :w_someX, :w_clique, :r_has, :r_none_below, :w_direct, :w_incompat_any, :w_incompat_all, :yw_incompat, :fl_r, :fl_adj_path, :reqhole, :reqhole_trig, :reqhole_casc, :yw_live, :h_rest, :h_rest_edge, :h_rest_yw_live, :h_rest_yw_edge_incompat, :h_rest_forb, :h_rest_hasforb, :X_in_live, :X_all_compat, :n_has, :n_trig_all, :n_trig_any, :n_ownX_all, :n_ED_yw, :c_n, :c_trig_allN, :c_trig_allK, :f_pairs, :f_E1_yw, :f_E1_alive, :f_t_steps, :f_t_noW1, :f_t_w1, :f_t_w1_inS, :f_t_w1_inX, :f_t_w1_Sy, :f_t_w1_Sw, :f_u_steps, :f_u_noW1, :f_u_w1, :f_u_w1_inS, :f_u_w1_inX, :f_u_w1_Sy, :f_u_w1_Sw, :trig_gval_any, :gval_any, :trig_xval_any, :supp_ok, :supp_fail, :hole_own, :ch_single, :ch_reach, :ch_noreach, :ch_supp, :ch_S, :ch_hole, :ch_inh_any, :ch_inh_all, :ch_y_is_bnd, :hy_steps, :hy_value, :hy_path, :hy_empty, :two_par, :two_I, :two_noI, :two_I_sub_y, :two_y_extra, :pos_below, :pos_between, :pos_above, :pos_only_above, :two_Il, :two_Il_sub_y, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C); empty!(SENDER); empty!(ARR); empty!(REMOVALS); empty!(TRIGS); empty!(REQS); empty!(REQS)
+        empty!(C); empty!(SENDER); empty!(ARR); empty!(REMOVALS); empty!(TRIGS); empty!(REQS); empty!(FORB); empty!(SEQS); empty!(REQS); empty!(FORB); empty!(SEQS)
         machine = SatMachine.new(loader(path))
         t = @elapsed begin
             Probes.with(:pair_bad => on_pair_bad) do
