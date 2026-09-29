@@ -10,10 +10,12 @@ dónde queda exactamente lo que falta.
   * la estrella de una cima se sostiene **por inducción a lo largo de la línea**. La base y el UP están demostrados
     sin hipótesis, incluido el paso delicado, subir la estrella del padre por la fila nueva;
   * el join se reduce a una vuelta explícita de la regla de trío en el lado de la cima.
-* **El veredicto del lector** (`readerVerdict_iff_of_trioSide`) depende ahora de dos hipótesis, **las dos en el
-  join**:
-  * `TrioSideAt`: una vuelta de trío en el lado de la cima es cerrada;
-  * `SideEdgesAt`, la del v208.
+* **El veredicto del lector depende de una sola hipótesis**, en el join (§7, añadido al final):
+  * `StarJoinDown`: la estrella de una cima de la unión se baja a un lado (`readerVerdict_iff_of_down`);
+  * o, en forma de camarillas, `StarCliqueSide`: cada nodo de la estrella está en una camarilla del lado que pasa
+    por la cima, dentro de la estructura (`readerVerdict_iff_of_starCliqueOnly`).
+
+  `SideEdgesAt` ya no hace falta.
 * **Medido:** el review de una estrella llega **siempre** a una sola vuelta de trío explícita, en 26 258 de 26 258
   estrellas, tanto en la unión como en el lado. Y las etiquetas por fila no cambian nada de esto.
 
@@ -157,13 +159,52 @@ Si fuera así, esa camarilla daría los testigos de $x$–$r$ con $t$ en todos l
 `TrioSideAt`. Es medible en Julia antes de intentarlo en Lean. Si falla, la alternativa es la vía D del v208, acotar
 la clase: `TrioSideAt` es una comprobación local de una vuelta y se puede comprobar por instancia.
 
+## 7. Después: una sola hipótesis (`StarClique.lean`, `854696f`, `ee65ad8`)
+
+Al seguir la propuesta del §6 salieron dos cosas.
+
+**Las camarillas cubren la estrella del lado.** Medido (`probe_trio_clique.jl`, 88 instancias): en el punto fijo del
+lado restringido a la estrella, **todo nodo y toda arista están en una camarilla llevada** que pasa por la cima. Son
+1 403 067 nodos y 40 118 311 aristas, 0 sin cubrir y ningún caso truncado.
+
+Con eso, la hipótesis se puede plantear sin tríos:
+> **`StarCliqueSide u L`**: para toda estructura cerrada $(V,R)$ de la unión, toda cima $t \in V$ viva en $L$ y todo
+> $z$ de su estrella con arista del lado, hay una camarilla llevada de $L$, con $t$ en la cima, que pasa por $z$ y
+> tiene todos sus nodos en $V$.
+
+La unión de todas esas camarillas es automáticamente una estructura cerrada (`secStruct_iUnion`), así que
+**`starJoinDown_of_starClique`** no necesita `TopsApart` ni la vuelta de trío.
+
+**`SideEdgesAt` sobraba.** `StarJoinDown` ya da `NodeSplitIn` directamente (**`nodeSplitIn_of_starJoinDown`**):
+* un nodo $x$ de una estructura de la unión tiene una cima testigo $t$, por la regla de parejas;
+* la estructura de un lado que da `StarJoinDown` para $x$ y $t$ vive dentro de $V$, así que concuerda con los pins.
+
+`SideEdgesAt` solo servía para llegar a `NodeSplitIn` por `NodeColour`, y ese camino ya no hace falta.
+
+**Resultado.**
+* **`readerVerdict_iff_of_down`**: el veredicto del lector es la satisfacibilidad bajo `StarJoinDown` en los joins,
+  **como única hipótesis**.
+* **`readerVerdict_iff_of_starCliqueOnly`**: lo mismo bajo `StarCliqueSide` en los dos lados.
+
+Los dos usan solo los axiomas estándar.
+
+**Lo que queda** es la forma más pequeña del núcleo hasta ahora. En la unión de dos llegadas, cada pareja $z$–$t$ con
+$t$ en la cima debe estar en una solución de un lado dentro de la estructura. Tenemos dos piezas para atacarla:
+* **`CliqueSplit`**, ya demostrado: toda camarilla de la unión de dos llegadas es de un lado;
+* **la completitud** (`steps_has_sel`): construir la selección válida que pasa por $z$ y $t$.
+
+El siguiente paso es conectar `CliqueSplit`, que está enunciado sobre llegadas concretas de la línea, al marco
+`JoinProv`, que solo ve estados abstractos.
+
 ---
 
-**Ficheros nuevos (Lean, `lean/improves_bingo/AbsSatBingo/Model/`):** `StarTrio`, `StarUp`, `StarLine`, `StarSide`.
+**Ficheros nuevos (Lean, `lean/improves_bingo/AbsSatBingo/Model/`):** `StarTrio`, `StarUp`, `StarLine`, `StarSide`,
+`StarClique`.
 En `StarNodes`, el paso del join queda extraído como `joinStep_T`.
 
 **Julia (`julia/improves_bingo/test_3sat/`):**
-* sondas: `probe_star_fixpoint`, `probe_join_down`, `probe_join_star_fix`;
+* sondas: `probe_star_fixpoint`, `probe_join_down`, `probe_join_star_fix`, `probe_trio_clique`;
 * con `ROW_TAGS=on`: `probe_topstar_union_tags_bin` y `probe_onesided_tags_bin` en `output_probes`.
 
-**Commits:** de `27b0e6c` a `60aa13a` en la rama `reader-stuck`.
+**Commits:** de `27b0e6c` a `ee65ad8` en la rama `reader-stuck`. Los §1–§6 se escribieron en `4af26f9`; el §7 se
+añadió después.
