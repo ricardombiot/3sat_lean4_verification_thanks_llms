@@ -43,6 +43,7 @@ import AbsSatBingo.Model.CliqueSplit
 import AbsSatBingo.Model.StarNodes
 import AbsSatBingo.Model.StarTrio
 import AbsSatBingo.Model.StarUp
+import AbsSatBingo.Model.StarLine
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree

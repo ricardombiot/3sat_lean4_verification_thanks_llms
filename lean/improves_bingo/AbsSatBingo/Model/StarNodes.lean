@@ -99,8 +99,12 @@ theorem upProv_T (φ : Cnf) : UpProv φ SInvT := by
       revPrims_filterAll revPrims_topNbr _ _ (topNbr_addNode hfd hfb hf.2.2.1 hta hdstep)⟩
   · exact ⟨hta, htn⟩
 
-theorem joinProv_T {φ : Cnf} (H : HypsStar φ) {U : Int} (hU : 2 ≤ U) : JoinProv SInvT U := by
-  intro key s e g A he hg hke hkg hoe hog hsA hAk hsk
+/-- El paso del join, con la estrella y `SideEdgesAt` de este join. -/
+theorem joinStep_T {U : Int} (hU : 2 ≤ U) {key s : NodeId} {e g : GPathB} {A : NodeId → Prop}
+    (he : StateOk U key e) (hg : StateOk U key g) (hke : SInvT e) (hkg : SInvT g)
+    (hoe : OriginIn e (U - 2) A) (hog : OriginIn g (U - 2) (· = s)) (hsA : ¬ A s) (hAk : ∀ a, A a → Key (U - 2) a)
+    (hsk : Key (U - 2) s) (hsn : StarNodes (join e g)) (hside : SideEdgesAt e g (U - 2)) :
+    SInvT (doJoin e g) := by
   have hne : ∀ c, A c → c ≠ s := fun c hc h => hsA (h ▸ hc)
   have hoe' : OriginIn e (U - 2) (· = other s) :=
     originIn_mono hoe (fun c hc => eq_other (hAk c hc) hsk (hne c hc))
@@ -124,13 +128,17 @@ theorem joinProv_T {φ : Cnf} (H : HypsStar φ) {U : Int} (hU : 2 ≤ U) : JoinP
   have hjs : (join e g).current_step = U := he.step
   have htnj : TopNbr (join e g) := topNbr_join hke.2.2 hkg.2.2 hcs
   have hnc : NodeColour (join e g) (U - 2) := by
-    have := nodeColour_of_starNodes (H.star U key e g hU he hg hke hkg) htnj (by rw [hjs]; exact hU)
+    have := nodeColour_of_starNodes hsn htnj (by rw [hjs]; exact hU)
     rw [hjs] at this; exact this
   have hsp : NodeSplitIn e g :=
     nodeSplitIn_of_colour (by omega) (by rw [he.step]; omega) hcs hke.1.2.2.2.2.2.2.2 hkg.1.2.2.2.2.2.2.2
-      hke.1.2.2.2.1 hkg.1.2.2.2.1 hok.1 hsk.1 hoa hos' ho hnc (H.side U key e g hU he hg hke hkg)
+      hke.1.2.2.2.1 hkg.1.2.2.2.1 hok.1 hsk.1 hoa hos' ho hnc hside
   exact ⟨⟨nodeIn_doJoin hke.1.1 hkg.1.1 hsp, sInv_doJoin_of (secSplit_of_in (secSplitIn_of_node hsp)) hke.1.2 hkg.1.2⟩,
     topsApart_doJoin hke.2.1 hkg.2.1, topNbr_doJoin hke.2.2 hkg.2.2⟩
+
+theorem joinProv_T {φ : Cnf} (H : HypsStar φ) {U : Int} (hU : 2 ≤ U) : JoinProv SInvT U :=
+  fun key _ e g _ he hg hke hkg hoe hog hsA hAk hsk =>
+    joinStep_T hU he hg hke hkg hoe hog hsA hAk hsk (H.star U key e g hU he hg hke hkg) (H.side U key e g hU he hg hke hkg)
 
 theorem sInvT_initSeed : SInvT (initSeed (⟨0, 0⟩ : NodeId) "") :=
   let h := FinalTop.kInv_initSeed
