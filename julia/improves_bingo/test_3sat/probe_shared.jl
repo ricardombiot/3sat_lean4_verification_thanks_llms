@@ -8,6 +8,7 @@
 #   wa_t / wa_f — WitnessAgree: para una posesión y–w de g entre compartidos, si en e los dos poseen un mismo nodo r
 #                 del color a en k, ¿se poseen en e? (wa_f: no). Y al revés, con s y g.
 #   se_t / se_f — SideEdgesAt directa: parejas de la unión fijada en a (en s) que no son posesiones de e (de g)
+#   ab_t / ab_f — la unión fijada en el color de un lado es (no es) ese lado revisado (vivos y aristas)
 #   use_a / use_s — posesiones solo-de-g (solo-de-e) que siguen en la unión fijada en a (en s): si se usan
 
 const OUT = abspath(ARGS[1])
@@ -55,6 +56,11 @@ function on_join_post(u)
     bump(:shared, length(shared))
     for (c, side, other, tu) in ((a, e, g, :use_a), (s, g, e, :use_s))
         h = pin(u, [c])
+        # Absorb de estado: la unión fijada en el color de un lado es ese lado revisado
+        hs = pin(side, [c])
+        bump(:ab_t)
+        same = h.is_valid == hs.is_valid && (!h.is_valid || (alive(h) == alive(hs) && Set(keys(h.og.edges)) == Set(keys(hs.og.edges))))
+        same || bump(:ab_f)
         h.is_valid || continue
         for (y, w) in keys(h.og.edges)
             y == w && continue
@@ -67,7 +73,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:joins, :shared, :g_only, :e_only, :wa_t, :wa_f, :wb_t, :wb_f, :se_t, :se_f, :use_a, :use_s)
+    cols = (:joins, :shared, :g_only, :e_only, :wa_t, :wa_f, :wb_t, :wb_f, :se_t, :se_f, :use_a, :use_s, :ab_t, :ab_f)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
