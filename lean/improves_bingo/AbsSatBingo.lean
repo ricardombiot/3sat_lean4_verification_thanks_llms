@@ -59,6 +59,9 @@ import AbsSatBingo.Model.ConeHole
 import AbsSatBingo.Model.StarHole
 import AbsSatBingo.Model.PinSide
 import AbsSatBingo.Model.PinJoin
+import AbsSatBingo.Model.Spine
+import AbsSatBingo.Model.SpineZombie
+import AbsSatBingo.Model.SpineVerdict
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
