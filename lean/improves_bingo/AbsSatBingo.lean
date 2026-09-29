@@ -62,6 +62,9 @@ import AbsSatBingo.Model.PinJoin
 import AbsSatBingo.Model.Spine
 import AbsSatBingo.Model.SpineZombie
 import AbsSatBingo.Model.SpineVerdict
+import AbsSatBingo.Model.ChainSide
+import AbsSatBingo.Model.LineCtxL
+import AbsSatBingo.Model.ChainLine
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
