@@ -4,7 +4,15 @@
 #
 # Se guarda el remitente de cada llegada (copia antes del filtro). En cada join u = e ∪ g y cada cima t (lado L,
 # remitente SL), para cada pareja y–w de la estrella de t que es de u y no de L:
-#   removed — la pareja era arista de SL (la quitó la llegada: filtro o review)
+#   removed — la pareja era arista de SL (la quitó la llegada: filtro o review); rm_gap: tras la llegada, L no tiene
+#             testigo común en algún paso interior (regla de parejas); rm_gap_kept: alguno de esos pasos sigue libre en
+#             la estrella de t en u; rm_nogap: L tiene testigo en todo paso (la quitó otra regla); rm_nogap_ok: aun así
+#             hay paso libre en la estrella; rm_nf: sin paso libre en la estrella (StarOneSide fallaría);
+#             gap_steps: pasos-hueco de L; gap_cross: de ellos, con algún r de la estrella unido a y o a w por una arista
+#             de fuera de L; gap_wit: con algún r de la estrella testigo común en u; free_/fill_req|noreq: pasos-hueco
+#             que siguen libres / que se tapan en u, según sean o no pasos con requisito del destino. En los que siguen
+#             libres, los testigos de y–w en la otra llegada O: gw_none (ninguno), gw_all_dead_in_L (todos muertos en L),
+#             gw_alive_not_star (alguno vivo en L fuera de la estrella), gw_all_in_SL (todos vivos en el remitente SL)
 #   absent  — no lo era; ab_star: y y w están en la estrella (en SL) de algún padre de t; ab_free: y en SL ∪ SO (SO el
 #             remitente del otro lado) la pareja ya tenía un paso sin testigo en esa estrella (la inducción serviría);
 #             npar1/2/3: padres vivos de t (3 = 3 o más); gr_star / gr_free: lo mismo con la estrella del grupo de padres
@@ -27,7 +35,7 @@ Core.eval(GraphPath, quote
     const _orig_up = do_up_filtering!
     function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
                               prohibited :: Set{PathNodeId} = Set{PathNodeId}())
-        $(SENDER)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = deepcopy(gpath)
+        $(SENDER)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = (deepcopy(gpath), copy(requires))
         gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
         filter!(gpath, requires)
         do_up!(gpath, map_id_node, title, prohibited)
@@ -44,8 +52,10 @@ function sender_of(x)
 end
 
 function on_join_post(u)
-    e, g, se, sg = SIDES[]; SIDES[] = nothing
-    (se === nothing || sg === nothing) && (bump(:nosender); return)
+    e, g, se0, sg0 = SIDES[]; SIDES[] = nothing
+    (se0 === nothing || sg0 === nothing) && (bump(:nosender); return)
+    se, reqs = se0; sg = sg0[1]
+    reqsteps = Set(Int(q.step) for q in reqs)
     u.current_step >= 2 || return
     og = u.og; top = u.current_step - 1
     Ae = alive(e)
@@ -60,6 +70,44 @@ function on_join_post(u)
             bump(:np)
             if PG.has_edge(SL.og, y, w)
                 bump(:removed)
+                ends = (Int(y.id.step), Int(w.id.step))
+                stepsI = [l for l in 0:u.current_step-1 if !(l in ends)]
+                wit(o, l, pool) = any(r -> r.id.step == l && PG.has_edge(o, y, r) && PG.has_edge(o, w, r), pool)
+                AL = [z for (_, xs) in L.og.alive for z in xs]
+                efree = [l for l in stepsI if !wit(L.og, l, AL)]          # sin testigo en todo L (regla de parejas)
+                ufree = [l for l in stepsI if !wit(og, l, S)]             # sin testigo en la estrella de t, en u
+                isempty(efree) ? bump(:rm_nogap) : bump(:rm_gap)          # rm_nogap: la quitó otra regla (pasadas)
+                any(l -> l in ufree, efree) && bump(:rm_gap_kept)         # el hueco de L sigue en la estrella en u
+                # en los pasos-hueco de L: ¿hay nodos r de la estrella con una arista de fuera de L hacia y o hacia w?
+                for l in efree
+                    (l in ufree) && bump(l in reqsteps ? :free_req : :free_noreq)
+                    if l in ufree
+                        # los testigos de y–w en la otra llegada O en ese paso
+                        O = ine ? g : e
+                        AO = [z for (_, xs) in O.og.alive for z in xs]
+                        AL2 = Set(AL)
+                        gw = [r for r in AO if r.id.step == l && PG.has_edge(O.og, y, r) && PG.has_edge(O.og, w, r)]
+                        isempty(gw) && bump(:gw_none)
+                        all(r -> !(r in AL2), gw) && !isempty(gw) && bump(:gw_all_dead_in_L)
+                        any(r -> (r in AL2) && !PG.has_edge(og, t, r), gw) && bump(:gw_alive_not_star)
+                        # ¿estaban vivos en el remitente SL?
+                        all(r -> PG.is_alive(SL.og, r), gw) && !isempty(gw) && bump(:gw_all_in_SL)
+                    end
+                    (l in ufree) || bump(l in reqsteps ? :fill_req : :fill_noreq)
+                    rs = [r for r in S if r.id.step == l]
+                    cross = count(r -> (PG.has_edge(og, y, r) && !PG.has_edge(L.og, y, r)) ||
+                                       (PG.has_edge(og, w, r) && !PG.has_edge(L.og, w, r)), rs)
+                    bump(:gap_steps)
+                    cross > 0 && bump(:gap_cross)
+                    # con arista cruzada a uno y arista (de L o no) al otro: casi testigo
+                    half = count(r -> (PG.has_edge(og, y, r) && PG.has_edge(og, w, r)), rs)
+                    half > 0 && bump(:gap_wit)
+                end
+                isempty(ufree) && bump(:rm_nf)                            # (StarOneSide fallaría)
+                # si no hay hueco en L: ¿el paso libre en u es uno donde L solo tiene testigos fuera de la estrella?
+                if isempty(efree) && !isempty(ufree)
+                    bump(:rm_nogap_ok)
+                end
             else
                 bump(:absent)
                 # el grupo de padres de t (vivos en SL): la unión de sus estrellas, aristas de SL ∪ SO
@@ -91,7 +139,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:nosender, :np, :removed, :absent, :ab_star, :ab_free, :npar1, :npar2, :npar3, :gr_star, :gr_free)
+    cols = (:nosender, :np, :removed, :rm_gap, :rm_gap_kept, :rm_nogap, :rm_nogap_ok, :rm_nf, :gap_steps, :gap_cross, :gap_wit, :free_req, :free_noreq, :fill_req, :fill_noreq, :gw_none, :gw_all_dead_in_L, :gw_alive_not_star, :gw_all_in_SL, :absent, :ab_star, :ab_free, :npar1, :npar2, :npar3, :gr_star, :gr_free)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _

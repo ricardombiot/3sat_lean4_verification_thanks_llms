@@ -1,4 +1,0 @@
-instance	truth	nosender	np	removed	absent	ab_star	ab_free	npar1	npar2	npar3	gr_star	gr_free	secs
-clause_mix.cnf	true	0	422	8	414	320	320	107	307	0	414	414	2.3
-rand3sat_v8_c10.cnf	true	0	2914	28	2886	1594	1594	534	2352	0	2886	2886	2.6
-v5_c20_i1.cnf	true	0	352	2	350	183	183	159	191	0	350	350	1.3
