@@ -1,5 +1,5 @@
-instance	truth	arrivals	np	nf	nf_self	secs
-clause_mix.cnf	true	84	447	0	0	0.5
-clause_mix_sep.cnf	true	102	1145	0	0	0.5
-rand3sat_v8_c10.cnf	true	168	4136	0	0	3.0
-v5_c20_i1.cnf	true	211	713	0	0	1.8
+instance	truth	arrivals	np	nf	nf_self	g1	g2_bad	g1E	secs
+clause_mix.cnf	true	84	447	0	0	447	32	447	0.5
+clause_mix_sep.cnf	true	102	1145	0	0	1145	308	1145	0.5
+rand3sat_v8_c10.cnf	true	168	4136	0	0	4136	806	4136	3.0
+v5_c20_i1.cnf	true	211	713	0	0	713	22	713	1.6

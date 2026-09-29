@@ -6,7 +6,9 @@
 # X y que X ya no tiene (la quitó la llegada): ¿hay un paso l (no el de y ni el de w) en el que ningún vivo r de X en
 # el paso l posee a y y a w por aristas de TODAS las llegadas de ese paso (de cualquier remitente a cualquier destino)?
 #   arrivals, np (parejas quitadas), nf (sin tal paso: falla), nf_self (sin paso libre ni siquiera con las aristas de X:
-#   no debería pasar, la regla de parejas deja un hueco)
+#   no debería pasar, la regla de parejas deja un hueco); g1: hay paso libre con las aristas del remitente S (sobre los
+#   vivos de X); g2_bad: alguna arista de otra llegada entre y (o w) y un vivo de X no es del remitente; g1E: paso libre
+#   con aristas del remitente o de cualquier llegada
 
 const OUT = abspath(ARGS[1])
 include(joinpath(@__DIR__, "..", "src/main.jl"))
@@ -36,7 +38,7 @@ alive(h) = [x for (_, xs) in h.og.alive for x in xs]
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:arrivals, :np, :nf, :nf_self)
+    cols = (:arrivals, :np, :nf, :nf_self, :g1, :g2_bad, :g1E)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
@@ -72,6 +74,17 @@ function main()
                         end
                         free((a, b) -> PG.has_edge(X.og, a, b)) || bump(:nf_self)
                         free(E) || bump(:nf)
+                        # G1: el hueco con las aristas del remitente, sobre los vivos de X
+                        free((a, b) -> PG.has_edge(S.og, a, b)) && bump(:g1)
+                        # G2: aristas de otras llegadas entre y (o w) y vivos de X que no son del remitente
+                        g2bad = any(AX) do r
+                            any(((y, r), (w, r))) do (a, b)
+                                a != b && !PG.has_edge(S.og, a, b) && any(o -> o !== X.og && PG.has_edge(o, a, b), ogs)
+                            end
+                        end
+                        g2bad && bump(:g2_bad)
+                        # G1 con aristas del remitente o de otras llegadas
+                        free((a, b) -> PG.has_edge(S.og, a, b) || E(a, b)) && bump(:g1E)
                     end
                 end
             end
