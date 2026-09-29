@@ -95,7 +95,7 @@ theorem starJoinDown_of_split {e g : GPathB} (hcs : e.current_step = g.current_s
 /-- **StarOneSide**, sobre el grafo de la unión (sin estructuras): en la estrella de una cima `t` que vive en `L`,
 toda pareja de la unión que no es arista de `L` tiene un paso en el que ningún nodo de la estrella la atestigua. -/
 def StarOneSideAt (u L : GPathB) : Prop :=
-  ∀ t, t ∈ L.alive → t.id.step = u.current_step - 1 → ∀ y w, u.Adj t y → u.Adj t w → ¬ L.Adj y w →
+  ∀ t, t ∈ L.alive → t.id.step = u.current_step - 1 → ∀ y w, u.Adj t y → u.Adj t w → u.Adj y w → ¬ L.Adj y w →
     ∃ l, 0 ≤ l ∧ l < u.current_step ∧ ∀ r, r.id.step = l → u.Adj t r → ¬ (u.Adj y r ∧ u.Adj w r)
 
 /-- **StarOneSide ⟹ B2**: una pareja de fuera del lado no tiene testigo en algún paso dentro de la estrella, y
@@ -111,7 +111,7 @@ theorem starPure_of_oneSide {e g : GPathB} (hE : StarOneSideAt (join e g) e) (hG
     intro L hO htL y w hyw
     apply Classical.byContradiction
     intro hne
-    obtain ⟨l, h0, h1, hl⟩ := hO t htL hts y w (hta (hst.dom hyw).1) (hta (hst.dom hyw).2) hne
+    obtain ⟨l, h0, h1, hl⟩ := hO t htL hts y w (hta (hst.dom hyw).1) (hta (hst.dom hyw).2) (hst.adj hyw) hne
     obtain ⟨r, hrl, hyr, hwr⟩ := hst.pair hyw l h0 h1
     exact hl r hrl (hta (hst.dom hyr).2) ⟨hst.adj hyr, hst.adj hwr⟩
   exact ⟨fun h _ _ hyw => key e hE h hyw, fun h _ _ hyw => key g hG h hyw⟩

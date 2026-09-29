@@ -72,32 +72,27 @@ theorem groupStar_of_adj {A f : GPathB} (hs : Sub f A) (hdocs : AliveDocs f) (hb
         have := newRow_step hd hpid
         omega
 
-/-- **El caso ausente de StarOneSide.** -/
-theorem starOneSide_absent {A B fA fB : GPathB} {forbA forbB : PathNodeId → Bool}
+/-- **El caso ausente de StarOneSide**, para una unión `u` cuyas posesiones vienen de la llegada `e` (desde `A`) o
+de la llegada `g` (desde `B`). -/
+theorem starOneSide_absent {A B fA fB u : GPathB} {forbA forbB : PathNodeId → Bool}
     (hsA : Sub fA A) (hsB : Sub fB B) (hdA : d.step = fA.current_step) (hdB : d.step = fB.current_step)
     (hdocs : AliveDocs fA) (hb : Below fA) (hea : EdgesAlive fA)
     (heaG : EdgesAlive ((fB.addNode d "" forbB).review))
+    (hu : ∀ {a b}, u.Adj a b → ((fA.addNode d "" forbA).review).Adj a b ∨ ((fB.addNode d "" forbB).review).Adj a b)
+    (hcsu : u.current_step = fA.current_step + 1)
     {t : PathNodeId} (ht : t ∈ fA.newRowIds d forbA) (htg : t ∉ ((fB.addNode d "" forbB).review).alive)
     (hX : CrossAt A B (GroupStar A fA d t))
-    {y w : PathNodeId}
-    (hty : (join ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review)).Adj t y)
-    (htw : (join ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review)).Adj t w)
+    {y w : PathNodeId} (hty : u.Adj t y) (htw : u.Adj t w)
     (hg : ((fB.addNode d "" forbB).review).Adj y w) (habs : ¬ A.Adj y w) :
-    ∃ l, 0 ≤ l ∧ l < (join ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review)).current_step ∧
-      ∀ r, r.id.step = l →
-        (join ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review)).Adj t r →
-        ¬ ((join ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review)).Adj y r ∧
-          (join ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review)).Adj w r) := by
+    ∃ l, 0 ≤ l ∧ l < u.current_step ∧ ∀ r, r.id.step = l → u.Adj t r → ¬ (u.Adj y r ∧ u.Adj w r) := by
   generalize heE : (fA.addNode d "" forbA).review = e at *
   generalize heGd : (fB.addNode d "" forbB).review = g at *
-  have hcsu : (join e g).current_step = fA.current_step + 1 := by
-    rw [← heE]; exact (shrinks_review _).1.step
   have hcsB : fA.current_step = fB.current_step := hdA.symm.trans hdB
   have hts : t.id.step = fA.current_step := newRow_step hdA ht
   -- las posesiones de t en la unión son de e
-  have hte : ∀ {r}, (join e g).Adj t r → e.Adj t r := by
+  have hte : ∀ {r}, u.Adj t r → e.Adj t r := by
     intro r h
-    rcases adj_join_cases h with h | h
+    rcases hu h with h | h
     · exact h
     · exact absurd (heaG t r h).1 htg
   -- un vecino de t distinto de t es viejo
@@ -112,13 +107,13 @@ theorem starOneSide_absent {A B fA fB : GPathB} {forbA forbB : PathNodeId → Bo
   have hwt : w ≠ t := fun h => by subst h; exact htg (heaG _ _ hg).2
   have hyo := hold (hte hty) hyt
   have hwo := hold (hte htw) hwt
-  have hstar : ∀ {r}, (join e g).Adj t r → r.id.step < fA.current_step → GroupStar A fA d t r :=
+  have hstar : ∀ {r}, u.Adj t r → r.id.step < fA.current_step → GroupStar A fA d t r :=
     fun {r} h hr => groupStar_of_adj hsA hdocs hb hea hdA ht hr (by rw [heE]; exact hte h)
   -- una posesión de la unión entre nodos viejos es de A o de B
-  have hAB : ∀ {a b}, (join e g).Adj a b → a.id.step < fA.current_step → b.id.step < fA.current_step →
+  have hAB : ∀ {a b}, u.Adj a b → a.id.step < fA.current_step → b.id.step < fA.current_step →
       A.Adj a b ∨ B.Adj a b := by
     intro a b h ha hb'
-    rcases adj_join_cases h with h | h
+    rcases hu h with h | h
     · exact Or.inl (adj_old_of_arrival hsA hdA ha hb' (by rw [heE]; exact h))
     · exact Or.inr (adj_old_of_arrival hsB hdB (hcsB ▸ ha) (hcsB ▸ hb') (by rw [heGd]; exact h))
   have hB : B.Adj y w := adj_old_of_arrival hsB hdB (hcsB ▸ hyo) (hcsB ▸ hwo) (by rw [heGd]; exact hg)
@@ -128,6 +123,46 @@ theorem starOneSide_absent {A B fA fB : GPathB} {forbA forbB : PathNodeId → Bo
   have hrne : r ≠ t := fun h => by subst h; omega
   have hro := hold (hte hrt) hrne
   exact hl r (hstar hrt hro) hrl ⟨hAB hyr hyo hro, hAB hwr hwo hro⟩
+
+/-- **El caso quitado (hipótesis local de la llegada)**: una pareja que estaba en el remitente `A` y la llegada `e`
+quitó tiene un paso en el que ningún vivo de `e` es testigo común en la unión. Medido (`probe_oneside_history.jl`):
+el hueco de la regla de parejas que dejó la llegada sigue libre; allí los testigos de la otra llegada están muertos
+en `e`. -/
+def GapDead (A e g u : GPathB) : Prop :=
+  ∀ t, t ∈ e.alive → t.id.step = u.current_step - 1 → ∀ y w, u.Adj t y → u.Adj t w → g.Adj y w → ¬ e.Adj y w →
+    A.Adj y w → ∃ l, 0 ≤ l ∧ l < u.current_step ∧ ∀ r, r ∈ e.alive → r.id.step = l → ¬ (u.Adj y r ∧ u.Adj w r)
+
+/-- **StarOneSide en el lado de una llegada** ⇐ `CrossAt` (caso ausente) + `GapDead` (caso quitado). -/
+theorem starOneSideAt_of_hist {A B fA fB u : GPathB} {forbA forbB : PathNodeId → Bool}
+    (hsA : Sub fA A) (hsB : Sub fB B) (hdA : d.step = fA.current_step) (hdB : d.step = fB.current_step)
+    (hdocs : AliveDocs fA) (hb : Below fA) (hea : EdgesAlive fA)
+    (heaE : EdgesAlive ((fA.addNode d "" forbA).review)) (heaG : EdgesAlive ((fB.addNode d "" forbB).review))
+    (hu : ∀ {a b}, u.Adj a b → ((fA.addNode d "" forbA).review).Adj a b ∨ ((fB.addNode d "" forbB).review).Adj a b)
+    (hcsu : u.current_step = fA.current_step + 1)
+    (hD2 : ∀ t, t ∈ ((fA.addNode d "" forbA).review).alive → t.id.step = u.current_step - 1 →
+      t ∉ ((fB.addNode d "" forbB).review).alive)
+    (hX : ∀ t, t ∈ fA.newRowIds d forbA → CrossAt A B (GroupStar A fA d t))
+    (hGap : GapDead A ((fA.addNode d "" forbA).review) ((fB.addNode d "" forbB).review) u) :
+    StarOneSideAt u ((fA.addNode d "" forbA).review) := by
+  intro t htL hts y w hty htw hyw hne
+  have htg := hD2 t htL hts
+  -- t es de la fila nueva
+  have htnew : t ∈ fA.newRowIds d forbA := by
+    have ha := (shrinks_review (fA.addNode d "" forbA)).1.alive t htL
+    rcases alive_addNode_cases (title := "") hdocs hb hdA ha with ⟨_, h⟩ | ⟨h, _⟩
+    · omega
+    · exact h
+  have hg : ((fB.addNode d "" forbB).review).Adj y w := by
+    rcases hu hyw with h | h
+    · exact absurd h hne
+    · exact h
+  by_cases hA : A.Adj y w
+  · obtain ⟨l, h0, h1, hl⟩ := hGap t htL hts y w hty htw hg hne hA
+    refine ⟨l, h0, h1, fun r hrl hrt hyr => hl r ?_ hrl hyr⟩
+    rcases hu hrt with h | h
+    · exact (heaE t r h).2
+    · exact absurd (heaG t r h).1 htg
+  · exact starOneSide_absent hsA hsB hdA hdB hdocs hb hea heaG hu hcsu htnew htg (hX t htnew) hty htw hg hA
 
 end GPathB
 
