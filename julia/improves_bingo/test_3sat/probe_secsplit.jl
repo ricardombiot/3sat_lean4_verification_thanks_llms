@@ -31,7 +31,11 @@ valid_pin(g, P) = (g2 = deepcopy(g); GraphPath.filter!(g2, SetNodesId(P)); g2.is
 mutable struct Acc
     joins :: Int; dead :: Int
     t :: Vector{Int}; f :: Vector{Int}
+    st :: Int; sf :: Int
 end
+# SPLIT=1: mide también SplitSat — con la unión válida tras P, algún nodo del mapa b del paso de origen (T - 2) deja
+# válida la unión tras P ++ [b] (st: juzgados, sf: ninguno la deja válida).
+const SPLIT = get(ENV, "SPLIT", "0") == "1"
 const ACC = Ref{Acc}()
 const SIDES = Ref{Any}(nothing)
 const RNG = Ref(MersenneTwister(SEED))
@@ -44,6 +48,11 @@ function test!(u, e, g, P)
     end
     a.t[n] += 1
     (valid_pin(e, P) || valid_pin(g, P)) || (a.f[n] += 1)
+    if SPLIT
+        k = u.current_step - 2
+        a.st += 1
+        any(b -> valid_pin(u, vcat(P, [b])), map_nodes(u.og, k)) || (a.sf += 1)
+    end
 end
 
 function on_join_post(u)
@@ -74,7 +83,7 @@ function on_join_post(u)
 end
 
 function run_one(path, loader)
-    ACC[] = Acc(0, 0, zeros(Int, 3), zeros(Int, 3))
+    ACC[] = Acc(0, 0, zeros(Int, 3), zeros(Int, 3), 0, 0)
     machine = SatMachine.new(loader(path))
     Probes.with(:join_pre => (a, b) -> (SIDES[] = (deepcopy(a), deepcopy(b))), :join_post => on_join_post) do
         redirect_stdout(devnull) do
@@ -86,13 +95,13 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    header = "instance\ttruth\tjoins\ttests\tfails\tt1\tf1\tt2\tf2\tt3\tf3\tdead\tsecs"
+    header = "instance\ttruth\tjoins\ttests\tfails\tt1\tf1\tt2\tf2\tt3\tf3\tdead\tsplit_t\tsplit_f\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
         t = @elapsed a = run_one(path, loader)
-        return (truth, a.joins, sum(a.t), sum(a.f), a.t[1], a.f[1], a.t[2], a.f[2], a.t[3], a.f[3], a.dead,
+        return (truth, a.joins, sum(a.t), sum(a.f), a.t[1], a.f[1], a.t[2], a.f[2], a.t[3], a.f[3], a.dead, a.st, a.sf,
                 round(t, digits = 1))
     end
 end
