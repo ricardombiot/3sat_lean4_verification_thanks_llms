@@ -42,17 +42,23 @@ Core.eval(PathOwnersGraph, quote
     end
 end)
 const REMOVALS = Dict{Any, Any}()
+const TRIGS = Dict{Any, Any}()
+const CURTRIG = Ref{Any}(nothing)
 Core.eval(GraphPath, quote
     function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
                               prohibited :: Set{PathNodeId} = Set{PathNodeId}())
         key = (gpath.map_parent_id, Int(gpath.current_step))
         haskey($(SENDER), key) || ($(SENDER)[key] = deepcopy(gpath))
         gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
+        trig = Dict{Any, Any}()
+        $(CURTRIG)[] = trig
+        $(TRIGS)[(map_id_node, gpath.map_parent_id, Int(gpath.current_step))] = trig
         log = Dict{Any, Symbol}()
         PathOwnersGraph.LOGHOOK[] = (x, w, r) -> (log[Set([x, w])] = r)
         filter!(gpath, requires)
         do_up!(gpath, map_id_node, title, prohibited)
         PathOwnersGraph.LOGHOOK[] = nothing
+        $(CURTRIG)[] = nothing
         $(REMOVALS)[(map_id_node, key[1], key[2])] = log
         $(ARR)[(map_id_node, key[1], key[2])] = deepcopy(gpath)
         $(REQS)[(map_id_node, key[1], key[2])] = copy(requires)
@@ -71,6 +77,16 @@ end
 star(h, Q) = Set(z for z in alive(h) if any(q -> PG.has_edge(h.og, z, q), Q))
 
 
+
+function on_pair_bad(og, a, b)
+    T = CURTRIG[]; T === nothing && return
+    haskey(T, Set([a, b])) && return
+    st = Int[]
+    for (l, zs) in og.alive
+        any(z -> PG.has_edge(og, a, z) && PG.has_edge(og, b, z), zs) || push!(st, Int(l))
+    end
+    T[Set([a, b])] = st
+end
 
 function judge_arr(bystep)
     for ((D, sk, k), X) in ARR
@@ -165,11 +181,63 @@ function judge_arr(bystep)
                 all(c -> issubset(Set(holesX(c, w)), Hyw), bnd) && bump(:ch_inh_all)
                 any(c -> c == y, bnd) && bump(:ch_y_is_bnd)
             end
+            # acuerdo entre padres y tipo de hueco
+            Ns(a, l) = [r for r in AX if Int(r.id.step) == l && (r == a || PG.has_edge(X.og, a, r))]
+            vals(a, l) = Set(r.id for r in Ns(a, l))
+            for l in holesX(y, w)
+                bump(:hy_steps)
+                vy = vals(y, l); vw = vals(w, l)
+                isempty(intersect(vy, vw)) ? bump(:hy_value) : bump(:hy_path)
+                (isempty(vy) || isempty(vw)) && bump(:hy_empty)
+            end
+            let lo = min(Int(y.id.step), Int(w.id.step)), hi = max(Int(y.id.step), Int(w.id.step)), H = holesX(y, w)
+                any(l -> l < lo, H) && bump(:pos_below)
+                any(l -> lo < l < hi, H) && bump(:pos_between)
+                any(l -> l > hi, H) && bump(:pos_above)
+                all(l -> l > hi, H) && bump(:pos_only_above)
+            end
+            ps = parsX(y)
+            if length(ps) >= 2
+                low = Int(y.id.step) - 1
+                Il = Set(l for l in intersect([Set(holesX(p, w)) for p in ps]...) if l < low)
+                isempty(Il) || bump(:two_Il)
+                issubset(Il, Set(holesX(y, w))) && bump(:two_Il_sub_y)
+            end
+            if length(ps) >= 2
+                bump(:two_par)
+                Hs = [Set(holesX(p, w)) for p in ps]
+                I = intersect(Hs...)
+                isempty(I) ? bump(:two_noI) : bump(:two_I)
+                issubset(I, Set(holesX(y, w))) && bump(:two_I_sub_y)
+                # pasos de hueco de y que no son comunes a los padres
+                any(l -> !(l in I), holesX(y, w)) && bump(:two_y_extra)
+            end
             # hueco con las aristas de la propia X (lo que da la contradicción)
             any(0:k) do l
                 (l == Int(y.id.step) || l == Int(w.id.step)) && return false
                 all(r -> Int(r.id.step) != l || !(PG.has_edge(X.og, y, r) && PG.has_edge(X.og, w, r)), AX)
             end && bump(:hole_own)
+            tg = get(get(TRIGS, (D, sk, k), Dict()), Set([y, w]), nothing)
+            if tg === nothing
+                bump(:trig_none)
+            else
+                bump(:trig)
+                isempty(tg) && bump(:trig_emptyset)
+                fullh(l) = all(r -> Int(r.id.step) != l || !(adjK(y, r) && adjK(w, r)), AX)
+                all(fullh, tg) && bump(:trig_full_all)
+                any(fullh, tg) && bump(:trig_full_any)
+                HS0 = [l for l in 0:k-1 if all(r -> Int(r.id.step) != l || !(PG.has_edge(S.og, y, r) && PG.has_edge(S.og, w, r)), AX)]
+                all(l -> l in HS0, tg) && bump(:trig_in_S)
+                # hueco de valor en todo el nivel: vecinos (en cualquier entrada del nivel) de y y de w en l
+                allK = Set(z for E in values(es) for z in alive(E))
+                gv(a, l) = Set(z.id for z in allK if Int(z.id.step) == l && (z == a || adjK(a, z)))
+                gval(l) = isempty(intersect(gv(y, l), gv(w, l)))
+                any(gval, tg) && bump(:trig_gval_any)
+                any(l -> gval(l), 0:k-1) && bump(:gval_any)
+                # valor en X solamente
+                xv(a, l) = Set(z.id for z in AX if Int(z.id.step) == l && (z == a || adjK(a, z)))
+                any(l -> isempty(intersect(xv(y, l), xv(w, l))), tg) && bump(:trig_xval_any)
+            end
             rl in (:pair, :none) ? bump(Symbol("rule_", rl)) : (bump(:rule_other); println(stderr, "RULE ", rl))
             Sp = [E for E in values(es) if E !== S]
             hS(l) = all(r -> Int(r.id.step) != l || !(PG.has_edge(S.og, y, r) && PG.has_edge(S.og, w, r)), AX)
@@ -204,17 +272,19 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :supp_ok, :supp_fail, :hole_own, :ch_single, :ch_reach, :ch_noreach, :ch_supp, :ch_S, :ch_hole, :ch_inh_any, :ch_inh_all, :ch_y_is_bnd, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
+    cols = (:np, :hole, :holeS, :holeArr, :rule_pair, :rule_none, :rule_other, :trig, :trig_none, :trig_emptyset, :trig_full_all, :trig_full_any, :trig_in_S, :trig_gval_any, :gval_any, :trig_xval_any, :supp_ok, :supp_fail, :hole_own, :ch_single, :ch_reach, :ch_noreach, :ch_supp, :ch_S, :ch_hole, :ch_inh_any, :ch_inh_all, :ch_y_is_bnd, :hy_steps, :hy_value, :hy_path, :hy_empty, :two_par, :two_I, :two_noI, :two_I_sub_y, :two_y_extra, :pos_below, :pos_between, :pos_above, :pos_only_above, :two_Il, :two_Il_sub_y, :sholes_full, :blk, :blk_oo, :blk_mix, :blk_yw_in_o, :blk_o_has_yw, :abs, :abs_inX, :abs_hole, :abs_ctop, :abs_ctop_hole, :ab1, :ab1_hole, :ab1_ctop, :ab1_ctop_hole, :ab1_star, :ab1_star_hole); _unused = (:freeN, :anyfree, :mono_fail, :allP, :tN, :nfree, :tQ, :tQtop, :qfree, :qfree1, :one_sender, :nox, :rem_any, :rem_all, :holeX_free, :holeS_free, :holeX_sub, :holeS_sub, :blk_steps, :blk_r, :blk_inX, :blk_Syr, :blk_Swr, :blk_split, :blk_inEq, :max_free, :min_free, :max_free_all, :hole_common, :hole_common_free, :gap_0, :gap_1, :gap_2, :gap_3, :rq_n, :rq_max, :rq_all, :y_has, :w_has, :wk, :wk_SS, :wk_OO, :wk_mix, :wk_dead, :wk_outcone, :wk_lost_both, :wk_lost_one, :wk_BUG, :wk_inX, :wk_notX, :cone_inX, :anc_oneX, :holeL, :holeL_max, :suff, :multi, :multi2, :multi_nox, :multi_common, :multi_other, :multi_other_yw, :multi_other_hole)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["tseitin_petersen_H.cnf", "simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C); empty!(SENDER); empty!(ARR); empty!(REMOVALS); empty!(REQS)
+        empty!(C); empty!(SENDER); empty!(ARR); empty!(REMOVALS); empty!(TRIGS); empty!(REQS)
         machine = SatMachine.new(loader(path))
         t = @elapsed begin
-            redirect_stdout(devnull) do
-                SatMachine.run!(machine)
+            Probes.with(:pair_bad => on_pair_bad) do
+                redirect_stdout(devnull) do
+                    SatMachine.run!(machine)
+                end
             end
             bystep = Dict{Int, Dict{Any, Any}}()
             for ((k, st), g) in SENDER
