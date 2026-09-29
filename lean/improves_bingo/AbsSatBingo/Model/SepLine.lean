@@ -15,6 +15,10 @@ lados. Es contabilidad de la línea, y aquí se demuestra:
   unir su llegada a un estado del destino, ese estado solo tiene orígenes de remitentes anteriores, así que
   **`SepAt`** (`sepAt_of_origin`).
 
+Y la versión de dos lados (`readerVerdict_iff_of_two`): en el mapa bin hay como mucho dos nodos del mapa por paso, las
+claves son distintas, así que **cada join une dos estados de un color cada uno** (`joinProv_two`), y basta
+`SplitSat2`: fijar el color de un lado o el del otro deja algo.
+
 Resultado: **`readerVerdict_iff_of_exist`**, el veredicto del lector bajo `SplitSat`, `SideSat` (en joins separados) y
 `AvoidSat`; y `readerVerdict_iff_of_noSep` con `SideEdgesAt` en lugar de `SideSat`.
 -/
@@ -123,12 +127,26 @@ theorem sInv_doJoin_sep {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) {
   exact sInv_doJoin_of (secSplit_of_splitSat_sideSat (H.split U key e g hU he hg hke hkg)
     (H.side U key e g hU he hg hke hkg hsep)) hke hkg
 
+/-- Una clave del paso `k`: índice 0 o 1 (los nodos del mapa bin). -/
+def Key (k : Int) (a : NodeId) : Prop := a.step = k ∧ (a.index = 0 ∨ a.index = 1)
+
+/-- **Quien resuelve el join** de la línea, con lo que la inducción sabe en ese momento: el estado del destino tiene
+sus orígenes en remitentes anteriores (`A`, claves del paso de origen), y la llegada los tiene en su remitente `s`. -/
+def JoinProv (U : Int) : Prop :=
+  ∀ (key s : NodeId) (e g : GPathB) (A : NodeId → Prop), StateOk U key e → StateOk U key g → SInv e → SInv g →
+    OriginIn e (U - 2) A → OriginIn g (U - 2) (· = s) → ¬ A s → (∀ a, A a → Key (U - 2) a) → Key (U - 2) s →
+    SInv (doJoin e g)
+
+theorem joinProv_exist {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) : JoinProv U :=
+  fun _ _ _ _ _ he hg hke hkg hoe hog hsA _ _ => sInv_doJoin_sep H hU he hg hke hkg (sepAt_of_origin hoe hog hsA)
+
 /-- **Insertar una llegada**, llevando los orígenes: el estado del destino solo tiene orígenes anteriores. -/
-theorem lineO_insert {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) {line : Line} {key s : NodeId}
+theorem lineO_insert {U : Int} (J : JoinProv U) {line : Line} {key s : NodeId}
     {g : GPathB} {A : NodeId → Prop} {done : List NodeId}
     (hl : LineOk U line) (hlk : LineS line)
     (ho : ∀ kv ∈ line, OriginIn kv.2 (U - 2) (fun a => A a ∨ (a = s ∧ kv.1 ∈ done)))
-    (hkey : key ∉ done) (hsA : ¬ A s) (hg : StateOk U key g) (hk : SInv g) (hog : OriginIn g (U - 2) (· = s)) :
+    (hkey : key ∉ done) (hsA : ¬ A s) (hAk : ∀ a, A a → Key (U - 2) a) (hsk : Key (U - 2) s)
+    (hg : StateOk U key g) (hk : SInv g) (hog : OriginIn g (U - 2) (· = s)) :
     LineS (Driver.insert line key g) ∧
       ∀ kv ∈ Driver.insert line key g, OriginIn kv.2 (U - 2) (fun a => A a ∨ (a = s ∧ kv.1 ∈ key :: done)) := by
   have wk : ∀ {h : GPathB} {k' : NodeId}, OriginIn h (U - 2) (fun a => A a ∨ (a = s ∧ k' ∈ done)) →
@@ -146,12 +164,11 @@ theorem lineO_insert {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) {lin
       rcases h with h | ⟨_, h⟩
       · exact h
       · exact absurd h hkey
-    have hsep := sepAt_of_origin hoe hog hsA
     refine ⟨?_, ?_⟩
     · intro kv hkv
       obtain ⟨kv0, hkv0, rfl⟩ := List.mem_map.mp hkv
       split
-      · exact sInv_doJoin_sep H hU (hl _ hmem) hg (hlk _ hmem) hk hsep
+      · exact J _ s e g A (hl _ hmem) hg (hlk _ hmem) hk hoe hog hsA hAk hsk
       · exact hlk kv0 hkv0
     · intro kv hkv
       obtain ⟨kv0, hkv0, rfl⟩ := List.mem_map.mp hkv
@@ -173,19 +190,23 @@ theorem lineO_insert {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) {lin
         exact originIn_mono hog (fun a h => Or.inr ⟨h, List.mem_cons_self ..⟩)
 
 /-- **El paso de la máquina sin `SepAt`**: cada remitente, una vez; cada hijo, una vez. -/
-theorem lineO_advance {φ : Cnf} (H : HypsExist φ) {T : Int} (hT : 1 ≤ T) {line : Line} (hl : LineOk T line)
-    (hlk : LineS line) (hent : ∀ kv ∈ line, EntOk kv) (hnd : (line.map (·.1)).Nodup) :
+theorem lineO_advance {φ : Cnf} (Hs : SkipHyp φ) {T : Int} (J : JoinProv (T + 1)) (hT : 1 ≤ T) {line : Line}
+    (hl : LineOk T line) (hlk : LineS line) (hent : ∀ kv ∈ line, EntOk kv) (hnd : (line.map (·.1)).Nodup)
+    (hidx : ∀ kv ∈ line, kv.1.index = 0 ∨ kv.1.index = 1) :
     LineS (advance φ line) := by
-  have hU : (2 : Int) ≤ T + 1 := by omega
   have hk2 : T + 1 - 2 = T - 1 := by omega
+  have hkey : ∀ kv ∈ line, Key (T - 1) kv.1 := fun kv hkv => ⟨(hl kv hkv).key, hidx kv hkv⟩
   -- los envíos de un remitente kv, con orígenes A ∨ kv.1 en los destinos ya servidos
   have hsend : ∀ (kv : NodeId × GPathB), kv ∈ line → ∀ (A : NodeId → Prop), ¬ A kv.1 →
+      (∀ a, A a → Key (T - 1) a) →
       ∀ (ds : List NodeId) (done : List NodeId), ds.Nodup → (∀ d ∈ ds, d ∉ done) →
       (∀ d ∈ ds, d ∈ sonsOfMap φ kv.1) → ∀ nx, LineOk (T + 1) nx → LineS nx →
       (∀ kv' ∈ nx, OriginIn kv'.2 (T - 1) (fun a => A a ∨ (a = kv.1 ∧ kv'.1 ∈ done))) →
       LineOk (T + 1) (ds.foldl (sendTo φ kv.2) nx) ∧ LineS (ds.foldl (sendTo φ kv.2) nx) ∧
         ∀ kv' ∈ ds.foldl (sendTo φ kv.2) nx, OriginIn kv'.2 (T - 1) (fun a => A a ∨ a = kv.1) := by
-    intro kv hkv A hA ds
+    intro kv hkv A hA hAk ds
+    have hAk' : ∀ a, A a → Key (T + 1 - 2) a := fun a h => hk2 ▸ hAk a h
+    have hsk' : Key (T + 1 - 2) kv.1 := hk2 ▸ hkey kv hkv
     induction ds with
     | nil =>
       intro done _ _ _ nx a b c
@@ -202,8 +223,8 @@ theorem lineO_advance {φ : Cnf} (H : HypsExist φ) {T : Int} (hT : 1 ≤ T) {li
         have hok := stateOk_upFiltering (hl kv hkv) hd hv
         have hog := originIn_upFiltering (hl kv hkv) (hent kv hkv).2 hd
         rw [← hk2] at hog c
-        obtain ⟨b', c'⟩ := lineO_insert H hU a b c (hdone d (List.mem_cons_self ..)) hA hok
-          (sInv_upFiltering H.skip (hl kv hkv) (hlk kv hkv) hT hd hv) hog
+        obtain ⟨b', c'⟩ := lineO_insert J a b c (hdone d (List.mem_cons_self ..)) hA hAk' hsk' hok
+          (sInv_upFiltering Hs (hl kv hkv) (hlk kv hkv) hT hd hv) hog
         rw [hk2] at c'
         exact ihd (d :: done) hdnd.2
           (fun d' hd' hmem => by
@@ -215,56 +236,111 @@ theorem lineO_advance {φ : Cnf} (H : HypsExist φ) {T : Int} (hT : 1 ≤ T) {li
       · exact ihd done hdnd.2 (fun d' hd' => hdone d' (List.mem_cons_of_mem _ hd'))
           (fun d' hd' => hds d' (List.mem_cons_of_mem _ hd')) nx a b c
   have key : ∀ (l : Line), (∀ kv ∈ l, kv ∈ line) → (l.map (·.1)).Nodup → ∀ (A : NodeId → Prop),
-      (∀ kv ∈ l, ¬ A kv.1) → ∀ next, LineOk (T + 1) next → LineS next →
+      (∀ kv ∈ l, ¬ A kv.1) → (∀ a, A a → Key (T - 1) a) → ∀ next, LineOk (T + 1) next → LineS next →
       (∀ kv ∈ next, OriginIn kv.2 (T - 1) A) →
       LineS (l.foldl (fun next kv => sendAll φ kv next) next) := by
     intro l
     induction l with
-    | nil => intro _ _ _ _ next _ h2 _; exact h2
+    | nil => intro _ _ _ _ _ next _ h2 _; exact h2
     | cons kv rest ih =>
-      intro hsub hndl A hA next h1 h2 h3
+      intro hsub hndl A hA hAk next h1 h2 h3
       have hkv := hsub kv (List.mem_cons_self ..)
       have hndl' := List.nodup_cons.mp hndl
       simp only [List.foldl_cons]
-      obtain ⟨a, b, c⟩ := hsend kv hkv A (hA kv (List.mem_cons_self ..)) (sonsOfMap φ kv.1) []
+      obtain ⟨a, b, c⟩ := hsend kv hkv A (hA kv (List.mem_cons_self ..)) hAk (sonsOfMap φ kv.1) []
         (sonsOfMap_nodup φ kv.1) (fun _ _ h => absurd h List.not_mem_nil) (fun _ h => h) next h1 h2
         (fun kv' h => originIn_mono (h3 kv' h) (fun _ h' => Or.inl h'))
-      refine ih (fun kv' h => hsub kv' (List.mem_cons_of_mem _ h)) hndl'.2 (fun a => A a ∨ a = kv.1) ?_ _ a b c
+      refine ih (fun kv' h => hsub kv' (List.mem_cons_of_mem _ h)) hndl'.2 (fun a => A a ∨ a = kv.1) ?_
+        (fun a h => h.elim (hAk a) (fun h' => h' ▸ hkey kv hkv)) _ a b c
       intro kv' hkv' hor
       rcases hor with h | h
       · exact hA kv' (List.mem_cons_of_mem _ hkv') h
       · exact hndl'.1 (List.mem_map.mpr ⟨kv', hkv', h⟩)
-  exact key line (fun _ h => h) hnd (fun _ => False) (fun _ _ h => h) [] (fun _ h => absurd h List.not_mem_nil)
+  exact key line (fun _ h => h) hnd (fun _ => False) (fun _ _ h => h) (fun _ h => h.elim) []
+    (fun _ h => absurd h List.not_mem_nil)
     (fun _ h => absurd h List.not_mem_nil) (fun _ h => absurd h List.not_mem_nil)
 
-/-- El invariante de la línea sin `SepAt`: `SInv`, la contabilidad de las entradas y las claves únicas. -/
+-- ============================================================
+-- Las claves son nodos del mapa bin (índice 0 o 1)
+-- ============================================================
+
+theorem sonsOfMap_index {φ : Cnf} {k d : NodeId} (hk : k.index = 0 ∨ k.index = 1) (hd : d ∈ sonsOfMap φ k) :
+    d.index = 0 ∨ d.index = 1 := by
+  unfold sonsOfMap at hd
+  split at hd
+  · rw [List.mem_singleton] at hd; subst hd; simp only; omega
+  · unfold mapNodes at hd
+    repeat' split at hd
+    all_goals simp at hd
+    all_goals (try rcases hd with rfl | rfl) <;> (try subst hd) <;> simp
+
+theorem mem_insert_keys {line : Line} {key : NodeId} {g : GPathB} {kv : NodeId × GPathB}
+    (h : kv ∈ Driver.insert line key g) : kv ∈ line ∨ kv.1 = key := by
+  unfold Driver.insert at h
+  split at h
+  · obtain ⟨kv0, hkv0, rfl⟩ := List.mem_map.mp h
+    split
+    · exact Or.inr rfl
+    · exact Or.inl hkv0
+  · rcases List.mem_append.mp h with h | h
+    · exact Or.inl h
+    · rw [List.mem_singleton] at h; subst h; exact Or.inr rfl
+
+theorem advance_index (φ : Cnf) {line : Line} (h : ∀ kv ∈ line, kv.1.index = 0 ∨ kv.1.index = 1) :
+    ∀ kv ∈ advance φ line, kv.1.index = 0 ∨ kv.1.index = 1 := by
+  unfold advance
+  refine foldl_pres _ (fun next : Line => ∀ kv ∈ next, kv.1.index = 0 ∨ kv.1.index = 1) line ?_ []
+    (fun _ h => absurd h List.not_mem_nil)
+  intro next kv hkv hn
+  unfold sendAll
+  refine foldl_pres _ (fun next : Line => ∀ kv ∈ next, kv.1.index = 0 ∨ kv.1.index = 1) _ ?_ next hn
+  intro y d hd hy
+  unfold sendTo
+  dsimp only
+  split
+  · intro kv' hkv'
+    rcases mem_insert_keys hkv' with h' | h'
+    · exact hy kv' h'
+    · rw [h']; exact sonsOfMap_index (h kv hkv) hd
+  · exact hy
+
+-- ============================================================
+-- La máquina entera, con quien resuelve los joins
+-- ============================================================
+
+/-- El invariante de la línea sin `SepAt`: `SInv`, la contabilidad de las entradas, las claves únicas y del mapa. -/
 def LineP (T : Int) (line : Line) : Prop :=
-  LineOk T line ∧ LineS line ∧ (∀ kv ∈ line, EntOk kv) ∧ (line.map (·.1)).Nodup
+  LineOk T line ∧ LineS line ∧ (∀ kv ∈ line, EntOk kv) ∧ (line.map (·.1)).Nodup ∧
+    ∀ kv ∈ line, kv.1.index = 0 ∨ kv.1.index = 1
 
 theorem lineP_init (φ : Cnf) : LineP 1 (init φ) := by
   obtain ⟨hl, hent, hnd, _⟩ := lineInv_init φ
-  refine ⟨hl, ?_, fun kv hkv => (hent kv hkv).1, hnd⟩
-  rw [init_eq]
-  intro kv hkv
-  rw [List.mem_singleton] at hkv; subst hkv
-  exact sInv_initSeed
+  refine ⟨hl, ?_, fun kv hkv => (hent kv hkv).1, hnd, ?_⟩
+  · rw [init_eq]
+    intro kv hkv
+    rw [List.mem_singleton] at hkv; subst hkv
+    exact sInv_initSeed
+  · rw [init_eq]
+    intro kv hkv
+    rw [List.mem_singleton] at hkv; subst hkv
+    exact Or.inl rfl
 
-theorem lineP_steps {φ : Cnf} (H : HypsExist φ) :
+theorem lineP_steps {φ : Cnf} (Hs : SkipHyp φ) (J : ∀ U : Int, 2 ≤ U → JoinProv U) :
     ∀ n : Nat, LineP ((n : Int) + 1) (steps φ n (init φ)) := by
   intro n
   induction n with
   | zero => exact lineP_init φ
   | succ n ih =>
-    obtain ⟨hl, hs, he, hnd⟩ := ih
+    obtain ⟨hl, hs, he, hnd, hidx⟩ := ih
     rw [steps_succ]
     rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
-    exact ⟨lineOk_advance hl, lineO_advance H (by omega) hl hs he hnd, advance_entOk (by omega) hl he,
-      advance_nodup φ _⟩
+    exact ⟨lineOk_advance hl, lineO_advance Hs (J _ (by omega)) (by omega) hl hs he hnd hidx,
+      advance_entOk (by omega) hl he, advance_nodup φ _, advance_index φ hidx⟩
 
-theorem run_sInv_noSep {φ : Cnf} (H : HypsExist φ) :
+theorem run_sInv_prov {φ : Cnf} (Hs : SkipHyp φ) (J : ∀ U : Int, 2 ≤ U → JoinProv U) :
     ∀ kv ∈ run φ, StateOk (stepCount φ) kv.1 kv.2 ∧ SInv kv.2 := by
   have hpos := stepCount_pos φ
-  obtain ⟨hl, hs, _, _⟩ := lineP_steps H (stepCount φ - 1).toNat
+  obtain ⟨hl, hs, _, _, _⟩ := lineP_steps Hs J (stepCount φ - 1).toNat
   have hrun : run φ = steps φ (stepCount φ - 1).toNat (init φ) := rfl
   rw [← hrun, show ((stepCount φ - 1).toNat : Int) + 1 = stepCount φ by rw [Int.toNat_of_nonneg (by omega)]; omega]
     at hl
@@ -275,13 +351,102 @@ theorem run_sInv_noSep {φ : Cnf} (H : HypsExist φ) :
 en joins separados) y `AvoidSat`. -/
 theorem readerVerdict_iff_of_exist {φ : Cnf} (hbd : Bounded φ) (H : HypsExist φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
-  readerVerdict_iff_of_final hbd (run_sInv_noSep H)
+  readerVerdict_iff_of_final hbd (run_sInv_prov H.skip (fun _ hU => joinProv_exist H hU))
 
 /-- **El veredicto del lector es la satisfacibilidad bajo `SplitSat`, `SideEdgesAt` y `AvoidSat`** (la separación
 por el origen, demostrada). -/
 theorem readerVerdict_iff_of_noSep {φ : Cnf} (hbd : Bounded φ) (H : HypsNoSep φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
   readerVerdict_iff_of_exist hbd (hypsExist_of_noSep H)
+
+-- ============================================================
+-- Dos lados, un color cada uno
+-- ============================================================
+
+/-- **La versión de dos lados de `SplitSat`**: una estructura cerrada no vacía de `u` que concuerda con `P` sobrevive
+a fijar el color `a` o el color `s`. -/
+def SplitSat2 (u : GPathB) (a s : NodeId) : Prop :=
+  ∀ (P : List NodeId) (V : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop),
+    SecStruct u V R → (∀ b ∈ P, SecAgrees V b) → (∃ y, V y) →
+    (∃ (V' : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop),
+        SecStruct u V' R' ∧ (∀ c ∈ P ++ [a], SecAgrees V' c) ∧ ∃ y, V' y) ∨
+    (∃ (V' : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop),
+        SecStruct u V' R' ∧ (∀ c ∈ P ++ [s], SecAgrees V' c) ∧ ∃ y, V' y)
+
+theorem splitSat_of_two {u : GPathB} {k : Int} {a s : NodeId} (ha : a.step = k) (hs : s.step = k)
+    (h : SplitSat2 u a s) : SplitSat u k := by
+  intro P V R hst hag hne
+  rcases h P V R hst hag hne with h' | h'
+  · exact ⟨a, ha, h'⟩
+  · exact ⟨s, hs, h'⟩
+
+/-- **`SplitSat ⟹ SplitSat2`** cuando los vivos del paso de origen son de `a` o de `s`: fijar otro color no deja nada
+(el testigo del paso de origen de un nodo de la estructura tendría ese color). -/
+theorem splitSat2_of_splitSat {u : GPathB} {k : Int} {a s : NodeId} (hk0 : 0 ≤ k) (hkc : k < u.current_step)
+    (ho : OriginIn u k (fun c => c = a ∨ c = s)) (h : SplitSat u k) : SplitSat2 u a s := by
+  intro P V R hst hag hne
+  obtain ⟨b, hbk, V', R', h1, h2, y, hy⟩ := h P V R hst hag hne
+  obtain ⟨r, hrs, hyr, _⟩ := h1.pair (h1.refl hy) k hk0 hkc
+  have hrb : r.id = b := h2 b (by simp) (h1.dom hyr).2 (by rw [hrs, hbk])
+  rcases ho r (h1.alive (h1.dom hyr).2) hrs with hra | hrs'
+  · exact Or.inl ⟨V', R', h1, by rw [← hrb, hra] at h2; exact h2, y, hy⟩
+  · exact Or.inr ⟨V', R', h1, by rw [← hrb, hrs'] at h2; exact h2, y, hy⟩
+
+/-- **Las hipótesis de dos lados**: `SplitSat2` en cada join, con los colores de los dos lados (uno cada uno,
+distintos); `SideSat` en los joins separados; `AvoidSat` en las ventanas saltadas. -/
+structure HypsTwo (φ : Cnf) : Prop where
+  split : ∀ T key e g a s, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → Key (T - 2) a →
+            Key (T - 2) s → a ≠ s → OriginIn e (T - 2) (· = a) → OriginIn g (T - 2) (· = s) →
+            SplitSat2 (join e g) a s
+  side  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SepAt e g (T - 2) →
+            SideSat (join e g) e g (T - 2)
+  skip  : SkipHyp φ
+
+/-- El otro color del mismo paso. -/
+def other (s : NodeId) : NodeId := ⟨s.step, 1 - s.index⟩
+
+theorem eq_other {k : Int} {a s : NodeId} (ha : Key k a) (hs : Key k s) (hne : a ≠ s) : a = other s := by
+  obtain ⟨as, ai⟩ := a
+  obtain ⟨ss, si⟩ := s
+  simp only [Key, other] at ha hs ⊢
+  have : ¬ (as = ss ∧ ai = si) := fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
+  congr 1 <;> omega
+
+/-- **En cada join, el estado del destino tiene un solo color, el otro.** -/
+theorem joinProv_two {φ : Cnf} (H : HypsTwo φ) {U : Int} (hU : 2 ≤ U) : JoinProv U := by
+  intro key s e g A he hg hke hkg hoe hog hsA hAk hsk
+  have hne : ∀ c, A c → c ≠ s := fun c hc h => hsA (h ▸ hc)
+  have hoe' : OriginIn e (U - 2) (· = other s) :=
+    originIn_mono hoe (fun c hc => eq_other (hAk c hc) hsk (hne c hc))
+  have hos : other s ≠ s := by
+    intro h
+    have := congrArg NodeId.index h
+    simp only [other] at this
+    rcases hsk.2 with h' | h' <;> omega
+  have hok : Key (U - 2) (other s) := by
+    refine ⟨hsk.1, ?_⟩
+    simp only [other]
+    rcases hsk.2 with h' | h' <;> omega
+  have hcs : e.current_step = g.current_step := he.step.trans hg.step.symm
+  have hsp : SplitSat (join e g) (U - 2) :=
+    splitSat_of_two hok.1 hsk.1 (H.split U key e g (other s) s hU he hg hke hkg hok hsk hos hoe' hog)
+  exact sInv_doJoin_of (secSplit_of_splitSat_sideSat hsp
+    (H.side U key e g hU he hg hke hkg (sepAt_of_origin hoe hog hsA))) hke hkg
+
+/-- **`HypsExist ⟹ HypsTwo`**: la versión de dos lados es más débil. -/
+theorem hypsTwo_of_exist {φ : Cnf} (H : HypsExist φ) : HypsTwo φ := by
+  refine ⟨fun T key e g a s hT he hg hke hkg _ _ _ hoe hog => ?_, H.side, H.skip⟩
+  refine splitSat2_of_splitSat (by omega) (by show T - 2 < e.current_step; rw [he.step]; omega) ?_
+    (H.split T key e g hT he hg hke hkg)
+  intro q hq hk
+  rcases (alive_join e g q).mp hq with h | h
+  · exact Or.inl (hoe q h hk)
+  · exact Or.inr (hog q h hk)
+
+/-- **El veredicto del lector es la satisfacibilidad bajo las hipótesis de dos lados.** -/
+theorem readerVerdict_iff_of_two {φ : Cnf} (hbd : Bounded φ) (H : HypsTwo φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_final hbd (run_sInv_prov H.skip (fun _ hU => joinProv_two H hU))
 
 end SecLine
 
