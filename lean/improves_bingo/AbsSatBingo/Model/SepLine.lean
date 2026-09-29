@@ -15,7 +15,8 @@ lados. Es contabilidad de la línea, y aquí se demuestra:
   unir su llegada a un estado del destino, ese estado solo tiene orígenes de remitentes anteriores, así que
   **`SepAt`** (`sepAt_of_origin`).
 
-Resultado: **`readerVerdict_iff_of_noSep`**, el veredicto del lector bajo `SplitSat`, `SideEdgesAt` y `AvoidSat`.
+Resultado: **`readerVerdict_iff_of_exist`**, el veredicto del lector bajo `SplitSat`, `SideSat` (en joins separados) y
+`AvoidSat`; y `readerVerdict_iff_of_noSep` con `SideEdgesAt` en lugar de `SideSat`.
 -/
 
 namespace AbsSatBingo.Model
@@ -100,17 +101,30 @@ structure HypsNoSep (φ : Cnf) : Prop where
   side  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SideEdgesAt e g (T - 2)
   skip  : SkipHyp φ
 
+/-- **Las hipótesis de existencia**: `SplitSat` en los joins; `SideSat` en los joins separados por el origen (la
+separación está demostrada); `AvoidSat` en las ventanas saltadas. -/
+structure HypsExist (φ : Cnf) : Prop where
+  split : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SplitSat (join e g) (T - 2)
+  side  : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInv e → SInv g → SepAt e g (T - 2) →
+            SideSat (join e g) e g (T - 2)
+  skip  : SkipHyp φ
+
+/-- `SideEdgesAt` (con la separación) da `SideSat`. -/
+theorem hypsExist_of_noSep {φ : Cnf} (H : HypsNoSep φ) : HypsExist φ := by
+  refine ⟨H.split, fun T key e g hT he hg hke hkg hsep => ?_, H.skip⟩
+  have hcs : e.current_step = g.current_step := he.step.trans hg.step.symm
+  exact sideSat_of_sidePinned (sidePinned_of_sideEdges (by omega) (by rw [he.step]; omega) hcs hke.2.2.2.2.2.2
+    hkg.2.2.2.2.2.2 hke.2.2.1 hkg.2.2.1 hsep (H.side T key e g hT he hg hke hkg))
+
 /-- El join de la línea con la separación ya demostrada. -/
-theorem sInv_doJoin_sep {φ : Cnf} (H : HypsNoSep φ) {U : Int} (hU : 2 ≤ U) {key : NodeId} {e g : GPathB}
+theorem sInv_doJoin_sep {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) {key : NodeId} {e g : GPathB}
     (he : StateOk U key e) (hg : StateOk U key g) (hke : SInv e) (hkg : SInv g) (hsep : SepAt e g (U - 2)) :
     SInv (doJoin e g) := by
-  have hcs : e.current_step = g.current_step := he.step.trans hg.step.symm
-  exact sInv_doJoin_of (secSplit_of_splitSat (H.split U key e g hU he hg hke hkg)
-    (sidePinned_of_sideEdges (by omega) (by rw [he.step]; omega) hcs hke.2.2.2.2.2.2 hkg.2.2.2.2.2.2
-      hke.2.2.1 hkg.2.2.1 hsep (H.side U key e g hU he hg hke hkg))) hke hkg
+  exact sInv_doJoin_of (secSplit_of_splitSat_sideSat (H.split U key e g hU he hg hke hkg)
+    (H.side U key e g hU he hg hke hkg hsep)) hke hkg
 
 /-- **Insertar una llegada**, llevando los orígenes: el estado del destino solo tiene orígenes anteriores. -/
-theorem lineO_insert {φ : Cnf} (H : HypsNoSep φ) {U : Int} (hU : 2 ≤ U) {line : Line} {key s : NodeId}
+theorem lineO_insert {φ : Cnf} (H : HypsExist φ) {U : Int} (hU : 2 ≤ U) {line : Line} {key s : NodeId}
     {g : GPathB} {A : NodeId → Prop} {done : List NodeId}
     (hl : LineOk U line) (hlk : LineS line)
     (ho : ∀ kv ∈ line, OriginIn kv.2 (U - 2) (fun a => A a ∨ (a = s ∧ kv.1 ∈ done)))
@@ -159,7 +173,7 @@ theorem lineO_insert {φ : Cnf} (H : HypsNoSep φ) {U : Int} (hU : 2 ≤ U) {lin
         exact originIn_mono hog (fun a h => Or.inr ⟨h, List.mem_cons_self ..⟩)
 
 /-- **El paso de la máquina sin `SepAt`**: cada remitente, una vez; cada hijo, una vez. -/
-theorem lineO_advance {φ : Cnf} (H : HypsNoSep φ) {T : Int} (hT : 1 ≤ T) {line : Line} (hl : LineOk T line)
+theorem lineO_advance {φ : Cnf} (H : HypsExist φ) {T : Int} (hT : 1 ≤ T) {line : Line} (hl : LineOk T line)
     (hlk : LineS line) (hent : ∀ kv ∈ line, EntOk kv) (hnd : (line.map (·.1)).Nodup) :
     LineS (advance φ line) := by
   have hU : (2 : Int) ≤ T + 1 := by omega
@@ -235,7 +249,7 @@ theorem lineP_init (φ : Cnf) : LineP 1 (init φ) := by
   rw [List.mem_singleton] at hkv; subst hkv
   exact sInv_initSeed
 
-theorem lineP_steps {φ : Cnf} (H : HypsNoSep φ) :
+theorem lineP_steps {φ : Cnf} (H : HypsExist φ) :
     ∀ n : Nat, LineP ((n : Int) + 1) (steps φ n (init φ)) := by
   intro n
   induction n with
@@ -247,7 +261,7 @@ theorem lineP_steps {φ : Cnf} (H : HypsNoSep φ) :
     exact ⟨lineOk_advance hl, lineO_advance H (by omega) hl hs he hnd, advance_entOk (by omega) hl he,
       advance_nodup φ _⟩
 
-theorem run_sInv_noSep {φ : Cnf} (H : HypsNoSep φ) :
+theorem run_sInv_noSep {φ : Cnf} (H : HypsExist φ) :
     ∀ kv ∈ run φ, StateOk (stepCount φ) kv.1 kv.2 ∧ SInv kv.2 := by
   have hpos := stepCount_pos φ
   obtain ⟨hl, hs, _, _⟩ := lineP_steps H (stepCount φ - 1).toNat
@@ -257,11 +271,17 @@ theorem run_sInv_noSep {φ : Cnf} (H : HypsNoSep φ) :
   rw [← hrun] at hs
   exact fun kv hkv => ⟨hl kv hkv, hs kv hkv⟩
 
+/-- **El veredicto del lector es la satisfacibilidad bajo las hipótesis de existencia** `SplitSat`, `SideSat` (solo
+en joins separados) y `AvoidSat`. -/
+theorem readerVerdict_iff_of_exist {φ : Cnf} (hbd : Bounded φ) (H : HypsExist φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_final hbd (run_sInv_noSep H)
+
 /-- **El veredicto del lector es la satisfacibilidad bajo `SplitSat`, `SideEdgesAt` y `AvoidSat`** (la separación
 por el origen, demostrada). -/
 theorem readerVerdict_iff_of_noSep {φ : Cnf} (hbd : Bounded φ) (H : HypsNoSep φ) :
     readerVerdict φ = true ↔ Satisfiable φ :=
-  readerVerdict_iff_of_final hbd (run_sInv_noSep H)
+  readerVerdict_iff_of_exist hbd (hypsExist_of_noSep H)
 
 end SecLine
 

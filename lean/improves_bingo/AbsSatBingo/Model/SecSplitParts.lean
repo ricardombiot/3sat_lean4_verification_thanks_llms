@@ -62,6 +62,42 @@ theorem secSplit_of_splitSat {e g : GPathB} {k : Int} (hs : SplitSat (join e g) 
     rw [hj] at hst
     exact Or.inl ⟨V, R, hst, ha, hne⟩
 
+/-- **La versión de existencia de `SidePinned`**: fijada la unión en un nodo del mapa `b` de `k`, una estructura
+cerrada no vacía que concuerda con `P ++ [b]` da **alguna** en un lado (no necesariamente la misma). -/
+def SideSat (u e g : GPathB) (k : Int) : Prop :=
+  ∀ b : NodeId, b.step = k → ∀ (P : List NodeId) (V : PathNodeId → Prop) (R : PathNodeId → PathNodeId → Prop),
+    SecStruct u V R → (∀ c ∈ P ++ [b], SecAgrees V c) → (∃ y, V y) →
+    (∃ (V' : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop),
+        SecStruct e V' R' ∧ (∀ c ∈ P ++ [b], SecAgrees V' c) ∧ ∃ y, V' y) ∨
+    (∃ (V' : PathNodeId → Prop) (R' : PathNodeId → PathNodeId → Prop),
+        SecStruct g V' R' ∧ (∀ c ∈ P ++ [b], SecAgrees V' c) ∧ ∃ y, V' y)
+
+theorem sideSat_of_sidePinned {u e g : GPathB} {k : Int} (hp : SidePinned u e g k) : SideSat u e g k := by
+  intro b hb P V R hst ha ⟨y, hy⟩
+  have hk : Kernel u (P ++ [b]) y y := ⟨V, R, hst, ha, hst.refl hy⟩
+  rcases hp b hb with he | hg
+  · obtain ⟨V', R', h1, h2, h3⟩ := he P y y hk
+    exact Or.inl ⟨V', R', h1, h2, y, (h1.dom h3).1⟩
+  · obtain ⟨V', R', h1, h2, h3⟩ := hg P y y hk
+    exact Or.inr ⟨V', R', h1, h2, y, (h1.dom h3).1⟩
+
+/-- **`SplitSat` + `SideSat` ⟹ `SecSplit`.** -/
+theorem secSplit_of_splitSat_sideSat {e g : GPathB} {k : Int} (hs : SplitSat (join e g) k)
+    (hp : SideSat (join e g) e g k) : SecSplit e g := by
+  intro P V R hst ha hne
+  by_cases hok : okJoin e g = true
+  · have hj : doJoin e g = join e g := by unfold doJoin; rw [if_pos hok]
+    rw [hj] at hst
+    obtain ⟨b, hbk, V', R', h1, h2, h3⟩ := hs P V R hst ha hne
+    have sub : ∀ {W : PathNodeId → Prop}, (∀ c ∈ P ++ [b], SecAgrees W c) → ∀ c ∈ P, SecAgrees W c :=
+      fun h c hc => h c (List.mem_append_left _ hc)
+    rcases hp b hbk P V' R' h1 h2 h3 with ⟨V'', R'', h1', h2', h3'⟩ | ⟨V'', R'', h1', h2', h3'⟩
+    · exact Or.inl ⟨V'', R'', h1', sub h2', h3'⟩
+    · exact Or.inr ⟨V'', R'', h1', sub h2', h3'⟩
+  · have hj : doJoin e g = e := by unfold doJoin; rw [if_neg hok]
+    rw [hj] at hst
+    exact Or.inl ⟨V, R, hst, ha, hne⟩
+
 end GPathB
 
 namespace SecLine
