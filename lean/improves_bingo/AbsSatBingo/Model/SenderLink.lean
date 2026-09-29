@@ -233,6 +233,61 @@ theorem readerVerdict_iff_of_senders (hbd : Bounded φ) (H : HypsSenders φ) :
     let h := run_provT hbd (upProv_C φ) (fun _ hU => joinProvT_senders hbd H hU) sInvC_initSeed kv hkv
     ⟨h.1, h.2.1.1.1.2⟩)
 
+/-- **Las cimas de la llegada de `kv` son hijas de su clave**: nacen como `shiftPid q d` de una cima `q` del
+remitente, que es de `kv.1`. -/
+theorem top_parent_of_arr (hbd : Bounded φ) {n : Nat} {kv : NodeId × GPathB} (hkv : kv ∈ steps φ n (init φ))
+    {d : NodeId} (hd : d ∈ sonsOfMap φ kv.1) (hv : (arr φ kv d).isValid = true) {t : PathNodeId}
+    (ht : t ∈ (arr φ kv d).alive) (hts : t.id.step = (arr φ kv d).current_step - 1) : t.parent_id = some kv.1 := by
+  obtain ⟨hl, hent, _, _, _⟩ := line_facts hbd n
+  have ho := hl kv hkv
+  have hs := shrinks_filterAll kv.2 (reqOf φ d)
+  have hcf : (kv.2.filterAll (reqOf φ d)).current_step = (n : Int) + 1 := hs.1.step.trans ho.step
+  have hdstep : d.step = (kv.2.filterAll (reqOf φ d)).current_step := by
+    rw [hcf, sonsOfMap_step φ kv.1 d hd, ho.key]; omega
+  have hfd := aliveDocs_filterAll ho.docs (reqOf φ d)
+  have hfb := below_of_shrinks hs ho.below
+  have heq := arr_eq hv
+  have hcs : (arr φ kv d).current_step = (kv.2.filterAll (reqOf φ d)).current_step + 1 := by
+    rw [heq]; exact (shrinks_review _).1.step
+  rw [heq] at ht
+  have ha := (shrinks_review _).1.alive t ht
+  rcases alive_addNode_cases (title := "") hfd hfb hdstep ha with ⟨_, h⟩ | ⟨hnew, _⟩
+  · omega
+  · obtain ⟨q, hq, rfl⟩ := parent_of_row (by omega) hnew
+    obtain ⟨m, hm, hmq, hqs⟩ := step_of_newParents (rowParents_sub hq)
+    have htd : TopDocsId (kv.2.filterAll (reqOf φ d)) kv.1 := topDocsId_of_shrinks hs (hent kv hkv).2
+    have := htd m hm (by rw [hmq]; exact hqs)
+    rw [hmq] at this
+    show some q.id = some kv.1
+    rw [this]
+
+/-- **D2, demostrado**: una cima de la llegada de un remitente no vive en la llegada de otro. -/
+theorem d2_of_pair (hbd : Bounded φ) {n : Nat} {kvA kvB : NodeId × GPathB} {d : NodeId}
+    (hp : SenderPair φ n kvA kvB d) : ∀ t, t ∈ (arr φ kvA d).alive →
+      t.id.step = (arr φ kvA d).current_step - 1 → t ∉ (arr φ kvB d).alive := by
+  obtain ⟨hA, hB, hne, hdA, hdB, hvA, hvB⟩ := hp
+  obtain ⟨hl, _, _, _, _⟩ := line_facts hbd n
+  intro t ht hts htB
+  have hcA := (stateOk_upFiltering (hl kvA hA) hdA hvA).step
+  have hcB := (stateOk_upFiltering (hl kvB hB) hdB hvB).step
+  have h1 := top_parent_of_arr hbd hA hdA hvA ht hts
+  have h2 := top_parent_of_arr hbd hB hdB hvB htB (by rw [hts, hcA, hcB])
+  rw [h1] at h2
+  exact hne (Option.some.inj h2)
+
+/-- **Las hipótesis que quedan**: B1 en los joins, y `CrossAt` y `GapDead` sobre pares de remitentes. -/
+structure HypsSenders2 (φ : Cnf) : Prop where
+  b1 : ∀ T key e g, 2 ≤ T → StateOk T key e → StateOk T key g → SInvC e → SInvC g → okJoin e g = true →
+    StarNodes (join e g)
+  cross : ∀ n kvA kvB d, SenderPair φ n kvA kvB d → ∀ t, t ∈ (kvA.2.filterAll (reqOf φ d)).newRowIds d (isProhibited φ) →
+    CrossAt kvA.2 kvB.2 (GroupStar kvA.2 (kvA.2.filterAll (reqOf φ d)) d t)
+  gap : ∀ n kvA kvB d, SenderPair φ n kvA kvB d → GapDead kvA.2 (arr φ kvA d) (arr φ kvB d) (join (arr φ kvA d) (arr φ kvB d))
+
+/-- **El veredicto del lector bajo B1, `CrossAt` y `GapDead`** (D2 demostrado). -/
+theorem readerVerdict_iff_of_senders2 (hbd : Bounded φ) (H : HypsSenders2 φ) :
+    readerVerdict φ = true ↔ Satisfiable φ :=
+  readerVerdict_iff_of_senders hbd ⟨H.b1, H.cross, H.gap, fun n _ _ _ hp => d2_of_pair hbd (n := n) hp⟩
+
 end SecLine
 
 end AbsSatBingo.Model
