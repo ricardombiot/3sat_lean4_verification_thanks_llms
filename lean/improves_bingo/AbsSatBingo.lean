@@ -33,6 +33,7 @@ import AbsSatBingo.Model.SeqExact
 import AbsSatBingo.Model.SeqMachine
 import AbsSatBingo.Model.SeqUp
 import AbsSatBingo.Model.SecExactLine
+import AbsSatBingo.Model.SecSplitParts
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
