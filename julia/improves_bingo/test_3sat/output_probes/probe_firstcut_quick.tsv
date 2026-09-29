@@ -1,0 +1,5 @@
+instance	truth	u_t	u_m_cells	u_m_zero	u_m_one	u_m_one_lost	u_m_shrunk	u_inval	u_nocut	u_cut	u_cuts_n	u_first_pair	u_first_clean	u_first_to_t	u_fc_steps	u_fc_at_c	u_fc_at_c2	u_fc_w	u_fc_w_pinned	u_fc_w_cascade	u_fc_w_instar	r_t	r_m_cells	r_m_zero	r_m_one	r_m_one_lost	r_m_shrunk	r_inval	r_nocut	r_cut	r_cuts_n	r_first_pair	r_first_clean	r_first_to_t	r_fc_steps	r_fc_at_c	r_fc_at_c2	r_fc_w	r_fc_w_pinned	r_fc_w_cascade	r_fc_w_instar	secs
+clause_mix.cnf	true	102	77241	0	42785	1380	1655	0	71	31	913	31	0	0	190	9	14	196	19	177	0	142	52502	0	39911	84	116	0	138	4	58	4	0	0	33	0	2	33	2	31	0	3.1
+rand3sat_v8_c10.cnf	true	242	657934	0	295132	6311	9538	0	157	85	5979	85	0	0	693	30	37	781	60	721	0	188	146761	0	105310	170	218	0	184	4	126	4	0	0	21	0	1	21	1	20	0	7.8
+v5_c20_i1.cnf	true	208	326672	0	278244	778	818	0	185	23	416	23	0	0	246	8	11	252	18	234	0	105	41648	0	37498	24	28	0	104	1	16	1	0	0	9	1	1	9	1	8	0	3.1
+v6_c26_i1.cnf	false	264	530102	0	417632	1118	1204	0	233	31	655	31	0	0	405	22	23	429	40	389	0	127	51588	0	42200	140	146	0	125	2	73	2	0	0	26	2	2	26	2	24	0	5.3
