@@ -73,7 +73,7 @@ module ProbeLib
                     row = f(path, v)
                     println(io, head, "\t", join(row, "\t"))
                 catch e
-                    println(io, head, "\tERROR $(typeof(e))")
+                    println(io, head, "\tERROR $(typeof(e))"); get(ENV, "PROBE_DEBUG", "") == "1" && showerror(stderr, e, catch_backtrace())
                 end
                 flush(io)
             end
