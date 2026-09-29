@@ -103,7 +103,7 @@ Añadí dos puntos de sonda sin coste en `src`: `:up_done` y `:join_pre`/`:join_
 | sonda | qué mide | resultado |
 |---|---|---|
 | `probe_mapexact` | zombis, `EdgeClique`, `MapExact` tras el UP, tras el join, en la línea final y en el lector | 31 instancias, 9 152 estados, 304 688 pins: **0 fallos** |
-| `probe_secsplit` (muestreo) | `SecSplit` en forma de pins | 35 instancias, 500 912 pruebas: **0** (sigue en curso) |
+| `probe_secsplit` (muestreo) | `SecSplit` en forma de pins | 35 instancias (5 UNSAT), 500 912 pruebas: **0** (cortada por el tope de 2 h) |
 | `probe_secsplit` (`SPLIT=1`) | `SecSplit` y `SplitSat` | 36 instancias (2 UNSAT), 254 110: **0 y 0** |
 | `probe_mixed` | estructuras mixtas en la unión fijada | 48 instancias (7 UNSAT), 31 220 estados: **46 % mixtos**, y en todos sobreviven los dos colores; `SplitSat2`: **0 fallos** |
 | `probe_secin` | `SecIn` tras el UP y en la unión; `SecSplitIn`; `SplitIn2` | 42 instancias (4 UNSAT): 22 417 / 10 518 / 10 518 / 10 518, **0 fallos**; los dos colores sobreviven en el 42 % |
