@@ -792,31 +792,77 @@ theorem hnew_of_noTri {L : Line} {Fs : NodeId → FamT}
   obtain ⟨hC, h1, h2, h3, h4, h5, h6⟩ := hoc
   exact hN E hE R hvE _ _ _ ⟨hC.adj p q h1 h2 h3 h4, hC.adj p r h1 h2 h5 h6, hC.adj q r h3 h4 h5 h6⟩ hf
 
+/-- **Con un solo remitente, `NoTriF` pasa sin más**: cada entrada es una sola llegada. -/
+theorem noTri_next_single {L : Line} {T : Int} {Fs : NodeId → FamT} (h : LInv φ T L Fs)
+    (hN : ∀ kv ∈ L, NoTriF kv.2 (Fs kv.1)) (hone : ∀ a ∈ L, ∀ b ∈ L, a.1 = b.1) :
+    ∀ E ∈ advance φ L, NoTriF E.2 (famsNext φ L Fs E.1) := by
+  intro E hE
+  rcases entry_shape Fs (line_cases h.nodup h.keys) h.nodup hE with ⟨kv, hkv, hs, he, hf⟩ | ⟨a, ha, b, hb, hab, _⟩
+  · rw [he, hf]
+    have hd : E.1.step = kv.2.current_step := by
+      rw [sonsOfMap_step φ kv.1 _ hs.1, (h.ok kv hkv).key, (h.ok kv hkv).step]; omega
+    exact noTri_arr (h.good kv hkv) (hN kv hkv) hd
+  · exact absurd (hone a ha b hb) hab
+
+theorem mapNodes_top_eq {k : Int} (hk : fusionTop φ ≤ k) {u v : NodeId} (hu : u ∈ mapNodes φ k)
+    (hv : v ∈ mapNodes φ k) : u = v := by
+  unfold mapNodes at hu hv
+  have hm : ¬ k = midFusion φ := by unfold midFusion; unfold fusionTop at hk; omega
+  have h0 : ¬ k = 0 := by unfold fusionTop at hk; omega
+  have hn : ¬ k < 0 := by unfold fusionTop at hk; omega
+  rw [if_neg hn, if_neg h0, if_neg hm] at hu hv
+  by_cases hs : stepCount φ ≤ k
+  · rw [if_pos hs] at hu; exact absurd hu List.not_mem_nil
+  · rw [if_neg hs, if_pos hk, List.mem_singleton] at hu hv
+    rw [hu, hv]
+
+/-- **Desde la fusión final `HNew` no pide nada**: hay un solo nodo por paso, así que no hay otra entrada. -/
+theorem hnew_top {L : Line} {T : Int} (hT : 1 ≤ T) {Fs : NodeId → FamT} (h : LInv φ T L Fs) (hk : fusionTop φ ≤ T) :
+    HNew φ L Fs := by
+  intro E hE _ kv hkv d₁ hne hs
+  exfalso
+  have hmem₁ := (arr_facts hT h hkv hs).2.2.2.2.2.2
+  rcases entry_shape Fs (line_cases h.nodup h.keys) h.nodup hE with ⟨kv', hkv', hs', _⟩ | ⟨a, ha, _, _, _, hsa, _⟩
+  · exact hne (mapNodes_top_eq hk hmem₁ (arr_facts hT h hkv' hs').2.2.2.2.2.2)
+  · exact hne (mapNodes_top_eq hk hmem₁ (arr_facts hT h ha hsa).2.2.2.2.2.2)
+
 -- ============================================================
--- La máquina entera, con `NoNewClose` solo tras la fusión central
+-- La máquina entera, con `NoNewClose` solo en las líneas de cláusula
 -- ============================================================
 
-/-- **Las hipótesis**: `PinJoinSplitAll` en los joins de la máquina y `NoNewClose` solo en las líneas tras la fusión
-central (las de cláusula y la fusión final). -/
+/-- **Las hipótesis**: `PinJoinSplitAll` en los joins de la máquina y `NoNewClose` solo en las líneas de cláusula con
+dos remitentes (la línea siguiente entre el segundo literal de la primera cláusula y la fusión final). -/
 def HypsLiveLineC (φ : Cnf) : Prop :=
   ∀ n : Nat, HSplit φ (steps φ n (init φ)) ∧
-    (midFusion φ < (n : Int) + 1 → HNew φ (steps φ n (init φ)) (famsAt φ n))
+    (midFusion φ + 1 < (n : Int) + 1 → (n : Int) + 1 < fusionTop φ → HNew φ (steps φ n (init φ)) (famsAt φ n))
 
 theorem lInv_stepsC (hbd : Bounded φ) (H : HypsLiveLineC φ) :
     ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) ∧
-      ((n : Int) ≤ midFusion φ → ∀ kv ∈ steps φ n (init φ), NoTriF kv.2 (famsAt φ n kv.1)) := by
+      ((n : Int) ≤ midFusion φ + 1 → ∀ kv ∈ steps φ n (init φ), NoTriF kv.2 (famsAt φ n kv.1)) := by
   intro n
   induction n with
   | zero =>
     refine ⟨lInv_init φ, fun _ kv _ R _ x y z _ hf => hf⟩
   | succ n ih =>
     obtain ⟨ih, ihN⟩ := ih
-    have hN' : (n : Int) + 1 ≤ midFusion φ →
-        ∀ E ∈ advance φ (steps φ n (init φ)), NoTriF E.2 (famsNext φ (steps φ n (init φ)) (famsAt φ n) E.1) :=
-      fun hn => noTri_next hbd n hn ih (ihN (by omega)) (H n).1
+    have hN' : (n : Int) + 1 ≤ midFusion φ + 1 →
+        ∀ E ∈ advance φ (steps φ n (init φ)), NoTriF E.2 (famsNext φ (steps φ n (init φ)) (famsAt φ n) E.1) := by
+      intro hn
+      by_cases hpre : (n : Int) + 1 ≤ midFusion φ
+      · exact noTri_next hbd n hpre ih (ihN (by omega)) (H n).1
+      · -- la línea de la fusión central: un solo remitente
+        have hk : (n : Int) = midFusion φ := by omega
+        refine noTri_next_single ih (ihN (by omega)) (fun a ha b hb => ?_)
+        have e1 := ih.keys a ha
+        have e2 := ih.keys b hb
+        rw [show (n : Int) + 1 - 1 = midFusion φ by omega, mapNodes_fusion φ _ (Or.inr (Or.inl rfl)),
+          List.mem_singleton] at e1 e2
+        rw [e1, e2]
     have hnew : HNew φ (steps φ n (init φ)) (famsAt φ n) := by
-      by_cases hpost : midFusion φ < (n : Int) + 1
-      · exact (H n).2 hpost
+      by_cases hpost : midFusion φ + 1 < (n : Int) + 1
+      · by_cases htop : (n : Int) + 1 < fusionTop φ
+        · exact (H n).2 hpost htop
+        · exact hnew_top (by omega) ih (by omega)
       · exact hnew_of_noTri (hN' (by omega))
     have hL := lInv_advance (by omega) ih (H n).1 hnew
     rw [steps_succ]
@@ -831,7 +877,8 @@ namespace SecLine
 open GPathB Driver PreClause
 
 /-- **La espina con tríos decide la satisfacibilidad** bajo `PinJoinSplitAll` en los joins de la máquina y
-`NoNewClose` solo tras la fusión central: antes, los tríos prohibidos no tocan ningún triángulo (`NoTriF`). -/
+`NoNewClose` solo en las líneas de cláusula con dos remitentes: antes, los tríos prohibidos no tocan ningún triángulo
+(`NoTriF`), y desde la fusión final no hay otra entrada. -/
 theorem spineVerdict_iff_of_liveLineC {φ : Cnf} (hbd : Bounded φ) (H : HypsLiveLineC φ) :
     SpineVerdict φ ↔ Satisfiable φ := by
   apply spineVerdict_iff_of_liveExt hbd
