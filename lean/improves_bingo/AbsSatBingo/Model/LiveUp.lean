@@ -429,6 +429,134 @@ theorem liveExt_addNode (hext : LiveExt g F) (hdocs : AliveDocs g) (hb : Below g
           (hnot a b ha (by omega) (by omega) (by omega) (by omega))
           (hnot b a (by omega) (by omega) ha (by omega) (by omega))
 
+/-- Un trío con un nodo del paso `T` no está en una relación por debajo de `T`. -/
+theorem not_sym_top {F : Trios} {T : Int} (hB : FBelow F T) {x y t : PathNodeId} (ht : t.id.step = T) :
+    ¬ Sym F x y t := by
+  intro h
+  unfold Sym at h
+  rcases h with h | h | h | h | h | h <;> (obtain ⟨a, b, c⟩ := hB _ _ _ h; omega)
+
+/-- **La fila nueva conserva `LiveExt` con la misma relación**: heredar tríos no hace falta, porque los tríos con un
+nodo nuevo nunca están en `F` (`FBelow`). (Sonda `ABL=noup`: sin herencia del UP, 0 callejones.) -/
+theorem liveExt_addNode_same (hext : LiveExt g F) (hdocs : AliveDocs g) (hb : Below g) (hda : DocsAlive g)
+    (hd : d.step = g.current_step) (hB : FBelow F g.current_step) :
+    LiveExt (g.addNode d title forb) F := by
+  intro C j hC hj1 hjt
+  have e1 : (g.addNode d title forb).current_step - 1 = g.current_step := by
+    show g.current_step + 1 - 1 = _; omega
+  rw [e1] at hjt
+  -- la cima
+  obtain ⟨hts, hta⟩ := hC.chain.node g.current_step hjt (by rw [e1]; omega)
+  have htnew : C g.current_step ∈ g.newRowIds d forb := by
+    rcases alive_addNode_cases hdocs hb hd hta with ⟨_, h⟩ | ⟨h, _⟩
+    · omega
+    · exact h
+  have hnodeT := node?_addNode_new (title := title) hb hd htnew
+  -- los nodos viejos de la cadena
+  have hold : ∀ k, j ≤ k → k < g.current_step → (C k).id.step = k ∧ C k ∈ g.alive := by
+    intro k h1 h2
+    obtain ⟨hs, ha⟩ := hC.chain.node k h1 (by rw [e1]; omega)
+    rcases alive_addNode_cases hdocs hb hd ha with ⟨h, _⟩ | ⟨_, h⟩
+    · exact ⟨hs, h⟩
+    · omega
+  by_cases hjT : j = g.current_step
+  · -- la cadena es solo la cima: se baja a un padre vivo
+    subst hjT
+    obtain ⟨q, hqp, hqa, hqs⟩ := exists_rowParent hda (by omega) htnew
+    classical
+    let C' : Int → PathNodeId := fun k => if k = g.current_step - 1 then q else C k
+    have hC'q : C' (g.current_step - 1) = q := by simp [C']
+    have hC'T : C' g.current_step = C g.current_step := by simp [C']; intro h; exact absurd h (by omega)
+    have hqT : (g.addNode d title forb).Adj (C g.current_step) q :=
+      adj_addNode_row htnew hqa (by rw [hqs, hts]; omega) hqp (adj_refl _ _ hqa)
+    refine ⟨C', ⟨⟨fun k h1 h2 => ?_, fun k l h1 h2 h3 h4 => ?_, fun k h1 h2 => ?_⟩,
+      fun a b c ha hab hbc hc => by rw [e1] at hc; omega⟩, fun k hk => by simp [C']; omega⟩
+    · rw [e1] at h2
+      by_cases hk : k = g.current_step - 1
+      · rw [hk, hC'q]; exact ⟨hqs, List.mem_append_left _ hqa⟩
+      · rw [show k = g.current_step by omega, hC'T]; exact ⟨hts, hta⟩
+    · rw [e1] at h2 h4
+      have hk : k = g.current_step - 1 ∨ k = g.current_step := by omega
+      have hl : l = g.current_step - 1 ∨ l = g.current_step := by omega
+      rcases hk with rfl | rfl <;> rcases hl with hl | hl <;> rw [hl]
+      · rw [hC'q]; exact adj_refl _ _ (List.mem_append_left _ hqa)
+      · rw [hC'q, hC'T]; exact (adj_symm _ _ _).mp hqT
+      · rw [hC'q, hC'T]; exact hqT
+      · rw [hC'T]; exact adj_refl _ _ hta
+    · rw [e1] at h2
+      rw [show k = g.current_step by omega, hC'T, show g.current_step - 1 = g.current_step - 1 from rfl, hC'q]
+      exact ⟨_, hnodeT, hqp⟩
+  · -- debajo de la cima, la cadena es una cadena viva del remitente
+    have hjlt : j < g.current_step := by omega
+    obtain ⟨n, hn, hpn⟩ := hC.chain.link g.current_step hjlt (by rw [e1]; omega)
+    rw [hnodeT] at hn
+    cases hn
+    have hpar : C (g.current_step - 1) ∈ g.rowParents d (C g.current_step) := hpn
+    have hCg : LiveChain g F C j := by
+      refine ⟨⟨fun k h1 h2 => hold k h1 (by omega), fun k l h1 h2 h3 h4 => ?_, fun k h1 h2 => ?_⟩,
+        fun a b c ha hab hbc hc hs => ?_⟩
+      · exact adj_addNode_old hd (by rw [(hold k h1 (by omega)).1]; omega) (by rw [(hold l h3 (by omega)).1]; omega)
+          (hC.chain.adj k l h1 (by rw [e1]; omega) h3 (by rw [e1]; omega))
+      · obtain ⟨m, hm, hpm⟩ := hC.chain.link k h1 (by rw [e1]; omega)
+        rw [node?_addNode_old hd (by rw [(hold k (by omega) (by omega)).1]; omega)] at hm
+        cases hgk : g.node? (C k) with
+        | none => rw [hgk] at hm; cases hm
+        | some m' =>
+          rw [hgk] at hm; cases hm
+          exact ⟨m', rfl, hpm⟩
+      · exact hC.live a b c ha hab hbc (by rw [e1]; omega) hs
+    obtain ⟨D, hD, hag⟩ := hext C j hCg hj1 (by omega)
+    classical
+    let C' : Int → PathNodeId := fun k => if j ≤ k then C k else D k
+    have hC'old : ∀ k, j - 1 ≤ k → k < g.current_step → C' k = D k := by
+      intro k h1 h2
+      by_cases hk : j ≤ k
+      · simp [C', hk]; exact (hag k hk).symm
+      · simp [C', hk]
+    have hC'T : C' g.current_step = C g.current_step := by simp [C']; omega
+    have hDn : ∀ k, j - 1 ≤ k → k < g.current_step → (D k).id.step = k ∧ D k ∈ g.alive :=
+      fun k h1 h2 => hD.chain.node k h1 (by omega)
+    have hDadj : ∀ k l, j - 1 ≤ k → k < g.current_step → j - 1 ≤ l → l < g.current_step → g.Adj (D k) (D l) :=
+      fun k l h1 h2 h3 h4 => hD.chain.adj k l h1 (by omega) h3 (by omega)
+    have hpD : D (g.current_step - 1) = C (g.current_step - 1) := hag _ (by omega)
+    -- el nodo nuevo es vecino de todo lo viejo de la cadena, a través de su padre
+    have htD : ∀ l, j - 1 ≤ l → l < g.current_step → (g.addNode d title forb).Adj (C g.current_step) (D l) := by
+      intro l h1 h2
+      refine adj_addNode_row htnew (hDn l h1 h2).2 (by rw [(hDn l h1 h2).1, hts]; exact h2) hpar ?_
+      rw [← hpD]; exact hDadj _ _ (by omega) (by omega) h1 h2
+    refine ⟨C', ⟨⟨fun k h1 h2 => ?_, fun k l h1 h2 h3 h4 => ?_, fun k h1 h2 => ?_⟩,
+      fun a b c ha hab hbc hc => ?_⟩, fun k hk => by simp [C', hk]⟩
+    · rw [e1] at h2
+      by_cases hk : k < g.current_step
+      · rw [hC'old k h1 hk]; exact ⟨(hDn k h1 hk).1, List.mem_append_left _ (hDn k h1 hk).2⟩
+      · rw [show k = g.current_step by omega, hC'T]; exact ⟨hts, hta⟩
+    · rw [e1] at h2 h4
+      by_cases hk : k < g.current_step <;> by_cases hl : l < g.current_step
+      · rw [hC'old k h1 hk, hC'old l h3 hl]; exact adj_addNode_mono (hDadj k l h1 hk h3 hl)
+      · rw [hC'old k h1 hk, show l = g.current_step by omega, hC'T]
+        exact (adj_symm _ _ _).mp (htD k h1 hk)
+      · rw [hC'old l h3 hl, show k = g.current_step by omega, hC'T]; exact htD l h3 hl
+      · rw [show k = g.current_step by omega, show l = g.current_step by omega, hC'T]; exact adj_refl _ _ hta
+    · rw [e1] at h2
+      by_cases hk : k < g.current_step
+      · rw [hC'old k (by omega) hk, hC'old (k - 1) (by omega) (by omega)]
+        obtain ⟨m, hm, hpm⟩ := hD.chain.link k h1 (by omega)
+        refine ⟨g.withGained d forb m, ?_, hpm⟩
+        rw [node?_addNode_old hd (by rw [(hDn k (by omega) hk).1]; exact hk), hm]; rfl
+      · rw [show k = g.current_step by omega, hC'T, hC'old _ (by omega) (by omega), hpD]
+        exact ⟨_, hnodeT, hpar⟩
+    · rw [e1] at hc
+      by_cases hcT : c < g.current_step
+      · rw [hC'old a ha (by omega), hC'old b (by omega) (by omega), hC'old c (by omega) hcT]
+        intro hs
+        exact hD.live a b c ha hab hbc (by omega)
+          hs
+      · rw [show c = g.current_step by omega, hC'T, hC'old a ha (by omega), hC'old b (by omega) (by omega)]
+        have hxs := (hDn a ha (by omega)).1
+        have hys := (hDn b (by omega) (by omega)).1
+        -- el padre p = D (cima - 1): el trío (p, x, y) no está prohibido en el remitente
+        exact not_sym_top hB hts
+
 /-- **El UP sin el filtro conserva `LiveExt`**: la fila nueva y la revisión, con los tríos heredados (`upF`). -/
 theorem liveExt_up (hext : LiveExt g F) (hv : g.isValid = true) (hdocs : AliveDocs g) (hb : Below g)
     (hda : DocsAlive g) (hli : LinksInv g) (hz : AboveZero g) (hnd : NodupIds g) (hr : RootNone g)
