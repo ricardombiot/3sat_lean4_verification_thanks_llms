@@ -7,6 +7,9 @@
 # las uniones (:join_post), solo tras la fusión central.
 #   arr_tri, arr_cl, arr_nocl, arr_forb (triángulos prohibidos), arr_forb_cl (prohibidos y en camarilla)
 #   join_tri, join_cl, join_nocl, join_forb, join_forb_cl, unk (presupuesto agotado)
+#   PINS=k (TriClq, CliqueSound.lean): además, en cada estado, k listas de pins al azar (1-3 nodos de mapa por debajo de
+#   la cima); se juzga el estado fijado (pin = filter! con revisión) con prefijo parr_/pjoin_. Lanzar siempre con
+#   run_capped.sh.
 
 const OUT = abspath(ARGS[1])
 const MAXT = parse(Int, get(ENV, "MAXT", "200"))
@@ -19,6 +22,16 @@ const PG = PathOwnersGraph
 const C = Dict{Symbol, Int}()
 bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
 const MACH = Ref{Any}(nothing)
+const PINS = parse(Int, get(ENV, "PINS", "0"))
+
+function random_pins(g, n, rng)
+    top = Int(g.current_step) - 1
+    steps = [s for s in 1:top-1 if length(unique(x.id for x in alive_at(g, s))) >= 2]
+    isempty(steps) && return NodeId[]
+    [begin ids = unique(x.id for x in alive_at(g, s)); ids[rand(rng, 1:length(ids))] end
+     for s in shuffle(rng, steps)[1:min(n, length(steps))]]
+end
+pin(g, R) = (h = deepcopy(g); h.review_owners = true; GraphPath.filter!(h, SetNodesId(R)); h)
 
 alive_at(g, l) = collect(get(g.og.alive, l, SetPathNodesId()))
 
@@ -52,6 +65,18 @@ function judge(g, pre, rng)
     g.is_valid || return
     g.map_parent_id === nothing && return
     startswith(SatMachine.map_get_node(MACH[].gmap, g.map_parent_id).title, "or") || return
+    judge_state(g, pre, rng)
+    for _ in 1:PINS
+        R = random_pins(g, rand(rng, 1:3), rng)
+        isempty(R) && continue
+        h = pin(g, R)
+        h.is_valid || continue
+        bump(Symbol("p", pre, "_runs"))
+        judge_state(h, "p" * pre, rng)
+    end
+end
+
+function judge_state(g, pre, rng)
     xs = [x for (_, s) in g.og.alive for x in s]
     length(xs) < 3 && return
     n = 0
@@ -79,7 +104,8 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:arr_tri, :arr_cl, :arr_nocl, :arr_forb, :arr_forb_cl, :join_tri, :join_cl, :join_nocl, :join_forb,
-            :join_forb_cl, :unk)
+            :join_forb_cl, :parr_runs, :parr_tri, :parr_cl, :parr_nocl, :parr_forb, :parr_forb_cl, :pjoin_runs,
+            :pjoin_tri, :pjoin_cl, :pjoin_nocl, :pjoin_forb, :pjoin_forb_cl, :unk)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
