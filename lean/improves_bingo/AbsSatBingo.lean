@@ -65,6 +65,7 @@ import AbsSatBingo.Model.SpineVerdict
 import AbsSatBingo.Model.ChainSide
 import AbsSatBingo.Model.LineCtxL
 import AbsSatBingo.Model.ChainLine
+import AbsSatBingo.Model.ClosedLimit
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
