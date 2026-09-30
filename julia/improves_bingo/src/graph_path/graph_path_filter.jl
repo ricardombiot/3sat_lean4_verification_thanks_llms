@@ -22,6 +22,8 @@ function make_review_owners!(gpath :: GPath)
         if PAIR_MODE[] == :on
             pair_consistency_after_clean!(gpath)
         end
+        # tríos prohibidos (graph_path_forbid.jl), con FORBID = :on
+        PathOwnersGraph.forbid_on() && forbid_rule!(gpath)
         LINK_MODE[] == :on && prune_stale_links!(gpath)
 
         review_owners_coherence_with_its_parents_sons!(gpath)

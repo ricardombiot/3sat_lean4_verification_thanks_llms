@@ -24,6 +24,17 @@ module PathOwnersGraph
     const EMPTY_TAGS = Mask[]        # compartida por todas las aristas con ROW_TAGS = :off; nunca se modifica
     key_bit(k :: NodeId) :: Mask = (@assert 0 <= k.index < 8 "clave con índice $(k.index) ≥ 8"; Mask(1) << k.index)
 
+    # ---------- tríos prohibidos (30-sept-2026, rama reader-stuck; informe v213) ----------
+    # r ∈ forbid(a,b) ⟺ ninguna solución pasa por a, b y r a la vez: una «cláusula prohibida» de tres nodos. Se guarda
+    # en las tres aristas del trío (simétrico). TRIO_RULE detecta tríos muertos pero no los recuerda; esto sí. Se
+    # alimenta en el UP (up_forbid!), en el join (union!) y en el review (forbid_rule!, graph_path_forbid.jl).
+    # Los ids de nodos muertos se quedan en los Sets: solo se consulta un trío con los tres vivos y vecinos.
+    #
+    # FORBID: :off (por defecto; no se guarda nada) | :on. Variable de entorno FORBID.
+    const FORBID = Ref(Symbol(get(ENV, "FORBID", "off")))
+    forbid_on() = FORBID[] == :on
+    const NO_FORBID = SetPathNodesId()   # compartida por las aristas sin tríos prohibidos; nunca se modifica
+
     # ---------- arista ----------
     # Una compatibilidad (a, b), a ≺ b. Mutable: aquí irán los datos propios de cada arista
     # (contadores de apoyo, marcas de las reglas nuevas…).
@@ -32,8 +43,10 @@ module PathOwnersGraph
         b :: PathNodeId
         born :: Step                  # paso en que se creó (para medir)
         tags :: Tags                  # máscara de claves por fila (vacía con ROW_TAGS = :off)
+        forbid :: SetPathNodesId      # r con el trío (a, b, r) prohibido (vacía con FORBID = :off)
     end
-    Edge(a, b, born) = Edge(a, b, born, EMPTY_TAGS)
+    Edge(a, b, born) = Edge(a, b, born, EMPTY_TAGS, NO_FORBID)
+    Edge(a, b, born, tags) = Edge(a, b, born, tags, NO_FORBID)
 
     const EdgeKey = Tuple{PathNodeId, PathNodeId}
 
@@ -263,6 +276,7 @@ module PathOwnersGraph
     # Si la arista está en los dos, se queda la de ga (aquí se decidirá cómo mezclar sus datos).
     # Etiquetas: fila a fila, OR (los dos llegan al mismo destino, con las mismas filas marcadas).
     function union!(ga :: OwnersGraph, gb :: OwnersGraph)
+        F = forbid_on() ? join_forbid(ga, gb) : nothing
         tags_on() && @assert ga.krows == gb.krows "join con filas de claves distintas: $(ga.krows) ≠ $(gb.krows)"
         for (step, ids) in gb.alive, x in ids
             if !is_alive(ga, x)
@@ -275,6 +289,82 @@ module PathOwnersGraph
             tags_on() ? add_edge!(ga, e.a, e.b, e.tags) : add_edge!(ga, e.a, e.b)
         end
         ga.nsteps = max(ga.nsteps, gb.nsteps)
+        F === nothing || set_forbid!(ga, F)
+    end
+
+    # ---------- tríos prohibidos: consultas, UP y join ----------
+    # ¿Está prohibido el trío (a, b, r)? Solo con los tres distintos y vecinos dos a dos.
+    dead_trio(g :: OwnersGraph, a, b, r) :: Bool = r in g.edges[edge_key(a, b)].forbid
+
+    # Prohíbe el trío en sus tres aristas. false si ya lo estaba.
+    function forbid!(g :: OwnersGraph, a :: PathNodeId, b :: PathNodeId, r :: PathNodeId) :: Bool
+        dead_trio(g, a, b, r) && return false
+        for (x, w, z) in ((a, b, r), (a, r, b), (b, r, a))
+            e = g.edges[edge_key(x, w)]
+            e.forbid === NO_FORBID && (e.forbid = SetPathNodesId())
+            push!(e.forbid, z)
+            Undo.active() && Undo.record!(() -> delete!(e.forbid, z))
+        end
+        return true
+    end
+
+    # En el grafo g, ¿no hay solución por a, b y r? (falta una de las tres aristas, o el trío está prohibido).
+    # Con a == b, o r igual a uno de los dos, es la pareja: basta la arista.
+    function side_forbids(g :: OwnersGraph, a, b, r) :: Bool
+        (has_edge(g, a, b) && has_edge(g, a, r) && has_edge(g, b, r)) || return true
+        (a == b || r == a || r == b) && return false
+        return dead_trio(g, a, b, r)
+    end
+
+    # UP (tras create_from_parents!): toda solución por n pasa por un padre de n, así que (n, w, r) es imposible si
+    # (p, w, r) lo es para todo padre p. Con un solo padre, n hereda sus tríos prohibidos; con dos, los comunes.
+    # w o r puede ser un padre p: side_forbids(p, p, r) es «falta p–r», y el otro padre no comparte paso con p.
+    function up_forbid!(g :: OwnersGraph, n :: PathNodeId, parents)
+        forbid_on() || return
+        nb = [w for w in neighbors_all(g, n) if w != n]
+        todo = Tuple{PathNodeId, PathNodeId}[]
+        #! [for] $ O(N*N*2) $
+        for i in eachindex(nb), j in i+1:length(nb)
+            w, r = nb[i], nb[j]
+            has_edge(g, w, r) || continue
+            all(p -> side_forbids(g, p, w, r), parents) && push!(todo, (w, r))
+        end
+        for (w, r) in todo
+            forbid!(g, n, w, r)
+        end
+    end
+
+    # join: toda solución de la unión está en uno de los lados; (a, b, r) es imposible en la unión si lo es en los
+    # dos. Se calcula con los dos lados antes de unir. Un trío que mezcla ramas (sus tres aristas no están en ningún
+    # lado) queda prohibido aquí.
+    function join_forbid(ga :: OwnersGraph, gb :: OwnersGraph) :: Dict{EdgeKey, SetPathNodesId}
+        F = Dict{EdgeKey, SetPathNodesId}()
+        for g in (ga, gb), k in keys(g.edges)
+            haskey(F, k) && continue
+            (a, b) = k
+            f = SetPathNodesId()
+            for h in (ga, gb)
+                is_alive(h, a) || continue
+                for r in neighbors_all(h, a)
+                    (r == a || r == b || r in f) && continue
+                    (has_edge(ga, b, r) || has_edge(gb, b, r)) || continue
+                    side_forbids(ga, a, b, r) && side_forbids(gb, a, b, r) && push!(f, r)
+                end
+            end
+            F[k] = f
+        end
+        return F
+    end
+
+    function set_forbid!(g :: OwnersGraph, F :: Dict{EdgeKey, SetPathNodesId})
+        for e in values(g.edges)
+            old = e.forbid
+            e.forbid = NO_FORBID
+            Undo.active() && Undo.record!(() -> (e.forbid = old))
+        end
+        for (k, rs) in F, r in rs
+            forbid!(g, k[1], k[2], r)
+        end
     end
 
     # ---------- copia ----------
@@ -283,7 +373,9 @@ module PathOwnersGraph
     # Los Dict se copian enteros (sin volver a hashear) y luego se sustituyen sus valores en su sitio con map!.
     function copy_graph(g :: OwnersGraph) :: OwnersGraph
         alive = copy(g.alive);  map!(copy, values(alive))
-        edges = copy(g.edges);  map!(e -> Edge(e.a, e.b, e.born, tags_on() ? copy(e.tags) : EMPTY_TAGS), values(edges))
+        edges = copy(g.edges)
+        map!(e -> Edge(e.a, e.b, e.born, tags_on() ? copy(e.tags) : EMPTY_TAGS,
+                       e.forbid === NO_FORBID ? NO_FORBID : copy(e.forbid)), values(edges))
         inc = copy(g.inc)
         map!(values(inc)) do r
             r2 = copy(r); map!(copy, values(r2)); r2
@@ -319,6 +411,13 @@ module PathOwnersGraph
         end
         for (_, ids) in g.alive, x in ids
             is_alive(g, x) || return "en alive sin incidencia: $x"
+        end
+        if forbid_on()
+            for (k, e) in g.edges, r in e.forbid
+                (is_alive(g, r) && has_edge(g, e.a, r) && has_edge(g, e.b, r)) || continue
+                e.a in g.edges[edge_key(e.b, r)].forbid || return "trío prohibido no simétrico: $k, $r"
+                e.b in g.edges[edge_key(e.a, r)].forbid || return "trío prohibido no simétrico: $k, $r"
+            end
         end
         if tags_on()
             for (k, e) in g.edges

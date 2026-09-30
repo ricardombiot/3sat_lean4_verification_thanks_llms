@@ -91,6 +91,7 @@ function create_node_from_parents!(gpath :: GPath, path_id_node :: PathNodeId,
     PathCollectionLines.push_node!(gpath.table_lines, node)
     #! [for] $ O(7*S*7*7) $
     PathOwnersGraph.create_from_parents!(gpath.og, node.id, ids_parents)
+    PathOwnersGraph.up_forbid!(gpath.og, node.id, ids_parents)
 
     #! [for] $ O(7) $
     for id_parent in ids_parents

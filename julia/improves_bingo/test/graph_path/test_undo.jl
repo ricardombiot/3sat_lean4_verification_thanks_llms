@@ -4,7 +4,7 @@
 
 function undo_fingerprint(g :: GPath)
     og = g.og
-    edges = Dict(k => (e.a, e.b, e.born, copy(e.tags)) for (k, e) in og.edges)
+    edges = Dict(k => (e.a, e.b, e.born, copy(e.tags), copy(e.forbid)) for (k, e) in og.edges)
     inc = Dict(x => Dict(s => copy(ws) for (s, ws) in r) for (x, r) in og.inc)
     lines = Dict(s => (l.step, l.count, l.is_valid, copy(l.node_ids),
                        Dict(id => (n.id, n.title, copy(n.parents), copy(n.sons)) for (id, n) in l.table))
@@ -63,4 +63,14 @@ end
         println("undo ($mode): $tot envíos, $val válidos, deshacer exacto en todos")
     end
     PathOwnersGraph.ROW_TAGS[] = :off
+    # tríos prohibidos (FORBID): el UP los hereda y el review los descubre; deshacer también los quita
+    PathOwnersGraph.FORBID[] = :on
+    tot = 0
+    for p in files[1:min(end, 6)]
+        bad, sends, _ = undo_check_instance(p)
+        @test bad == 0
+        tot += sends
+    end
+    println("undo (forbid): $tot envíos, deshacer exacto en todos")
+    PathOwnersGraph.FORBID[] = :off
 end
