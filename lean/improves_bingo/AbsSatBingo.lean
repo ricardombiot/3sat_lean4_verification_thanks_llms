@@ -74,6 +74,7 @@ import AbsSatBingo.Model.LivePin
 import AbsSatBingo.Model.LiveJoin
 import AbsSatBingo.Model.LiveLine
 import AbsSatBingo.Model.LiveDriver
+import AbsSatBingo.Model.PreClause
 import AbsSatBingo.Model.ReaderTop
 import AbsSatBingo.Model.ReviewClean
 import AbsSatBingo.Model.RowAgree
