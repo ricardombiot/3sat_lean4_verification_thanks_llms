@@ -11,6 +11,15 @@ propio remitente). Allí una selección válida es exactamente la rama de una as
 `pid_of_validSel`), y un nodo solo depende de las variables de su ventana (`pid_agree`, `vars_of_pid_eq`). Con eso,
 **parcheo** (`patch`): asignaciones que concuerdan dos a dos en las variables que cada una fija se juntan en una sola.
 Es Helly para asignaciones parciales, y es lo que hace que tres nodos compatibles dos a dos estén en una misma rama.
+
+* `EdgeClique` en toda la línea antes de las cláusulas (`pre_line`): el filtro no toca nada y no hay ventanas
+  saltadas.
+* **`triSplit`**: un triángulo de la unión de dos llegadas fijadas es triángulo de una de ellas (parcheo de sus nodos
+  y sus pins; la rama parcheada la lleva el remitente de su clave, `steps_has_sel`).
+* **`NoTriF`**: la familia fantasma no prohíbe ningún triángulo del estado fijado; pasa la llegada y la unión
+  (`noTri_next`), así que antes de las cláusulas `HNew` se cumple sin más (`hnew_of_noTri`).
+* **`spineVerdict_iff_of_liveLineC`**: el veredicto de la espina bajo `PinJoinSplitAll` y `NoNewClose` solo tras la
+  fusión central.
 -/
 
 namespace AbsSatBingo.Model
@@ -681,6 +690,154 @@ theorem triSplit (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 ≤ midFusion 
   · exact Or.inl (by rw [← h]; exact hcarP)
   · exact Or.inr (by rw [← h]; exact hcarP)
 
+-- ============================================================
+-- La familia no prohíbe ningún triángulo antes de las cláusulas
+-- ============================================================
+
+/-- **`NoTriF`**: la familia no prohíbe ningún triángulo del estado fijado. -/
+def NoTriF (g : GPathB) (F : FamT) : Prop :=
+  ∀ R, (pinF g R).isValid = true → ∀ x y z, Tri (pinF g R) x y z → ¬ F R x y z
+
+variable {d : NodeId} {title : String} {forb : PathNodeId → Bool}
+
+/-- **La llegada conserva `NoTriF`**: un trío prohibido está por debajo de la cima, donde las aristas son las del
+remitente fijado. -/
+theorem noTri_arr {D : GPathB} {F : FamT} {reqs : List NodeId} (hD : Good D F) (hN : NoTriF D F)
+    (hd : d.step = D.current_step) : NoTriF ((D.filterAll reqs).up d title forb) (fun R => F (reqs ++ R)) := by
+  intro R hvA x y z hT hf
+  obtain ⟨hvX, halive, hadj⟩ := arrival_pin_commute (title := title) (forb := forb) hD.inv
+    (by have := hD.pos; omega) hd hvA
+  obtain ⟨sx, sy, sz⟩ := hD.below _ x y z hf
+  have hcsX : (pinF D (reqs ++ R)).current_step = D.current_step := step_pinF _ _
+  have hiA := sInvB_pinF (sInvB_up (sInvB_filterAll hD.inv reqs) (d := d) (title := title) (forb := forb)
+    (by rw [(shrinks_filterAll D reqs).1.step]; exact hd) (by have := hD.pos; omega)) R
+  have hsub := sub_upR (pinF D (reqs ++ R)) d title forb
+  have hdX : d.step = (pinF D (reqs ++ R)).current_step := by rw [hcsX]; exact hd
+  have hold : ∀ u v, u.id.step < D.current_step → v.id.step < D.current_step →
+      (pinF ((D.filterAll reqs).up d title forb) R).Adj u v → (pinF D (reqs ++ R)).Adj u v := by
+    intro u v hu hv ha
+    have ha' := (hadj u v (hiA.edges _ _ ha).1 (hiA.edges _ _ ha).2).mp ha
+    exact adj_addNode_old hdX (by rw [hcsX]; exact hu) (by rw [hcsX]; exact hv) (hsub.adj _ _ ha')
+  obtain ⟨a, b, c⟩ := hT
+  exact hN (reqs ++ R) hvX x y z ⟨hold _ _ sx sy a, hold _ _ sx sz b, hold _ _ sy sz c⟩ hf
+
+theorem tri_same {U V : GPathB} (hs : SameGraph U V) (hea : EdgesAlive U) {x y z : PathNodeId} (h : Tri U x y z) :
+    Tri V x y z := by
+  obtain ⟨a, b, c⟩ := h
+  exact ⟨(hs.2 _ _ (hea _ _ a).1 (hea _ _ a).2).mp a, (hs.2 _ _ (hea _ _ b).1 (hea _ _ b).2).mp b,
+    (hs.2 _ _ (hea _ _ c).1 (hea _ _ c).2).mp c⟩
+
+/-- **La unión conserva `NoTriF`** si sus triángulos fijados caen en un lado. -/
+theorem noTri_join {A B : GPathB} {FA FB : FamT} (hNA : NoTriF A FA) (hNB : NoTriF B FB) (hiU : SInvB (join A B))
+    (hsplit : PinJoinSplitAll A B)
+    (htri : ∀ R, (pinF A R).isValid = true → (pinF B R).isValid = true → ∀ x y z,
+      Tri (join (pinF A R) (pinF B R)) x y z → Tri (pinF A R) x y z ∨ Tri (pinF B R) x y z) :
+    NoTriF (join A B) (joinFam A B FA FB) := by
+  intro R hv x y z hT hf
+  obtain ⟨hsame, hone⟩ := hsplit R hv
+  have hT' := tri_same hsame (sInvB_pinF hiU R).edges hT
+  unfold pinJoin at hT'
+  unfold joinFam at hf
+  by_cases hvA : (pinF A R).isValid = true <;> by_cases hvB : (pinF B R).isValid = true
+  · simp only [hvA, hvB, if_true] at hT' hf
+    obtain ⟨_, _, _, _, _, _, sA, sB⟩ := hf
+    rcases htri R hvA hvB x y z hT' with h | h
+    · rcases sA with hn | hF
+      · exact hn h
+      · exact hNA R hvA x y z h hF
+    · rcases sB with hn | hF
+      · exact hn h
+      · exact hNB R hvB x y z h hF
+  · simp only [hvA, hvB, if_true] at hT' hf
+    exact hNA R hvA x y z hT' hf
+  · simp only [hvA, hvB, if_true] at hT' hf
+    exact hNB R hvB x y z hT' hf
+  · exact absurd hone (by simp [hvA, hvB])
+
+/-- **`NoTriF` pasa a la línea siguiente** antes de las cláusulas. -/
+theorem noTri_next (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 ≤ midFusion φ) {Fs : NodeId → FamT}
+    (h : LInv φ ((n : Int) + 1) (steps φ n (init φ)) Fs) (hN : ∀ kv ∈ steps φ n (init φ), NoTriF kv.2 (Fs kv.1))
+    (hsplit : HSplit φ (steps φ n (init φ))) :
+    ∀ E ∈ advance φ (steps φ n (init φ)), NoTriF E.2 (famsNext φ (steps φ n (init φ)) Fs E.1) := by
+  have hlen := line_cases h.nodup h.keys
+  intro E hE
+  have harr : ∀ kv ∈ steps φ n (init φ), ∀ d, Sends φ kv d → NoTriF (arrOf φ kv d) (shiftF φ Fs kv d) := by
+    intro kv hkv d hs
+    have hd : d.step = kv.2.current_step := by
+      rw [sonsOfMap_step φ kv.1 d hs.1, (h.ok kv hkv).key, (h.ok kv hkv).step]; omega
+    exact noTri_arr (h.good kv hkv) (hN kv hkv) hd
+  rcases entry_shape Fs hlen h.nodup hE with ⟨kv, hkv, hs, he, hf⟩ | ⟨a, ha, b, hb, hab, hsa, hsb, he, hf⟩
+  · rw [he, hf]; exact harr kv hkv _ hs
+  · have oka := h.ok a ha
+    have okb := h.ok b hb
+    rw [he, doJoin_arr oka okb hsa hsb, hf]
+    have hda : E.1.step = a.2.current_step := by
+      rw [sonsOfMap_step φ a.1 _ hsa.1, oka.key, oka.step]; omega
+    have hdb : E.1.step = b.2.current_step := by
+      rw [sonsOfMap_step φ b.1 _ hsb.1, okb.key, okb.step]; omega
+    have hiA : SInvB (arrOf φ a E.1) := sInvB_up (sInvB_filterAll (h.good a ha).inv _)
+      (by rw [(shrinks_filterAll a.2 _).1.step]; exact hda) (by rw [hda, oka.step]; omega)
+    have hiB : SInvB (arrOf φ b E.1) := sInvB_up (sInvB_filterAll (h.good b hb).inv _)
+      (by rw [(shrinks_filterAll b.2 _).1.step]; exact hdb) (by rw [hdb, okb.step]; omega)
+    have hcs : (arrOf φ a E.1).current_step = (arrOf φ b E.1).current_step :=
+      (stateOk_arr oka hsa).step.trans (stateOk_arr okb hsb).step.symm
+    exact noTri_join (harr a ha _ hsa) (harr b hb _ hsb) (sInvB_join hiA hiB hcs) (hsplit a ha b hb hab _ hsa hsb)
+      (fun R hvA hvB x y z hT => triSplit hbd n hn ha hb hab (h.good a ha).inv (h.good b hb).inv hsa hsb hvA hvB hT)
+
+/-- **Con `NoTriF` en la línea siguiente, `HNew` se cumple sin más**: un trío de una cadena es un triángulo. -/
+theorem hnew_of_noTri {L : Line} {Fs : NodeId → FamT}
+    (hN : ∀ E ∈ advance φ L, NoTriF E.2 (famsNext φ L Fs E.1)) : HNew φ L Fs := by
+  intro E hE _ kv _ d₁ _ _ R hvE C j p q r hoc hf _
+  exfalso
+  obtain ⟨hC, h1, h2, h3, h4, h5, h6⟩ := hoc
+  exact hN E hE R hvE _ _ _ ⟨hC.adj p q h1 h2 h3 h4, hC.adj p r h1 h2 h5 h6, hC.adj q r h3 h4 h5 h6⟩ hf
+
+-- ============================================================
+-- La máquina entera, con `NoNewClose` solo tras la fusión central
+-- ============================================================
+
+/-- **Las hipótesis**: `PinJoinSplitAll` en los joins de la máquina y `NoNewClose` solo en las líneas tras la fusión
+central (las de cláusula y la fusión final). -/
+def HypsLiveLineC (φ : Cnf) : Prop :=
+  ∀ n : Nat, HSplit φ (steps φ n (init φ)) ∧
+    (midFusion φ < (n : Int) + 1 → HNew φ (steps φ n (init φ)) (famsAt φ n))
+
+theorem lInv_stepsC (hbd : Bounded φ) (H : HypsLiveLineC φ) :
+    ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) ∧
+      ((n : Int) ≤ midFusion φ → ∀ kv ∈ steps φ n (init φ), NoTriF kv.2 (famsAt φ n kv.1)) := by
+  intro n
+  induction n with
+  | zero =>
+    refine ⟨lInv_init φ, fun _ kv _ R _ x y z _ hf => hf⟩
+  | succ n ih =>
+    obtain ⟨ih, ihN⟩ := ih
+    have hN' : (n : Int) + 1 ≤ midFusion φ →
+        ∀ E ∈ advance φ (steps φ n (init φ)), NoTriF E.2 (famsNext φ (steps φ n (init φ)) (famsAt φ n) E.1) :=
+      fun hn => noTri_next hbd n hn ih (ihN (by omega)) (H n).1
+    have hnew : HNew φ (steps φ n (init φ)) (famsAt φ n) := by
+      by_cases hpost : midFusion φ < (n : Int) + 1
+      · exact (H n).2 hpost
+      · exact hnew_of_noTri (hN' (by omega))
+    have hL := lInv_advance (by omega) ih (H n).1 hnew
+    rw [steps_succ]
+    refine ⟨?_, fun hn kv hkv => hN' (by push_cast at hn; omega) kv hkv⟩
+    rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+    exact hL
+
 end PreClause
+
+namespace SecLine
+
+open GPathB Driver PreClause
+
+/-- **La espina con tríos decide la satisfacibilidad** bajo `PinJoinSplitAll` en los joins de la máquina y
+`NoNewClose` solo tras la fusión central: antes, los tríos prohibidos no tocan ningún triángulo (`NoTriF`). -/
+theorem spineVerdict_iff_of_liveLineC {φ : Cnf} (hbd : Bounded φ) (H : HypsLiveLineC φ) :
+    SpineVerdict φ ↔ Satisfiable φ := by
+  apply spineVerdict_iff_of_liveExt hbd
+  intro kv hkv hval
+  exact ⟨_, ((lInv_stepsC hbd H (stepCount φ - 1).toNat).1.good kv hkv).live [] hval⟩
+
+end SecLine
 
 end AbsSatBingo.Model
