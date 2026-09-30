@@ -591,6 +591,87 @@ theorem cc_line {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₀ rq₁ : List Node
     exact hto D₁ F₁ hD₁ hm₁ hd₁' hcs.symm hvB c1
   · exact absurd hone (by simp [hvA, hvB])
 
+/-- **`cc_line` con un origen cualquiera** `S` (una unión de llegadas o una sola llegada): basta que sea `Good`, que sus
+nodos del paso de la cima tengan id `d₀` y `NoNewClose`. El destino es la unión de las dos llegadas a `d₁`. -/
+theorem cc_gen {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₁ : List NodeId} {d₀ d₁ : NodeId} {t₁ : String}
+    {f₁ : PathNodeId → Bool} (hD₀ : Good D₀ F₀) (hD₁ : Good D₁ F₁) (hm₀ : FamMono D₀ F₀) (hm₁ : FamMono D₁ F₁)
+    (hcs : D₀.current_step = D₁.current_step) (hd₀ : d₀.step = D₀.current_step) (hd₁ : d₁.step = D₀.current_step)
+    (hdd : d₀ ≠ d₁)
+    {S : GPathB} {GS : FamT} (hE₀ : Good S GS) (hScs : S.current_step ≤ D₀.current_step + 1)
+    (hSid : ∀ u ∈ S.alive, u.id.step = D₀.current_step → u.id = d₀)
+    (hsplit₁ : PinJoinSplitAll ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁))
+    (hvY₀ : (D₀.filterAll rq₁).isValid = true) (hvY₁ : (D₁.filterAll rq₁).isValid = true)
+    (hnew : ∀ R, ∀ C j p q r,
+      OnChain3 (pinF S R) C j p q r →
+      GS R (C p) (C q) (C r) →
+      SideForbids (pinF D₀ R) (F₀ R) (C p) (C q) (C r) ∧ SideForbids (pinF D₁ R) (F₁ R) (C p) (C q) (C r))
+    (R : List NodeId)
+    (hv₁ : (pinF (join ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁)) R).isValid = true) :
+    CrossClosed (pinF S R)
+      (GS R)
+      (pinF (join ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁)) R)
+      (joinFam ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁)
+        (fun R => F₀ (rq₁ ++ R)) (fun R => F₁ (rq₁ ++ R)) R) := by
+  intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
+  obtain ⟨c0, c1⟩ := hnew R C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ hf
+  have hd₁' : d₁.step = D₁.current_step := by rw [← hcs]; exact hd₁
+  have hd₀' : d₀.step = D₁.current_step := by rw [← hcs]; exact hd₀
+  -- los nodos del trío están en pasos ≤ T; los del paso T tienen id d₀
+  have hcsE : (pinF S R).current_step ≤ D₀.current_step + 1 := by rw [step_pinF]; exact hScs
+  have hEalive : ∀ u, (u = C p ∨ u = C q ∨ u = C r) →
+      u ∈ S.alive ∧
+        u.id.step ≤ D₀.current_step := by
+    rintro u (rfl | rfl | rfl)
+    · exact ⟨(sub_pinF _ R).alive _ (hC.node p h1 h2).2, by rw [(hC.node p h1 h2).1]; omega⟩
+    · exact ⟨(sub_pinF _ R).alive _ (hC.node q h3 h4).2, by rw [(hC.node q h3 h4).1]; omega⟩
+    · exact ⟨(sub_pinF _ R).alive _ (hC.node r h5 h6).2, by rw [(hC.node r h5 h6).1]; omega⟩
+  have hid₀ : ∀ u, (u = C p ∨ u = C q ∨ u = C r) → u.id.step = D₀.current_step → u.id = d₀ := by
+    intro u hu hs
+    exact hSid u (hEalive u hu).1 hs
+  -- el corte en cada remitente pasa a su llegada fijada a d₁
+  have hto : ∀ (D : GPathB) (F : FamT), Good D F → FamMono D F → d₁.step = D.current_step →
+      D.current_step = D₀.current_step →
+      (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true →
+      SideForbids (pinF D R) (F R) (C p) (C q) (C r) →
+      SideForbids (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R) (F (rq₁ ++ R)) (C p) (C q) (C r) := by
+    intro D F hD hm hd hcsD hvA h
+    refine sf_to_arrival hD hm hd hvA (fun u hu => ?_) h
+    obtain ⟨_, hus⟩ := hEalive u hu
+    rcases Int.lt_or_eq_of_le hus with hlt | heq
+    · exact Or.inl (by rw [hcsD]; exact hlt)
+    · refine Or.inr fun hA => hdd ?_
+      rw [← hid₀ u hu heq]
+      exact arrival_top_id hD.inv hd ((sub_pinF _ R).alive _ hA) (by rw [hcsD]; exact heq)
+  -- el destino: la unión fijada es la de las llegadas fijadas
+  obtain ⟨hsame, hone⟩ := hsplit₁ R hv₁
+  have hiU := sInvB_pinF (sInvB_join
+    (sInvB_up (sInvB_filterAll hD₀.inv rq₁) (d := d₁) (title := t₁) (forb := f₁)
+      (by rw [(shrinks_filterAll D₀ rq₁).1.step]; exact hd₁) (by have := hD₀.pos; omega))
+    (sInvB_up (sInvB_filterAll hD₁.inv rq₁) (d := d₁) (title := t₁) (forb := f₁)
+      (by rw [(shrinks_filterAll D₁ rq₁).1.step]; exact hd₁') (by have := hD₁.pos; omega))
+    (by rw [step_up hvY₀, step_up hvY₁, (shrinks_filterAll D₀ rq₁).1.step, (shrinks_filterAll D₁ rq₁).1.step, hcs])) R
+  apply sideForbids_same hsame hiU.edges
+  have hdist := hE₀.nodeg R _ _ _ hf
+  have hbel := hE₀.below R _ _ _ hf
+  unfold pinJoin joinFam
+  by_cases hvA : (pinF ((D₀.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true <;>
+    by_cases hvB : (pinF ((D₁.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true
+  · simp only [hvA, hvB, if_true]
+    refine Or.inr ⟨hdist.1, hdist.2.1, hdist.2.2, ?_, ?_, ?_,
+      hto D₀ F₀ hD₀ hm₀ hd₁ rfl hvA c0, hto D₁ F₁ hD₁ hm₁ hd₁' hcs.symm hvB c1⟩
+    all_goals
+      have hTE : S.current_step ≤ D₀.current_step + 1 := hScs
+      have hTA : (pinF ((D₀.filterAll rq₁).up d₁ t₁ f₁) R).current_step = D₀.current_step + 1 := by
+        rw [step_pinF, step_up (valid_of_up (isValid_of_sub (sub_pinF _ R) hvA)), (shrinks_filterAll D₀ rq₁).1.step]
+      rw [hTA]
+      obtain ⟨b1, b2, b3⟩ := hbel
+      omega
+  · simp only [hvA, hvB, if_true]
+    exact hto D₀ F₀ hD₀ hm₀ hd₁ rfl hvA c0
+  · simp only [hvA, hvB, if_true]
+    exact hto D₁ F₁ hD₁ hm₁ hd₁' hcs.symm hvB c1
+  · exact absurd hone (by simp [hvA, hvB])
+
 -- ============================================================
 -- Pins triviales
 -- ============================================================
@@ -738,6 +819,54 @@ theorem cc_neg {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {k₀ k₁ d₀ d₁ : No
   have hvY : (D₁.filterAll [k₁]).isValid = true := valid_of_up (isValid_of_sub (sub_pinF _ R) hv₀)
   refine crossClosed_same hup ?_ ⟨ha₀, hj₀⟩ ⟨ha₁, hj₁⟩ hiA₀.links.2.2 hiX.links hiA₁.edges
   rw [step_pinF, step_up hvY, (shrinks_filterAll D₁ [k₁]).1.step, step_upR, step_pinF]
+
+/-- **`CrossClosed` hacia una entrada de una sola llegada**: origen cualquiera `S` (sus nodos de la cima con id `d₀`),
+destino `up (filterAll D rq₁) d₁` con `d₁ ≠ d₀`, desde `NoNewClose` hacia su remitente `D`. -/
+theorem cc_to_single {D : GPathB} {F : FamT} {rq₁ : List NodeId} {d₀ d₁ : NodeId} {t₁ : String}
+    {f₁ : PathNodeId → Bool} (hD : Good D F) (hm : FamMono D F) (hd₁ : d₁.step = D.current_step) (hdd : d₀ ≠ d₁)
+    {S : GPathB} {GS : FamT} (hScs : S.current_step ≤ D.current_step + 1)
+    (hSid : ∀ u ∈ S.alive, u.id.step = D.current_step → u.id = d₀)
+    (hnew : ∀ R, ∀ C j p q r, OnChain3 (pinF S R) C j p q r → GS R (C p) (C q) (C r) →
+      SideForbids (pinF D R) (F R) (C p) (C q) (C r))
+    (R : List NodeId) (hvA : (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true) :
+    CrossClosed (pinF S R) (GS R) (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R) (F (rq₁ ++ R)) := by
+  intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
+  have hc := hnew R C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ hf
+  have hcsE : (pinF S R).current_step ≤ D.current_step + 1 := by rw [step_pinF]; exact hScs
+  have hEalive : ∀ u, (u = C p ∨ u = C q ∨ u = C r) → u ∈ S.alive ∧ u.id.step ≤ D.current_step := by
+    rintro u (rfl | rfl | rfl)
+    · exact ⟨(sub_pinF _ R).alive _ (hC.node p h1 h2).2, by rw [(hC.node p h1 h2).1]; omega⟩
+    · exact ⟨(sub_pinF _ R).alive _ (hC.node q h3 h4).2, by rw [(hC.node q h3 h4).1]; omega⟩
+    · exact ⟨(sub_pinF _ R).alive _ (hC.node r h5 h6).2, by rw [(hC.node r h5 h6).1]; omega⟩
+  refine sf_to_arrival hD hm hd₁ hvA (fun u hu => ?_) hc
+  obtain ⟨hua, hus⟩ := hEalive u hu
+  rcases Int.lt_or_eq_of_le hus with hlt | heq
+  · exact Or.inl hlt
+  · refine Or.inr fun hA => hdd ?_
+    rw [← hSid u hua heq]
+    exact arrival_top_id hD.inv hd₁ ((sub_pinF _ R).alive _ hA) heq
+
+/-- Las hipótesis del origen en una llegada: altura y ids de la cima. -/
+theorem src_arrival {D : GPathB} {reqs : List NodeId} (hD : SInvB D) (hd : d.step = D.current_step) :
+    ((D.filterAll reqs).up d title forb).current_step ≤ D.current_step + 1 ∧
+    ∀ u ∈ ((D.filterAll reqs).up d title forb).alive, u.id.step = D.current_step → u.id = d := by
+  refine ⟨?_, fun u hu hs => arrival_top_id hD hd hu hs⟩
+  have := step_up_le (Z := D.filterAll reqs) (d := d) (title := title) (forb := forb)
+  rw [(shrinks_filterAll D reqs).1.step] at this; exact this
+
+/-- Las hipótesis del origen en la unión de dos llegadas al mismo destino. -/
+theorem src_join {D₀ D₁ : GPathB} {reqs : List NodeId} (hD₀ : SInvB D₀) (hD₁ : SInvB D₁)
+    (hcs : D₀.current_step = D₁.current_step) (hd : d.step = D₀.current_step) :
+    (join ((D₀.filterAll reqs).up d title forb) ((D₁.filterAll reqs).up d title forb)).current_step ≤
+      D₀.current_step + 1 ∧
+    ∀ u ∈ (join ((D₀.filterAll reqs).up d title forb) ((D₁.filterAll reqs).up d title forb)).alive,
+      u.id.step = D₀.current_step → u.id = d := by
+  obtain ⟨b0, i0⟩ := src_arrival (reqs := reqs) (title := title) (forb := forb) hD₀ hd
+  obtain ⟨_, i1⟩ := src_arrival (reqs := reqs) (title := title) (forb := forb) hD₁ (by rw [← hcs]; exact hd)
+  refine ⟨b0, fun u hu hs => ?_⟩
+  rcases (alive_join _ _ u).mp hu with h | h
+  · exact i0 u h hs
+  · exact i1 u h (by rw [← hcs]; exact hs)
 
 end GPathB
 
