@@ -356,6 +356,331 @@ theorem pre_line (hbd : Bounded φ) : ∀ n : Nat, (n : Int) ≤ midFusion φ �
     have hd : d.step = (n : Int) + 1 := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key]; omega
     exact edgeClique_arr hok (by omega) (hent kv hkv).2 (ih' kv hkv).1 (ih' kv hkv).2 hs (by push_cast at hn; omega)
 
+-- ============================================================
+-- Piezas del parcheo: nodos y pins
+-- ============================================================
+
+theorem carried_pinF {g : GPathB} {S : Int → PathNodeId} (h : Carried g S) {R : List NodeId}
+    (ha : ∀ r ∈ R, Agrees g.current_step S r) : Carried (pinF g R) S := by
+  have key : ∀ (R : List NodeId) (g : GPathB), Carried g S → (∀ r ∈ R, Agrees g.current_step S r) →
+      Carried (R.foldl filterRequire g) S := by
+    intro R
+    induction R with
+    | nil => intro g h _; exact h
+    | cons r rs ih =>
+      intro g h ha
+      rw [List.foldl_cons]
+      refine ih _ (carried_filterRequire h (ha r List.mem_cons_self)) ?_
+      intro r' hr'
+      rw [(shrinks_filterRequire g r).1.step]; exact ha r' (List.mem_cons_of_mem _ hr')
+  exact carried_review (carried_dirty (key R g h ha) true)
+
+/-- Una pieza del parcheo: un nodo (fija su ventana) o un pin (fija el id de su paso). -/
+abbrev Item := PathNodeId ⊕ NodeId
+
+def Holds (φ : Cnf) (c : Assign) : Item → Prop
+  | .inl x => pidOfAssign φ c x.id.step = x
+  | .inr r => selOfAssign φ c r.step = r
+
+def IV (φ : Cnf) : Item → Nat → Prop
+  | .inl x => VarsAt φ x.id.step
+  | .inr r => fun v => 0 < r.step ∧ r.step < midFusion φ ∧ v = varOfStep r.step
+
+def stepOf : Item → Int
+  | .inl x => x.id.step
+  | .inr r => r.step
+
+open Classical in
+/-- La asignación de una pieza (una cualquiera en la que vale). -/
+noncomputable def IA (φ : Cnf) (i : Item) : Assign :=
+  if h : ∃ a, Holds φ a i then h.choose else fun _ => false
+
+theorem IA_spec {i : Item} (hex : ∃ a, Holds φ a i) : Holds φ (IA φ i) i := by
+  unfold IA; rw [dif_pos hex]; exact hex.choose_spec
+
+theorem agree_of_holds {c : Assign} {i : Item} (h : Holds φ c i) : ∀ v, IV φ i v → c v = IA φ i v := by
+  have hc := IA_spec ⟨c, h⟩
+  intro v hv
+  cases i with
+  | inl x => exact vars_of_pid_eq (h.trans hc.symm) hv
+  | inr r => obtain ⟨h0, hm, rfl⟩ := hv; exact sel_inj h0 hm (h.trans hc.symm)
+
+theorem holds_of_agree {b : Assign} {i : Item} (hex : ∃ a, Holds φ a i) (hs : stepOf i ≤ midFusion φ)
+    (h : ∀ v, IV φ i v → b v = IA φ i v) : Holds φ b i := by
+  have hc := IA_spec hex
+  cases i with
+  | inl x => exact (pid_agree hs h).trans hc
+  | inr r => exact (sel_local hs (fun h0 hm => h _ ⟨h0, hm, rfl⟩)).trans hc
+
+theorem compat_of_common {i j : Item} (h : ∃ c, Holds φ c i ∧ Holds φ c j) :
+    ∀ v, IV φ i v → IV φ j v → IA φ i v = IA φ j v := by
+  obtain ⟨c, hi, hj⟩ := h
+  intro v h1 h2
+  rw [← agree_of_holds hi v h1, agree_of_holds hj v h2]
+
+/-- Una camarilla de un estado de la máquina antes de las cláusulas da una asignación en la que valen sus nodos y sus
+ids. -/
+theorem holds_clique (hbd : Bounded φ) {X : GPathB} (hs : Struct.Struct φ X) (hml : MapLinks φ X)
+    (hpos : 0 < X.current_step) (hT : X.current_step - 1 ≤ midFusion φ) {S : Int → PathNodeId} (hc : Carried X S)
+    {q : PathNodeId} (hq : OnS X.current_step S q) :
+    Holds φ (aOf S) (.inl q) ∧ Holds φ (aOf S) (.inr q.id) := by
+  have hv := validSel_of_carried hbd hs hml hc hpos
+  obtain ⟨k, hk0, hk, rfl⟩ := hq
+  have he := pid_of_validSel hv hT k hk0 (by omega)
+  have hst : (S k).id.step = k := hc.step k hk0 hk
+  refine ⟨?_, ?_⟩
+  · show pidOfAssign φ (aOf S) (S k).id.step = S k
+    rw [hst]; exact he.symm
+  · show selOfAssign φ (aOf S) (S k).id.step = (S k).id
+    rw [hst, he]; rfl
+
+/-- Los hechos de un lado (una llegada) de una unión antes de las cláusulas, fijado con `R`. -/
+structure SideOK (φ : Cnf) (T : Int) (X : GPathB) (R : List NodeId) (d : NodeId) : Prop where
+  st    : Struct.Struct φ X
+  ml    : MapLinks φ X
+  ec    : EdgeClique X
+  inv   : SInvB X
+  cs    : X.current_step = T + 1
+  pre   : T ≤ midFusion φ
+  one   : 1 ≤ T
+  dstep : d.step = T
+  valid : (pinF X R).isValid = true
+  pin   : ∀ r ∈ R, ∀ q ∈ (pinF X R).alive, q.id.step = r.step → q.id = r
+  top   : ∀ q ∈ (pinF X R).alive, q.id.step = T → q.id = d
+
+theorem SideOK.pinId {T : Int} {X : GPathB} {R : List NodeId} {d : NodeId} (h : SideOK φ T X R d) {r : NodeId}
+    (hr : r ∈ d :: R) {q : PathNodeId} (hq : q ∈ (pinF X R).alive) (hs : q.id.step = r.step) :
+    q.id = r := by
+  rcases List.mem_cons.mp hr with rfl | hr
+  · exact h.top q hq (by rw [hs, h.dstep])
+  · exact h.pin r hr q hq hs
+
+theorem SideOK.clique {T : Int} {X : GPathB} {R : List NodeId} {d : NodeId} (h : SideOK φ T X R d) (hbd : Bounded φ)
+    {u w : PathNodeId} (ha : (pinF X R).Adj u w) :
+    ∃ c, (Holds φ c (.inl u) ∧ Holds φ c (.inr u.id)) ∧ (Holds φ c (.inl w) ∧ Holds φ c (.inr w.id)) := by
+  obtain ⟨S, hc, hu, hw⟩ := h.ec u w ((sub_pinF X R).adj _ _ ha)
+  have hp : 0 < X.current_step := by rw [h.cs]; have := h.one; omega
+  have hT : X.current_step - 1 ≤ midFusion φ := by rw [h.cs]; have := h.pre; omega
+  exact ⟨_, holds_clique hbd h.st h.ml hp hT hc hu, holds_clique hbd h.st h.ml hp hT hc hw⟩
+
+theorem SideOK.closed {T : Int} {X : GPathB} {R : List NodeId} {d : NodeId} (h : SideOK φ T X R d) :
+    ClosedState (pinF X R) :=
+  closedState_pinF h.inv h.valid (by rw [h.cs]; have := h.one; omega)
+
+/-- **Un nodo y un pin**: el nodo tiene un vecino en el paso del pin, y ese vecino lleva el id del pin. -/
+theorem SideOK.node_pin {T : Int} {X : GPathB} {R : List NodeId} {d : NodeId} (h : SideOK φ T X R d)
+    (hbd : Bounded φ) {u : PathNodeId} (hu : u ∈ (pinF X R).alive) {r : NodeId} (hr : r ∈ d :: R) (h0 : 0 ≤ r.step)
+    (hrT : r.step ≤ T) : ∃ c, Holds φ c (.inl u) ∧ Holds φ c (.inr r) := by
+  have hcl := h.closed
+  have hcs : (pinF X R).current_step = T + 1 := by rw [step_pinF, h.cs]
+  obtain ⟨q, hqs, hR, _⟩ := hcl.pair ⟨hu, hu, adj_refl _ _ hu⟩ r.step h0 (by omega)
+  obtain ⟨_, hqa, hadj⟩ := hR
+  obtain ⟨c, ⟨hcu, _⟩, ⟨_, hcq⟩⟩ := h.clique hbd hadj
+  rw [h.pinId hr hqa hqs] at hcq
+  exact ⟨c, hcu, hcq⟩
+
+/-- **Dos pins**: un vivo del paso del primero tiene un vecino en el paso del segundo. -/
+theorem SideOK.pin_pin {T : Int} {X : GPathB} {R : List NodeId} {d : NodeId} (h : SideOK φ T X R d)
+    (hbd : Bounded φ) {r r' : NodeId} (hr : r ∈ d :: R) (h0 : 0 ≤ r.step) (hrT : r.step ≤ T) (hr' : r' ∈ d :: R)
+    (h0' : 0 ≤ r'.step) (hrT' : r'.step ≤ T) : ∃ c, Holds φ c (.inr r) ∧ Holds φ c (.inr r') := by
+  have hcs : (pinF X R).current_step = T + 1 := by rw [step_pinF, h.cs]
+  obtain ⟨q, hq, hqs⟩ := exists_alive_at h.valid h0 (by omega)
+  obtain ⟨c, hcq, hcr'⟩ := h.node_pin hbd hq hr' h0' hrT'
+  refine ⟨c, ?_, hcr'⟩
+  have : Holds φ c (.inr q.id) := by
+    show selOfAssign φ c q.id.step = q.id
+    have hq' : pidOfAssign φ c q.id.step = q := hcq
+    exact congrArg PathNodeId.id hq'
+  rw [h.pinId hr hq hqs] at this
+  exact this
+
+-- ============================================================
+-- Un triángulo de la unión fijada es triángulo de un lado
+-- ============================================================
+
+/-- Tres nodos vecinos dos a dos. -/
+def Tri (g : GPathB) (x y z : PathNodeId) : Prop := g.Adj x y ∧ g.Adj x z ∧ g.Adj y z
+
+/-- **El núcleo del parcheo**: si toda asignación que respeta el destino y los pins la lleva algún lado fijado, un
+triángulo de la unión de los lados fijados es triángulo de un lado. -/
+theorem triSplit_core (hbd : Bounded φ) {T : Int} {A B : GPathB} {R : List NodeId} {d : NodeId}
+    (hA : SideOK φ T A R d) (hB : SideOK φ T B R d) {x y z : PathNodeId}
+    (hU : Tri (join (pinF A R) (pinF B R)) x y z)
+    (hcomp : ∀ b : Assign, selOfAssign φ b d.step = d →
+      (∀ r ∈ R, 0 ≤ r.step → r.step ≤ T → selOfAssign φ b r.step = r) →
+      Carried (pinF A R) (pidOfAssign φ b) ∨ Carried (pinF B R) (pidOfAssign φ b)) :
+    Tri (pinF A R) x y z ∨ Tri (pinF B R) x y z := by
+  obtain ⟨hxy, hxz, hyz⟩ := hU
+  let A' := pinF A R
+  let B' := pinF B R
+  -- las parejas de nodos, vecinas en un lado
+  have hsym : ∀ u w, (join A' B').Adj u w → (join A' B').Adj w u := fun u w h => (adj_symm _ _ _).mp h
+  have hside : ∀ u w, (join A' B').Adj u w → A'.Adj u w ∨ B'.Adj u w := fun u w h => adj_join_cases h
+  have heA := (sInvB_pinF hA.inv R).edges
+  have heB := (sInvB_pinF hB.inv R).edges
+  have halive : ∀ u w, (join A' B').Adj u w → u ∈ A'.alive ∨ u ∈ B'.alive := by
+    intro u w h
+    rcases hside u w h with h | h
+    · exact Or.inl (heA _ _ h).1
+    · exact Or.inr (heB _ _ h).1
+  have hrefl : ∀ u w, (join A' B').Adj u w → (join A' B').Adj u u := by
+    intro u w h
+    rcases halive u w h with h | h
+    · exact (adj_iff _ _ _).mpr (Or.inl ⟨rfl, (alive_join A' B' u).mpr (Or.inl h)⟩)
+    · exact (adj_iff _ _ _).mpr (Or.inl ⟨rfl, (alive_join A' B' u).mpr (Or.inr h)⟩)
+  let nodes : List PathNodeId := [x, y, z]
+  have hadjN : ∀ u ∈ nodes, ∀ w ∈ nodes, (join A' B').Adj u w := by
+    have hx := hrefl x y hxy
+    have hy := hrefl y z hyz
+    have hz := hrefl z y (hsym _ _ hyz)
+    intro u hu w hw
+    simp only [nodes, List.mem_cons, List.not_mem_nil, or_false] at hu hw
+    rcases hu with rfl | rfl | rfl <;> rcases hw with rfl | rfl | rfl
+    all_goals first | assumption | exact hsym _ _ (by assumption)
+  -- las piezas
+  let pins : List NodeId := (d :: R).filter (fun r => decide (0 ≤ r.step ∧ r.step ≤ T))
+  let l : List Item := nodes.map .inl ++ pins.map .inr
+  have hpins : ∀ r ∈ pins, r ∈ d :: R ∧ 0 ≤ r.step ∧ r.step ≤ T := by
+    intro r hr
+    have := List.mem_filter.mp hr
+    exact ⟨this.1, by simpa using this.2⟩
+  have hdpin : d ∈ pins := List.mem_filter.mpr ⟨List.mem_cons_self, by
+    have := hA.one; have := hA.dstep; simp; omega⟩
+  have hnodeSide : ∀ u ∈ nodes, u ∈ A'.alive ∨ u ∈ B'.alive := fun u hu => halive u u (hadjN u hu u hu)
+  have hcommon : ∀ i ∈ l, ∀ j ∈ l, ∃ c, Holds φ c i ∧ Holds φ c j := by
+    have hnp : ∀ u ∈ nodes, ∀ r ∈ pins, ∃ c, Holds φ c (.inl u) ∧ Holds φ c (.inr r) := by
+      intro u hu r hr
+      obtain ⟨hr1, hr2, hr3⟩ := hpins r hr
+      rcases hnodeSide u hu with h | h
+      · exact hA.node_pin hbd h hr1 hr2 hr3
+      · exact hB.node_pin hbd h hr1 hr2 hr3
+    intro i hi j hj
+    rcases List.mem_append.mp hi with hi | hi <;> rcases List.mem_append.mp hj with hj | hj
+    · obtain ⟨u, hu, rfl⟩ := List.mem_map.mp hi
+      obtain ⟨w, hw, rfl⟩ := List.mem_map.mp hj
+      rcases hside u w (hadjN u hu w hw) with h | h
+      · obtain ⟨c, ⟨h1, _⟩, ⟨h2, _⟩⟩ := hA.clique hbd h; exact ⟨c, h1, h2⟩
+      · obtain ⟨c, ⟨h1, _⟩, ⟨h2, _⟩⟩ := hB.clique hbd h; exact ⟨c, h1, h2⟩
+    · obtain ⟨u, hu, rfl⟩ := List.mem_map.mp hi
+      obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hj
+      exact hnp u hu r hr
+    · obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hi
+      obtain ⟨u, hu, rfl⟩ := List.mem_map.mp hj
+      obtain ⟨c, h1, h2⟩ := hnp u hu r hr
+      exact ⟨c, h2, h1⟩
+    · obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hi
+      obtain ⟨r', hr', rfl⟩ := List.mem_map.mp hj
+      obtain ⟨a1, a2, a3⟩ := hpins r hr
+      obtain ⟨b1, b2, b3⟩ := hpins r' hr'
+      exact hA.pin_pin hbd a1 a2 a3 b1 b2 b3
+  -- el parcheo
+  obtain ⟨b, hb⟩ := patch l (IA φ) (IV φ) (fun i hi j hj => compat_of_common (hcommon i hi j hj))
+  have hstepN : ∀ u ∈ nodes, 0 ≤ u.id.step ∧ u.id.step < T + 1 := by
+    intro u hu
+    rcases hnodeSide u hu with h | h
+    · have hi := sInvB_pinF hA.inv R
+      have := step_range_of_alive hi.docs hi.below hi.zero h
+      rw [step_pinF, hA.cs] at this; exact this
+    · have hi := sInvB_pinF hB.inv R
+      have := step_range_of_alive hi.docs hi.below hi.zero h
+      rw [step_pinF, hB.cs] at this; exact this
+  have hholds : ∀ i ∈ l, Holds φ b i := by
+    intro i hi
+    obtain ⟨c, hc, _⟩ := hcommon i hi i hi
+    refine holds_of_agree ⟨c, hc⟩ ?_ (hb i hi)
+    rcases List.mem_append.mp hi with h | h
+    · obtain ⟨u, hu, rfl⟩ := List.mem_map.mp h
+      have := hstepN u hu; have := hA.pre; show u.id.step ≤ _; omega
+    · obtain ⟨r, hr, rfl⟩ := List.mem_map.mp h
+      have := (hpins r hr).2.2; have := hA.pre; show r.step ≤ _; omega
+  have hN : ∀ u ∈ nodes, pidOfAssign φ b u.id.step = u :=
+    fun u hu => hholds (.inl u) (List.mem_append_left _ (List.mem_map.mpr ⟨u, hu, rfl⟩))
+  have hP : ∀ r ∈ pins, selOfAssign φ b r.step = r :=
+    fun r hr => hholds (.inr r) (List.mem_append_right _ (List.mem_map.mpr ⟨r, hr, rfl⟩))
+  have hcar := hcomp b (hP d hdpin) (fun r hr h0 h1 =>
+    hP r (List.mem_filter.mpr ⟨List.mem_cons_of_mem _ hr, by simp; omega⟩))
+  -- el triángulo en el lado que lleva la rama
+  have htri : ∀ X : GPathB, X.current_step = T + 1 → Carried X (pidOfAssign φ b) → Tri X x y z := by
+    intro X hX hc
+    have hadj : ∀ u ∈ nodes, ∀ w ∈ nodes, X.Adj u w := by
+      intro u hu w hw
+      have h1 := hstepN u hu
+      have h2 := hstepN w hw
+      have := hc.adj u.id.step w.id.step h1.1 (by omega) h2.1 (by omega)
+      rwa [hN u hu, hN w hw] at this
+    exact ⟨hadj x (by simp [nodes]) y (by simp [nodes]), hadj x (by simp [nodes]) z (by simp [nodes]),
+      hadj y (by simp [nodes]) z (by simp [nodes])⟩
+  rcases hcar with h | h
+  · exact Or.inl (htri _ (by rw [step_pinF, hA.cs]) h)
+  · exact Or.inr (htri _ (by rw [step_pinF, hB.cs]) h)
+
+/-- En una línea del mapa bin, dos entradas de claves distintas son todas las que hay. -/
+theorem two_senders {k : Int} {line : Line} (hnd : (line.map (·.1)).Nodup) (hk : ∀ kv ∈ line, kv.1 ∈ mapNodes φ k)
+    {a b c : NodeId × GPathB} (ha : a ∈ line) (hb : b ∈ line) (hab : a.1 ≠ b.1) (hc : c ∈ line) : c = a ∨ c = b := by
+  rcases line_cases hnd hk with rfl | ⟨p, rfl⟩ | ⟨p, q, rfl⟩
+  · exact absurd ha List.not_mem_nil
+  · rw [List.mem_singleton] at ha hb; exact absurd (by rw [ha, hb]) hab
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at ha hb hc
+    rcases ha with rfl | rfl <;> rcases hb with rfl | rfl <;> rcases hc with rfl | rfl <;> simp_all
+
+/-- **Una llegada de la línea antes de las cláusulas cumple `SideOK`.** -/
+theorem sideOK_arr (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 ≤ midFusion φ)
+    {kv : NodeId × GPathB} (hkv : kv ∈ steps φ n (init φ)) (hi : SInvB kv.2) {d : NodeId} (hs : Sends φ kv d)
+    {R : List NodeId} (hv : (pinF (arrOf φ kv d) R).isValid = true) : SideOK φ ((n : Int) + 1) (arrOf φ kv d) R d := by
+  obtain ⟨hl, hent, _, hls, hml⟩ := line_facts hbd n
+  have hok := hl kv hkv
+  have hd : d.step = (n : Int) + 1 := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key]; omega
+  have hpre := pre_line hbd n (by omega) kv hkv
+  have hcs : kv.2.current_step = (n : Int) + 1 := hok.step
+  have hdY : d.step = (kv.2.filterAll (reqOf φ d)).current_step := by
+    rw [(shrinks_filterAll kv.2 (reqOf φ d)).1.step, hcs, hd]
+  have hiX : SInvB (arrOf φ kv d) := sInvB_up (sInvB_filterAll hi _) hdY (by omega)
+  refine ⟨Struct.struct_upFiltering hbd hok (hls kv hkv).1 (hls kv hkv).2 hs.1,
+    mapLinks_upFiltering (by omega) hok (hml kv hkv) (hent kv hkv).2 hs.1,
+    (edgeClique_arr hok (by omega) (hent kv hkv).2 hpre.1 hpre.2 hs (by omega)).1, hiX,
+    (stateOk_arr hok hs).step, by omega, by omega, hd, hv, pinned_pinF hiX.docs hv, ?_⟩
+  intro q hq hqs
+  exact arrival_top_id hi (by rw [hd, hcs]) ((sub_pinF _ R).alive q hq) (by rw [hqs, hcs])
+
+/-- **Antes de las cláusulas, un triángulo de la unión de dos llegadas fijadas es triángulo de una de ellas.** -/
+theorem triSplit (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 ≤ midFusion φ)
+    {a b : NodeId × GPathB} (ha : a ∈ steps φ n (init φ)) (hb : b ∈ steps φ n (init φ)) (hab : a.1 ≠ b.1)
+    (hia : SInvB a.2) (hib : SInvB b.2) {d : NodeId} (hsa : Sends φ a d) (hsb : Sends φ b d) {R : List NodeId}
+    (hvA : (pinF (arrOf φ a d) R).isValid = true) (hvB : (pinF (arrOf φ b d) R).isValid = true)
+    {x y z : PathNodeId} (hU : Tri (join (pinF (arrOf φ a d) R) (pinF (arrOf φ b d) R)) x y z) :
+    Tri (pinF (arrOf φ a d) R) x y z ∨ Tri (pinF (arrOf φ b d) R) x y z := by
+  obtain ⟨hl, _, hnd, hls, _⟩ := line_facts hbd n
+  have sA := sideOK_arr hbd n hn ha hia hsa hvA
+  have sB := sideOK_arr hbd n hn hb hib hsb hvB
+  refine triSplit_core hbd sA sB hU ?_
+  intro bb hbd' hR
+  have hv : ValidSel φ ((n : Int) + 1) (pidOfAssign φ bb) := validSel_pid hbd bb hn
+  obtain ⟨_, g0, hf, hc0⟩ := steps_has_sel n (hv.mono (by omega))
+  have hmem := List.mem_of_find?_eq_some hf
+  have hok0 := hl _ hmem
+  have hcar := carried_arrival (by omega) hv hok0 hc0
+  have hdid : (pidOfAssign φ bb ((n : Int) + 1)).id = d := by
+    show selOfAssign φ bb ((n : Int) + 1) = d
+    rw [← sA.dstep]; exact hbd'
+  rw [hdid] at hcar
+  have hson : d ∈ sonsOfMap φ ((pidOfAssign φ bb (n : Int)).id) := by
+    have := hv.son ((n : Int) + 1) (by omega) (Int.le_refl _)
+    rw [show (n : Int) + 1 - 1 = n by omega, hdid] at this; exact this
+  let kv0 : NodeId × GPathB := ((pidOfAssign φ bb (n : Int)).id, g0)
+  have hsends : Sends φ kv0 d := ⟨hson, isValid_of_carried hcar⟩
+  have hcarP : Carried (pinF (arrOf φ kv0 d) R) (pidOfAssign φ bb) := by
+    refine carried_pinF hcar (fun r hr h0 h1 => ?_)
+    have hcs0 : (arrOf φ kv0 d).current_step = (n : Int) + 1 + 1 := (stateOk_arr hok0 hsends).step
+    have h1' : r.step < (arrOf φ kv0 d).current_step := h1
+    exact hR r hr h0 (by rw [hcs0] at h1'; omega)
+  have hk : ∀ kv ∈ steps φ n (init φ), kv.1 ∈ mapNodes φ n := by
+    intro kv hkv
+    have := (hls kv hkv).2
+    rwa [(hl kv hkv).key, show (n : Int) + 1 - 1 = n by omega] at this
+  rcases two_senders hnd hk ha hb hab hmem with h | h
+  · exact Or.inl (by rw [← h]; exact hcarP)
+  · exact Or.inr (by rw [← h]; exact hcarP)
+
 end PreClause
 
 end AbsSatBingo.Model
