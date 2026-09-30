@@ -8,12 +8,12 @@ Espejo computable de los tríos prohibidos de Julia (`55ddcc3`):
 
 | Julia | Lean |
 |---|---|
-| `dead_trio(g, a, b, r)` (`r ∈ forbid(a–b)`) | `deadTrio` (la arista `a–b` y el trío en `trios`) |
+| `dead_trio(g, a, b, r)` (`r ∈ forbid(a–b)`) | `deadTrio` (la arista `a–b` y el trío en `trios`); en tabla hash, `Idx.deadTrio` |
 | `forbid!(g, a, b, r)` | `forbidTrio` |
 | `side_forbids(g, a, b, r)` | `sideForbidsB` |
-| `up_forbid!(g, n, parents)` tras `create_from_parents!` | `upForbidNode`, `upForbidRow` |
+| `up_forbid!(g, n, parents)` tras `create_from_parents!` | `upForbidTodo`, `upForbidRow` |
 | `join_forbid(ga, gb)` + `set_forbid!` en `union!` | `joinForbid`, `joinOn` |
-| `good_witness`, `trio_alive`, `edge_alive` | `goodWitnessB`, `trioAlive`, `edgeAlive` |
+| `good_witness`, `trio_alive`, `edge_alive` | `Idx.goodWitness`, `Idx.trioAlive`, `Idx.edgeAlive` |
 | `forbid_rule!` (dos fases, hasta que no cambia nada) | `forbidRound`, `forbidRule` |
 | `make_review_owners!`: limpieza, parejas, **regla**, enlaces, padres/hijos, enlaces | `reviewPassOn`, `reviewOn` |
 
@@ -67,24 +67,84 @@ def sideForbidsB (g : GPathB) (a b r : PathNodeId) : Bool :=
   else g.deadTrio a b r
 
 -- ============================================================
--- UP (Julia up_forbid!)
+-- El índice de un estado (las consultas de Julia, en tablas hash)
 -- ============================================================
 
-/-- Los vecinos de `n` (Julia `neighbors_all` sin `n`). -/
-def nbrs (g : GPathB) (n : PathNodeId) : List PathNodeId :=
-  g.alive.filter (fun w => w != n && g.hasEdge n w)
+/-- Las seis ordenaciones de un trío. -/
+def perms (a b r : PathNodeId) : List (PathNodeId × PathNodeId × PathNodeId) :=
+  [(a, b, r), (a, r, b), (b, a, r), (b, r, a), (r, a, b), (r, b, a)]
+
+/-- **El índice de un estado**, construido una vez y consultado muchas: aristas en las dos orientaciones, tríos en
+sus seis órdenes, vivos y vecinos por nodo (Julia `edges`, `forbid`, `alive`, `inc`). Las decisiones de cada regla se
+toman contra un mismo estado, así que un índice por estado basta. Cada consulta es la de listas de arriba
+(`deadTrio`, `sideForbidsB`, …); las igualdades son de F3. -/
+structure Idx where
+  edges : Std.HashSet (PathNodeId × PathNodeId)
+  trios : Std.HashSet (PathNodeId × PathNodeId × PathNodeId)
+  alive : Std.HashSet PathNodeId
+  nbr   : Std.HashMap PathNodeId (List PathNodeId)
+  cs    : Int
+
+def Idx.of (g : GPathB) : Idx :=
+  { edges := g.edges.foldl (fun h e => (h.insert (e.1, e.2)).insert (e.2, e.1)) {},
+    trios := g.trios.foldl (fun h t => h.insertMany (perms t.1 t.2.1 t.2.2)) {},
+    alive := g.alive.foldl (fun h x => h.insert x) {},
+    nbr := g.edges.foldl (fun m e =>
+      (m.insert e.1 (e.2 :: m.getD e.1 [])).insert e.2 (e.1 :: (m.insert e.1 (e.2 :: m.getD e.1 [])).getD e.2 [])) {},
+    cs := g.current_step }
+
+namespace Idx
+
+def hasEdge (i : Idx) (a b : PathNodeId) : Bool := i.edges.contains (a, b)
+
+def deadTrio (i : Idx) (a b r : PathNodeId) : Bool := i.hasEdge a b && i.trios.contains (a, b, r)
+
+def adjb (i : Idx) (x w : PathNodeId) : Bool := (x == w && i.alive.contains x) || i.hasEdge x w
+
+def sideForbids (i : Idx) (a b r : PathNodeId) : Bool :=
+  if !(i.adjb a b && i.adjb a r && i.adjb b r) then true
+  else if a == b || r == a || r == b then false
+  else i.deadTrio a b r
+
+/-- Los vecinos vivos de `a` (sin `a`). -/
+def nbrs (i : Idx) (a : PathNodeId) : List PathNodeId :=
+  (i.nbr.getD a []).filter (fun s => s != a && i.alive.contains s)
+
+/-- Julia `g.inc[a][l]`: los vecinos de `a` en el paso `l`, con `a` en el suyo. -/
+def incAt (i : Idx) (a : PathNodeId) (l : Int) : List PathNodeId :=
+  (if a.id.step == l && i.alive.contains a then [a] else []) ++ (i.nbrs a).filter (fun s => s.id.step == l)
+
+def goodWitness (i : Idx) (a b r s : PathNodeId) : Bool :=
+  s == a || s == b || s == r ||
+  (i.hasEdge a s && i.hasEdge b s && i.hasEdge r s &&
+   !i.deadTrio a b s && !i.deadTrio a r s && !i.deadTrio b r s)
+
+def trioAlive (i : Idx) (a b r : PathNodeId) : Bool :=
+  (intRange 0 (i.cs - 1)).all (fun l => (i.incAt a l).any (i.goodWitness a b r))
+
+def edgeAlive (i : Idx) (a b : PathNodeId) : Bool :=
+  (intRange 0 (i.cs - 1)).all (fun l =>
+    (i.incAt a l).any (fun r => r == a || r == b || (i.hasEdge b r && !i.deadTrio a b r)))
+
+end Idx
+
+/-- Añade tríos que no están escritos, sin repetir (Julia `forbid!` uno a uno: el segundo de un mismo trío ya lo
+encuentra prohibido). `i` es el índice del estado al que se añaden. -/
+def addTrios (g : GPathB) (i : Idx) (ts : List (PathNodeId × PathNodeId × PathNodeId)) : GPathB × Bool :=
+  let r := ts.foldl (fun (acc : List (PathNodeId × PathNodeId × PathNodeId) ×
+      Std.HashSet (PathNodeId × PathNodeId × PathNodeId)) t =>
+    if acc.2.contains t || i.deadTrio t.1 t.2.1 t.2.2 then acc
+    else (t :: acc.1, acc.2.insertMany (perms t.1 t.2.1 t.2.2))) ([], {})
+  ({ g with trios := g.trios ++ r.1.reverse }, !r.1.isEmpty)
+
+-- ============================================================
+-- UP (Julia up_forbid!)
+-- ============================================================
 
 /-- Las parejas `(w, r)`, `w` antes que `r` en la lista. -/
 def pairsOf : List PathNodeId → List (PathNodeId × PathNodeId)
   | [] => []
   | w :: ws => ws.map (fun r => (w, r)) ++ pairsOf ws
-
-/-- Julia `up_forbid!`: `(n, w, r)` se prohíbe si todo padre `p` de `n` corta `(p, w, r)`. Las parejas se deciden
-contra el estado de antes (Julia las junta y después escribe). -/
-def upForbidNode (g : GPathB) (n : PathNodeId) (parents : List PathNodeId) : GPathB :=
-  let todo := (pairsOf (g.nbrs n)).filter (fun wr =>
-    g.hasEdge wr.1 wr.2 && parents.all (fun p => g.sideForbidsB p wr.1 wr.2))
-  todo.foldl (fun h wr => h.forbidTrio n wr.1 wr.2) g
 
 /-- Los padres de un nodo de la fila (los de su documento). -/
 def parentsOf (g : GPathB) (n : PathNodeId) : List PathNodeId :=
@@ -92,10 +152,17 @@ def parentsOf (g : GPathB) (n : PathNodeId) : List PathNodeId :=
   | some m => m.parents
   | none => []
 
-/-- `up_forbid!` para cada nodo de la fila nueva. Los nodos de una fila no son vecinos entre sí y sus padres son
-viejos, así que el orden no cambia nada. -/
+/-- Julia `up_forbid!` para un nodo nuevo `n`: `(n, w, r)` si todo padre `p` de `n` corta `(p, w, r)`. -/
+def upForbidTodo (i : Idx) (n : PathNodeId) (parents : List PathNodeId) :
+    List (PathNodeId × PathNodeId × PathNodeId) :=
+  ((pairsOf (i.nbrs n)).filter (fun wr =>
+    i.hasEdge wr.1 wr.2 && parents.all (fun p => i.sideForbids p wr.1 wr.2))).map (fun wr => (n, wr.1, wr.2))
+
+/-- `up_forbid!` para cada nodo de la fila nueva, contra el estado tras la fila: los nodos de una fila no son vecinos
+entre sí y sus padres son viejos, así que lo que escribe uno no cambia lo que decide otro. -/
 def upForbidRow (g : GPathB) (ids : List PathNodeId) : GPathB :=
-  ids.foldl (fun h n => h.upForbidNode n (h.parentsOf n)) g
+  let i := Idx.of g
+  (g.addTrios i (ids.flatMap (fun n => upForbidTodo i n (g.parentsOf n)))).1
 
 -- ============================================================
 -- join (Julia join_forbid + set_forbid!)
@@ -104,15 +171,17 @@ def upForbidRow (g : GPathB) (ids : List PathNodeId) : GPathB :=
 /-- Julia `join_forbid`, con los dos lados antes de unir: por cada arista `a–b` de un lado, los `r` vecinos de `a`
 en algún lado, con `b–r` en algún lado, que los dos lados cortan. -/
 def joinForbid (g₁ g₂ : GPathB) : List (PathNodeId × PathNodeId × PathNodeId) :=
+  let i₁ := Idx.of g₁
+  let i₂ := Idx.of g₂
   (g₁.edges ++ g₂.edges).flatMap (fun e =>
-    ((g₁.alive ++ g₂.alive).filter (fun r =>
-      r != e.1 && r != e.2 && (g₁.hasEdge e.1 r || g₂.hasEdge e.1 r) &&
-      (g₁.hasEdge e.2 r || g₂.hasEdge e.2 r) &&
-      g₁.sideForbidsB e.1 e.2 r && g₂.sideForbidsB e.1 e.2 r)).map (fun r => (e.1, e.2, r)))
+    ((i₁.nbrs e.1 ++ i₂.nbrs e.1).filter (fun r =>
+      r != e.2 && (i₁.hasEdge e.2 r || i₂.hasEdge e.2 r) &&
+      i₁.sideForbids e.1 e.2 r && i₂.sideForbids e.1 e.2 r)).map (fun r => (e.1, e.2, r)))
 
 /-- Julia `union!` con `FORBID = :on`: la unión, con los tríos reiniciados a los de `join_forbid`. -/
 def joinOn (g₁ g₂ : GPathB) : GPathB :=
-  (joinForbid g₁ g₂).foldl (fun h t => h.forbidTrio t.1 t.2.1 t.2.2) { join g₁ g₂ with trios := [] }
+  let u : GPathB := { join g₁ g₂ with trios := [] }
+  (u.addTrios (Idx.of u) (joinForbid g₁ g₂)).1
 
 def doJoinOn (g₁ g₂ : GPathB) : GPathB :=
   if okJoin g₁ g₂ then joinOn g₁ g₂ else g₁
@@ -121,39 +190,21 @@ def doJoinOn (g₁ g₂ : GPathB) : GPathB :=
 -- La regla (Julia forbid_rule!)
 -- ============================================================
 
-/-- Los vecinos de `a` en el paso `l`, con `a` mismo en el suyo (Julia `g.inc[a][l]`). -/
-def incAt (g : GPathB) (a : PathNodeId) (l : Int) : List PathNodeId :=
-  g.alive.filter (fun s => s.id.step == l && g.adjb a s)
-
-/-- Julia `good_witness`. -/
-def goodWitnessB (g : GPathB) (a b r s : PathNodeId) : Bool :=
-  s == a || s == b || s == r ||
-  (g.hasEdge a s && g.hasEdge b s && g.hasEdge r s &&
-   !g.deadTrio a b s && !g.deadTrio a r s && !g.deadTrio b r s)
-
-/-- Julia `trio_alive`: en cada paso, un testigo bueno entre los vecinos de `a`. -/
-def trioAlive (g : GPathB) (a b r : PathNodeId) : Bool :=
-  (intRange 0 (g.current_step - 1)).all (fun l => (g.incAt a l).any (g.goodWitnessB a b r))
-
-/-- Julia `edge_alive`: en cada paso, un vecino de `a` que lo es de `b` sin trío prohibido. -/
-def edgeAlive (g : GPathB) (a b : PathNodeId) : Bool :=
-  (intRange 0 (g.current_step - 1)).all (fun l =>
-    (g.incAt a l).any (fun r => r == a || r == b || (g.hasEdge b r && !g.deadTrio a b r)))
-
 /-- Fase 1: los triángulos sin prohibir y sin testigo bueno en algún paso, decididos contra el mismo estado. -/
-def newTrios (g : GPathB) : List (PathNodeId × PathNodeId × PathNodeId) :=
+def newTrios (g : GPathB) (i : Idx) : List (PathNodeId × PathNodeId × PathNodeId) :=
   g.edges.flatMap (fun e =>
-    (g.alive.filter (fun r =>
-      r != e.1 && r != e.2 && g.hasEdge e.1 r && g.hasEdge e.2 r &&
-      !g.deadTrio e.1 e.2 r && !g.trioAlive e.1 e.2 r)).map (fun r => (e.1, e.2, r)))
+    ((i.nbrs e.1).filter (fun r =>
+      r != e.2 && i.hasEdge e.2 r && !i.deadTrio e.1 e.2 r && !i.trioAlive e.1 e.2 r)).map (fun r => (e.1, e.2, r)))
 
 /-- Una vuelta de `forbid_rule!`: fase 1 (tríos), fase 2 (aristas sin testigo bueno, todas a la vez; si quita alguna,
 `dirty` y la limpieza). Devuelve el estado y si cambió algo. -/
 def forbidRound (g : GPathB) : GPathB × Bool :=
-  let g₁ := g.newTrios.foldl (fun h t => h.forbidTrio t.1 t.2.1 t.2.2) g
-  let grew := decide (g.trios.length < g₁.trios.length)
-  let bad := g₁.edges.filter (fun e => !g₁.edgeAlive e.1 e.2)
-  if bad.isEmpty then (g₁, grew)
+  let i := Idx.of g
+  let r₁ := g.addTrios i (g.newTrios i)
+  let g₁ := r₁.1
+  let i₁ := Idx.of g₁
+  let bad := g₁.edges.filter (fun e => !i₁.edgeAlive e.1 e.2)
+  if bad.isEmpty then (g₁, r₁.2)
   else (clean { bad.foldl (fun h e => h.removeEdge e.1 e.2) g₁ with dirty := true }, true)
 
 /-- Vueltas mientras el estado es válido y la anterior cambió algo. -/

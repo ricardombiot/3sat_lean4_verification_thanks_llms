@@ -1,5 +1,5 @@
 -- lean/improves_bingo/AbsSatBingo/Exe/Dump.lean
-import AbsSatBingo.Model.Driver
+import AbsSatBingo.Model.ForbidOn
 
 /-!
 # Volcado canónico del estado final (fase L3)
@@ -36,6 +36,24 @@ def dumpGPath (g : GPathB) : String :=
       s!"    owners {keysSorted (ownersOf g n.id)}\n" ++
       s!"    parents {keysSorted n.parents}\n" ++
       s!"    sons {keysSorted n.sons}\n") head
+
+/-- Los tríos por arista (Julia `forbid <a>|<b> r1,…`): los `r` con `{a, b, r}` escrito, para cada arista. -/
+def dumpForbid (g : GPathB) : String :=
+  let cand := (g.trios.flatMap (fun t => [t.1, t.2.1, t.2.2])).eraseDups
+  let lines := g.edges.filterMap (fun e =>
+    let rs := cand.filter (fun r => g.trios.any (trioIs e.1 e.2 r))
+    if rs.isEmpty then none
+    else
+      let ab := ([keyOf e.1, keyOf e.2].toArray.qsort (· < ·)).toList
+      some s!"  forbid {ab.getD 0 ""}|{ab.getD 1 ""} {keysSorted rs}\n")
+  String.join (lines.toArray.qsort (· < ·)).toList
+
+/-- El volcado para el diferencial del modo FORBID (Julia `dump_forbid.jl`): sin soluciones, con los tríos. -/
+def dumpForbidRun (name : String) (sat : Bool) (line : Driver.Line) : String :=
+  let gs := (line.map (·.2)).toArray.qsort (fun a b =>
+    (match a.map_parent with | some d => as_key d | none => "") <
+    (match b.map_parent with | some d => as_key d | none => ""))
+  s!"instance {name}\nsat {sat}\n" ++ String.join (gs.toList.map (fun g => dumpGPath g ++ dumpForbid g))
 
 /-- El fichero de una instancia. -/
 def dumpRun (name : String) (truth sat : Bool) (line : Driver.Line) : String :=
