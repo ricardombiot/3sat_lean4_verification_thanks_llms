@@ -220,6 +220,166 @@ theorem liveExt_reviewOn {g : GPathB} (hext : LiveExt g (TF g)) (hdocs : AliveDo
   have hct := ct_reviewOn (S := D) ⟨hc, hA, hns⟩
   exact ⟨hct.1, hct.2.1⟩
 
+-- ============================================================
+-- LiveExt no mira los tríos del estado
+-- ============================================================
+
+theorem liveChain_setT {g : GPathB} {F : Trios} {T : List (PathNodeId × PathNodeId × PathNodeId)}
+    {C : Int → PathNodeId} {j : Int} (h : LiveChain g F C j) : LiveChain (g.setT T) F C j :=
+  ⟨⟨h.chain.node, h.chain.adj, h.chain.link⟩, h.live⟩
+
+theorem liveChain_of_setT {g : GPathB} {F : Trios} {T : List (PathNodeId × PathNodeId × PathNodeId)}
+    {C : Int → PathNodeId} {j : Int} (h : LiveChain (g.setT T) F C j) : LiveChain g F C j :=
+  ⟨⟨h.chain.node, h.chain.adj, h.chain.link⟩, h.live⟩
+
+theorem liveExt_setT {g : GPathB} {F : Trios} (h : LiveExt g F) (T : List (PathNodeId × PathNodeId × PathNodeId)) :
+    LiveExt (g.setT T) F := by
+  intro C j hC hj1 hjt
+  obtain ⟨C', hC', hag⟩ := h C j (liveChain_of_setT hC) hj1 hjt
+  exact ⟨C', liveChain_setT hC', hag⟩
+
+-- ============================================================
+-- El UP `:on` conserva LiveExt con los tríos reales
+-- ============================================================
+
+section Up
+
+variable {g : GPathB} {d : NodeId} {title : String} {forb : PathNodeId → Bool} {D : Int → PathNodeId}
+
+/-- **Los tríos de `up_forbid!` no son de ninguna camarilla que esquive los tríos**: el padre de la camarilla es
+padre del nodo nuevo y no corta el trío. -/
+theorem upTodo_notOnS (hdS : d.step = g.current_step) (hct : CT ((g.addNode d title forb).setT g.trios) D) :
+    ∀ t ∈ (g.newRowIds d forb).flatMap (fun n => upForbidTodo (Idx.of ((g.addNode d title forb).setT g.trios)) n
+        (((g.addNode d title forb).setT g.trios).parentsOf n)),
+      ¬ (OnS (g.current_step + 1) D t.1 ∧ OnS (g.current_step + 1) D t.2.1 ∧ OnS (g.current_step + 1) D t.2.2) := by
+  let a' := (g.addNode d title forb).setT g.trios
+  have hcs : a'.current_step = g.current_step + 1 := rfl
+  have onA : ∀ x, OnS (g.current_step + 1) D x → OnS a'.current_step D x := fun x h => h
+  have hc : Carried a' D := hct.1
+  have hid : ∀ q ∈ g.newRowIds d forb, q.id = d := fun q hq => newRow_id' hq
+  have hidx : ∀ k, 0 ≤ k → k < g.current_step + 1 → (D k).id.step = k := fun k h0 h1 => hc.step k h0 h1
+  intro t ht ⟨hn, hw, hr⟩
+  obtain ⟨n, hnm, ht⟩ := List.mem_flatMap.mp ht
+  unfold upForbidTodo at ht
+  obtain ⟨wr, hwr, rfl⟩ := List.mem_map.mp ht
+  simp only at hn hw hr
+  obtain ⟨hwr1, hwr2⟩ := List.mem_filter.mp hwr
+  simp only [Bool.and_eq_true, List.all_eq_true] at hwr2
+  obtain ⟨kn, hk0, hk1, hkn⟩ := hn
+  have hkcs : kn = g.current_step := by
+    have := hidx kn hk0 hk1; rw [hkn, hid _ hnm, hdS] at this; omega
+  subst hkcs
+  obtain ⟨hw1, _⟩ := mem_pairsOf hwr1
+  have hwn : wr.1 ≠ n := ((idx_mem_nbrs a' n wr.1).mp hw1).1
+  obtain ⟨j, hj0, hj1, hjw⟩ := hw
+  have hjcs : j < g.current_step := by
+    rcases Int.lt_or_eq_of_le (show j ≤ g.current_step by omega) with h | h
+    · exact h
+    · exfalso; apply hwn; rw [← hjw, ← hkn, h]
+  have hpos : 0 < g.current_step := by omega
+  obtain ⟨m, hm, hmp, _⟩ := hc.node g.current_step (by omega) (by rw [hcs]; omega)
+  have hpm : D (g.current_step - 1) ∈ a'.parentsOf n := by
+    unfold parentsOf; rw [← hkn, hm]; exact hmp hpos
+  have hsf := hwr2.2 _ hpm
+  rw [idx_sideForbids, sideForbidsB_false hct (onA _ ⟨g.current_step - 1, by omega, by omega, rfl⟩)
+    (onA _ ⟨j, hj0, by omega, hjw⟩) (onA _ hr)] at hsf
+  cases hsf
+
+/-- Con los tríos por debajo del paso, la fila nueva no cambia la relación de tríos. -/
+theorem tF_addNode (htb : TBelow g) (hdS : d.step = g.current_step) :
+    TF ((g.addNode d title forb).setT g.trios) = TF g := by
+  funext x y z
+  apply propext
+  have hid : ∀ q ∈ g.newRowIds d forb, q.id = d := fun q hq => newRow_id' hq
+  constructor
+  · rintro ⟨hne, hd⟩
+    refine ⟨hne, ?_⟩
+    unfold deadTrio at hd ⊢
+    rw [Bool.and_eq_true] at hd ⊢
+    obtain ⟨t, ht, hti⟩ := List.any_eq_true.mp hd.2
+    obtain ⟨c1, c2, _⟩ := trioIs_mem' hti
+    have hbt := htb t ht
+    have hx := step_of_comp hbt c1
+    have hy := step_of_comp hbt c2
+    have nx : x ∉ g.newRowIds d forb := fun h => by rw [hid _ h, hdS] at hx; omega
+    have ny : y ∉ g.newRowIds d forb := fun h => by rw [hid _ h, hdS] at hy; omega
+    exact ⟨hasEdge_addNode_old (title := title) nx ny hd.1, hd.2⟩
+  · rintro ⟨hne, hd⟩
+    refine ⟨hne, ?_⟩
+    unfold deadTrio at hd ⊢
+    rw [Bool.and_eq_true] at hd ⊢
+    refine ⟨?_, hd.2⟩
+    obtain ⟨e, he, hj⟩ := List.any_eq_true.mp hd.1
+    exact List.any_eq_true.mpr ⟨e, List.mem_append_left _ he, hj⟩
+
+theorem noDegT_upForbidRow (hns : NoSelf ((g.addNode d title forb).setT g.trios)) (hndt : NoDegT g) :
+    NoDegT (((g.addNode d title forb).setT g.trios).upForbidRow (g.newRowIds d forb)) := by
+  let a' := (g.addNode d title forb).setT g.trios
+  intro t ht
+  unfold upForbidRow at ht
+  rcases mem_addTrios a' _ _ t ht with h1 | h1
+  · exact hndt t h1
+  · obtain ⟨n, _, h1⟩ := List.mem_flatMap.mp h1
+    unfold upForbidTodo at h1
+    obtain ⟨wr, hwr, rfl⟩ := List.mem_map.mp h1
+    obtain ⟨hwr1, hwr2⟩ := List.mem_filter.mp hwr
+    simp only [Bool.and_eq_true] at hwr2
+    obtain ⟨hw, hr⟩ := mem_pairsOf hwr1
+    have hwn := ((idx_mem_nbrs a' n wr.1).mp hw).1
+    have hrn := ((idx_mem_nbrs a' n wr.2).mp hr).1
+    have hwr' : wr.1 ≠ wr.2 := by
+      intro h
+      have he := hwr2.1
+      rw [idx_hasEdge, h, hasEdge_self_false hns] at he
+      cases he
+    exact ⟨fun h => hwn h.symm, fun h => hrn h.symm, hwr'⟩
+
+/-- **El UP `:on` conserva `LiveExt` con los tríos reales.** -/
+theorem liveExt_upOn (hv : g.isValid = true) (hext : LiveExt g (TF g)) (hdocs : AliveDocs g) (hb : Machine.Below g)
+    (hda : DocsAlive g) (hli : LinksInv g) (hz : AboveZero g) (hnd : NodupIds g) (hr : RootNone g)
+    (hns : NoSelf g) (hndt : NoDegT g) (htb : TB g) (hdS : d.step = g.current_step) :
+    LiveExt (g.upOn d title forb) (TF (g.upOn d title forb)) := by
+  unfold upOn
+  rw [if_pos hv]
+  let a := g.addNode d title forb
+  let a' := a.setT g.trios
+  have hB : FBelow (TF g) g.current_step := by
+    intro x y z ⟨_, hd⟩
+    unfold deadTrio at hd
+    rw [Bool.and_eq_true] at hd
+    obtain ⟨t, ht, hti⟩ := List.any_eq_true.mp hd.2
+    obtain ⟨c1, c2, c3⟩ := trioIs_mem' hti
+    have hbt := htb.1 t ht
+    exact ⟨step_of_comp hbt c1, step_of_comp hbt c2, step_of_comp hbt c3⟩
+  -- la fila, con los tríos de antes
+  have h1 : LiveExt a (TF g) := liveExt_addNode_same (title := title) (forb := forb) hext hdocs hb hda hdS hB
+  have h2 : LiveExt a' (TF a') := by
+    rw [show TF a' = TF g from tF_addNode htb.1 hdS]; exact liveExt_setT h1 g.trios
+  have hdocs' : AliveDocs a' := Machine.aliveDocs_addNode (title := title) (forb := forb) hdocs
+  have hli' : LinksInv a' := linksInv_addNode (title := title) (forb := forb) hli hb hz hdS
+  have hr' : RootNone a' := rootNone_addNode (title := title) (forb := forb) hr hdS
+  have hnd' : NodupIds a' := nodupIds_addNode (title := title) (forb := forb) hnd hb hdS
+  have hns' : NoSelf a' := noSelf_addNode (title := title) hns
+  have hndt' : NoDegT a' := hndt
+  -- `up_forbid!`
+  obtain ⟨T', hT⟩ := upForbidRow_eq a' (g.newRowIds d forb)
+  have h3 : LiveExt (a'.upForbidRow (g.newRowIds d forb)) (TF (a'.upForbidRow (g.newRowIds d forb))) := by
+    have hgrow : ∀ t ∈ a'.trios, t ∈ (a'.upForbidRow (g.newRowIds d forb)).trios := by
+      intro t ht; unfold upForbidRow addTrios; exact List.mem_append_left _ ht
+    refine liveExt_of_keep' h2 hdocs' hli' hr' hnd' (noDeg_TF hndt')
+      (by rw [hT]; exact (shrinks_setT a' T').1)
+      (fun x y z hxy _ _ hf => tF_mono hgrow hxy hf) ?_
+    intro D hc hA
+    have hA' := avoids_addTrios hA (Idx.of a') _ (upTodo_notOnS hdS ⟨hc, hA, hns'⟩)
+    refine ⟨?_, hA'⟩
+    rw [hT]; exact ⟨hc.step, hc.alive, hc.adj, hc.root, hc.node⟩
+  -- el review
+  have hns'' : NoSelf (a'.upForbidRow (g.newRowIds d forb)) := by rw [hT]; exact hns'
+  exact liveExt_reviewOn h3 (by rw [hT]; exact hdocs') (by rw [hT]; exact hli') (by rw [hT]; exact hr')
+    (by rw [hT]; exact hnd') hns'' (noDegT_upForbidRow hns' hndt)
+
+end Up
+
 end GPathB
 
 end AbsSatBingo.Model
