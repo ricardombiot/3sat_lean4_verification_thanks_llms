@@ -101,3 +101,4 @@ import AbsSatBingo.Tagged.Defs
 import AbsSatBingo.Tagged.Carried
 import AbsSatBingo.Tagged.Keeps
 import AbsSatBingo.Tagged.Machine
+import AbsSatBingo.Model.ForbidOn

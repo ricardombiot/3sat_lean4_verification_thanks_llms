@@ -50,6 +50,10 @@ structure GPathB where
   la ventana saltada del UP y toda poda del review; el review solo corre con él activo. Hace falta para que
   los estados coincidan con los de Julia (sin él, el modelo revisaría más a menudo). -/
   dirty        : Bool
+  /-- Julia `Edge.forbid` con `FORBID = :on` (`ForbidOn.lean`): los tríos prohibidos escritos desde el último join.
+  Julia escribe cada trío en sus tres aristas a la vez; aquí se guarda el trío y la consulta (`deadTrio`) pide la
+  arista, que es lo mismo. Con `FORBID = :off` vale siempre `[]` y ninguna operación lo mira. -/
+  trios        : List (PathNodeId × PathNodeId × PathNodeId) := []
   deriving Repr
 
 namespace GPathB
