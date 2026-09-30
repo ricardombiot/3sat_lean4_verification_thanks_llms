@@ -366,6 +366,33 @@ theorem pinSwap_of_noNewClose {D₀ D₁ E A₀ A₁ : GPathB} {F₀ F₁ : Trio
   refine ⟨sideForbids_arrival hv₀ hd hea₀ hsep₀ ap aq ar (by omega) (by omega) (by omega) t0,
     sideForbids_arrival hv₁ (by rw [hcs₁]; exact hd) hea₁ hsep₁ ap aq ar (by omega) (by omega) (by omega) t1⟩
 
+-- ============================================================
+-- CrossClosed es monótono (sobrevive a los pins de los dos lados)
+-- ============================================================
+
+/-- Una cadena de un subestado es cadena del estado (con ids únicos arriba). -/
+theorem spineChain_sub {h g : GPathB} (hs : Sub h g) (hnd : NodupIds g) {C : Int → PathNodeId} {j : Int}
+    (hC : SpineChain h C j) : SpineChain g C j := by
+  refine ⟨fun k h1 h2 => ?_, fun k l h1 h2 h3 h4 => ?_, fun k h1 h2 => ?_⟩
+  · obtain ⟨a, b⟩ := hC.node k h1 (by rw [hs.step]; exact h2); exact ⟨a, hs.alive _ b⟩
+  · exact hs.adj _ _ (hC.adj k l h1 (by rw [hs.step]; exact h2) h3 (by rw [hs.step]; exact h4))
+  · obtain ⟨n, hn, hp⟩ := hC.link k h1 (by rw [hs.step]; exact h2)
+    obtain ⟨m, hm, hpm⟩ := node?_sub hs hnd hn
+    exact ⟨m, hm, hpm _ hp⟩
+
+theorem sideForbids_sub {h g : GPathB} {F : Trios} (hs : Sub h g) {u v w : PathNodeId}
+    (hf : SideForbids g F u v w) : SideForbids h F u v w := by
+  rcases hf with hn | hF
+  · exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hs.adj _ _ a, hs.adj _ _ b, hs.adj _ _ c⟩
+  · exact Or.inr hF
+
+/-- **`CrossClosed` es monótono**: pasa a subestados de los dos lados (p. ej. `pinF A R`, `pinF B R`). -/
+theorem crossClosed_mono {A A' B B' : GPathB} {FA FB : Trios} (hc : CrossClosed A FA B FB) (hA : Sub A' A)
+    (hnd : NodupIds A) (hB : Sub B' B) : CrossClosed A' FA B' FB := by
+  intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
+  rw [hA.step] at h2 h4 h6
+  exact sideForbids_sub hB (hc C j (spineChain_sub hA hnd hC) p q r h1 h2 h3 h4 h5 h6 hf)
+
 end GPathB
 
 end AbsSatBingo.Model

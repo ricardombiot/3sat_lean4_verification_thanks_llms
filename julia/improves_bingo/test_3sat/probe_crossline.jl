@@ -56,6 +56,18 @@ function cross(s, o)
         k = length(chain)
         for i in 1:k-1, j in i+1:k-1
             a, b = chain[i], chain[j]
+            if KIND[] == "cl" && !isempty(PREV)
+                for D in PREV
+                    status(D, a, b, x) == "T" || continue
+                    for A in ARR
+                        A.map_parent_id == s.map_parent_id || continue
+                        xs = alive_at(A, Int(A.current_step) - 1)
+                        (isempty(xs) || first(xs).parent_id != D.map_parent_id) && continue
+                        bump(:all_Dopen)
+                        status(A, a, b, x) == "T" || bump(:all_Dopen_Aclosed)
+                    end
+                end
+            end
             PG.dead_trio(s.og, a, b, x) || continue
             bump(:bad); bump(Symbol("bad_", KIND[]))
             if !isempty(PREV)
@@ -105,7 +117,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:sender_open_cl, :sender_closed_cl, :lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
+    cols = (:all_Dopen, :all_Dopen_Aclosed, :sender_open_cl, :sender_closed_cl, :lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
