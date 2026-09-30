@@ -103,3 +103,4 @@ import AbsSatBingo.Tagged.Keeps
 import AbsSatBingo.Tagged.Machine
 import AbsSatBingo.Model.ForbidOn
 import AbsSatBingo.Model.ForbidOnBook
+import AbsSatBingo.Model.ForbidOnClosed
