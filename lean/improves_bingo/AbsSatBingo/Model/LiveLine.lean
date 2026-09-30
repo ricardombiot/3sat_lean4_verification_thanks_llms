@@ -297,6 +297,23 @@ theorem cc_arrivals {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {reqs : List NodeId}
   refine crossClosed_same hup ?_ ⟨ha₀, hj₀⟩ ⟨ha₁, hj₁⟩ hiA₀.links.2.2 hiX₀.links hiA₁.edges
   rw [step_pinF, step_up hvY₀, (shrinks_filterAll D₀ reqs).1.step, step_upR, hcsX₀]
 
+-- ============================================================
+-- Más pins: un estado más pequeño
+-- ============================================================
+
+/-- **Fijar más da un estado dentro**: el estado cerrado de `pinF g (L ++ R)` es una estructura cerrada de `g` que
+concuerda con `R`, así que queda en `pinF g R` (vivos y aristas). -/
+theorem pinF_append_sub {g : GPathB} {L R : List NodeId} (hg : SInvB g) (hcs : 2 ≤ g.current_step)
+    (hv : (pinF g (L ++ R)).isValid = true) :
+    (∀ q ∈ (pinF g (L ++ R)).alive, q ∈ (pinF g R).alive) ∧
+    (∀ y w, y ∈ (pinF g (L ++ R)).alive → w ∈ (pinF g (L ++ R)).alive → (pinF g (L ++ R)).Adj y w →
+      (pinF g R).Adj y w) := by
+  have hc := closedState_pinF hg hv hcs
+  have hs := secStruct_of_sub (sub_pinF g _) hg.nodup hc
+  have hp := secStruct_pinF hs R (fun b hb y hy hys =>
+    pinned_pinF hg.docs hv b (List.mem_append_right _ hb) y hy hys)
+  exact ⟨fun q hq => hp.alive hq, fun y w hy hw ha => hp.adj ⟨hy, hw, ha⟩⟩
+
 end GPathB
 
 end AbsSatBingo.Model
