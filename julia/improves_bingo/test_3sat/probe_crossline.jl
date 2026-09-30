@@ -1,0 +1,107 @@
+# CrossClosed entre todos los estados de una línea (30-sept-2026, rama reader-stuck; lean LiveJoin.lean).
+#
+#   ABL=none|noup PROBE_MAP=bin PROBE_ONLY=clause_mix.cnf,... julia --project=. test_3sat/probe_crossline.jl <salida.tsv>
+#
+# Con FORBID = :on. La máquina paso a paso; en cada línea, para cada par ordenado (A, B) de entradas válidas distintas:
+# se recorren las cadenas de A (de una cima abajo por padres vivos, vecinos dos a dos) y, para cada trío de la cadena
+# prohibido en A, se mira si B lo tiene abierto (triángulo sin prohibir).
+#   lines, pairs, bad (tríos prohibidos en cadenas), open (abiertos en el otro estado), cap
+
+const OUT = abspath(ARGS[1])
+const CAP = 20000
+include(joinpath(@__DIR__, "..", "src/main.jl"))
+include(joinpath(@__DIR__, "probes_lib.jl"))
+using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
+const PG = PathOwnersGraph
+const C = Dict{Symbol, Int}()
+bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
+
+const ABL = get(ENV, "ABL", "none")
+if ABL in ("noup", "noboth")
+    Core.eval(PathOwnersGraph, :(up_forbid!(g :: OwnersGraph, n :: PathNodeId, parents) = nothing))
+end
+
+alive_at(g, l) = collect(get(g.og.alive, l, SetPathNodesId()))
+adj(g, a, b) = a == b ? PG.is_alive(g.og, a) : PG.has_edge(g.og, a, b)
+isopen(o, a, b, x) = PG.has_edge(o.og, a, b) && PG.has_edge(o.og, a, x) && PG.has_edge(o.og, b, x) &&
+                     !PG.dead_trio(o.og, a, b, x)
+
+const KIND = Ref("?")
+function cross(s, o)
+    top = Int(s.current_step) - 1
+    leaves = Ref(0)
+    chain = PathNodeId[]
+    function dfs(x)
+        leaves[] > CAP && return
+        push!(chain, x)
+        k = length(chain)
+        for i in 1:k-1, j in i+1:k-1
+            a, b = chain[i], chain[j]
+            PG.dead_trio(s.og, a, b, x) || continue
+            bump(:bad); bump(Symbol("bad_", KIND[]))
+            isopen(o, a, b, x) && bump(:open)
+            # por qué está cortado en el otro: falta un nodo, falta una arista entre vivos, o está prohibido
+            if !(PG.is_alive(o.og, a) && PG.is_alive(o.og, b) && PG.is_alive(o.og, x))
+                bump(Symbol("why_node_", KIND[]))
+            elseif !(PG.has_edge(o.og, a, b) && PG.has_edge(o.og, a, x) && PG.has_edge(o.og, b, x))
+                bump(Symbol("why_edge_", KIND[]))
+            else
+                bump(Symbol("why_forb_", KIND[]))
+            end
+        end
+        if Int(x.id.step) > 0
+            nd = PathCollectionLines.get_node(s.table_lines, x)
+            if nd !== nothing
+                for p in nd.parents
+                    PG.is_alive(s.og, p) && all(w -> adj(s, w, p), chain) && dfs(p)
+                end
+            end
+        else
+            leaves[] += 1
+        end
+        pop!(chain)
+    end
+    foreach(dfs, alive_at(s, top))
+    leaves[] > CAP && bump(:cap)
+end
+
+function main()
+    _, loader, _ = ProbeLib.map_of_env()
+    cols = (:lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
+    header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
+    ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
+                                                   dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
+        ex = ProbeLib.exhaustive(path)
+        truth = ex === nothing ? "?" : string(!isempty(ex))
+        empty!(C)
+        PG.FORBID[] = :on
+        t = @elapsed begin
+            machine = SatMachine.new(loader(path))
+            redirect_stdout(devnull) do
+                SatMachine.init!(machine)
+                while true
+                    gs = [g for g in SatMachine.get_gpath_list(machine) if g.is_valid]
+                    bump(:lines)
+                    if !isempty(gs)
+                        ttl = SatMachine.map_get_node(machine.gmap, gs[1].map_parent_id).title
+                        KIND[] = startswith(ttl, "or") ? "cl" : startswith(ttl, "!") ? "neg" :
+                                 occursin("Fusion", ttl) ? "fus" : "var"
+                        bump(Symbol("lines_", KIND[]))
+                        C[Symbol("title_", KIND[])] = 1
+                    end
+                    for A in gs, B in gs
+                        A === B && continue
+                        bump(:pairs)
+                        cross(A, B)
+                    end
+                    (SatMachine.is_finished(machine) || !SatMachine.have_gpaths_step(machine)) && break
+                    SatMachine.make_step!(machine)
+                end
+            end
+        end
+        PG.FORBID[] = :off
+        return (truth, (get(C, c, 0) for c in cols)..., round(t, digits = 1))
+    end
+end
+
+main()
