@@ -40,7 +40,7 @@ open Machine (Below)
 /-- **Una cadena viva** desde el paso `j` hasta la cima: cadena de la espina sin trío prohibido. -/
 structure LiveChain (g : GPathB) (F : Trios) (C : Int → PathNodeId) (j : Int) : Prop where
   chain : SpineChain g C j
-  live  : ∀ a b c, j ≤ a → a < b → b < c → c ≤ g.current_step - 1 → ¬ F (C a) (C b) (C c)
+  live  : ∀ a b c, j ≤ a → a < b → b < c → c ≤ g.current_step - 1 → ¬ Sym F (C a) (C b) (C c)
 
 /-- **`LiveExt`**: toda cadena viva que no ha llegado al paso 0 se alarga, viva, con un paso más. -/
 def LiveExt (g : GPathB) (F : Trios) : Prop :=

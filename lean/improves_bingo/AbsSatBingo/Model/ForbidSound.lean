@@ -87,12 +87,12 @@ theorem not_sideForbids {g : GPathB} {F : Trios} {S : Int → PathNodeId} (h : C
 /-- **Los tríos tras el UP** (Julia `up_forbid!`): los de antes, y `(x, y, z)` con `x` de la fila nueva e `y`, `z`
 debajo, si para todo padre `p` de `x` el lado prohíbe `(p, y, z)`. -/
 def upF (g : GPathB) (F : Trios) (d : NodeId) : Trios := fun x y z =>
-  F x y z ∨ (x.id.step = g.current_step ∧ y.id.step < g.current_step ∧ z.id.step < g.current_step ∧
+  F x y z ∨ (x.id.step = g.current_step ∧ y.id.step < g.current_step ∧ z.id.step < g.current_step ∧ y ≠ z ∧
     ∀ p ∈ g.rowParents d x, SideForbids g F p y z)
 
 theorem fBelow_upF {g : GPathB} {F : Trios} {d : NodeId} (hB : FBelow F g.current_step) :
     FBelow (upF g F d) (g.current_step + 1) := by
-  rintro x y z (hf | ⟨hx, hy, hz, _⟩)
+  rintro x y z (hf | ⟨hx, hy, hz, _, _⟩)
   · obtain ⟨a, b, c⟩ := hB x y z hf; exact ⟨by omega, by omega, by omega⟩
   · exact ⟨by omega, by omega, by omega⟩
 
@@ -108,7 +108,7 @@ theorem avoids_upF {g : GPathB} {F : Trios} {d : NodeId} {S : Int → PathNodeId
     · exact h.step i h0 hi
     · rw [show i = g.current_step by omega]; exact hstep
   intro i j k h0 h1 h2 h3 h4 h5 hf
-  rcases hf with hf | ⟨hx, hy, hz, hall⟩
+  rcases hf with hf | ⟨hx, hy, hz, _, hall⟩
   · obtain ⟨a, b, c⟩ := hB _ _ _ hf
     rw [hst i h0 h1] at a; rw [hst j h2 h3] at b; rw [hst k h4 h5] at c
     exact hA i j k h0 a h2 b h4 c hf
@@ -165,7 +165,7 @@ def GoodWitness (g : GPathB) (F : Trios) (a b r s : PathNodeId) : Prop :=
 no tienen testigo bueno. -/
 def ruleF (g : GPathB) (F : Trios) : Trios := fun a b r =>
   F a b r ∨ (a.id.step < g.current_step ∧ b.id.step < g.current_step ∧ r.id.step < g.current_step ∧
-    ∃ l, 0 ≤ l ∧ l < g.current_step ∧ ∀ s, s ∈ g.alive → s.id.step = l → ¬ GoodWitness g F a b r s)
+    a ≠ b ∧ a ≠ r ∧ b ≠ r ∧ ∃ l, 0 ≤ l ∧ l < g.current_step ∧ ∀ s, s ∈ g.alive → s.id.step = l → ¬ GoodWitness g F a b r s)
 
 theorem fBelow_ruleF {g : GPathB} {F : Trios} (hB : FBelow F g.current_step) : FBelow (ruleF g F) g.current_step := by
   rintro x y z (hf | ⟨a, b, c, _⟩)
@@ -184,7 +184,7 @@ theorem goodWitness_of {g : GPathB} {F : Trios} {S : Int → PathNodeId} (h : Ca
 theorem avoids_ruleF {g : GPathB} {F : Trios} {S : Int → PathNodeId} (h : Carried g S)
     (hA : Avoids F g.current_step S) : Avoids (ruleF g F) g.current_step S := by
   intro i j k h0 h1 h2 h3 h4 h5 hf
-  rcases hf with hf | ⟨_, _, _, l, h6, h7, hno⟩
+  rcases hf with hf | ⟨_, _, _, _, _, _, l, h6, h7, hno⟩
   · exact hA i j k h0 h1 h2 h3 h4 h5 hf
   · exact hno (S l) (h.alive l h6 h7) (h.step l h6 h7) (goodWitness_of h hA h0 h1 h2 h3 h4 h5 h6 h7)
 
