@@ -7,6 +7,19 @@ todas las medidas de la rama se hicieron con `:on`. Decisiones de Ricardo:
 3. **también la herencia del UP** (`up_forbid!`);
 4. revertir `TriClq` (hecho, `c693d31`).
 
+## Estado (30-sept-2026)
+
+| fase | commits | resultado |
+|---|---|---|
+| F1 modelo | `e11aa73` | `GPathB.trios`, `ForbidOn.lean`, máquina con modo (`runM`); `.off` = lo de siempre por `rfl` |
+| F2 diferencial | `a18b59b` | índice hash; **Lean = Julia `:on`** en `clause_mix` (1 472 líneas, 947 aristas con tríos), `v4_c12_i1` (469), `clause_mix_sep` (2 345, 1 724); `:off` en `clause_mix` (525) |
+| F3 contabilidad y cierre | `0cf4677`, `eddcaae`, `028db8f` | `revPrims_reviewOn`; **`closedState_reviewOn`**; el índice dice lo mismo que las listas |
+| F3 solidez | `f4d40c4`, `b9a97e4`, `ed6b2ab` | la rama solución esquiva los tríos reales por regla, review, filtro, join y UP (`CT`); **`machineVerdictOn_of_sat`** |
+| F3/F4 forma y veredicto | `a948b61` | **`spineVerdictOn_iff_of_liveExt`**: la espina `:on` decide la satisfacibilidad si los estados finales revisados cumplen `LiveExt` con sus propios tríos (`TF`). Sin familias fantasma |
+
+Lo abierto: `LiveExt (reviewAllOn g) (TF (reviewAllOn g))` en los estados finales de la máquina `:on`. En Julia lo mide
+`probe_liveext.jl` (columnas `fin_*`, `FORBID=:on`), que ahora es el espejo exacto.
+
 ## Qué hace Julia `:on` (el objetivo del espejo)
 
 | Julia | dónde | qué hace |
