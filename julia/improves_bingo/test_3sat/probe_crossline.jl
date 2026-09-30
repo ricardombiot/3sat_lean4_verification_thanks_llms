@@ -12,11 +12,27 @@ const CAP = 20000
 include(joinpath(@__DIR__, "..", "src/main.jl"))
 include(joinpath(@__DIR__, "probes_lib.jl"))
 using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
+using Random
 const PG = PathOwnersGraph
 const C = Dict{Symbol, Int}()
 bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
 
 const ABL = get(ENV, "ABL", "none")
+
+# Máquina con pins extra (EXTRA=k, SEED=s): k variables al azar fijadas a un valor al azar; cada UP añade a sus
+# requisitos los pins de pasos ya por debajo de la cima (la máquina "con los requisitos R añadidos").
+const EXTRA = parse(Int, get(ENV, "EXTRA", "0"))
+const SEED = parse(Int, get(ENV, "SEED", "1"))
+const XPINS = Ref(SetNodesId())
+Core.eval(GraphPath, quote
+    function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
+                              prohibited :: Set{PathNodeId} = Set{PathNodeId}())
+        gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
+        req = union(requires, SetNodesId(r for r in $(XPINS)[] if r.step < gpath.current_step))
+        filter!(gpath, req)
+        do_up!(gpath, map_id_node, title, prohibited)
+    end
+end)
 if ABL in ("noup", "noboth")
     Core.eval(PathOwnersGraph, :(up_forbid!(g :: OwnersGraph, n :: PathNodeId, parents) = nothing))
 end
@@ -127,6 +143,19 @@ function main()
         PG.FORBID[] = :on
         t = @elapsed begin
             machine = SatMachine.new(loader(path))
+            if EXTRA > 0
+                rng = MersenneTwister(SEED)
+                vars = Dict{Int, Vector{NodeId}}()
+                for st in 1:machine.gmap.step-1
+                    SatMachine.map_for_each_node_step(machine.gmap, Step(st), n ->
+                        (occursin("=", n.title) && !startswith(n.title, "!") && !startswith(n.title, "or")) &&
+                            push!(get!(vars, st, NodeId[]), n.id))
+                end
+                vsteps = shuffle(rng, collect(keys(vars)))[1:min(EXTRA, length(vars))]
+                XPINS[] = SetNodesId(rand(rng, vars[st]) for st in vsteps)
+            else
+                XPINS[] = SetNodesId()
+            end
             redirect_stdout(devnull) do
                 SatMachine.init!(machine)
                 while true

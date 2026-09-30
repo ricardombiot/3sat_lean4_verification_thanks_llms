@@ -148,7 +148,8 @@ theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB
     (hcs : A.current_step = B.current_step)
     (htopA : ∀ t ∈ A.alive, t.id.step = A.current_step - 1 → t ∉ B.alive)
     (htopB : ∀ t ∈ B.alive, t.id.step = B.current_step - 1 → t ∉ A.alive)
-    (hcc : ∀ R, CrossClosed (pinF A R) (FA R) (pinF B R) (FB R) ∧ CrossClosed (pinF B R) (FB R) (pinF A R) (FA R))
+    (hcc : ∀ R, (pinF A R).isValid = true → (pinF B R).isValid = true →
+      CrossClosed (pinF A R) (FA R) (pinF B R) (FB R) ∧ CrossClosed (pinF B R) (FB R) (pinF A R) (FA R))
     (hsplit : PinJoinSplitAll A B) : Good (join A B) (joinFam A B FA FB) := by
   have hcsU : (join A B).current_step = A.current_step := rfl
   have hiU := sInvB_join hA.inv hB.inv hcs
@@ -170,7 +171,7 @@ theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB
             ((sub_pinF B R).alive t hb))
           (fun t ht hts ha => htopB t ((sub_pinF B R).alive t ht) (by rw [hts, hcsB])
             ((sub_pinF A R).alive t ha))
-          hiA.edges hiB.edges hiA.links hiB.links (hcc R).1 (hcc R).2
+          hiA.edges hiB.edges hiA.links hiB.links (hcc R hvA hvB).1 (hcc R hvA hvB).2
       have hJ := liveExt_join (hA.live R hvA) (hB.live R hvB) (by rw [hcsA, hcsB, hcs]) hside
       have hJ' := liveExt_congrF (G := joinFD (pinF A R).current_step (pinF A R) (FA R) (pinF B R) (FB R))
         (fun x y z a b c => ⟨fun h => ⟨a, b, c, h⟩, fun h => h.2.2.2⟩) hJ
@@ -256,6 +257,45 @@ theorem crossClosed_upR {X₀ X₁ : GPathB} {F₀ F₁ : Trios} {d₀ d₁ : No
   · exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hadj p q h1 (by omega) h3 (by omega) a, hadj p r h1 (by omega) h5 (by omega) b,
       hadj q r h3 (by omega) h5 (by omega) c⟩
   · exact Or.inr hF
+
+/-- `CrossClosed` entre dos estados con los mismos vivos y aristas que otros dos. -/
+theorem crossClosed_same {A A' B B' : GPathB} {FA FB : Trios} (hc : CrossClosed A FA B FB)
+    (hcsA : A'.current_step = A.current_step) (hA : SameGraph A' A) (hB : SameGraph B' B)
+    (hkA' : LinksCompat A') (hliA : LinksInv A) (heaB' : EdgesAlive B') : CrossClosed A' FA B' FB :=
+  crossClosed_congr hc hcsA (fun q hq => (hA.1 q).mp hq) (fun y w hy hw h => (hA.2 y w hy hw).mp h) hkA' hliA
+    (fun y w h => (hB.2 y w (heaB' _ _ h).1 (heaB' _ _ h).2).mp h)
+
+variable {d : NodeId} {title : String} {forb : PathNodeId → Bool}
+
+/-- **`CrossClosed` entre las llegadas fijadas de un join**, desde `CrossClosed` entre los remitentes fijados con los
+requisitos del UP añadidos. -/
+theorem cc_arrivals {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {reqs : List NodeId} (hD₀ : Good D₀ F₀) (hD₁ : Good D₁ F₁)
+    (hcs : D₀.current_step = D₁.current_step) (hd : d.step = D₀.current_step)
+    (hcc : ∀ R, (pinF D₀ R).isValid = true → (pinF D₁ R).isValid = true →
+      CrossClosed (pinF D₀ R) (F₀ R) (pinF D₁ R) (F₁ R)) (R : List NodeId)
+    (hv₀ : (pinF ((D₀.filterAll reqs).up d title forb) R).isValid = true)
+    (hv₁ : (pinF ((D₁.filterAll reqs).up d title forb) R).isValid = true) :
+    CrossClosed (pinF ((D₀.filterAll reqs).up d title forb) R) (F₀ (reqs ++ R))
+      (pinF ((D₁.filterAll reqs).up d title forb) R) (F₁ (reqs ++ R)) := by
+  have hd₁ : d.step = D₁.current_step := by rw [← hcs]; exact hd
+  obtain ⟨hvX₀, ha₀, hj₀⟩ := arrival_pin_commute (title := title) (forb := forb) hD₀.inv (by have := hD₀.pos; omega) hd hv₀
+  obtain ⟨hvX₁, ha₁, hj₁⟩ := arrival_pin_commute (title := title) (forb := forb) hD₁.inv (by have := hD₁.pos; omega) hd₁ hv₁
+  have hcX := hcc (reqs ++ R) hvX₀ hvX₁
+  have hcsX₀ : (pinF D₀ (reqs ++ R)).current_step = D₀.current_step := step_pinF _ _
+  have hcsX₁ : (pinF D₁ (reqs ++ R)).current_step = D₁.current_step := step_pinF _ _
+  have hup := crossClosed_upR (d₀ := d) (d₁ := d) (t₀ := title) (t₁ := title) (f₀ := forb) (f₁ := forb) hcX
+    (by rw [hcsX₀]; exact hD₀.below _) (sInvB_pinF hD₀.inv _) (by rw [hcsX₀, hcsX₁, hcs])
+    (by rw [hcsX₀]; exact hd) (by rw [hcsX₁]; exact hd₁)
+  have hiA₀ := sInvB_pinF (sInvB_up (sInvB_filterAll hD₀.inv reqs) (d := d) (title := title) (forb := forb)
+    (by rw [(shrinks_filterAll D₀ reqs).1.step]; exact hd) (by have := hD₀.pos; omega)) R
+  have hiA₁ := sInvB_pinF (sInvB_up (sInvB_filterAll hD₁.inv reqs) (d := d) (title := title) (forb := forb)
+    (by rw [(shrinks_filterAll D₁ reqs).1.step]; exact hd₁) (by have := hD₁.pos; omega)) R
+  have hiX₀ : SInvB (upR (pinF D₀ (reqs ++ R)) d title forb) :=
+    sInvB_review (sInvB_dirty (sInvB_addNode (sInvB_pinF hD₀.inv _) (by rw [hcsX₀]; exact hd)
+      (by have := hD₀.pos; omega)) true)
+  have hvY₀ : (D₀.filterAll reqs).isValid = true := valid_of_up (isValid_of_sub (sub_pinF _ R) hv₀)
+  refine crossClosed_same hup ?_ ⟨ha₀, hj₀⟩ ⟨ha₁, hj₁⟩ hiA₀.links.2.2 hiX₀.links hiA₁.edges
+  rw [step_pinF, step_up hvY₀, (shrinks_filterAll D₀ reqs).1.step, step_upR, hcsX₀]
 
 end GPathB
 
