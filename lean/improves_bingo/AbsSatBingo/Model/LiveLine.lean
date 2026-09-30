@@ -143,13 +143,20 @@ def PinJoinSplitAll (A B : GPathB) : Prop :=
   ∀ R, (pinF (join A B) R).isValid = true →
     SameGraph (pinF (join A B) R) (pinJoin A B R) ∧ ((pinF A R).isValid = true ∨ (pinF B R).isValid = true)
 
-/-- **La unión es `Good`**, bajo `CrossClosed` entre los lados fijados, cimas separadas y `PinJoinSplitAll`. -/
-theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB)
+/-- **`CrossClosedL` entre los lados fijados**: en cada lista de pins, `CrossClosed` en los dos sentidos solo en las
+cadenas vivas de la unión de los lados fijados. -/
+def PinCrossL (A B : GPathB) (FA FB : FamT) (R : List NodeId) : Prop :=
+  CrossClosedL (pinF A R) (FA R) (pinF B R) (FB R) (join (pinF A R) (pinF B R))
+      (joinF (pinF A R).current_step (pinF A R) (FA R) (pinF B R) (FB R)) ∧
+    CrossClosedL (pinF B R) (FB R) (pinF A R) (FA R) (join (pinF A R) (pinF B R))
+      (joinF (pinF A R).current_step (pinF A R) (FA R) (pinF B R) (FB R))
+
+/-- **La unión es `Good`**, bajo `CrossClosedL` entre los lados fijados, cimas separadas y `PinJoinSplitAll`. -/
+theorem good_joinL {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB)
     (hcs : A.current_step = B.current_step)
     (htopA : ∀ t ∈ A.alive, t.id.step = A.current_step - 1 → t ∉ B.alive)
     (htopB : ∀ t ∈ B.alive, t.id.step = B.current_step - 1 → t ∉ A.alive)
-    (hcc : ∀ R, (pinF A R).isValid = true → (pinF B R).isValid = true →
-      CrossClosed (pinF A R) (FA R) (pinF B R) (FB R) ∧ CrossClosed (pinF B R) (FB R) (pinF A R) (FA R))
+    (hcc : ∀ R, (pinF A R).isValid = true → (pinF B R).isValid = true → PinCrossL A B FA FB R)
     (hsplit : PinJoinSplitAll A B) : Good (join A B) (joinFam A B FA FB) := by
   have hcsU : (join A B).current_step = A.current_step := rfl
   have hiU := sInvB_join hA.inv hB.inv hcs
@@ -166,7 +173,7 @@ theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB
     by_cases hvA : (pinF A R).isValid = true <;> by_cases hvB : (pinF B R).isValid = true
     · rw [if_pos hvA, if_pos hvB] at hsame ⊢
       have hside : JoinSide (pinF A R) (FA R) (pinF B R) (FB R) :=
-        joinSide_of_crossClosed (by rw [hcsA, hcsB, hcs])
+        joinSide_of_crossClosedL (by rw [hcsA, hcsB, hcs])
           (fun t ht hts hb => htopA t ((sub_pinF A R).alive t ht) (by rw [hts, hcsA])
             ((sub_pinF B R).alive t hb))
           (fun t ht hts ha => htopB t ((sub_pinF B R).alive t ht) (by rw [hts, hcsB])
@@ -196,6 +203,18 @@ theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB
       · exact fun x y z ⟨a, b, c, _⟩ => ⟨a, b, c⟩
       · exact hA.nodeg R
     · exact hB.nodeg R
+
+
+/-- **La unión es `Good`**, bajo `CrossClosed` entre los lados fijados (la forma fuerte). -/
+theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB)
+    (hcs : A.current_step = B.current_step)
+    (htopA : ∀ t ∈ A.alive, t.id.step = A.current_step - 1 → t ∉ B.alive)
+    (htopB : ∀ t ∈ B.alive, t.id.step = B.current_step - 1 → t ∉ A.alive)
+    (hcc : ∀ R, (pinF A R).isValid = true → (pinF B R).isValid = true →
+      CrossClosed (pinF A R) (FA R) (pinF B R) (FB R) ∧ CrossClosed (pinF B R) (FB R) (pinF A R) (FA R))
+    (hsplit : PinJoinSplitAll A B) : Good (join A B) (joinFam A B FA FB) :=
+  good_joinL hA hB hcs htopA htopB
+    (fun R hvA hvB => ⟨crossClosedL_of (hcc R hvA hvB).1, crossClosedL_of (hcc R hvA hvB).2⟩) hsplit
 
 -- ============================================================
 -- CrossClosed en la forma de la conmutación: la fila nueva revisada sobre el remitente fijado

@@ -15,6 +15,8 @@ En la unión de dos llegadas, con los tríos `joinF` (los que prohíben los dos 
   prohibido en ese lado, está cortado en el otro) y de que las cimas de un lado no vivan en el otro. Una cadena viva de
   la unión que empieza en una cima de `A` usa solo aristas de `A` (los tríos con la cima solo existen en `A`), y un
   trío suyo prohibido en `A` lo cortan los dos lados.
+* **`joinSide_of_crossClosedL`**: basta **`CrossClosedL`**, `CrossClosed` solo en las cadenas de `A` que son cadenas
+  vivas de la unión con la cima fuera de `B` (lo único que usa `liveChain_side`).
 
 (★) es lo que queda del acuerdo entre ramas; con esto, en la forma `CrossClosed`. Medido: 0 violaciones (`probe_joinside.jl`: 79 040 cadenas vivas en 131
 joins). No sale de propiedades locales de tríos: los lados no coinciden en sus tríos prohibidos, y `TopDom` es falsa
@@ -113,15 +115,26 @@ def CrossClosed (A : GPathB) (FA : Trios) (B : GPathB) (FB : Trios) : Prop :=
   ∀ C j, SpineChain A C j → ∀ p q r, j ≤ p → p ≤ A.current_step - 1 → j ≤ q → q ≤ A.current_step - 1 →
     j ≤ r → r ≤ A.current_step - 1 → FA (C p) (C q) (C r) → SideForbids B FB (C p) (C q) (C r)
 
+/-- **`CrossClosedL A FA B FB U J`**: `CrossClosed` solo en las cadenas de `A` que son cadenas vivas de la unión
+`U` (con su relación `J`) y cuya cima no vive en `B`. Es lo único que usa `liveChain_side`. -/
+def CrossClosedL (A : GPathB) (FA : Trios) (B : GPathB) (FB : Trios) (U : GPathB) (J : Trios) : Prop :=
+  ∀ C j, SpineChain A C j → LiveChain U J C j → j ≤ A.current_step - 1 → C (A.current_step - 1) ∉ B.alive →
+    ∀ p q r, j ≤ p → p ≤ A.current_step - 1 → j ≤ q → q ≤ A.current_step - 1 →
+    j ≤ r → r ≤ A.current_step - 1 → FA (C p) (C q) (C r) → SideForbids B FB (C p) (C q) (C r)
+
+theorem crossClosedL_of {A B U : GPathB} {FA FB J : Trios} (hc : CrossClosed A FA B FB) :
+    CrossClosedL A FA B FB U J :=
+  fun C j hch _ _ _ => hc C j hch
+
 /-- **Una cadena viva de la unión que empieza en una cima de `A` es una cadena viva de `A`**, si la cima no vive en
-`B` y vale `CrossClosed A FA B FB`. `J` es la relación de la unión: prohíbe lo que los dos lados cortan. -/
+`B` y vale `CrossClosedL A FA B FB U J`. `J` es la relación de la unión: prohíbe lo que los dos lados cortan. -/
 theorem liveChain_side {A B U : GPathB} {FA FB J : Trios} {C : Int → PathNodeId} {j : Int}
     (hcsU : U.current_step = A.current_step)
     (hadjU : ∀ x y, U.Adj x y → A.Adj x y ∨ B.Adj x y)
     (hJ : ∀ u v w, SideForbids A FA u v w → SideForbids B FB u v w → u.id.step < A.current_step →
       v.id.step < A.current_step → w.id.step < A.current_step → J u v w)
     (heaA : EdgesAlive A) (heaB : EdgesAlive B) (hliA : LinksInv A) (hkU : LinksCompat U)
-    (hcross : CrossClosed A FA B FB) (hC : LiveChain U J C j)
+    (hcross : CrossClosedL A FA B FB U J) (hC : LiveChain U J C j)
     (hjt : j ≤ A.current_step - 1)
     (htB : C (A.current_step - 1) ∉ B.alive) : LiveChain A FA C j := by
   have hnode := fun k (h1 : j ≤ k) (h2 : k ≤ A.current_step - 1) => hC.chain.node k h1 (by rw [hcsU]; exact h2)
@@ -164,7 +177,7 @@ theorem liveChain_side {A B U : GPathB} {FA FB J : Trios} {C : Int → PathNodeI
   -- un trío prohibido en A lo corta B (CrossClosed) y A: la unión lo prohíbe
   have key : ∀ p q r, j ≤ p → p ≤ A.current_step - 1 → j ≤ q → q ≤ A.current_step - 1 → j ≤ r → r ≤ A.current_step - 1 →
       FA (C p) (C q) (C r) → J (C p) (C q) (C r) := fun p q r h1 h2 h3 h4 h5 h6 hf =>
-    hJ _ _ _ (Or.inr hf) (hcross C j hchain p q r h1 h2 h3 h4 h5 h6 hf)
+    hJ _ _ _ (Or.inr hf) (hcross C j hchain hC hjt htB p q r h1 h2 h3 h4 h5 h6 hf)
       (by rw [hsteps p h1 h2]; omega) (by rw [hsteps q h3 h4]; omega) (by rw [hsteps r h5 h6]; omega)
   apply hC.live a b c ha hab hbc (by rw [hcsU]; exact hc)
   unfold Sym at hs ⊢
@@ -176,13 +189,14 @@ theorem liveChain_side {A B U : GPathB} {FA FB J : Trios} {C : Int → PathNodeI
   · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl (key c a b (by omega) hc ha (by omega) (by omega) (by omega) h)))))
   · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (key c b a (by omega) hc (by omega) (by omega) ha (by omega) h)))))
 
-/-- **(★) desde `CrossClosed`**: si las cimas de cada lado no viven en el otro y vale `CrossClosed` en los dos
-sentidos, toda cadena viva de la unión es viva en el lado de su cima. -/
-theorem joinSide_of_crossClosed (hcs : g₁.current_step = g₂.current_step)
+/-- **(★) desde `CrossClosedL`**: si las cimas de cada lado no viven en el otro y vale `CrossClosedL` en los dos
+sentidos (en las cadenas vivas de la unión), toda cadena viva de la unión es viva en el lado de su cima. -/
+theorem joinSide_of_crossClosedL (hcs : g₁.current_step = g₂.current_step)
     (htop₁ : ∀ t ∈ g₁.alive, t.id.step = g₁.current_step - 1 → t ∉ g₂.alive)
     (htop₂ : ∀ t ∈ g₂.alive, t.id.step = g₂.current_step - 1 → t ∉ g₁.alive)
     (hea₁ : EdgesAlive g₁) (hea₂ : EdgesAlive g₂) (hli₁ : LinksInv g₁) (hli₂ : LinksInv g₂)
-    (hc₁₂ : CrossClosed g₁ F₁ g₂ F₂) (hc₂₁ : CrossClosed g₂ F₂ g₁ F₁) : JoinSide g₁ F₁ g₂ F₂ := by
+    (hc₁₂ : CrossClosedL g₁ F₁ g₂ F₂ (join g₁ g₂) (joinF g₁.current_step g₁ F₁ g₂ F₂))
+    (hc₂₁ : CrossClosedL g₂ F₂ g₁ F₁ (join g₁ g₂) (joinF g₁.current_step g₁ F₁ g₂ F₂)) : JoinSide g₁ F₁ g₂ F₂ := by
   intro C j hC hj1
   have hkU := (linksInv_join hli₁ hli₂ hea₁ hea₂).2.2
   have hcsU : (join g₁ g₂).current_step = g₁.current_step := rfl
@@ -202,6 +216,14 @@ theorem joinSide_of_crossClosed (hcs : g₁.current_step = g₂.current_step)
       fun k l h1 h2 _ _ => absurd (by omega : j ≤ g₁.current_step - 1) hjt,
       fun k h1 h2 => absurd (by omega : j ≤ g₁.current_step - 1) hjt⟩,
       fun a b c ha hab hbc hc => absurd (by omega : j ≤ g₁.current_step - 1) hjt⟩
+
+/-- **(★) desde `CrossClosed`** (la forma fuerte, en todas las cadenas). -/
+theorem joinSide_of_crossClosed (hcs : g₁.current_step = g₂.current_step)
+    (htop₁ : ∀ t ∈ g₁.alive, t.id.step = g₁.current_step - 1 → t ∉ g₂.alive)
+    (htop₂ : ∀ t ∈ g₂.alive, t.id.step = g₂.current_step - 1 → t ∉ g₁.alive)
+    (hea₁ : EdgesAlive g₁) (hea₂ : EdgesAlive g₂) (hli₁ : LinksInv g₁) (hli₂ : LinksInv g₂)
+    (hc₁₂ : CrossClosed g₁ F₁ g₂ F₂) (hc₂₁ : CrossClosed g₂ F₂ g₁ F₁) : JoinSide g₁ F₁ g₂ F₂ :=
+  joinSide_of_crossClosedL hcs htop₁ htop₂ hea₁ hea₂ hli₁ hli₂ (crossClosedL_of hc₁₂) (crossClosedL_of hc₂₁)
 
 -- ============================================================
 -- CrossClosed pasa de los remitentes a las llegadas de un join
