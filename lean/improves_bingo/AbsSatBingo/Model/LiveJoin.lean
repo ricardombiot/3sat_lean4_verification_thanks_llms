@@ -393,6 +393,57 @@ theorem crossClosed_mono {A A' B B' : GPathB} {FA FB : Trios} (hc : CrossClosed 
   rw [hA.step] at h2 h4 h6
   exact sideForbids_sub hB (hc C j (spineChain_sub hA hnd hC) p q r h1 h2 h3 h4 h5 h6 hf)
 
+-- ============================================================
+-- Fijar y unir: el sentido fácil de la conmutación
+-- ============================================================
+
+/-- **Lo que queda de un lado fijado queda en la unión fijada**: la estructura cerrada de `pinF A R` es una estructura
+cerrada de `A`, de la unión y, concordando con `R`, de la unión fijada. -/
+theorem pinF_side_sub_left {A B : GPathB} {R : List NodeId} (hdA : AliveDocs A) (hndA : NodupIds A)
+    (hvA : (pinF A R).isValid = true) (hcA : ClosedState (pinF A R)) :
+    (∀ q ∈ (pinF A R).alive, q ∈ (pinF (join A B) R).alive) ∧
+    (∀ y w, y ∈ (pinF A R).alive → w ∈ (pinF A R).alive → (pinF A R).Adj y w → (pinF (join A B) R).Adj y w) := by
+  have hs := secStruct_of_sub (sub_pinF A R) hndA hcA
+  have hj := secStruct_join_left (g := B) hs
+  have hp := secStruct_pinF hj R (fun b hb y hy hys => pinned_pinF hdA hvA b hb y hy hys)
+  exact ⟨fun q hq => hp.alive hq, fun y w hy hw ha => hp.adj ⟨hy, hw, ha⟩⟩
+
+theorem pinF_side_sub_right {A B : GPathB} {R : List NodeId} (hcs : A.current_step = B.current_step)
+    (hdB : AliveDocs B) (hndB : NodupIds B) (hvB : (pinF B R).isValid = true) (hcB : ClosedState (pinF B R)) :
+    (∀ q ∈ (pinF B R).alive, q ∈ (pinF (join A B) R).alive) ∧
+    (∀ y w, y ∈ (pinF B R).alive → w ∈ (pinF B R).alive → (pinF B R).Adj y w → (pinF (join A B) R).Adj y w) := by
+  have hs := secStruct_of_sub (sub_pinF B R) hndB hcB
+  have hj := secStruct_join_right (e := A) hcs hs
+  have hp := secStruct_pinF hj R (fun b hb y hy hys => pinned_pinF hdB hvB b hb y hy hys)
+  exact ⟨fun q hq => hp.alive hq, fun y w hy hw ha => hp.adj ⟨hy, hw, ha⟩⟩
+
+/-- **El sentido fácil**: la unión de los lados fijados (válidos y cerrados) está dentro de la unión fijada, en vivos y
+en aristas. -/
+theorem join_pinF_sub {A B : GPathB} {R : List NodeId} (hcs : A.current_step = B.current_step)
+    (hdA : AliveDocs A) (hndA : NodupIds A) (hdB : AliveDocs B) (hndB : NodupIds B)
+    (hvA : (pinF A R).isValid = true) (hcA : ClosedState (pinF A R))
+    (hvB : (pinF B R).isValid = true) (hcB : ClosedState (pinF B R))
+    (heaA : EdgesAlive (pinF A R)) (heaB : EdgesAlive (pinF B R)) :
+    (∀ q ∈ (join (pinF A R) (pinF B R)).alive, q ∈ (pinF (join A B) R).alive) ∧
+    (∀ y w, (join (pinF A R) (pinF B R)).Adj y w → (pinF (join A B) R).Adj y w) := by
+  obtain ⟨aA, eA⟩ := pinF_side_sub_left (B := B) hdA hndA hvA hcA
+  obtain ⟨aB, eB⟩ := pinF_side_sub_right hcs hdB hndB hvB hcB
+  refine ⟨fun q hq => ?_, fun y w ha => ?_⟩
+  · rcases (alive_join _ _ q).mp hq with h | h
+    · exact aA q h
+    · exact aB q h
+  · rcases adj_join_cases ha with h | h
+    · exact eA y w (heaA _ _ h).1 (heaA _ _ h).2 h
+    · exact eB y w (heaB _ _ h).1 (heaB _ _ h).2 h
+
+/-- **El sentido difícil, como hipótesis**: fijar la unión no conserva nada que no conserve algún lado fijado. Es la
+forma de `SecSplit` (una estructura cerrada de la unión viene de un lado) para los pins. Medido: 0 diferencias
+(`probe_pinjoin.jl`). -/
+def PinJoinSplit (A B : GPathB) (R : List NodeId) : Prop :=
+  (∀ q ∈ (pinF (join A B) R).alive, q ∈ (join (pinF A R) (pinF B R)).alive) ∧
+  (∀ y w, y ∈ (pinF (join A B) R).alive → w ∈ (pinF (join A B) R).alive →
+    (pinF (join A B) R).Adj y w → (join (pinF A R) (pinF B R)).Adj y w)
+
 end GPathB
 
 end AbsSatBingo.Model
