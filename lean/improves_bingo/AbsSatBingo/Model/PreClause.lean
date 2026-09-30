@@ -787,7 +787,7 @@ theorem noTri_next (hbd : Bounded φ) (n : Nat) (hn : (n : Int) + 1 ≤ midFusio
 /-- **Con `NoTriF` en la línea siguiente, `HNew` se cumple sin más**: un trío de una cadena es un triángulo. -/
 theorem hnew_of_noTri {L : Line} {Fs : NodeId → FamT}
     (hN : ∀ E ∈ advance φ L, NoTriF E.2 (famsNext φ L Fs E.1)) : HNew φ L Fs := by
-  intro E hE _ kv _ d₁ _ _ R hvE C j p q r hoc hf _
+  intro E hE _ kv _ d₁ _ _ R hvE C j p q r hoc hf _ _ _ _
   exfalso
   obtain ⟨hC, h1, h2, h3, h4, h5, h6⟩ := hoc
   exact hN E hE R hvE _ _ _ ⟨hC.adj p q h1 h2 h3 h4, hC.adj p r h1 h2 h5 h6, hC.adj q r h3 h4 h5 h6⟩ hf

@@ -413,13 +413,16 @@ def HSplit (φ : Cnf) (line : Line) : Prop :=
   ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, Sends φ a d → Sends φ b d → PinJoinSplitAll (arrOf φ a d) (arrOf φ b d)
 
 /-- **`NoNewClose` hacia los remitentes de las otras entradas**: un trío de una cadena de una entrada de la línea
-siguiente (fijada y válida) que su familia prohíbe ya lo cortaba, con los mismos pins, cada remitente que envía a otra
-entrada (si queda válido). No se pide en los nodos de negación: ahí sale de `CrossClosed` en la línea. -/
+siguiente (fijada y válida) que su familia prohíbe, y que es triángulo en un remitente que envía a otra entrada (fijado
+con los mismos pins y válido), ya lo prohibía la familia de ese remitente. Si no es triángulo, el remitente lo corta
+sin más. No se pide en los nodos de negación: ahí sale de `CrossClosed` en la línea. -/
 def HNew (φ : Cnf) (line : Line) (Fs : NodeId → FamT) : Prop :=
   ∀ E ∈ advance φ line, ¬ IsNeg φ E.1 → ∀ kv ∈ line, ∀ d₁, d₁ ≠ E.1 → Sends φ kv d₁ →
     ∀ R, (pinF E.2 R).isValid = true →
     ∀ C j p q r, OnChain3 (pinF E.2 R) C j p q r → famsNext φ line Fs E.1 R (C p) (C q) (C r) →
-      (pinF kv.2 R).isValid = true → SideForbids (pinF kv.2 R) (Fs kv.1 R) (C p) (C q) (C r)
+      (pinF kv.2 R).isValid = true →
+      (pinF kv.2 R).Adj (C p) (C q) → (pinF kv.2 R).Adj (C p) (C r) → (pinF kv.2 R).Adj (C q) (C r) →
+      Fs kv.1 R (C p) (C q) (C r)
 
 -- ============================================================
 -- El paso
@@ -541,7 +544,9 @@ theorem lInv_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} {Fs : Nod
         obtain ⟨hC, h1, h2, h3, h4, h5, h6⟩ := hoc
         exact hX C j hC p q r h1 h2 h3 h4 h5 h6 hf
       · exact absurd ((sons_neg hneg hsa.1).1.trans (sons_neg hneg hsb.1).1.symm) hab
-    · exact hnew E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD
+    · by_cases htri : (pinF kv.2 R).Adj (C p) (C q) ∧ (pinF kv.2 R).Adj (C p) (C r) ∧ (pinF kv.2 R).Adj (C q) (C r)
+      · exact Or.inr (hnew E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD htri.1 htri.2.1 htri.2.2)
+      · exact Or.inl htri
   refine ⟨hl', advance_nodup φ line, fun E hE => by rw [show T + 1 - 1 = T by omega]; exact (ent E hE).2.2.2.1,
     fun E hE => (ent E hE).1, fun E hE => (ent E hE).2.1, fun E hE => (ent E hE).2.2.1, ?_,
     fun E hE => (ent E hE).2.2.2.2.2.2.2.1, fun E hE => (ent E hE).2.2.2.2.2.2.2.2⟩
