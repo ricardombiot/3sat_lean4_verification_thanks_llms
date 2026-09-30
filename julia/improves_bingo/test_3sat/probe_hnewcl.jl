@@ -12,6 +12,11 @@
 #   F_pre   triángulo prohibido en D, con todos sus nodos a la altura del paso de variable del literal o por debajo
 #   F_post  triángulo prohibido en D, con algún nodo por encima de ese paso
 #   T       abierto en D (contraejemplo de HNew)
+# Y para los casos F (triángulo prohibido en D), el estado del trío en las dos llegadas que formaron D:
+#   Fsrc_fresh  no es triángulo en ninguna de las dos (triángulo mezclado del join de D: prohibido por definición)
+#   Fsrc_rec    prohibido en alguna de ellas (viene de más abajo)
+#   Fsrc_one    solo había una llegada en D
+#   Fsrc_open   abierto en alguna (imposible si D lo prohíbe por su join)
 
 const OUT = abspath(ARGS[1])
 const CAP = 20000
@@ -27,6 +32,20 @@ adj(g, a, b) = a == b ? PG.is_alive(g.og, a) : PG.has_edge(g.og, a, b)
 
 const LIT = Ref(-1)
 const PREV = Any[]
+const PREVARR = Any[]      # las llegadas que formaron las entradas de PREV
+const ARR = Any[]
+using .AbsSat.Probes
+status(g, a, b, x) = !(PG.is_alive(g.og, a) && PG.is_alive(g.og, b) && PG.is_alive(g.og, x)) ? "n" :
+    !(PG.has_edge(g.og, a, b) && PG.has_edge(g.og, a, x) && PG.has_edge(g.og, b, x)) ? "m" :
+    PG.dead_trio(g.og, a, b, x) ? "F" : "T"
+function src(D, a, b, x)
+    bs = [B for B in PREVARR if B.map_parent_id == D.map_parent_id]
+    length(bs) == 1 && return :Fsrc_one
+    st = [status(B, a, b, x) for B in bs]
+    any(==("T"), st) && return :Fsrc_open
+    any(==("F"), st) && return :Fsrc_rec
+    return :Fsrc_fresh
+end
 
 function classify(D, top, a, b, x)
     tri = (a, b, x)
@@ -67,7 +86,9 @@ function scan(s)
             push!(seen, key)
             bump(:trios)
             for D in PREV
-                bump(classify(D, top, a, b, x))
+                c = classify(D, top, a, b, x)
+                bump(c)
+                c in (:F_pre, :F_post) && bump(src(D, a, b, x))
             end
         end
         if Int(x.id.step) > 0
@@ -88,13 +109,14 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:lines2, :trios, :n_top, :n_stop, :n_low, :m_stop, :m_low, :F_pre, :F_post, :T, :cap)
+    cols = (:lines2, :trios, :n_top, :n_stop, :n_low, :m_stop, :m_low, :F_pre, :F_post, :T, :Fsrc_fresh, :Fsrc_rec,
+            :Fsrc_one, :Fsrc_open, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C); empty!(PREV)
+        empty!(C); empty!(PREV); empty!(PREVARR); empty!(ARR)
         PG.FORBID[] = :on
         t = @elapsed begin
             machine = SatMachine.new(loader(path))
@@ -113,7 +135,11 @@ function main()
                     end
                     (SatMachine.is_finished(machine) || !SatMachine.have_gpaths_step(machine)) && break
                     empty!(PREV); append!(PREV, [deepcopy(g) for g in gs])
-                    SatMachine.make_step!(machine)
+                    empty!(PREVARR); append!(PREVARR, ARR)
+                    empty!(ARR)
+                    Probes.with(:up_done => g -> push!(ARR, deepcopy(g))) do
+                        SatMachine.make_step!(machine)
+                    end
                 end
             end
         end
