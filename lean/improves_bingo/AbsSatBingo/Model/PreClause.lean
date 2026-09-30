@@ -204,6 +204,158 @@ theorem patch {ι : Type} (l : List ι) (A : ι → Assign) (V : ι → Nat → 
   simp only [dif_pos hex]
   exact h _ hex.choose_spec.1 i hi v hex.choose_spec.2 hvi
 
+-- ============================================================
+-- `EdgeClique` en la línea antes de las cláusulas
+-- ============================================================
+
+theorem edgeClique_review {g : GPathB} (h : EdgeClique g) : EdgeClique g.review := by
+  intro y w ha
+  have hs := (shrinks_review g).1
+  obtain ⟨S, hc, hy, hw⟩ := h y w (hs.adj _ _ ha)
+  refine ⟨S, carried_review hc, ?_, ?_⟩ <;> rw [hs.step] <;> assumption
+
+/-- Antes de las cláusulas no se salta ninguna ventana. -/
+theorem skips_pre {g : GPathB} {d : NodeId} (hd : d.step ≤ midFusion φ) :
+    g.skipsWindow d (isProhibited φ) = false := by
+  unfold skipsWindow
+  rw [List.any_eq_false]
+  intro pid hp
+  have hid := mapId_of_mem_shiftRowIds hp
+  have h1 : decide (midFusion φ < pid.id.step) = false := decide_eq_false (by rw [hid]; omega)
+  simp [isProhibited, isL3, h1]
+
+/-- Antes de las cláusulas, fuera de la negación no hay requisitos. -/
+theorem reqOf_pre_nil {d : NodeId} (hn : ¬ IsNeg φ d) (hd : d.step ≤ midFusion φ) : reqOf φ d = [] := by
+  unfold reqOf
+  by_cases h0 : d.step ≤ 0
+  · rw [if_pos h0]
+  rw [if_neg h0]
+  by_cases hm : d.step < midFusion φ
+  · rw [if_pos hm, if_pos]
+    exact Classical.byContradiction fun h => hn ⟨by omega, hm, by omega⟩
+  · rw [if_neg hm, if_pos (by omega)]
+
+/-- **Antes de las cláusulas el filtro de la llegada no toca nada**: sin requisitos, o el pin de la propia cima. -/
+theorem foldl_req_pre {kv : NodeId × GPathB} (htid : TopDocsId kv.2 kv.1)
+    (hcs : kv.2.current_step = kv.1.step + 1) {d : NodeId} (hs : d ∈ sonsOfMap φ kv.1) (hd : d.step ≤ midFusion φ) :
+    (reqOf φ d).foldl filterRequire kv.2 = kv.2 := by
+  by_cases hn : IsNeg φ d
+  · obtain ⟨hk, _⟩ := sons_neg hn hs
+    rw [reqOf_negd hn, ← hk]
+    exact filterRequire_noop (fun n hn hst => htid n hn (by rw [hcs]; omega))
+  · rw [reqOf_pre_nil hn hd]; rfl
+
+/-- **La llegada conserva `EdgeClique` y `DocsAlive`** antes de las cláusulas. -/
+theorem edgeClique_arr {kv : NodeId × GPathB} {T : Int} (hok : StateOk T kv.1 kv.2) (hT : 1 ≤ T)
+    (htid : TopDocsId kv.2 kv.1) (he : EdgeClique kv.2) (hda : DocsAlive kv.2) {d : NodeId} (hs : Sends φ kv d)
+    (hd : d.step ≤ midFusion φ) : EdgeClique (arrOf φ kv d) ∧ DocsAlive (arrOf φ kv d) := by
+  have hcs : kv.2.current_step = kv.1.step + 1 := by rw [hok.step, hok.key]; omega
+  have hvY : (kv.2.filterAll (reqOf φ d)).isValid = true :=
+    valid_of_up (d := d) (title := "") (forb := isProhibited φ) hs.2
+  have hf : kv.2.filterAll (reqOf φ d) = kv.2.review := by unfold filterAll; rw [foldl_req_pre htid hcs hs.1 hd]
+  have hsf := shrinks_filterAll kv.2 (reqOf φ d)
+  have hdf : d.step = (kv.2.filterAll (reqOf φ d)).current_step := by
+    rw [hsf.1.step, sonsOfMap_step φ kv.1 d hs.1, hcs]
+  have heF : EdgeClique (kv.2.filterAll (reqOf φ d)) := by rw [hf]; exact edgeClique_review he
+  have hdaF : DocsAlive (kv.2.filterAll (reqOf φ d)) := docsAlive_filterAll hda _ hvY
+  have hb : Below (kv.2.filterAll (reqOf φ d)) := below_of_shrinks hsf hok.below
+  have hup : arrOf φ kv d = ((kv.2.filterAll (reqOf φ d)).addNode d "" (isProhibited φ)).review := by
+    unfold arrOf upFiltering up; rw [if_pos hvY]
+  have hva := hs.2
+  rw [hup] at hva ⊢
+  exact ⟨edgeClique_review (edgeClique_addNode heF (by rw [hsf.1.step, hok.step]; omega) (skips_pre hd) hdf hb hdaF),
+    docsAlive_review hva (Or.inl (docsAlive_addNode hdaF))⟩
+
+theorem insert_pres (P : GPathB → Prop) (hdj : ∀ e g, P e → P g → P (doJoin e g)) {line : Line} {key : NodeId}
+    {g : GPathB} (hl : ∀ kv ∈ line, P kv.2) (hg : P g) : ∀ kv ∈ Driver.insert line key g, P kv.2 := by
+  unfold Driver.insert
+  split
+  · rename_i key' e hfind
+    have he := hl _ (List.mem_of_find?_eq_some hfind)
+    intro kv hkv
+    obtain ⟨kv0, hkv0, rfl⟩ := List.mem_map.mp hkv
+    split
+    · exact hdj _ _ he hg
+    · exact hl kv0 hkv0
+  · intro kv hkv
+    rcases List.mem_append.mp hkv with h | h
+    · exact hl kv h
+    · rw [List.mem_singleton] at h; subst h; exact hg
+
+/-- Una propiedad que conservan los joins y tienen las llegadas válidas la tienen todas las entradas de `advance`. -/
+theorem advance_pres (P : GPathB → Prop) (hdj : ∀ e g, P e → P g → P (doJoin e g)) {line : Line}
+    (harr : ∀ kv ∈ line, ∀ d, Sends φ kv d → P (arrOf φ kv d)) : ∀ E ∈ advance φ line, P E.2 := by
+  unfold advance
+  refine foldl_pres _ (fun next : Line => ∀ kv ∈ next, P kv.2) line ?_ [] (fun _ h => absurd h List.not_mem_nil)
+  intro next kv hkv hn
+  unfold sendAll
+  refine foldl_pres _ (fun next : Line => ∀ kv ∈ next, P kv.2) _ ?_ next hn
+  intro y d hd hy
+  unfold sendTo
+  dsimp only
+  split
+  · rename_i hv
+    exact insert_pres P hdj hy (harr kv hkv d ⟨hd, hv⟩)
+  · exact hy
+
+theorem seed_eq : initSeed (⟨0, 0⟩ : NodeId) "" = (GPathB.empty.addNode ⟨0, 0⟩ "" (fun _ => false)).review := by
+  show up GPathB.empty ⟨0, 0⟩ "" (fun _ => false) = _
+  unfold up; rw [if_pos (show GPathB.empty.isValid = true by rfl)]
+
+theorem seed_alive : (GPathB.empty.addNode ⟨0, 0⟩ "" (fun _ => false)).alive = [CliqueSplit.root] := by rfl
+theorem seed_edges : (GPathB.empty.addNode ⟨0, 0⟩ "" (fun _ => false)).edges = [] := by rfl
+
+/-- **La semilla**: su único vivo es la raíz, que está en la rama de cualquier asignación. -/
+theorem edgeClique_seed (φ : Cnf) : EdgeClique (initSeed (⟨0, 0⟩ : NodeId) "") ∧ DocsAlive (initSeed ⟨0, 0⟩ "") := by
+  obtain ⟨hl, g, hf, hc⟩ := init_inv φ (fun _ => false)
+  rw [init_eq] at hf
+  have hg : g = initSeed ⟨0, 0⟩ "" := by
+    simp only [List.find?, selOfAssign] at hf
+    simp at hf; exact hf.symm
+  subst hg
+  have hmem : ((⟨0, 0⟩ : NodeId), initSeed (⟨0, 0⟩ : NodeId) "") ∈ init φ := by
+    rw [init_eq]; exact List.mem_singleton_self _
+  have hv := (hl _ hmem).valid
+  have hsub : Sub (initSeed (⟨0, 0⟩ : NodeId) "") (GPathB.empty.addNode ⟨0, 0⟩ "" (fun _ => false)) := by
+    rw [seed_eq]; exact (shrinks_review _).1
+  refine ⟨fun y w ha => ?_, ?_⟩
+  · have ha' := hsub.adj _ _ ha
+    rw [adj_iff, seed_alive, seed_edges] at ha'
+    simp only [List.mem_singleton, List.not_mem_nil, false_and, exists_false, or_false] at ha'
+    obtain ⟨rfl, rfl⟩ := ha'
+    have h0 : pidOfAssign φ (fun _ => false) 0 = CliqueSplit.root := by
+      simp [pidOfAssign, selOfAssign, CliqueSplit.root]
+    exact ⟨_, hc, ⟨0, Int.le_refl 0, by rw [(hl _ hmem).step]; omega, h0⟩, ⟨0, Int.le_refl 0, by rw [(hl _ hmem).step]; omega, h0⟩⟩
+  · rw [seed_eq] at hv ⊢
+    exact docsAlive_review hv (Or.inl (docsAlive_addNode (fun n hn => absurd hn List.not_mem_nil)))
+
+theorem docsAlive_doJoin {e g : GPathB} (he : DocsAlive e) (hg : DocsAlive g) : DocsAlive (doJoin e g) := by
+  unfold doJoin; split
+  · exact docsAlive_join he hg
+  · exact he
+
+/-- **Toda entrada de la línea antes de las cláusulas tiene `EdgeClique`** (y `DocsAlive`). -/
+theorem pre_line (hbd : Bounded φ) : ∀ n : Nat, (n : Int) ≤ midFusion φ →
+    ∀ kv ∈ steps φ n (init φ), EdgeClique kv.2 ∧ DocsAlive kv.2 := by
+  intro n
+  induction n with
+  | zero =>
+    intro _ kv hkv
+    rw [show steps φ 0 (init φ) = init φ from rfl, init_eq, List.mem_singleton] at hkv
+    subst hkv
+    exact edgeClique_seed φ
+  | succ n ih =>
+    intro hn
+    rw [steps_succ]
+    have ih' := ih (by omega)
+    obtain ⟨hl, hent, _⟩ := line_facts hbd n
+    refine advance_pres (fun g => EdgeClique g ∧ DocsAlive g)
+      (fun e g he hg => ⟨edgeClique_doJoin he.1 hg.1, docsAlive_doJoin he.2 hg.2⟩) ?_
+    intro kv hkv d hs
+    have hok := hl kv hkv
+    have hd : d.step = (n : Int) + 1 := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key]; omega
+    exact edgeClique_arr hok (by omega) (hent kv hkv).2 (ih' kv hkv).1 (ih' kv hkv).2 hs (by push_cast at hn; omega)
+
 end PreClause
 
 end AbsSatBingo.Model
