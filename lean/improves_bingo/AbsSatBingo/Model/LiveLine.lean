@@ -314,6 +314,126 @@ theorem pinF_append_sub {g : GPathB} {L R : List NodeId} (hg : SInvB g) (hcs : 2
     pinned_pinF hg.docs hv b (List.mem_append_right _ hb) y hy hys)
   exact ⟨fun q hq => hp.alive hq, fun y w hy hw ha => hp.adj ⟨hy, hw, ha⟩⟩
 
+/-- **Fijar más (como conjunto) da un estado dentro.** -/
+theorem pinF_sub_superset {g : GPathB} {R R' : List NodeId} (hRR : ∀ b ∈ R, b ∈ R') (hg : SInvB g)
+    (hcs : 2 ≤ g.current_step) (hv : (pinF g R').isValid = true) :
+    (∀ q ∈ (pinF g R').alive, q ∈ (pinF g R).alive) ∧
+    (∀ y w, (pinF g R').Adj y w → (pinF g R).Adj y w) := by
+  have hc := closedState_pinF hg hv hcs
+  have hs := secStruct_of_sub (sub_pinF g _) hg.nodup hc
+  have hp := secStruct_pinF hs R (fun b hb y hy hys => pinned_pinF hg.docs hv b (hRR b hb) y hy hys)
+  have hea := (sInvB_pinF hg R').edges
+  exact ⟨fun q hq => hp.alive hq, fun y w ha => hp.adj ⟨(hea _ _ ha).1, (hea _ _ ha).2, ha⟩⟩
+
+/-- La validez de un estado solo depende de sus vivos. -/
+theorem isValid_of_alive {h g : GPathB} (hcs : h.current_step = g.current_step)
+    (ha : ∀ q ∈ h.alive, q ∈ g.alive) (hv : h.isValid = true) : g.isValid = true := by
+  unfold isValid at hv ⊢
+  rw [← hcs]
+  rw [List.all_eq_true] at hv ⊢
+  intro k hk
+  obtain ⟨q, hq, hqk⟩ := List.any_eq_true.mp (hv k hk)
+  exact List.any_eq_true.mpr ⟨q, ha q hq, hqk⟩
+
+/-- **Al fijar más, la validez solo se pierde.** -/
+theorem valid_pinF_mono {g : GPathB} {R R' : List NodeId} (hRR : ∀ b ∈ R, b ∈ R') (hg : SInvB g)
+    (hcs : 2 ≤ g.current_step) (hv : (pinF g R').isValid = true) : (pinF g R).isValid = true :=
+  isValid_of_alive (by rw [step_pinF, step_pinF]) (pinF_sub_superset hRR hg hcs hv).1 hv
+
+-- ============================================================
+-- FamMono: la familia crece al fijar más
+-- ============================================================
+
+/-- **`FamMono g F`**: lo que la relación corta con los pins `R`, la relación con más pins `R' ⊇ R` lo sigue cortando en
+el estado más fijado. -/
+def FamMono (g : GPathB) (F : FamT) : Prop :=
+  ∀ R R', (∀ b ∈ R, b ∈ R') → (pinF g R').isValid = true → ∀ x y z, F R x y z →
+    SideForbids (pinF g R') (F R') x y z
+
+/-- `SideForbids` pasa a un estado con los mismos vivos y aristas. -/
+theorem sideForbids_same {U V : GPathB} {G : Trios} (hs : SameGraph U V) (hea : EdgesAlive U)
+    {x y z : PathNodeId} (h : SideForbids V G x y z) : SideForbids U G x y z := by
+  rcases h with hn | hF
+  · refine Or.inl fun ⟨a, b, c⟩ => hn ⟨?_, ?_, ?_⟩
+    · exact (hs.2 _ _ (hea _ _ a).1 (hea _ _ a).2).mp a
+    · exact (hs.2 _ _ (hea _ _ b).1 (hea _ _ b).2).mp b
+    · exact (hs.2 _ _ (hea _ _ c).1 (hea _ _ c).2).mp c
+  · exact Or.inr hF
+
+/-- Un lado: lo cortado con `R` sigue cortado con más pins. -/
+theorem sideForbids_mono {g : GPathB} {F : FamT} (hg : Good g F) (hm : FamMono g F) {R R' : List NodeId}
+    (hRR : ∀ b ∈ R, b ∈ R') (hv : (pinF g R').isValid = true) {x y z : PathNodeId}
+    (h : SideForbids (pinF g R) (F R) x y z) : SideForbids (pinF g R') (F R') x y z := by
+  rcases h with hn | hF
+  · have hadj := (pinF_sub_superset hRR hg.inv hg.pos hv).2
+    exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hadj _ _ a, hadj _ _ b, hadj _ _ c⟩
+  · exact hm R R' hRR hv x y z hF
+
+/-- **`FamMono` en la llegada.** -/
+theorem famMono_arrival {D : GPathB} {F : FamT} {reqs : List NodeId} (hD : Good D F) (hm : FamMono D F)
+    (hd : d.step = D.current_step) :
+    FamMono ((D.filterAll reqs).up d title forb) (fun R => F (reqs ++ R)) := by
+  intro R R' hRR hvA x y z hf
+  obtain ⟨hvX, halive, hadj⟩ := arrival_pin_commute (title := title) (forb := forb) hD.inv
+    (by have := hD.pos; omega) hd hvA
+  have hs := hm (reqs ++ R) (reqs ++ R') (fun b hb => by
+    rcases List.mem_append.mp hb with h | h
+    · exact List.mem_append_left _ h
+    · exact List.mem_append_right _ (hRR b h)) hvX x y z hf
+  obtain ⟨sx, sy, sz⟩ := hD.below _ x y z hf
+  have hcsX : (pinF D (reqs ++ R')).current_step = D.current_step := step_pinF _ _
+  have hiA := sInvB_pinF (sInvB_up (sInvB_filterAll hD.inv reqs) (d := d) (title := title) (forb := forb)
+    (by rw [(shrinks_filterAll D reqs).1.step]; exact hd) (by have := hD.pos; omega)) R'
+  have hsub := sub_upR (pinF D (reqs ++ R')) d title forb
+  have hdX : d.step = (pinF D (reqs ++ R')).current_step := by rw [hcsX]; exact hd
+  -- una arista entre nodos viejos de la llegada fijada es arista del remitente fijado
+  have hold : ∀ u v, u.id.step < D.current_step → v.id.step < D.current_step →
+      (pinF ((D.filterAll reqs).up d title forb) R').Adj u v → (pinF D (reqs ++ R')).Adj u v := by
+    intro u v hu hv ha
+    have ha' := (hadj u v (hiA.edges _ _ ha).1 (hiA.edges _ _ ha).2).mp ha
+    exact adj_addNode_old hdX (by rw [hcsX]; exact hu) (by rw [hcsX]; exact hv) (hsub.adj _ _ ha')
+  rcases hs with hn | hF
+  · exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hold _ _ sx sy a, hold _ _ sx sz b, hold _ _ sy sz c⟩
+  · exact Or.inr hF
+
+/-- **`FamMono` en la unión** (con `PinJoinSplitAll`). -/
+theorem famMono_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB) (hmA : FamMono A FA)
+    (hmB : FamMono B FB) (hcs : A.current_step = B.current_step) (hsplit : PinJoinSplitAll A B) :
+    FamMono (join A B) (joinFam A B FA FB) := by
+  intro R R' hRR hvU x y z hf
+  obtain ⟨hsame, hone⟩ := hsplit R' hvU
+  have hiU := sInvB_pinF (sInvB_join hA.inv hB.inv hcs) R'
+  apply sideForbids_same hsame hiU.edges
+  have hmonoA := fun hv => valid_pinF_mono hRR hA.inv hA.pos hv
+  have hmonoB := fun hv => valid_pinF_mono hRR hB.inv hB.pos hv
+  -- el trío de partida, cortado en cada lado válido con R
+  unfold joinFam at hf
+  unfold pinJoin joinFam
+  by_cases hvA' : (pinF A R').isValid = true <;> by_cases hvB' : (pinF B R').isValid = true
+  · have hvA := hmonoA hvA'
+    have hvB := hmonoB hvB'
+    simp only [hvA', hvB', hvA, hvB, if_true] at hf ⊢
+    obtain ⟨n1, n2, n3, sx, sy, sz, sA, sB⟩ := hf
+    refine Or.inr ⟨n1, n2, n3, ?_, ?_, ?_, sideForbids_mono hA hmA hRR hvA' sA, sideForbids_mono hB hmB hRR hvB' sB⟩
+    · rw [step_pinF] at sx ⊢; exact sx
+    · rw [step_pinF] at sy ⊢; exact sy
+    · rw [step_pinF] at sz ⊢; exact sz
+  · have hvA := hmonoA hvA'
+    simp only [hvA', hvB', hvA, if_true] at hf ⊢
+    by_cases hvB : (pinF B R).isValid = true
+    · simp only [hvB, if_true] at hf
+      exact sideForbids_mono hA hmA hRR hvA' hf.2.2.2.2.2.2.1
+    · simp only [hvB] at hf
+      exact hmA R R' hRR hvA' x y z hf
+  · have hvB := hmonoB hvB'
+    simp only [hvA', hvB', hvB, if_true] at hf ⊢
+    by_cases hvA : (pinF A R).isValid = true
+    · simp only [hvA, if_true] at hf
+      exact sideForbids_mono hB hmB hRR hvB' hf.2.2.2.2.2.2.2
+    · simp only [hvA] at hf
+      exact hmB R R' hRR hvB' x y z hf
+  · exact absurd hone (by simp [hvA', hvB'])
+
 end GPathB
 
 end AbsSatBingo.Model
