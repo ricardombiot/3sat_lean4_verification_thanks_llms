@@ -281,6 +281,29 @@ theorem crossClosed_up {D₀ D₁ : GPathB} {F₀ F₁ : Trios} {reqs reqs₁ : 
       hadj q r h3 (by omega) h5 (by omega) c⟩
   · exact Or.inr hF
 
+-- ============================================================
+-- CrossClosed entre las dos entradas de una línea: por remitente (PinSwap)
+-- ============================================================
+
+/-- **`PinSwap`** para un remitente: un trío de una cadena de `E` cortado en la llegada `A` (lado de `E`) está cortado
+en la llegada `A'` del mismo remitente a la otra entrada. -/
+def PinSwap (E : GPathB) (A : GPathB) (FA : Trios) (A' : GPathB) (FA' : Trios) : Prop :=
+  ∀ C j, SpineChain E C j → ∀ p q r, j ≤ p → p ≤ E.current_step - 1 → j ≤ q → q ≤ E.current_step - 1 →
+    j ≤ r → r ≤ E.current_step - 1 → SideForbids A FA (C p) (C q) (C r) → SideForbids A' FA' (C p) (C q) (C r)
+
+/-- **`CrossClosed` entre dos uniones por `PinSwap`**: si `E = A₀ ∪ A₁` y `E' = A₀' ∪ A₁'` (cada `Aᵢ'` del mismo
+remitente que `Aᵢ`) y cada remitente cumple `PinSwap`, un trío de una cadena de `E` que `E` prohíbe (lo cortan `A₀` y
+`A₁`) lo cortan `A₀'` y `A₁'`, luego `E'` lo prohíbe. -/
+theorem crossClosed_join {A₀ A₁ A₀' A₁' : GPathB} {F₀ F₁ F₀' F₁' : Trios}
+    (hcs : A₀.current_step = A₀'.current_step)
+    (h₀ : PinSwap (join A₀ A₁) A₀ F₀ A₀' F₀') (h₁ : PinSwap (join A₀ A₁) A₁ F₁ A₁' F₁') :
+    CrossClosed (join A₀ A₁) (joinF A₀.current_step A₀ F₀ A₁ F₁) (join A₀' A₁')
+      (joinF A₀'.current_step A₀' F₀' A₁' F₁') := by
+  intro C j hC p q r h1 h2 h3 h4 h5 h6 ⟨sp, sq, sr, s0, s1⟩
+  refine Or.inr ⟨by rw [← hcs]; exact sp, by rw [← hcs]; exact sq, by rw [← hcs]; exact sr, ?_, ?_⟩
+  · exact h₀ C j hC p q r h1 h2 h3 h4 h5 h6 s0
+  · exact h₁ C j hC p q r h1 h2 h3 h4 h5 h6 s1
+
 end GPathB
 
 end AbsSatBingo.Model
