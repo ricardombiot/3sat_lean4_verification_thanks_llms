@@ -531,7 +531,7 @@ theorem addTrios_covers (g : GPathB) (i : Idx) (ts : List (PathNodeId × PathNod
 -- ============================================================
 
 /-- `joinF` restringido a tríos de tres nodos distintos. -/
-def joinFD (T : Int) (g₁ : GPathB) (F₁ : Trios) (g₂ : GPathB) (F₂ : Trios) : Trios := fun a b r =>
+def joinFDist (T : Int) (g₁ : GPathB) (F₁ : Trios) (g₂ : GPathB) (F₂ : Trios) : Trios := fun a b r =>
   a ≠ b ∧ a ≠ r ∧ b ≠ r ∧ joinF T g₁ F₁ g₂ F₂ a b r
 
 /-- Los tríos de `joinForbid` tienen tres nodos distintos, vivos en algún lado. -/
@@ -570,7 +570,7 @@ theorem liveExt_joinOn {g₁ g₂ : GPathB} (h₁ : LiveExt g₁ (TF g₁)) (h�
   let T := g₁.current_step
   have hcsU : U.current_step = T := rfl
   have hJ := liveExt_join h₁ h₂ hcs hside
-  have hJD : LiveExt U (joinFD T g₁ (TF g₁) g₂ (TF g₂)) :=
+  have hJD : LiveExt U (joinFDist T g₁ (TF g₁) g₂ (TF g₂)) :=
     liveExt_congrD (fun _ _ _ a b c h => ⟨a, b, c, h⟩) (fun _ _ _ _ _ _ h => h.2.2.2) hJ
   obtain ⟨T', hT⟩ := joinOn_eq g₁ g₂
   have hsub : Sub (joinOn g₁ g₂) U := by rw [hT]; exact (shrinks_setT U T').1
