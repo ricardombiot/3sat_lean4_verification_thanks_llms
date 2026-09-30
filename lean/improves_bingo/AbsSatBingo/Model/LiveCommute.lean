@@ -12,7 +12,17 @@ Aquí la pieza de Lean que lo explica:
   y los padres de la estructura están en `X`.
 
 Con `secStruct_addNode_down` (bajar) y los filtros (`secStruct_filterAll_list`), las estructuras cerradas pasan de
-un orden al otro en los dos sentidos.
+un orden al otro en los dos sentidos (`secStruct_move`):
+
+* **`filter_up_commute`**: `A' = filtro(up(filtro(g, reqs)), R)` y `B = up(filtro(g, reqs ++ R))`, con `R` por
+  debajo de la cima y los dos cerrados, tienen los mismos vivos y las mismas aristas entre vivos;
+* **`liveExt_congr`**: `LiveExt` solo depende de vivos, aristas y compatibilidad de ids (con `LinksInv`);
+* **`liveExt_arrival_pinned`**: con **`PinStable`** (`LiveExt` tras cualquier filtro) en el remitente, la llegada
+  cumple `LiveExt` tras cualquier filtro por debajo de su cima. El pin del UP deja de ser una hipótesis: queda dentro
+  del invariante reforzado.
+
+Hipótesis que quedan en este paso: que `A'` y `B` sean cerrados, y los invariantes de enlaces y documentos de la línea
+(`RowOk`, `UpOk`).
 -/
 
 namespace AbsSatBingo.Model
@@ -238,6 +248,190 @@ theorem secStruct_addNode_lift {W : PathNodeId → Prop} {Rl : PathNodeId → Pa
         (hliX.2.1 n0 (node?_mem hn0) s (hXa hsW hsT) hadj).2 (by rw [node?_id hn0]; exact hc)
       exact ⟨s, List.mem_append_left _ hsn, hxs', hsw⟩
     · exact ⟨s, List.mem_append_right _ (hgainX hx hxs hsW (by omega) hn0 hm hsm), hxs', hsw⟩
+
+-- ============================================================
+-- Mover una estructura cerrada de un orden al otro
+-- ============================================================
+
+/-- **Mover una estructura cerrada** de un estado `S` por debajo de la fila sobre `Z` (un filtro de `g`) al UP sobre
+otro filtro `g.filterAll P`: se baja a `Z` (`secStruct_addNode_down`), a `g`, se filtra por `P` y se sube
+(`secStruct_addNode_lift`). -/
+theorem secStruct_move {g S Z : GPathB} {P : List NodeId} {W : PathNodeId → Prop}
+    {Rl : PathNodeId → PathNodeId → Prop} (hS : SecStruct S W Rl) (hsub : Sub S (Z.addNode d title forb))
+    (hZg : Sub Z g) (hndg : NodupIds g)
+    (hagP : ∀ b ∈ P, SecAgrees (fun q => W q ∧ q.id.step < Z.current_step) b)
+    (hpos : 0 < Z.current_step) (hdZ : d.step = Z.current_step)
+    (hdocsZ : AliveDocs Z) (hbZ : Below Z) (heaZ : EdgesAlive Z) (hlsZ : LinksStep Z) (hkZ : LinksCompat Z)
+    (hndZ : NodupIds (Z.addNode d title forb))
+    (hvX : (g.filterAll P).isValid = true) (hdocsX : AliveDocs (g.filterAll P)) (hbX : Below (g.filterAll P))
+    (hliX : LinksInv (g.filterAll P)) :
+    SecStruct ((g.filterAll P).up d title forb) W Rl := by
+  have hU := secStruct_of_sub hsub hndZ hS
+  have hdown := secStruct_addNode_down hdocsZ hbZ hlsZ hdZ hU
+  have hg := secStruct_of_sub hZg hndg hdown
+  have hX := secStruct_filterAll_list hg P hagP
+  have hcs : (g.filterAll P).current_step = Z.current_step := by
+    rw [(shrinks_filterAll g P).1.step, hZg.step]
+  have hlift := secStruct_addNode_lift (X := g.filterAll P) (Y := Z) (title := title) (forb := forb) hcs hpos
+    (by rw [hcs]; exact hdZ) hdZ hdocsX hbX hliX hdocsZ hbZ heaZ hlsZ hkZ hU hX
+  unfold up
+  rw [if_pos hvX]
+  exact secStruct_review hlift
+
+-- ============================================================
+-- La conmutación
+-- ============================================================
+
+theorem sub_up_addNode {Z : GPathB} (hv : Z.isValid = true) : Sub (Z.up d title forb) (Z.addNode d title forb) := by
+  unfold up; rw [if_pos hv]; exact (shrinks_review _).1
+
+/-- Lo que la conmutación pide de un filtro `Z` del remitente para subir y bajar estructuras por su fila. -/
+structure RowOk (Z : GPathB) (d : NodeId) (title : String) (forb : PathNodeId → Bool) : Prop where
+  valid : Z.isValid = true
+  docs  : AliveDocs Z
+  below : Below Z
+  edges : EdgesAlive Z
+  lstep : LinksStep Z
+  links : LinksInv Z
+  nodup : NodupIds (Z.addNode d title forb)
+  ddocs : AliveDocs (Z.up d title forb)
+
+/-- **Filtrar después del UP y antes dan el mismo estado** (mismos vivos, mismas aristas entre vivos), si los dos
+resultados son cerrados: `A' = filtro(up(filtro(g, reqs)), R)` y `B = up(filtro(g, reqs ++ R))`, con `R` por debajo
+de la cima. -/
+theorem filter_up_commute {g : GPathB} {reqs R : List NodeId} (hndg : NodupIds g) (hdocsg : AliveDocs g)
+    (hpos : 0 < g.current_step) (hd : d.step = g.current_step) (hR : ∀ b ∈ R, b.step < g.current_step)
+    (hY : RowOk (g.filterAll reqs) d title forb) (hX : RowOk (g.filterAll (reqs ++ R)) d title forb)
+    (hvA : (((g.filterAll reqs).up d title forb).filterAll R).isValid = true)
+    (hcA : ClosedState (((g.filterAll reqs).up d title forb).filterAll R))
+    (hcB : ClosedState ((g.filterAll (reqs ++ R)).up d title forb)) :
+    (∀ q, q ∈ (((g.filterAll reqs).up d title forb).filterAll R).alive ↔
+      q ∈ ((g.filterAll (reqs ++ R)).up d title forb).alive) ∧
+    (∀ y w, y ∈ (((g.filterAll reqs).up d title forb).filterAll R).alive →
+      w ∈ (((g.filterAll reqs).up d title forb).filterAll R).alive →
+      ((((g.filterAll reqs).up d title forb).filterAll R).Adj y w ↔
+        ((g.filterAll (reqs ++ R)).up d title forb).Adj y w)) := by
+  have hcsY : (g.filterAll reqs).current_step = g.current_step := (shrinks_filterAll g reqs).1.step
+  have hcsX : (g.filterAll (reqs ++ R)).current_step = g.current_step := (shrinks_filterAll g _).1.step
+  have hsubA : Sub (((g.filterAll reqs).up d title forb).filterAll R) ((g.filterAll reqs).addNode d title forb) :=
+    (shrinks_filterAll _ R).1.trans (sub_up_addNode hY.valid)
+  have hsubB : Sub ((g.filterAll (reqs ++ R)).up d title forb) ((g.filterAll (reqs ++ R)).addNode d title forb) :=
+    sub_up_addNode hX.valid
+  -- A' → B
+  have h1 := secStruct_move (P := reqs ++ R) hcA hsubA (shrinks_filterAll g reqs).1 hndg
+    (fun b hb q ⟨hq, hqs⟩ hqb => by
+      rcases List.mem_append.mp hb with hb | hb
+      · have hq' := hsubA.alive q hq
+        rcases alive_addNode_cases hY.docs hY.below (by rw [hcsY]; exact hd) hq' with ⟨hqY, _⟩ | ⟨_, h⟩
+        · exact pinned_filterAll_list hdocsg reqs hY.valid b hb q hqY hqb
+        · omega
+      · exact pinned_filterAll_list hY.ddocs R hvA b hb q hq hqb)
+    (by rw [hcsY]; exact hpos) (by rw [hcsY]; exact hd) hY.docs hY.below hY.edges hY.lstep hY.links.2.2 hY.nodup
+    hX.valid hX.docs hX.below hX.links
+  -- B → A'
+  have h2 := secStruct_move (P := reqs) hcB hsubB (shrinks_filterAll g _).1 hndg
+    (fun b hb q ⟨hq, hqs⟩ hqb => by
+      have hq' := hsubB.alive q hq
+      rcases alive_addNode_cases hX.docs hX.below (by rw [hcsX]; exact hd) hq' with ⟨hqX, _⟩ | ⟨_, h⟩
+      · exact pinned_filterAll_list hdocsg (reqs ++ R) hX.valid b (List.mem_append_left _ hb) q hqX hqb
+      · omega)
+    (by rw [hcsX]; exact hpos) (by rw [hcsX]; exact hd) hX.docs hX.below hX.edges hX.lstep hX.links.2.2 hX.nodup
+    hY.valid hY.docs hY.below hY.links
+  have h2' := secStruct_filterAll_list h2 R (fun b hb q hq hqb => by
+    have hq' := hsubB.alive q hq
+    rcases alive_addNode_cases hX.docs hX.below (by rw [hcsX]; exact hd) hq' with ⟨hqX, _⟩ | ⟨_, h⟩
+    · exact pinned_filterAll_list hdocsg (reqs ++ R) hX.valid b (List.mem_append_right _ hb) q hqX hqb
+    · have := hR b hb; rw [hcsX] at h; omega)
+  refine ⟨fun q => ⟨fun hq => h1.alive hq, fun hq => h2'.alive hq⟩, fun y w hy hw => ⟨fun ha => ?_, fun ha => ?_⟩⟩
+  · exact h1.adj ⟨hy, hw, ha⟩
+  · exact h2'.adj ⟨h1.alive hy, h1.alive hw, ha⟩
+
+-- ============================================================
+-- LiveExt solo depende de vivos, aristas y compatibilidad
+-- ============================================================
+
+/-- Una cadena viva pasa a otro estado con los mismos vivos (al menos) y las mismas aristas entre ellos: los enlaces
+de una cadena unen vecinos compatibles, y `LinksComplete` los tiene todos. -/
+theorem liveChain_transfer {A B : GPathB} {F : Trios} (hcs : A.current_step = B.current_step)
+    (halive : ∀ q ∈ A.alive, q ∈ B.alive) (hadj : ∀ y w, y ∈ A.alive → w ∈ A.alive → A.Adj y w → B.Adj y w)
+    (hkA : LinksCompat A) (hliB : LinksInv B) {C : Int → PathNodeId} {j : Int} (hC : LiveChain A F C j) :
+    LiveChain B F C j := by
+  refine ⟨⟨fun k h1 h2 => ?_, fun k l h1 h2 h3 h4 => ?_, fun k h1 h2 => ?_⟩, fun a b c ha hab hbc hc =>
+    hC.live a b c ha hab hbc (by rw [hcs]; exact hc)⟩
+  · obtain ⟨hs, ha⟩ := hC.chain.node k h1 (by rw [hcs]; exact h2); exact ⟨hs, halive _ ha⟩
+  · exact hadj _ _ (hC.chain.node k h1 (by rw [hcs]; exact h2)).2 (hC.chain.node l h3 (by rw [hcs]; exact h4)).2
+      (hC.chain.adj k l h1 (by rw [hcs]; exact h2) h3 (by rw [hcs]; exact h4))
+  · obtain ⟨n, hn, hp⟩ := hC.chain.link k h1 (by rw [hcs]; exact h2)
+    have hc := (hkA n (node?_mem hn)).1 _ hp
+    rw [node?_id hn] at hc
+    have hka := (hC.chain.node k (by omega) (by rw [hcs]; exact h2)).2
+    have hk1 := (hC.chain.node (k - 1) (by omega) (by rw [hcs]; omega)).2
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp (node?_isSome_of_alive hliB.1 (halive _ hka))
+    have hab : B.Adj m.id (C (k - 1)) := by
+      rw [node?_id hm]
+      exact hadj _ _ hka hk1 (hC.chain.adj k (k - 1) (by omega) (by rw [hcs]; exact h2) (by omega) (by rw [hcs]; omega))
+    refine ⟨m, hm, (hliB.2.1 m (node?_mem hm) _ (halive _ hk1) hab).1 ?_⟩
+    rw [node?_id hm]; exact hc
+
+/-- **`LiveExt` pasa entre dos estados con los mismos vivos y las mismas aristas entre vivos.** -/
+theorem liveExt_congr {A B : GPathB} {F : Trios} (hcs : A.current_step = B.current_step)
+    (halive : ∀ q, q ∈ A.alive ↔ q ∈ B.alive)
+    (hadj : ∀ y w, y ∈ A.alive → w ∈ A.alive → (A.Adj y w ↔ B.Adj y w))
+    (hliA : LinksInv A) (hliB : LinksInv B) (hext : LiveExt B F) : LiveExt A F := by
+  intro C j hC hj1 hjt
+  have hCB := liveChain_transfer hcs (fun q hq => (halive q).mp hq) (fun y w hy hw h => (hadj y w hy hw).mp h)
+    hliA.2.2 hliB hC
+  obtain ⟨C', hC', hag⟩ := hext C j hCB hj1 (by rw [← hcs]; exact hjt)
+  refine ⟨C', liveChain_transfer hcs.symm (fun q hq => (halive q).mpr hq) (fun y w hy hw h => ?_)
+    hliB.2.2 hliA hC', hag⟩
+  exact (hadj y w ((halive y).mpr hy) ((halive w).mpr hw)).mpr h
+
+-- ============================================================
+-- PinStable: LiveExt tras cualquier filtro, a través del UP
+-- ============================================================
+
+/-- **`PinStable g`**: tras fijar cualquier lista de requisitos, el estado que queda (si es válido) cumple `LiveExt`
+para alguna relación de tríos sin degenerar y por debajo de su paso. Refuerza `LiveExt` para que la inducción pase por
+los filtros del UP (y por los pins del lector). -/
+def PinStable (g : GPathB) : Prop :=
+  ∀ R : List NodeId, (g.filterAll R).isValid = true →
+    ∃ F, LiveExt (g.filterAll R) F ∧ FBelow F (g.filterAll R).current_step ∧ NoDeg F
+
+theorem step_up {Z : GPathB} (hv : Z.isValid = true) : (Z.up d title forb).current_step = Z.current_step + 1 := by
+  unfold up; rw [if_pos hv]; exact (shrinks_review _).1.step
+
+/-- Los invariantes que pide `liveExt_up` de un filtro del remitente. -/
+structure UpOk (Z : GPathB) : Prop where
+  docs  : AliveDocs Z
+  below : Below Z
+  dalive : DocsAlive Z
+  links : LinksInv Z
+  zero  : AboveZero Z
+  nodup : NodupIds Z
+  root  : RootNone Z
+
+/-- **El UP conserva `LiveExt` tras cualquier filtro por debajo de la cima**, si el remitente es `PinStable`: el
+estado de la llegada filtrado por `R` es (en vivos y aristas) el UP sobre el filtro por `reqs ++ R`
+(`filter_up_commute`), y ese cumple `LiveExt` (`liveExt_up`). -/
+theorem liveExt_arrival_pinned {g : GPathB} {reqs R : List NodeId} (hps : PinStable g)
+    (hndg : NodupIds g) (hdocsg : AliveDocs g) (hpos : 0 < g.current_step) (hd : d.step = g.current_step)
+    (hR : ∀ b ∈ R, b.step < g.current_step)
+    (hY : RowOk (g.filterAll reqs) d title forb) (hX : RowOk (g.filterAll (reqs ++ R)) d title forb)
+    (hXu : UpOk (g.filterAll (reqs ++ R)))
+    (hvA : (((g.filterAll reqs).up d title forb).filterAll R).isValid = true)
+    (hcA : ClosedState (((g.filterAll reqs).up d title forb).filterAll R))
+    (hcB : ClosedState ((g.filterAll (reqs ++ R)).up d title forb))
+    (hliA : LinksInv (((g.filterAll reqs).up d title forb).filterAll R))
+    (hliB : LinksInv ((g.filterAll (reqs ++ R)).up d title forb)) :
+    ∃ F, LiveExt (((g.filterAll reqs).up d title forb).filterAll R) F := by
+  obtain ⟨F, hext, hB, hnF⟩ := hps (reqs ++ R) hX.valid
+  have hcsX : (g.filterAll (reqs ++ R)).current_step = g.current_step := (shrinks_filterAll g _).1.step
+  have hcsY : (g.filterAll reqs).current_step = g.current_step := (shrinks_filterAll g _).1.step
+  have hupB := liveExt_up (title := title) (forb := forb) hext hX.valid hXu.docs hXu.below hXu.dalive hXu.links
+    hXu.zero hXu.nodup hXu.root (by rw [hcsX]; exact hd) hB hnF
+  obtain ⟨halive, hadj⟩ := filter_up_commute hndg hdocsg hpos hd hR hY hX hvA hcA hcB
+  refine ⟨_, liveExt_congr ?_ halive hadj hliA hliB hupB⟩
+  rw [(shrinks_filterAll _ R).1.step, step_up hY.valid, step_up hX.valid, hcsX, hcsY]
 
 end GPathB
 
