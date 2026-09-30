@@ -1,6 +1,7 @@
 -- lean/improves_bingo/AbsSatBingo/Model/ForbidOnLive.lean
 import AbsSatBingo.Model.ForbidOnLine
 import AbsSatBingo.Model.LiveUp
+import AbsSatBingo.Model.LiveJoin
 
 /-!
 # `LiveExt` con los tríos reales (`docs/plans/lean_forbid_on.md`, F4)
@@ -379,6 +380,304 @@ theorem liveExt_upOn (hv : g.isValid = true) (hext : LiveExt g (TF g)) (hdocs : 
     (by rw [hT]; exact hnd') hns'' (noDegT_upForbidRow hns' hndt)
 
 end Up
+
+-- ============================================================
+-- LiveExt solo mira tríos de tres nodos distintos
+-- ============================================================
+
+theorem liveChain_congrD {g : GPathB} {F G : Trios}
+    (hGF : ∀ x y z, x ≠ y → x ≠ z → y ≠ z → G x y z → F x y z) {C : Int → PathNodeId} {j : Int}
+    (hC : LiveChain g F C j) : LiveChain g G C j := by
+  refine ⟨hC.chain, fun a b c ha hab hbc hc hs => hC.live a b c ha hab hbc hc ?_⟩
+  have st : ∀ k, j ≤ k → k ≤ g.current_step - 1 → (C k).id.step = k := fun k h1 h2 => (hC.chain.node k h1 h2).1
+  have ne : ∀ k l, j ≤ k → k ≤ g.current_step - 1 → j ≤ l → l ≤ g.current_step - 1 → k ≠ l → C k ≠ C l := by
+    intro k l h1 h2 h3 h4 hkl h
+    have := st k h1 h2; rw [h, st l h3 h4] at this; exact hkl this.symm
+  have nab := ne a b ha (by omega) (by omega) (by omega) (by omega)
+  have nac := ne a c ha (by omega) (by omega) hc (by omega)
+  have nbc := ne b c (by omega) (by omega) (by omega) hc (by omega)
+  unfold Sym at hs ⊢
+  rcases hs with h | h | h | h | h | h
+  · exact Or.inl (hGF _ _ _ nab nac nbc h)
+  · exact Or.inr (Or.inl (hGF _ _ _ nac nab (Ne.symm nbc) h))
+  · exact Or.inr (Or.inr (Or.inl (hGF _ _ _ (Ne.symm nab) nbc nac h)))
+  · exact Or.inr (Or.inr (Or.inr (Or.inl (hGF _ _ _ nbc (Ne.symm nab) (Ne.symm nac) h))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl (hGF _ _ _ (Ne.symm nac) (Ne.symm nbc) nab h)))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (hGF _ _ _ (Ne.symm nbc) (Ne.symm nac) (Ne.symm nab) h)))))
+
+theorem liveExt_congrD {g : GPathB} {F G : Trios} (hFG : ∀ x y z, x ≠ y → x ≠ z → y ≠ z → F x y z → G x y z)
+    (hGF : ∀ x y z, x ≠ y → x ≠ z → y ≠ z → G x y z → F x y z) (h : LiveExt g F) : LiveExt g G := by
+  intro C j hC hj1 hjt
+  obtain ⟨C', hC', hag⟩ := h C j (liveChain_congrD hFG hC) hj1 hjt
+  exact ⟨C', liveChain_congrD hGF hC', hag⟩
+
+-- ============================================================
+-- Tríos: simetría, cobertura de addTrios, SideForbids en Bool
+-- ============================================================
+
+theorem trioIs_swap12 {a b r : PathNodeId} {t : PathNodeId × PathNodeId × PathNodeId} (h : trioIs b a r t = true) :
+    trioIs a b r t = true := by
+  obtain ⟨x, y, z⟩ := t
+  simp only [trioIs, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at h
+  rcases h with (((((⟨⟨h1, h2⟩, h3⟩ | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) |
+    ⟨⟨h1, h2⟩, h3⟩) <;> subst h1 <;> subst h2 <;> subst h3 <;> simp [trioIs]
+
+theorem trioIs_self (a b r : PathNodeId) : trioIs a b r (a, b, r) = true := by simp [trioIs]
+
+theorem tF_swap12 {g : GPathB} {a b r : PathNodeId} (h : TF g b a r) : TF g a b r := by
+  obtain ⟨hne, hd⟩ := h
+  refine ⟨Ne.symm hne, ?_⟩
+  unfold deadTrio at hd ⊢
+  rw [Bool.and_eq_true] at hd ⊢
+  obtain ⟨t, ht, hti⟩ := List.any_eq_true.mp hd.2
+  refine ⟨?_, List.any_eq_true.mpr ⟨t, ht, trioIs_swap12 hti⟩⟩
+  obtain ⟨e, he, hj⟩ := List.any_eq_true.mp hd.1
+  exact List.any_eq_true.mpr ⟨e, he, by rw [joins_iff] at hj ⊢; rcases hj with h | h; exact Or.inr h; exact Or.inl h⟩
+
+theorem sideForbids_swap12 {g : GPathB} {F : Trios} (hF : ∀ a b r, F b a r → F a b r) {a b r : PathNodeId}
+    (h : SideForbids g F b a r) : SideForbids g F a b r := by
+  rcases h with h | h
+  · left; rintro ⟨h1, h2, h3⟩; exact h ⟨(adj_symm g a b).mp h1, h3, h2⟩
+  · exact Or.inr (hF _ _ _ h)
+
+theorem sideForbids_of_B {g : GPathB} {a b r : PathNodeId} (hab : a ≠ b) (har : a ≠ r) (hbr : b ≠ r)
+    (h : g.sideForbidsB a b r = true) : SideForbids g (TF g) a b r := by
+  unfold sideForbidsB at h
+  by_cases ht : (g.adjb a b && g.adjb a r && g.adjb b r) = true
+  · rw [if_neg (by simp [ht])] at h
+    rw [if_neg (by simp [beq_iff_eq, hab, Ne.symm har, Ne.symm hbr])] at h
+    exact Or.inr ⟨hab, h⟩
+  · left
+    rintro ⟨h1, h2, h3⟩
+    unfold Adj at h1 h2 h3
+    exact ht (by simp [h1, h2, h3])
+
+theorem B_of_sideForbids {g : GPathB} {a b r : PathNodeId} (hab : a ≠ b) (har : a ≠ r) (hbr : b ≠ r)
+    (h : SideForbids g (TF g) a b r) : g.sideForbidsB a b r = true := by
+  unfold sideForbidsB
+  rcases h with h | h
+  · rw [if_pos]
+    simp only [Bool.not_eq_true', Bool.and_eq_false_iff]
+    unfold Adj at h
+    by_cases h1 : g.adjb a b = true <;> by_cases h2 : g.adjb a r = true <;> simp_all
+  · by_cases ht : (g.adjb a b && g.adjb a r && g.adjb b r) = true
+    · rw [if_neg (by simp [ht]), if_neg (by simp [beq_iff_eq, hab, Ne.symm har, Ne.symm hbr])]
+      exact h.2
+    · rw [if_pos (by revert ht; cases g.adjb a b <;> cases g.adjb a r <;> cases g.adjb b r <;> simp)]
+
+/-- **`addTrios` escribe todo trío de su lista** (o uno de sus órdenes), salvo los que ya estaban. -/
+theorem addTrios_covers (g : GPathB) (i : Idx) (ts : List (PathNodeId × PathNodeId × PathNodeId))
+    (t : PathNodeId × PathNodeId × PathNodeId) (ht : t ∈ ts) :
+    (g.addTrios i ts).1.trios.any (trioIs t.1 t.2.1 t.2.2) = true ∨ i.deadTrio t.1 t.2.1 t.2.2 = true := by
+  unfold addTrios
+  -- el acumulador: lo que ya contiene (en algún orden) está escrito
+  let step := fun (acc : List (PathNodeId × PathNodeId × PathNodeId) ×
+      Std.HashSet (PathNodeId × PathNodeId × PathNodeId)) (u : PathNodeId × PathNodeId × PathNodeId) =>
+    if acc.2.contains u || i.deadTrio u.1 u.2.1 u.2.2 then acc
+    else (u :: acc.1, acc.2.insertMany (perms u.1 u.2.1 u.2.2))
+  have inv : ∀ (l : List (PathNodeId × PathNodeId × PathNodeId))
+      (acc : List (PathNodeId × PathNodeId × PathNodeId) × Std.HashSet (PathNodeId × PathNodeId × PathNodeId)),
+      (∀ u : PathNodeId × PathNodeId × PathNodeId, acc.2.contains u = true →
+        acc.1.any (trioIs u.1 u.2.1 u.2.2) = true) →
+      (∀ u : PathNodeId × PathNodeId × PathNodeId, (l.foldl step acc).2.contains u = true →
+        (l.foldl step acc).1.any (trioIs u.1 u.2.1 u.2.2) = true) ∧
+      (∀ u ∈ l, (l.foldl step acc).1.any (trioIs u.1 u.2.1 u.2.2) = true ∨ i.deadTrio u.1 u.2.1 u.2.2 = true) ∧
+      (∀ u : PathNodeId × PathNodeId × PathNodeId, acc.1.any (trioIs u.1 u.2.1 u.2.2) = true →
+        (l.foldl step acc).1.any (trioIs u.1 u.2.1 u.2.2) = true) := by
+    intro l
+    induction l with
+    | nil => intro acc hacc; exact ⟨hacc, fun u hu => absurd hu List.not_mem_nil, fun _ h => h⟩
+    | cons v vs ih =>
+      intro acc hacc
+      rw [List.foldl_cons]
+      have hstep : (∀ u : PathNodeId × PathNodeId × PathNodeId, (step acc v).2.contains u = true →
+            (step acc v).1.any (trioIs u.1 u.2.1 u.2.2) = true) ∧
+          ((step acc v).1.any (trioIs v.1 v.2.1 v.2.2) = true ∨ i.deadTrio v.1 v.2.1 v.2.2 = true) ∧
+          (∀ u : PathNodeId × PathNodeId × PathNodeId, acc.1.any (trioIs u.1 u.2.1 u.2.2) = true →
+            (step acc v).1.any (trioIs u.1 u.2.1 u.2.2) = true) := by
+        simp only [step]
+        split
+        · rename_i hc
+          simp only [Bool.or_eq_true] at hc
+          refine ⟨hacc, ?_, fun _ h => h⟩
+          rcases hc with hc | hc
+          · exact Or.inl (hacc v hc)
+          · exact Or.inr hc
+        · refine ⟨?_, Or.inl (List.any_eq_true.mpr ⟨v, List.mem_cons_self, by obtain ⟨a, b, c⟩ := v; exact trioIs_self a b c⟩), fun u h => by simp [h]⟩
+          intro u hu
+          rw [Std.HashSet.contains_insertMany_list] at hu
+          simp only [Bool.or_eq_true, List.contains_iff_mem] at hu
+          rcases hu with hu | hu
+          · have := hacc u hu; simp [this]
+          · have hp := (mem_perms_iff u.1 u.2.1 u.2.2 v).mp (by simpa using hu)
+            simp [hp]
+      obtain ⟨r1, r2, r3⟩ := ih (step acc v) hstep.1
+      refine ⟨r1, ?_, fun u h => r3 u (hstep.2.2 u h)⟩
+      intro u hu
+      rcases List.mem_cons.mp hu with rfl | hu
+      · rcases hstep.2.1 with h | h
+        · exact Or.inl (r3 _ h)
+        · exact Or.inr h
+      · exact r2 u hu
+  have := (inv ts ([], {}) (fun u h => by simp at h)).2.1 t ht
+  rcases this with h | h
+  · left
+    show (g.trios ++ (List.foldl step ([], ∅) ts).1.reverse).any (trioIs t.1 t.2.1 t.2.2) = true
+    rw [List.any_append, List.any_reverse, h, Bool.or_true]
+  · exact Or.inr h
+
+-- ============================================================
+-- El join `:on` conserva LiveExt con los tríos reales bajo (★)
+-- ============================================================
+
+/-- `joinF` restringido a tríos de tres nodos distintos. -/
+def joinFD (T : Int) (g₁ : GPathB) (F₁ : Trios) (g₂ : GPathB) (F₂ : Trios) : Trios := fun a b r =>
+  a ≠ b ∧ a ≠ r ∧ b ≠ r ∧ joinF T g₁ F₁ g₂ F₂ a b r
+
+/-- Los tríos de `joinForbid` tienen tres nodos distintos, vivos en algún lado. -/
+theorem joinForbid_facts {g₁ g₂ : GPathB} (hns₁ : NoSelf g₁) (hns₂ : NoSelf g₂) (hea₁ : EdgesAlive g₁)
+    (hea₂ : EdgesAlive g₂) {t : PathNodeId × PathNodeId × PathNodeId} (ht : t ∈ joinForbid g₁ g₂) :
+    (t.1 ≠ t.2.1 ∧ t.1 ≠ t.2.2 ∧ t.2.1 ≠ t.2.2) ∧
+    (t.1 ∈ g₁.alive ∨ t.1 ∈ g₂.alive) ∧ (t.2.1 ∈ g₁.alive ∨ t.2.1 ∈ g₂.alive) ∧ (t.2.2 ∈ g₁.alive ∨ t.2.2 ∈ g₂.alive) := by
+  unfold joinForbid at ht
+  obtain ⟨e, he, ht⟩ := List.mem_flatMap.mp ht
+  obtain ⟨r, hr, rfl⟩ := List.mem_map.mp ht
+  obtain ⟨hr1, hr2⟩ := List.mem_filter.mp hr
+  simp only [Bool.and_eq_true, bne_iff_ne, ne_eq] at hr2
+  have hne12 : e.1 ≠ e.2 := by
+    rcases List.mem_append.mp he with h | h
+    · exact hns₁ e h
+    · exact hns₂ e h
+  have hrn : r ≠ e.1 ∧ (r ∈ g₁.alive ∨ r ∈ g₂.alive) := by
+    rcases List.mem_append.mp hr1 with h | h
+    · have := (idx_mem_nbrs g₁ e.1 r).mp h; exact ⟨this.1, Or.inl this.2.1⟩
+    · have := (idx_mem_nbrs g₂ e.1 r).mp h; exact ⟨this.1, Or.inr this.2.1⟩
+  have hal : (e.1 ∈ g₁.alive ∨ e.1 ∈ g₂.alive) ∧ (e.2 ∈ g₁.alive ∨ e.2 ∈ g₂.alive) := by
+    rcases List.mem_append.mp he with h | h
+    · have := alive_of_hasEdge hea₁ (hasEdge_of_mem h); exact ⟨Or.inl this.1, Or.inl this.2⟩
+    · have := alive_of_hasEdge hea₂ (hasEdge_of_mem h); exact ⟨Or.inr this.1, Or.inr this.2⟩
+  exact ⟨⟨hne12, fun h => hrn.1 h.symm, fun h => hr2.1.1.1 h.symm⟩, hal.1, hal.2, hrn.2⟩
+
+/-- **El join `:on` conserva `LiveExt` con los tríos reales, bajo (★) con los tríos reales de los lados.** -/
+theorem liveExt_joinOn {g₁ g₂ : GPathB} (h₁ : LiveExt g₁ (TF g₁)) (h₂ : LiveExt g₂ (TF g₂))
+    (hcs : g₁.current_step = g₂.current_step) (hside : JoinSide g₁ (TF g₁) g₂ (TF g₂))
+    (hdocs₁ : AliveDocs g₁) (hdocs₂ : AliveDocs g₂) (hli₁ : LinksInv g₁) (hli₂ : LinksInv g₂)
+    (hea₁ : EdgesAlive g₁) (hea₂ : EdgesAlive g₂) (hr₁ : RootNone g₁) (hr₂ : RootNone g₂)
+    (hnd₁ : NodupIds g₁) (hnd₂ : NodupIds g₂) (hns₁ : NoSelf g₁) (hns₂ : NoSelf g₂)
+    (hab₁ : AliveBelow g₁) (hab₂ : AliveBelow g₂) :
+    LiveExt (joinOn g₁ g₂) (TF (joinOn g₁ g₂)) := by
+  let U := join g₁ g₂
+  let T := g₁.current_step
+  have hcsU : U.current_step = T := rfl
+  have hJ := liveExt_join h₁ h₂ hcs hside
+  have hJD : LiveExt U (joinFD T g₁ (TF g₁) g₂ (TF g₂)) :=
+    liveExt_congrD (fun _ _ _ a b c h => ⟨a, b, c, h⟩) (fun _ _ _ _ _ _ h => h.2.2.2) hJ
+  obtain ⟨T', hT⟩ := joinOn_eq g₁ g₂
+  have hsub : Sub (joinOn g₁ g₂) U := by rw [hT]; exact (shrinks_setT U T').1
+  have hadjU : ∀ x y, (joinOn g₁ g₂).Adj x y → U.Adj x y := fun x y h => by rw [hT] at h; exact h
+  have hrU : RootNone U := fun x hx hx0 =>
+    ((alive_join g₁ g₂ x).mp hx).elim (fun h => hr₁ x h hx0) (fun h => hr₂ x h hx0)
+  -- los tríos guardados por el join
+  let u : GPathB := { join g₁ g₂ with trios := [] }
+  have htr : (joinOn g₁ g₂).trios = (u.addTrios (Idx.of u) (joinForbid g₁ g₂)).1.trios := rfl
+  have below : ∀ x, x ∈ g₁.alive ∨ x ∈ g₂.alive → x.id.step < T := by
+    intro x hx; rcases hx with hx | hx
+    · exact hab₁ x hx
+    · have := hab₂ x hx; rw [← hcs] at this; exact this
+  refine liveExt_of_keep' hJD (Machine.aliveDocs_join hdocs₁ hdocs₂) (linksInv_join hli₁ hli₂ hea₁ hea₂) hrU
+    (nodupIds_join hnd₁ hnd₂) (fun _ _ _ h => ⟨h.1, h.2.1, h.2.2.1⟩) hsub ?_ ?_
+  · -- en los triángulos de la unión, lo que cortan los dos lados está guardado
+    intro x y z hxy hxz hyz ⟨nxy, nxz, nyz, _, _, _, s1, s2⟩
+    have exy := hasEdge_of_adj (hadjU _ _ hxy) nxy
+    have exz := hasEdge_of_adj (hadjU _ _ hxz) nxz
+    have eyz := hasEdge_of_adj (hadjU _ _ hyz) nyz
+    -- la arista x–y está en un lado, en algún orden
+    obtain ⟨e, he, hj⟩ := List.any_eq_true.mp exy
+    have he' : e ∈ g₁.edges ++ g₂.edges := by
+      rcases List.mem_append.mp he with h | h
+      · exact List.mem_append_left _ h
+      · exact List.mem_append_right _ (List.mem_filter.mp h).1
+    -- `z` es vecino de `e.1` en algún lado, y `e.2`–`z` es arista en algún lado
+    have nbr_of : ∀ a, a ≠ z → U.hasEdge a z = true →
+        z ∈ (Idx.of g₁).nbrs a ++ (Idx.of g₂).nbrs a ∧ ((Idx.of g₁).hasEdge a z || (Idx.of g₂).hasEdge a z) = true := by
+      intro a haz he2
+      obtain ⟨e', he2', hj'⟩ := List.any_eq_true.mp he2
+      rcases List.mem_append.mp he2' with h | h
+      · have hE : g₁.hasEdge a z = true := List.any_eq_true.mpr ⟨e', h, hj'⟩
+        refine ⟨List.mem_append_left _ ((idx_mem_nbrs g₁ a z).mpr ⟨fun h => haz h.symm, (hea₁ a z (by
+          unfold Adj adjb; simp [hE])).2, hE⟩), by simp [idx_hasEdge, hE]⟩
+      · have hE : g₂.hasEdge a z = true := List.any_eq_true.mpr ⟨e', (List.mem_filter.mp h).1, hj'⟩
+        refine ⟨List.mem_append_right _ ((idx_mem_nbrs g₂ a z).mpr ⟨fun h => haz h.symm, (hea₂ a z (by
+          unfold Adj adjb; simp [hE])).2, hE⟩), by simp [idx_hasEdge, hE]⟩
+    have hcov : ∃ t ∈ joinForbid g₁ g₂, trioIs x y z t = true := by
+      rcases (joins_iff x y e).mp hj with ⟨h1, h2⟩ | ⟨h1, h2⟩
+      · refine ⟨(e.1, e.2, z), ?_, by rw [h1, h2]; exact trioIs_self x y z⟩
+        unfold joinForbid
+        refine List.mem_flatMap.mpr ⟨e, he', List.mem_map.mpr ⟨z, List.mem_filter.mpr ⟨?_, ?_⟩, rfl⟩⟩
+        · rw [h1]; exact (nbr_of x nxz exz).1
+        · rw [h1, h2]
+          simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, idx_sideForbids]
+          exact ⟨⟨⟨fun h => nyz h.symm, by rw [← adj_symm] at hyz; exact (nbr_of y nyz eyz).2⟩,
+            B_of_sideForbids nxy nxz nyz s1⟩, B_of_sideForbids nxy nxz nyz s2⟩
+      · refine ⟨(e.1, e.2, z), ?_, by rw [h1, h2]; exact trioIs_swap12 (trioIs_self y x z)⟩
+        unfold joinForbid
+        refine List.mem_flatMap.mpr ⟨e, he', List.mem_map.mpr ⟨z, List.mem_filter.mpr ⟨?_, ?_⟩, rfl⟩⟩
+        · rw [h1]; exact (nbr_of y nyz eyz).1
+        · rw [h1, h2]
+          have tsw : ∀ a b r, TF g₁ b a r → TF g₁ a b r := fun _ _ _ h => tF_swap12 h
+          have tsw2 : ∀ a b r, TF g₂ b a r → TF g₂ a b r := fun _ _ _ h => tF_swap12 h
+          simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, idx_sideForbids]
+          exact ⟨⟨⟨fun h => nxz h.symm, (nbr_of x nxz exz).2⟩,
+            B_of_sideForbids (Ne.symm nxy) nyz nxz (sideForbids_swap12 tsw s1)⟩,
+            B_of_sideForbids (Ne.symm nxy) nyz nxz (sideForbids_swap12 tsw2 s2)⟩
+    obtain ⟨t, ht, hti⟩ := hcov
+    refine ⟨nxy, ?_⟩
+    unfold deadTrio
+    rw [Bool.and_eq_true]
+    refine ⟨by rw [hT]; exact exy, ?_⟩
+    rw [htr]
+    rcases addTrios_covers u (Idx.of u) _ t ht with h | h
+    · obtain ⟨t', ht', hti'⟩ := List.any_eq_true.mp h
+      -- `trioIs x y z t` y `trioIs t t'`: `t'` es un orden de `{x, y, z}`
+      refine List.any_eq_true.mpr ⟨t', ht', ?_⟩
+      obtain ⟨a, b, c⟩ := t
+      simp only [trioIs, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hti
+      rcases hti with (((((⟨⟨h1, h2⟩, h3⟩ | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) |
+        ⟨⟨h1, h2⟩, h3⟩) <;> subst h1 <;> subst h2 <;> subst h3 <;>
+        (obtain ⟨p, q, w⟩ := t'; simp only [trioIs, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hti' ⊢;
+         rcases hti' with (((((⟨⟨k1, k2⟩, k3⟩ | ⟨⟨k1, k2⟩, k3⟩) | ⟨⟨k1, k2⟩, k3⟩) | ⟨⟨k1, k2⟩, k3⟩) |
+           ⟨⟨k1, k2⟩, k3⟩) | ⟨⟨k1, k2⟩, k3⟩) <;> subst k1 <;> subst k2 <;> subst k3 <;> simp)
+    · exfalso
+      rw [idx_deadTrio] at h
+      unfold deadTrio at h
+      simp [u] at h
+  · -- una camarilla de la unión que esquiva lo que cortan los dos lados esquiva lo guardado
+    intro D hc hA
+    refine ⟨by rw [hT]; exact ⟨hc.step, hc.alive, hc.adj, hc.root, hc.node⟩, ?_⟩
+    intro p q s h0 h1 h2 h3 h4 h5 ⟨_, hd⟩
+    unfold deadTrio at hd
+    rw [Bool.and_eq_true, htr] at hd
+    obtain ⟨t, ht, hti⟩ := List.any_eq_true.mp hd.2
+    rcases mem_addTrios u _ _ t ht with h | h
+    · exact absurd h (List.not_mem_nil)
+    · obtain ⟨dt, a1, a2, a3⟩ := joinForbid_facts hns₁ hns₂ hea₁ hea₂ h
+      obtain ⟨f1, f2⟩ := mem_joinForbid h
+      obtain ⟨c1, c2, c3⟩ := trioIs_mem hti
+      have hcsD : (joinOn g₁ g₂).current_step = U.current_step := by rw [hT]
+      rw [hcsD] at h1 h3 h5
+      have idx : ∀ x, (x = D p ∨ x = D q ∨ x = D s) → ∃ i, 0 ≤ i ∧ i < U.current_step ∧ D i = x := by
+        intro x hx
+        rcases hx with rfl | rfl | rfl
+        · exact ⟨p, h0, h1, rfl⟩
+        · exact ⟨q, h2, h3, rfl⟩
+        · exact ⟨s, h4, h5, rfl⟩
+      obtain ⟨i1, i10, i11, hi1⟩ := idx _ c1
+      obtain ⟨i2, i20, i21, hi2⟩ := idx _ c2
+      obtain ⟨i3, i30, i31, hi3⟩ := idx _ c3
+      apply hA i1 i2 i3 i10 i11 i20 i21 i30 i31
+      rw [hi1, hi2, hi3]
+      exact ⟨dt.1, dt.2.1, dt.2.2, below _ a1, below _ a2, below _ a3,
+        sideForbids_of_B dt.1 dt.2.1 dt.2.2 f1, sideForbids_of_B dt.1 dt.2.1 dt.2.2 f2⟩
 
 end GPathB
 
