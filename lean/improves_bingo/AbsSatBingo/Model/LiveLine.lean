@@ -699,6 +699,46 @@ theorem aboveTriv_join {A B : GPathB} {FA FB : FamT} (hA : AboveTriv A FA) (hB :
     (hcs : A.current_step = B.current_step) : AboveTriv (join A B) (joinFam A B FA FB) :=
   fun b hb => triv_join (hA b hb) (hB b (by rw [← hcs]; exact hb))
 
+-- ============================================================
+-- La línea siguiente en el paso de negación
+-- ============================================================
+
+/-- **`CrossClosed` entre las dos entradas tras un paso de negación**: `E₀ = up (filterAll D₁ [k₁]) d₀` y
+`E₁ = up (filterAll D₀ [k₀]) d₁`, cada una desde el otro remitente fijado a su propia cima (pin trivial). -/
+theorem cc_neg {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {k₀ k₁ d₀ d₁ : NodeId} {t₀ t₁ : String}
+    {f₀ f₁ : PathNodeId → Bool} (hD₀ : Good D₀ F₀) (hD₁ : Good D₁ F₁)
+    (hT₀ : Triv D₀ F₀ k₀) (hT₁ : Triv D₁ F₁ k₁)
+    (hcs : D₀.current_step = D₁.current_step) (hd₀ : d₀.step = D₁.current_step) (hd₁ : d₁.step = D₀.current_step)
+    (hcc : ∀ R, (pinF D₁ R).isValid = true → (pinF D₀ R).isValid = true →
+      CrossClosed (pinF D₁ R) (F₁ R) (pinF D₀ R) (F₀ R)) (R : List NodeId)
+    (hv₀ : (pinF ((D₁.filterAll [k₁]).up d₀ t₀ f₀) R).isValid = true)
+    (hv₁ : (pinF ((D₀.filterAll [k₀]).up d₁ t₁ f₁) R).isValid = true) :
+    CrossClosed (pinF ((D₁.filterAll [k₁]).up d₀ t₀ f₀) R) (F₁ ([k₁] ++ R))
+      (pinF ((D₀.filterAll [k₀]).up d₁ t₁ f₁) R) (F₀ ([k₀] ++ R)) := by
+  obtain ⟨hvX₀, ha₀, hj₀⟩ := arrival_pin_commute (title := t₀) (forb := f₀) hD₁.inv (by have := hD₁.pos; omega) hd₀ hv₀
+  obtain ⟨hvX₁, ha₁, hj₁⟩ := arrival_pin_commute (title := t₁) (forb := f₁) hD₀.inv (by have := hD₀.pos; omega) hd₁ hv₁
+  have e₁ : pinF D₁ ([k₁] ++ R) = pinF D₁ R := pinF_triv hT₁.1 [] R
+  have e₀ : pinF D₀ ([k₀] ++ R) = pinF D₀ R := pinF_triv hT₀.1 [] R
+  have g₁ : F₁ ([k₁] ++ R) = F₁ R := hT₁.2 [] R
+  have g₀ : F₀ ([k₀] ++ R) = F₀ R := hT₀.2 [] R
+  rw [e₁] at hvX₀ ha₀ hj₀
+  rw [e₀] at hvX₁ ha₁ hj₁
+  rw [g₁, g₀]
+  have hcX := hcc R hvX₀ hvX₁
+  have hup := crossClosed_upR (d₀ := d₀) (d₁ := d₁) (t₀ := t₀) (t₁ := t₁) (f₀ := f₀) (f₁ := f₁) hcX
+    (by rw [step_pinF]; exact hD₁.below R) (sInvB_pinF hD₁.inv R) (by rw [step_pinF, step_pinF, hcs])
+    (by rw [step_pinF]; exact hd₀) (by rw [step_pinF]; exact hd₁)
+  have hiA₀ := sInvB_pinF (sInvB_up (sInvB_filterAll hD₁.inv [k₁]) (d := d₀) (title := t₀) (forb := f₀)
+    (by rw [(shrinks_filterAll D₁ [k₁]).1.step]; exact hd₀) (by have := hD₁.pos; omega)) R
+  have hiA₁ := sInvB_pinF (sInvB_up (sInvB_filterAll hD₀.inv [k₀]) (d := d₁) (title := t₁) (forb := f₁)
+    (by rw [(shrinks_filterAll D₀ [k₀]).1.step]; exact hd₁) (by have := hD₀.pos; omega)) R
+  have hiX : SInvB (upR (pinF D₁ R) d₀ t₀ f₀) :=
+    sInvB_review (sInvB_dirty (sInvB_addNode (sInvB_pinF hD₁.inv _) (by rw [step_pinF]; exact hd₀)
+      (by have := hD₁.pos; omega)) true)
+  have hvY : (D₁.filterAll [k₁]).isValid = true := valid_of_up (isValid_of_sub (sub_pinF _ R) hv₀)
+  refine crossClosed_same hup ?_ ⟨ha₀, hj₀⟩ ⟨ha₁, hj₁⟩ hiA₀.links.2.2 hiX.links hiA₁.edges
+  rw [step_pinF, step_up hvY, (shrinks_filterAll D₁ [k₁]).1.step, step_upR, step_pinF]
+
 end GPathB
 
 end AbsSatBingo.Model
