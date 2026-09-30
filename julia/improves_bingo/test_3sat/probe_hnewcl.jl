@@ -17,6 +17,16 @@
 #   Fsrc_rec    prohibido en alguna de ellas (viene de más abajo)
 #   Fsrc_one    solo había una llegada en D
 #   Fsrc_open   abierto en alguna (imposible si D lo prohíbe por su join)
+# Con PURE=1, además, para tríos de cadena de E (hasta MAXT por entrada) que son triángulo en D y triángulo en alguna
+# de las dos llegadas que formaron D (triángulo "de un solo lado"):
+#   pure        cuántos
+#   pure_forb   de ellos, prohibidos en E (HMixed dice que ninguno)
+#   pure_cl     hay una camarilla de D por los tres con el valor del literal de E
+#   pure_nocl   no la hay
+#   pure_any    no la hay con ese valor, pero sí con el otro
+#   pure_unk    la búsqueda agotó su presupuesto
+#   pure_other  (de pure_nocl) el otro remitente sí tiene una camarilla por los tres con el valor del literal de E
+#   pure_none   (de pure_nocl) ningún remitente la tiene
 
 const OUT = abspath(ARGS[1])
 const CAP = 20000
@@ -31,6 +41,37 @@ alive_at(g, l) = collect(get(g.og.alive, l, SetPathNodesId()))
 adj(g, a, b) = a == b ? PG.is_alive(g.og, a) : PG.has_edge(g.og, a, b)
 
 const LIT = Ref(-1)
+const PURE = get(ENV, "PURE", "0") == "1"
+const MAXT = parse(Int, get(ENV, "MAXT", "300"))
+
+# ¿Hay una camarilla de D (un nodo por paso, vecinos dos a dos) por los nodos de `must`, con el nodo del paso del
+# literal de índice `li` (o cualquiera si li < 0)? `nothing` si se agota el presupuesto.
+function clique_through(D, must, ls, li; budget = 20000)
+    top = Int(D.current_step) - 1
+    mustat = Dict(Int(m.id.step) => m for m in must)
+    chosen = PathNodeId[]
+    b = Ref(budget)
+    function go(k)
+        b[] -= 1
+        b[] < 0 && return false
+        k < 0 && return true
+        cands = haskey(mustat, k) ? [mustat[k]] : alive_at(D, k)
+        for c in cands
+            PG.is_alive(D.og, c) || continue
+            (k == ls && li >= 0 && Int(c.id.index) != li) && continue
+            all(w -> PG.has_edge(D.og, c, w), chosen) || continue
+            all(w -> w == c || PG.has_edge(D.og, c, w), must) || continue
+            push!(chosen, c)
+            r = go(k - 1)
+            pop!(chosen)
+            r && return true
+            b[] < 0 && return false
+        end
+        return false
+    end
+    r = go(top)
+    return b[] < 0 ? nothing : r
+end
 const PREV = Any[]
 const PREVARR = Any[]      # las llegadas que formaron las entradas de PREV
 const ARR = Any[]
@@ -74,12 +115,43 @@ function scan(s)
     leaves = Ref(0)
     chain = PathNodeId[]
     seen = Set{Any}()
+    pseen = Set{Any}()
+    li = Int(s.map_parent_id.index)
     function dfs(x)
         leaves[] > CAP && return
         push!(chain, x)
         k = length(chain)
         for i in 1:k-1, j in i+1:k-1
             a, b = chain[i], chain[j]
+            if PURE && length(pseen) < MAXT
+                pk = Set((a, b, x))
+                if !(pk in pseen)
+                    push!(pseen, pk)
+                    for D in PREV
+                        status(D, a, b, x) in ("T", "F") || continue
+                        bs = [B for B in PREVARR if B.map_parent_id == D.map_parent_id]
+                        any(B -> status(B, a, b, x) in ("T", "F"), bs) || continue
+                        bump(:pure)
+                        PG.dead_trio(s.og, a, b, x) && bump(:pure_forb)
+                        r = clique_through(D, [a, b, x], LIT[], li)
+                        if r === nothing
+                            bump(:pure_unk)
+                        elseif r
+                            bump(:pure_cl)
+                        else
+                            bump(:pure_nocl)
+                            r2 = clique_through(D, [a, b, x], LIT[], 1 - li)
+                            r2 === true && bump(:pure_any)
+                            others = [D2 for D2 in PREV if D2 !== D]
+                            if any(D2 -> clique_through(D2, [a, b, x], LIT[], li) === true, others)
+                                bump(:pure_other)
+                            else
+                                bump(:pure_none)
+                            end
+                        end
+                    end
+                end
+            end
             PG.dead_trio(s.og, a, b, x) || continue
             key = Set((a, b, x))
             key in seen && continue
@@ -110,7 +182,7 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:lines2, :trios, :n_top, :n_stop, :n_low, :m_stop, :m_low, :F_pre, :F_post, :T, :Fsrc_fresh, :Fsrc_rec,
-            :Fsrc_one, :Fsrc_open, :cap)
+            :Fsrc_one, :Fsrc_open, :pure, :pure_forb, :pure_cl, :pure_nocl, :pure_any, :pure_unk, :pure_other, :pure_none, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
