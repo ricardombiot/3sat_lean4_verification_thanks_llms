@@ -27,6 +27,8 @@
 #   pure_unk    la búsqueda agotó su presupuesto
 #   pure_other  (de pure_nocl) el otro remitente sí tiene una camarilla por los tres con el valor del literal de E
 #   pure_none   (de pure_nocl) ningún remitente la tiene
+#   pure_arr    hay una camarilla de alguna llegada de E (hasta su cima) por los tres
+#   pure_noarr  no la hay
 
 const OUT = abspath(ARGS[1])
 const CAP = 20000
@@ -133,6 +135,9 @@ function scan(s)
                         any(B -> status(B, a, b, x) in ("T", "F"), bs) || continue
                         bump(:pure)
                         PG.dead_trio(s.og, a, b, x) && bump(:pure_forb)
+                        arrs = [A for A in ARR if A.map_parent_id == s.map_parent_id]
+                        ra = [clique_through(A, [a, b, x], -1, -1) for A in arrs]
+                        any(==(true), ra) ? bump(:pure_arr) : bump(:pure_noarr)
                         r = clique_through(D, [a, b, x], LIT[], li)
                         if r === nothing
                             bump(:pure_unk)
@@ -182,7 +187,7 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:lines2, :trios, :n_top, :n_stop, :n_low, :m_stop, :m_low, :F_pre, :F_post, :T, :Fsrc_fresh, :Fsrc_rec,
-            :Fsrc_one, :Fsrc_open, :pure, :pure_forb, :pure_cl, :pure_nocl, :pure_any, :pure_unk, :pure_other, :pure_none, :cap)
+            :Fsrc_one, :Fsrc_open, :pure, :pure_forb, :pure_cl, :pure_nocl, :pure_any, :pure_unk, :pure_other, :pure_none, :pure_arr, :pure_noarr, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
