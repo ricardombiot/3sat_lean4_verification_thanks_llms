@@ -27,6 +27,23 @@ isopen(o, a, b, x) = PG.has_edge(o.og, a, b) && PG.has_edge(o.og, a, x) && PG.ha
                      !PG.dead_trio(o.og, a, b, x)
 
 const KIND = Ref("?")
+const LIT = Ref(-1)        # paso del literal que fijan los requisitos de la línea (cláusula)
+const DIST = Dict{Int, Int}()
+const ARR = Any[]          # llegadas del último paso (copias en :up_done)
+const PAT = Dict{String, Int}()
+using .AbsSat.Probes
+status(g, a, b, x) = !(PG.is_alive(g.og, a) && PG.is_alive(g.og, b) && PG.is_alive(g.og, x)) ? "n" :
+    !(PG.has_edge(g.og, a, b) && PG.has_edge(g.og, a, x) && PG.has_edge(g.og, b, x)) ? "m" :
+    PG.dead_trio(g.og, a, b, x) ? "F" : "T"
+# patrón: para las llegadas al destino de s (el estado con el trío prohibido) y al de o, por remitente
+function pattern(s, o, a, b, x)
+    function skey(g)
+        xs = alive_at(g, Int(g.current_step) - 1)
+        isempty(xs) || first(xs).parent_id === nothing ? "?" : string(first(xs).parent_id.index)
+    end
+    part(dest) = join(sort([skey(g) * status(g, a, b, x) for g in ARR if g.map_parent_id == dest]), ",")
+    "s:" * part(s.map_parent_id) * " o:" * part(o.map_parent_id)
+end
 function cross(s, o)
     top = Int(s.current_step) - 1
     leaves = Ref(0)
@@ -47,6 +64,11 @@ function cross(s, o)
                 bump(Symbol("why_edge_", KIND[]))
             else
                 bump(Symbol("why_forb_", KIND[]))
+            end
+            if KIND[] == "cl" && PG.is_alive(o.og, a) && PG.is_alive(o.og, b) && PG.is_alive(o.og, x)
+                lo = minimum(Int(z.id.step) for z in (a, b, x))
+                DIST[lo - LIT[]] = get(DIST, lo - LIT[], 0) + 1
+                pk = pattern(s, o, a, b, x); PAT[pk] = get(PAT, pk, 0) + 1
             end
         end
         if Int(x.id.step) > 0
@@ -73,7 +95,7 @@ function main()
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C)
+        empty!(C); empty!(DIST); empty!(PAT)
         PG.FORBID[] = :on
         t = @elapsed begin
             machine = SatMachine.new(loader(path))
@@ -87,6 +109,8 @@ function main()
                         KIND[] = startswith(ttl, "or") ? "cl" : startswith(ttl, "!") ? "neg" :
                                  occursin("Fusion", ttl) ? "fus" : "var"
                         bump(Symbol("lines_", KIND[]))
+                        rq = SatMachine.map_get_node(machine.gmap, gs[1].map_parent_id).requires
+                        LIT[] = isempty(rq) ? -1 : Int(first(rq).step)
                         C[Symbol("title_", KIND[])] = 1
                     end
                     for A in gs, B in gs
@@ -95,11 +119,16 @@ function main()
                         cross(A, B)
                     end
                     (SatMachine.is_finished(machine) || !SatMachine.have_gpaths_step(machine)) && break
-                    SatMachine.make_step!(machine)
+                    empty!(ARR)
+                    Probes.with(:up_done => g -> push!(ARR, deepcopy(g))) do
+                        SatMachine.make_step!(machine)
+                    end
                 end
             end
         end
         PG.FORBID[] = :off
+        println(stderr, basename(path), " patrones (estado de cada llegada: T abierto, F prohibido, m falta arista, n falta nodo) => ", sort(collect(PAT)))
+        println(stderr, basename(path), " distancia (paso más bajo del trío − paso del literal) => casos: ", sort(collect(DIST)))
         return (truth, (get(C, c, 0) for c in cols)..., round(t, digits = 1))
     end
 end
