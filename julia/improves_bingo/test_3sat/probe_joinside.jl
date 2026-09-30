@@ -94,6 +94,41 @@ function agree(a, b)
     end
 end
 
+# El mecanismo: para cada padre p de x que alarga la cadena en aristas de la unión, los tríos nuevos (a, b, p):
+#   cand  — prohibido en el lado de la cima (con sus aristas allí) y abierto en el otro
+#   kill  — prohibido en la unión
+# Si hay cand y kill a la vez: ¿el trío que mata contiene un nodo exclusivo del lado (no vivo en el otro)? ¿a qué
+# profundidad (pasos por debajo de la cima) está el nodo exclusivo más bajo?
+function mechanism(u, s, sides, chain, x)
+    other = sides[1] === s ? sides[2] : sides[1]
+    nd = PathCollectionLines.get_node(u.table_lines, x)
+    nd === nothing && return
+    top = Int(u.current_step) - 1
+    for p in nd.parents
+        PG.is_alive(u.og, p) && all(w -> adj(u, w, p), chain) || continue
+        cand = false; kills = Tuple{PathNodeId, PathNodeId}[]
+        for i in eachindex(chain), j in i+1:length(chain)
+            a, b = chain[i], chain[j]
+            dead(u, a, b, p) && push!(kills, (a, b))
+            if PG.has_edge(s.og, a, b) && PG.has_edge(s.og, a, p) && PG.has_edge(s.og, b, p) &&
+               PG.dead_trio(s.og, a, b, p) &&
+               PG.has_edge(other.og, a, b) && PG.has_edge(other.og, a, p) && PG.has_edge(other.og, b, p) &&
+               !PG.dead_trio(other.og, a, b, p)
+                cand = true
+            end
+        end
+        cand || continue
+        bump(:cand)
+        isempty(kills) && (bump(:cand_alive); continue)
+        bump(:cand_killed)
+        uniq = [k for k in kills if any(z -> !PG.is_alive(other.og, z), k)]
+        isempty(uniq) ? bump(:kill_shared_only) : bump(:kill_unique)
+        # profundidad del nodo exclusivo más bajo entre los que matan
+        depths = [top - Int(z.id.step) for k in uniq for z in k if !PG.is_alive(other.og, z)]
+        isempty(depths) || (C[:kill_depth_max] = max(get(C, :kill_depth_max, 0), maximum(depths)))
+    end
+end
+
 function judge(u, sides)
     u.is_valid || return
     bump(:joins)
@@ -109,6 +144,7 @@ function judge(u, sides)
         if Int(x.id.step) == 0
             leaves[] += 1
         else
+            mechanism(u, s, sides, chain, x)
             ps = live_parents(u, x, chain)
             isempty(ps) ? bump(:dead) : foreach(p -> dfs(p, s), ps)
         end
@@ -125,7 +161,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:joins, :common_tri, :tri_both, :tri_disagree, :dis_top_adj, :dis_top_open, :dis_open, :chains, :top_both, :top_none, :v_node, :v_edge, :v_link, :v_trio_t, :v_trio, :dead, :cap)
+    cols = (:joins, :cand, :cand_alive, :cand_killed, :kill_unique, :kill_shared_only, :kill_depth_max, :common_tri, :tri_both, :tri_disagree, :dis_top_adj, :dis_top_open, :dis_open, :chains, :top_both, :top_none, :v_node, :v_edge, :v_link, :v_trio_t, :v_trio, :dead, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
