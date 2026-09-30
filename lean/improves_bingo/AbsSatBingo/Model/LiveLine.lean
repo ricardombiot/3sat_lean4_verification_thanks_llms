@@ -196,6 +196,67 @@ theorem good_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB
       · exact hA.nodeg R
     · exact hB.nodeg R
 
+-- ============================================================
+-- CrossClosed en la forma de la conmutación: la fila nueva revisada sobre el remitente fijado
+-- ============================================================
+
+/-- La llegada en la forma de la conmutación. -/
+def upR (X : GPathB) (d : NodeId) (title : String) (forb : PathNodeId → Bool) : GPathB :=
+  ({ X.addNode d title forb with dirty := true } : GPathB).review
+
+theorem sub_upR (X : GPathB) (d : NodeId) (title : String) (forb : PathNodeId → Bool) :
+    Sub (upR X d title forb) (X.addNode d title forb) := (shrinks_review _).1.trans (shrinks_dirty _ true).1
+
+theorem step_upR (X : GPathB) (d : NodeId) (title : String) (forb : PathNodeId → Bool) :
+    (upR X d title forb).current_step = X.current_step + 1 := (sub_upR X d title forb).step
+
+/-- Una cadena de `upR X d`, sin su cima, es una cadena de `X`. -/
+theorem spineChain_upR {X : GPathB} {d : NodeId} {title : String} {forb : PathNodeId → Bool} (hX : SInvB X)
+    (hd : d.step = X.current_step) {C : Int → PathNodeId} {j : Int} (hC : SpineChain (upR X d title forb) C j) :
+    SpineChain X C j := by
+  have hsA := sub_upR X d title forb
+  have hcsA := step_upR X d title forb
+  have hndA : NodupIds (X.addNode d title forb) := nodupIds_addNode hX.nodup hX.below hd
+  have hn := fun k (h1 : j ≤ k) (h2 : k ≤ X.current_step - 1) => hC.node k h1 (by rw [hcsA]; omega)
+  have hold : ∀ k, j ≤ k → k ≤ X.current_step - 1 → C k ∈ X.alive := by
+    intro k h1 h2
+    obtain ⟨hs, ha⟩ := hn k h1 h2
+    rcases alive_addNode_cases hX.docs hX.below hd (hsA.alive _ ha) with ⟨h, _⟩ | ⟨_, h⟩
+    · exact h
+    · omega
+  refine ⟨fun k h1 h2 => ⟨(hn k h1 h2).1, hold k h1 h2⟩, fun k l h1 h2 h3 h4 => ?_, fun k h1 h2 => ?_⟩
+  · exact adj_addNode_old hd (by rw [(hn k h1 h2).1]; omega) (by rw [(hn l h3 h4).1]; omega)
+      (hsA.adj _ _ (hC.adj k l h1 (by rw [hcsA]; omega) h3 (by rw [hcsA]; omega)))
+  · obtain ⟨n, hn', hp⟩ := hC.link k h1 (by rw [hcsA]; omega)
+    obtain ⟨m, hm, hpm⟩ := node?_sub hsA hndA hn'
+    rw [node?_addNode_old hd (by rw [(hn k (by omega) h2).1]; omega)] at hm
+    cases hy : X.node? (C k) with
+    | none => rw [hy] at hm; cases hm
+    | some m0 => rw [hy] at hm; cases hm; exact ⟨m0, rfl, hpm _ hp⟩
+
+/-- **`CrossClosed` pasa de los remitentes fijados a sus llegadas** (en la forma de la conmutación). -/
+theorem crossClosed_upR {X₀ X₁ : GPathB} {F₀ F₁ : Trios} {d₀ d₁ : NodeId} {t₀ t₁ : String}
+    {f₀ f₁ : PathNodeId → Bool} (hc : CrossClosed X₀ F₀ X₁ F₁) (hB : FBelow F₀ X₀.current_step)
+    (hX₀ : SInvB X₀) (hX₁ : SInvB X₁) (hcs : X₀.current_step = X₁.current_step)
+    (hd₀ : d₀.step = X₀.current_step) (hd₁ : d₁.step = X₁.current_step) :
+    CrossClosed (upR X₀ d₀ t₀ f₀) F₀ (upR X₁ d₁ t₁ f₁) F₁ := by
+  intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
+  have hcsA := step_upR X₀ d₀ t₀ f₀
+  obtain ⟨sp, sq, sr⟩ := hB _ _ _ hf
+  rw [(hC.node p h1 h2).1] at sp; rw [(hC.node q h3 h4).1] at sq; rw [(hC.node r h5 h6).1] at sr
+  have hs := hc C j (spineChain_upR hX₀ hd₀ hC) p q r h1 (by omega) h3 (by omega) h5 (by omega) hf
+  have hsub := sub_upR X₁ d₁ t₁ f₁
+  have hstep := fun k (h1 : j ≤ k) (h2 : k ≤ (upR X₀ d₀ t₀ f₀).current_step - 1) => (hC.node k h1 h2).1
+  have hadj : ∀ u v : Int, j ≤ u → u < X₀.current_step → j ≤ v → v < X₀.current_step →
+      (upR X₁ d₁ t₁ f₁).Adj (C u) (C v) → X₁.Adj (C u) (C v) := by
+    intro u v hu1 hu2 hv1 hv2 ha
+    exact adj_addNode_old hd₁ (by rw [hstep u hu1 (by omega), ← hcs]; exact hu2)
+      (by rw [hstep v hv1 (by omega), ← hcs]; exact hv2) (hsub.adj _ _ ha)
+  rcases hs with hn | hF
+  · exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hadj p q h1 (by omega) h3 (by omega) a, hadj p r h1 (by omega) h5 (by omega) b,
+      hadj q r h3 (by omega) h5 (by omega) c⟩
+  · exact Or.inr hF
+
 end GPathB
 
 end AbsSatBingo.Model
