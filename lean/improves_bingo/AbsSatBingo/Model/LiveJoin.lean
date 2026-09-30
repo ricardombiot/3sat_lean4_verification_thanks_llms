@@ -282,38 +282,35 @@ theorem crossClosed_up {D₀ D₁ : GPathB} {F₀ F₁ : Trios} {reqs reqs₁ : 
   · exact Or.inr hF
 
 -- ============================================================
--- CrossClosed entre las dos entradas de una línea: por remitente (PinSwap)
+-- CrossClosed entre las dos entradas de una línea
 -- ============================================================
 
-/-- **`PinSwap`** para un remitente: un trío de una cadena de `E` cortado en la llegada `A` (lado de `E`) está cortado
-en la llegada `A'` del mismo remitente a la otra entrada. -/
-def PinSwap (E : GPathB) (A : GPathB) (FA : Trios) (A' : GPathB) (FA' : Trios) : Prop :=
-  ∀ C j, SpineChain E C j → ∀ p q r, j ≤ p → p ≤ E.current_step - 1 → j ≤ q → q ≤ E.current_step - 1 →
-    j ≤ r → r ≤ E.current_step - 1 → SideForbids A FA (C p) (C q) (C r) → SideForbids A' FA' (C p) (C q) (C r)
+/-- Un trío de una cadena de `E` (índices en el tramo de la cadena). -/
+def OnChain3 (E : GPathB) (C : Int → PathNodeId) (j p q r : Int) : Prop :=
+  SpineChain E C j ∧ j ≤ p ∧ p ≤ E.current_step - 1 ∧ j ≤ q ∧ q ≤ E.current_step - 1 ∧ j ≤ r ∧
+    r ≤ E.current_step - 1
 
-/-- **`CrossClosed` entre dos uniones por `PinSwap`**: si `E = A₀ ∪ A₁` y `E' = A₀' ∪ A₁'` (cada `Aᵢ'` del mismo
-remitente que `Aᵢ`) y cada remitente cumple `PinSwap`, un trío de una cadena de `E` que `E` prohíbe (lo cortan `A₀` y
-`A₁`) lo cortan `A₀'` y `A₁'`, luego `E'` lo prohíbe. -/
+/-- **`PinSwap`**: un trío de una cadena de `E = A₀ ∪ A₁` que cortan las dos llegadas `A₀`, `A₁` lo cortan también
+las llegadas `A₀'`, `A₁'` de los mismos remitentes a la otra entrada. -/
+def PinSwap (E A₀ : GPathB) (F₀ : Trios) (A₁ : GPathB) (F₁ : Trios) (A₀' : GPathB) (F₀' : Trios) (A₁' : GPathB)
+    (F₁' : Trios) : Prop :=
+  ∀ C j p q r, OnChain3 E C j p q r → SideForbids A₀ F₀ (C p) (C q) (C r) → SideForbids A₁ F₁ (C p) (C q) (C r) →
+    SideForbids A₀' F₀' (C p) (C q) (C r) ∧ SideForbids A₁' F₁' (C p) (C q) (C r)
+
+/-- **`CrossClosed` entre dos uniones por `PinSwap`**. -/
 theorem crossClosed_join {A₀ A₁ A₀' A₁' : GPathB} {F₀ F₁ F₀' F₁' : Trios}
-    (hcs : A₀.current_step = A₀'.current_step)
-    (h₀ : PinSwap (join A₀ A₁) A₀ F₀ A₀' F₀') (h₁ : PinSwap (join A₀ A₁) A₁ F₁ A₁' F₁') :
+    (hcs : A₀.current_step = A₀'.current_step) (h : PinSwap (join A₀ A₁) A₀ F₀ A₁ F₁ A₀' F₀' A₁' F₁') :
     CrossClosed (join A₀ A₁) (joinF A₀.current_step A₀ F₀ A₁ F₁) (join A₀' A₁')
       (joinF A₀'.current_step A₀' F₀' A₁' F₁') := by
   intro C j hC p q r h1 h2 h3 h4 h5 h6 ⟨sp, sq, sr, s0, s1⟩
-  refine Or.inr ⟨by rw [← hcs]; exact sp, by rw [← hcs]; exact sq, by rw [← hcs]; exact sr, ?_, ?_⟩
-  · exact h₀ C j hC p q r h1 h2 h3 h4 h5 h6 s0
-  · exact h₁ C j hC p q r h1 h2 h3 h4 h5 h6 s1
+  obtain ⟨t0, t1⟩ := h C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ s0 s1
+  exact Or.inr ⟨by rw [← hcs]; exact sp, by rw [← hcs]; exact sq, by rw [← hcs]; exact sr, t0, t1⟩
 
--- ============================================================
--- PinSwap desde NoNewClose (monotonía)
--- ============================================================
-
-/-- **`NoNewClose E A D F`**: lo que la llegada `A` corta de un trío de una cadena de `E`, el remitente `D` ya lo
-cortaba. Medido: 300/300 tríos prohibidos en cadenas de las líneas de cláusula ya estaban cortados en los dos
-remitentes (`probe_crossline.jl`). -/
-def NoNewClose (E A D : GPathB) (F : Trios) : Prop :=
-  ∀ C j, SpineChain E C j → ∀ p q r, j ≤ p → p ≤ E.current_step - 1 → j ≤ q → q ≤ E.current_step - 1 →
-    j ≤ r → r ≤ E.current_step - 1 → SideForbids A F (C p) (C q) (C r) → SideForbids D F (C p) (C q) (C r)
+/-- **`NoNewClose`**: un trío de una cadena de `E` que cortan las dos llegadas ya lo cortaban los dos remitentes.
+Medido: 300/300 en las líneas de cláusula (`probe_crossline.jl`, `sender_closed`). -/
+def NoNewClose (E A₀ A₁ D₀ D₁ : GPathB) (F₀ F₁ : Trios) : Prop :=
+  ∀ C j p q r, OnChain3 E C j p q r → SideForbids A₀ F₀ (C p) (C q) (C r) → SideForbids A₁ F₁ (C p) (C q) (C r) →
+    SideForbids D₀ F₀ (C p) (C q) (C r) ∧ SideForbids D₁ F₁ (C p) (C q) (C r)
 
 open Machine (Below) in
 /-- **Lo cortado en el remitente sigue cortado en su llegada a la otra entrada.** Los nodos viejos solo pierden
@@ -348,20 +345,26 @@ theorem sideForbids_arrival {D E : GPathB} {F : Trios} {reqs : List NodeId} {d :
   · exact Or.inr hF
 
 open Machine (Below) in
-/-- **`PinSwap` desde `NoNewClose`**: cortado en la llegada fijada a un valor ⟹ cortado en el remitente ⟹ cortado en
-su llegada fijada al otro. -/
-theorem pinSwap_of_noNewClose {D E A : GPathB} {F : Trios} {reqs : List NodeId} {d : NodeId} {title : String}
-    {forb : PathNodeId → Bool} (hnew : NoNewClose E A D F) (hcs : E.current_step = D.current_step + 1)
-    (hv : (D.filterAll reqs).isValid = true) (hd : d.step = D.current_step)
-    (hea : EdgesAlive ((D.filterAll reqs).up d title forb))
-    (hsep : ∀ x ∈ ((D.filterAll reqs).up d title forb).alive, x.id.step = D.current_step → x ∉ E.alive) :
-    PinSwap E A F ((D.filterAll reqs).up d title forb) F := by
-  intro C j hC p q r h1 h2 h3 h4 h5 h6 hA
-  have hD := hnew C j hC p q r h1 h2 h3 h4 h5 h6 hA
-  obtain ⟨sp, ap⟩ := hC.node p h1 h2
-  obtain ⟨sq, aq⟩ := hC.node q h3 h4
-  obtain ⟨sr, ar⟩ := hC.node r h5 h6
-  exact sideForbids_arrival hv hd hea hsep ap aq ar (by rw [sp]; omega) (by rw [sq]; omega) (by rw [sr]; omega) hD
+/-- **`PinSwap` desde `NoNewClose`** (monotonía): cortado en las dos llegadas ⟹ cortado en los dos remitentes ⟹
+cortado en sus llegadas a la otra entrada. -/
+theorem pinSwap_of_noNewClose {D₀ D₁ E A₀ A₁ : GPathB} {F₀ F₁ : Trios} {reqs : List NodeId} {d : NodeId}
+    {title : String} {forb : PathNodeId → Bool}
+    (hnew : NoNewClose E A₀ A₁ D₀ D₁ F₀ F₁) (hcs₀ : E.current_step = D₀.current_step + 1)
+    (hcs₁ : D₁.current_step = D₀.current_step)
+    (hv₀ : (D₀.filterAll reqs).isValid = true) (hv₁ : (D₁.filterAll reqs).isValid = true)
+    (hd : d.step = D₀.current_step)
+    (hea₀ : EdgesAlive ((D₀.filterAll reqs).up d title forb)) (hea₁ : EdgesAlive ((D₁.filterAll reqs).up d title forb))
+    (hsep₀ : ∀ x ∈ ((D₀.filterAll reqs).up d title forb).alive, x.id.step = D₀.current_step → x ∉ E.alive)
+    (hsep₁ : ∀ x ∈ ((D₁.filterAll reqs).up d title forb).alive, x.id.step = D₁.current_step → x ∉ E.alive) :
+    PinSwap E A₀ F₀ A₁ F₁ ((D₀.filterAll reqs).up d title forb) F₀ ((D₁.filterAll reqs).up d title forb) F₁ := by
+  intro C j p q r hT h0 h1
+  obtain ⟨hC, a1, a2, a3, a4, a5, a6⟩ := hT
+  obtain ⟨t0, t1⟩ := hnew C j p q r ⟨hC, a1, a2, a3, a4, a5, a6⟩ h0 h1
+  obtain ⟨sp, ap⟩ := hC.node p a1 a2
+  obtain ⟨sq, aq⟩ := hC.node q a3 a4
+  obtain ⟨sr, ar⟩ := hC.node r a5 a6
+  refine ⟨sideForbids_arrival hv₀ hd hea₀ hsep₀ ap aq ar (by omega) (by omega) (by omega) t0,
+    sideForbids_arrival hv₁ (by rw [hcs₁]; exact hd) hea₁ hsep₁ ap aq ar (by omega) (by omega) (by omega) t1⟩
 
 end GPathB
 
