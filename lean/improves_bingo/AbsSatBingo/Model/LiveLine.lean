@@ -237,7 +237,7 @@ theorem spineChain_upR {X : GPathB} {d : NodeId} {title : String} {forb : PathNo
 /-- **`CrossClosed` pasa de los remitentes fijados a sus llegadas** (en la forma de la conmutación). -/
 theorem crossClosed_upR {X₀ X₁ : GPathB} {F₀ F₁ : Trios} {d₀ d₁ : NodeId} {t₀ t₁ : String}
     {f₀ f₁ : PathNodeId → Bool} (hc : CrossClosed X₀ F₀ X₁ F₁) (hB : FBelow F₀ X₀.current_step)
-    (hX₀ : SInvB X₀) (hX₁ : SInvB X₁) (hcs : X₀.current_step = X₁.current_step)
+    (hX₀ : SInvB X₀) (hcs : X₀.current_step = X₁.current_step)
     (hd₀ : d₀.step = X₀.current_step) (hd₁ : d₁.step = X₁.current_step) :
     CrossClosed (upR X₀ d₀ t₀ f₀) F₀ (upR X₁ d₁ t₁ f₁) F₁ := by
   intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
