@@ -216,9 +216,10 @@ def forbidFuel : Nat → GPathB → GPathB
       if r.2 then forbidFuel fuel r.1 else r.1
     else g
 
-/-- Tope de vueltas: cada una que sigue escribe un trío (hay a lo sumo vivos³) o quita algo (`measure`). -/
+/-- Tope de vueltas: cada una que sigue prohíbe un triángulo abierto entre los candidatos (arista × vivo) o quita
+algo (`measure`); `forbidFuel_closed` (`ForbidOnFix.lean`) demuestra que basta. -/
 def forbidBound (g : GPathB) : Nat :=
-  g.alive.length ^ 3 + g.measure + 1
+  g.edges.length * g.alive.length + g.measure + 1
 
 /-- **Julia `forbid_rule!`.** -/
 def forbidRule (g : GPathB) : GPathB :=
