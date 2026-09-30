@@ -285,6 +285,49 @@ theorem lInv_stepsQ (hbd : Bounded φ) (H : HypsLiveLineQ φ) :
     exact hnew_of_mixed hbd m (mixed_of_clq hbd m (H.2 m (by push_cast at h1; omega) (by push_cast at h2; omega)) hA2)
       hL' (H.1 m)
 
+-- ============================================================
+-- HClq desde la completitud de camarillas
+-- ============================================================
+
+/-- **`TriClq`** (en la línea `m + 1`): un trío de una cadena viva de una entrada de la línea siguiente, fijada y
+válida, está en una camarilla de la entrada que concuerda con los pins. Es la mitad difícil de «prohibido ⟺ en ninguna
+camarilla» (la otra es la solidez, `AvoidV`), sin las premisas de remitentes de `HClq`. Medido en la zona de
+cláusulas: `probe_triexact.jl` (150 000 triángulos, 0 excepciones). -/
+def TriClq (φ : Cnf) (m : Nat) : Prop :=
+  ∀ E ∈ advance φ (steps φ (m + 1) (init φ)), ¬ IsNeg φ E.1 →
+    ∀ R, (pinF E.2 R).isValid = true →
+    ∀ C j p q r, OnChain3 (pinF E.2 R) C j p q r →
+      ∃ S, Carried E.2 S ∧ (∀ r' ∈ R, Agrees E.2.current_step S r') ∧
+        ∃ i k l, 0 ≤ i ∧ i < E.2.current_step ∧ 0 ≤ k ∧ k < E.2.current_step ∧
+          0 ≤ l ∧ l < E.2.current_step ∧ S i = C p ∧ S k = C q ∧ S l = C r
+
+/-- **`TriClq` da `HClq`**: la camarilla de la entrada es una selección válida (`validSel_of_carried`) que termina en
+la clave de la entrada (los nodos de la cima llevan su id, `TopDocsId`). -/
+theorem clq_of_triClq (hbd : Bounded φ) (m : Nat) (hT : TriClq φ m) : HClq φ m := by
+  intro E hE hneg _ _ _ _ _ R hvE C j p q r hoc _ _ _ _ _ _ _
+  obtain ⟨S, hc, hag, i, k, l, h0, h1, h2, h3, h4, h5, hi, hk, hl⟩ := hT E hE hneg R hvE C j p q r hoc
+  have hE' : E ∈ steps φ (m + 2) (init φ) := by rw [steps_succ]; exact hE
+  obtain ⟨hlo, hent, _, hls, hml⟩ := line_facts hbd (m + 2)
+  have hcs : E.2.current_step = ((m + 2 : Nat) : Int) + 1 := (hlo E hE').step
+  have hv : ValidSel φ (E.2.current_step - 1) S :=
+    validSel_of_carried hbd (hls E hE').1 (hml E hE') hc (by rw [hcs]; omega)
+  rw [hcs, show ((m + 2 : Nat) : Int) + 1 - 1 = ((m + 2 : Nat) : Int) by omega] at hv
+  have htop : (S ((m + 2 : Nat) : Int)).id = E.1 := by
+    obtain ⟨n, hn, _, _⟩ := hc.node ((m + 2 : Nat) : Int) (by omega) (by rw [hcs]; omega)
+    have hid := node?_id hn
+    have := (hent E hE').2 n (node?_mem hn) (by rw [hid, hc.step _ (by omega) (by rw [hcs]; omega), hcs]; omega)
+    rw [hid] at this; exact this
+  refine ⟨S, hv, htop, fun r' hr => by rw [← hcs]; exact hag r' hr, i, k, l, h0, ?_, h2, ?_, h4, ?_, hi, hk, hl⟩ <;>
+    omega
+
+/-- Las hipótesis con `TriClq` en lugar de `HClq`. -/
+def HypsLiveLineT (φ : Cnf) : Prop :=
+  (∀ n : Nat, HSplit φ (steps φ n (init φ))) ∧
+  (∀ m : Nat, midFusion φ + 1 < (m : Int) + 2 → (m : Int) + 2 < fusionTop φ → TriClq φ m)
+
+theorem hypsQ_of_hypsT (hbd : Bounded φ) (H : HypsLiveLineT φ) : HypsLiveLineQ φ :=
+  ⟨H.1, fun m h1 h2 => clq_of_triClq hbd m (H.2 m h1 h2)⟩
+
 end PreClause
 
 namespace SecLine
@@ -299,6 +342,13 @@ theorem spineVerdict_iff_of_clq {φ : Cnf} (hbd : Bounded φ) (H : HypsLiveLineQ
   apply spineVerdict_iff_of_liveExt hbd
   intro kv hkv hval
   exact ⟨_, ((lInv_stepsQ hbd H (stepCount φ - 1).toNat).good kv hkv).live [] hval⟩
+
+/-- **La espina con tríos decide la satisfacibilidad** bajo `PinJoinSplitAll` en los joins de la máquina y `TriClq` en
+las líneas de cláusula: todo trío de una cadena viva de una entrada fijada está en una camarilla de la entrada que
+concuerda con los pins. -/
+theorem spineVerdict_iff_of_triClq {φ : Cnf} (hbd : Bounded φ) (H : HypsLiveLineT φ) :
+    SpineVerdict φ ↔ Satisfiable φ :=
+  spineVerdict_iff_of_clq hbd (hypsQ_of_hypsT hbd H)
 
 end SecLine
 
