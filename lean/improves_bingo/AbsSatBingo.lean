@@ -109,3 +109,4 @@ import AbsSatBingo.Model.ForbidOnSound
 import AbsSatBingo.Model.ForbidOnMachine
 import AbsSatBingo.Model.ForbidOnLine
 import AbsSatBingo.Model.ForbidOnLive
+import AbsSatBingo.Model.ForbidOnDown

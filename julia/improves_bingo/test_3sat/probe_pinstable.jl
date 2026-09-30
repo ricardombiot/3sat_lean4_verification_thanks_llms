@@ -7,7 +7,9 @@
 #            states (válidos), dead (callejones), dead_states.
 #   com_*  — la conmutación: A = filtro(up(filtro(g, reqs)), R) y B = up(filtro(g, reqs ∪ R)), con R pins al azar por
 #            debajo de la cima de g. runs, valid_diff (uno válido y el otro no), alive_diff, edge_diff, forbid_diff
-#            (entre los válidos), docs_diff (padres vivos de los documentos vivos).
+#            (entre los válidos), docs_diff (padres vivos de los documentos vivos); con los mismos vivos y aristas,
+#            triBA / triAB (tríos sobre un triángulo prohibidos en B y no en A, y al revés) y deadA (callejones de
+#            LiveExt en A, la llegada fijada).
 # LiveExt como en probe_liveext.jl: cadenas vivas de la cima abajo por padres, sin trío prohibido.
 
 using Random
@@ -115,6 +117,17 @@ function judge(send)
             fa[2] == fb[2] || bump(:com_edge_diff)
             fa[3] == fb[3] || bump(:com_forbid_diff)
             fa[4] == fb[4] || bump(:com_docs_diff)
+            # tríos en triángulos comunes: prohibidos en uno y no en el otro
+            if fa[1] == fb[1] && fa[2] == fb[2]
+                for (k, e) in A.og.edges, r in collect(PG.neighbors_all(A.og, e.a))
+                    (r == e.a || r == e.b || !PG.has_edge(A.og, e.b, r)) && continue
+                    da, db = PG.dead_trio(A.og, e.a, e.b, r), PG.dead_trio(B.og, e.a, e.b, r)
+                    (db && !da) && bump(:com_triBA)
+                    (da && !db) && bump(:com_triAB)
+                end
+            end
+            k = dead_ends(A)
+            bump(:com_deadA, k)
         end
     end
 end
@@ -122,7 +135,7 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:sends, :ps_states, :ps_dead, :ps_dead_states, :com_runs, :com_valid_diff, :com_alive_diff,
-            :com_edge_diff, :com_forbid_diff, :com_docs_diff)
+            :com_edge_diff, :com_forbid_diff, :com_docs_diff, :com_triBA, :com_triAB, :com_deadA)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
