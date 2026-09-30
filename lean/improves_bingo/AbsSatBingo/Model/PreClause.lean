@@ -18,8 +18,13 @@ Es Helly para asignaciones parciales, y es lo que hace que tres nodos compatible
   y sus pins; la rama parcheada la lleva el remitente de su clave, `steps_has_sel`).
 * **`NoTriF`**: la familia fantasma no prohíbe ningún triángulo del estado fijado; pasa la llegada y la unión
   (`noTri_next`), así que antes de las cláusulas `HNew` se cumple sin más (`hnew_of_noTri`).
-* **`spineVerdict_iff_of_liveLineC`**: el veredicto de la espina bajo `PinJoinSplitAll` y `NoNewClose` solo tras la
-  fusión central.
+* **`spineVerdict_iff_of_liveLineC`**: el veredicto de la espina bajo `PinJoinSplitAll` y `NoNewClose` solo en las
+  líneas de cláusula con dos remitentes (la línea de la fusión central tiene un solo remitente; desde la fusión final no
+  hay otra entrada).
+* **`HMixed`** y **`spineVerdict_iff_of_mixed`**: `NoNewClose` sale de que un trío de cadena prohibido en una entrada
+  que es triángulo en un remitente sea un triángulo mezclado del join de ese remitente (no es triángulo en ninguna de
+  sus dos llegadas fijadas); la familia del remitente lo prohíbe por definición (`hnew_of_mixed`). Medido:
+  `probe_hnewcl.jl`, 18/18 y 48/48.
 -/
 
 namespace AbsSatBingo.Model
@@ -836,7 +841,10 @@ def HypsLiveLineC (φ : Cnf) : Prop :=
   ∀ n : Nat, HSplit φ (steps φ n (init φ)) ∧
     (midFusion φ + 1 < (n : Int) + 1 → (n : Int) + 1 < fusionTop φ → HNew φ (steps φ n (init φ)) (famsAt φ n))
 
-theorem lInv_stepsC (hbd : Bounded φ) (H : HypsLiveLineC φ) :
+/-- La inducción, con `HNew` dada a partir del invariante de la línea. -/
+theorem lInv_stepsG (hbd : Bounded φ) (hsp : ∀ n : Nat, HSplit φ (steps φ n (init φ)))
+    (hnw : ∀ n : Nat, midFusion φ + 1 < (n : Int) + 1 → (n : Int) + 1 < fusionTop φ →
+      LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) → HNew φ (steps φ n (init φ)) (famsAt φ n)) :
     ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) ∧
       ((n : Int) ≤ midFusion φ + 1 → ∀ kv ∈ steps φ n (init φ), NoTriF kv.2 (famsAt φ n kv.1)) := by
   intro n
@@ -849,7 +857,7 @@ theorem lInv_stepsC (hbd : Bounded φ) (H : HypsLiveLineC φ) :
         ∀ E ∈ advance φ (steps φ n (init φ)), NoTriF E.2 (famsNext φ (steps φ n (init φ)) (famsAt φ n) E.1) := by
       intro hn
       by_cases hpre : (n : Int) + 1 ≤ midFusion φ
-      · exact noTri_next hbd n hpre ih (ihN (by omega)) (H n).1
+      · exact noTri_next hbd n hpre ih (ihN (by omega)) (hsp n)
       · -- la línea de la fusión central: un solo remitente
         have hk : (n : Int) = midFusion φ := by omega
         refine noTri_next_single ih (ihN (by omega)) (fun a ha b hb => ?_)
@@ -861,13 +869,129 @@ theorem lInv_stepsC (hbd : Bounded φ) (H : HypsLiveLineC φ) :
     have hnew : HNew φ (steps φ n (init φ)) (famsAt φ n) := by
       by_cases hpost : midFusion φ + 1 < (n : Int) + 1
       · by_cases htop : (n : Int) + 1 < fusionTop φ
-        · exact (H n).2 hpost htop
+        · exact hnw n hpost htop ih
         · exact hnew_top (by omega) ih (by omega)
       · exact hnew_of_noTri (hN' (by omega))
-    have hL := lInv_advance (by omega) ih (H n).1 hnew
+    have hL := lInv_advance (by omega) ih (hsp n) hnew
     rw [steps_succ]
     refine ⟨?_, fun hn kv hkv => hN' (by push_cast at hn; omega) kv hkv⟩
     rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+    exact hL
+
+theorem lInv_stepsC (hbd : Bounded φ) (H : HypsLiveLineC φ) :
+    ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) :=
+  fun n => (lInv_stepsG hbd (fun n => (H n).1) (fun n h1 h2 _ => (H n).2 h1 h2) n).1
+
+-- ============================================================
+-- `NoNewClose` desde el triángulo mezclado del join del remitente
+-- ============================================================
+
+/-- **`HMixed`** (en la línea `m + 1`, cuyos remitentes vienen de la línea `m`): un trío de una cadena de una entrada
+de la línea siguiente que su familia prohíbe, y que es triángulo en un remitente de otra entrada (fijado y válido), es
+un **triángulo mezclado del join de ese remitente**: el remitente es la unión de las llegadas de dos remitentes de la
+línea `m`, y el trío no es triángulo en ninguna de las dos llegadas fijadas que quedan válidas. -/
+def HMixed (φ : Cnf) (m : Nat) : Prop :=
+  ∀ E ∈ advance φ (steps φ (m + 1) (init φ)), ¬ IsNeg φ E.1 →
+    ∀ kv ∈ steps φ (m + 1) (init φ), ∀ d₁, d₁ ≠ E.1 → Sends φ kv d₁ →
+    ∀ R, (pinF E.2 R).isValid = true →
+    ∀ C j p q r, OnChain3 (pinF E.2 R) C j p q r →
+      famsNext φ (steps φ (m + 1) (init φ)) (famsAt φ (m + 1)) E.1 R (C p) (C q) (C r) →
+      (pinF kv.2 R).isValid = true → Tri (pinF kv.2 R) (C p) (C q) (C r) →
+      ∃ a ∈ steps φ m (init φ), ∃ b ∈ steps φ m (init φ), a.1 ≠ b.1 ∧ Sends φ a kv.1 ∧ Sends φ b kv.1 ∧
+        ((pinF (arrOf φ a kv.1) R).isValid = true → ¬ Tri (pinF (arrOf φ a kv.1) R) (C p) (C q) (C r)) ∧
+        ((pinF (arrOf φ b kv.1) R).isValid = true → ¬ Tri (pinF (arrOf φ b kv.1) R) (C p) (C q) (C r))
+
+theorem nodeg_famsNext {L : Line} {T : Int} {Fs : NodeId → FamT} (h : LInv φ T L Fs) {E : NodeId × GPathB}
+    (hE : E ∈ advance φ L) (R : List NodeId) : NoDeg (famsNext φ L Fs E.1 R) := by
+  rcases entry_shape Fs (line_cases h.nodup h.keys) h.nodup hE with ⟨kv, hkv, _, _, hf⟩ | ⟨a, ha, b, hb, _, _, _, _, hf⟩
+  · rw [hf]; exact (h.good kv hkv).nodeg _
+  · rw [hf]; unfold joinFam; split
+    · split
+      · exact fun x y z ⟨a, b, c, _⟩ => ⟨a, b, c⟩
+      · exact (h.good a ha).nodeg _
+    · exact (h.good b hb).nodeg _
+
+/-- **`HNew` desde `HMixed`**: un triángulo mezclado del join del remitente lo prohíbe su familia por definición. -/
+theorem hnew_of_mixed (hbd : Bounded φ) (m : Nat) (hm : HMixed φ m)
+    (h₁ : LInv φ ((m : Int) + 2) (steps φ (m + 1) (init φ)) (famsAt φ (m + 1)))
+    (hsplit : HSplit φ (steps φ m (init φ))) :
+    HNew φ (steps φ (m + 1) (init φ)) (famsAt φ (m + 1)) := by
+  intro E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD t1 t2 t3
+  obtain ⟨a, ha, b, hb, hab, hsa, hsb, na, nb⟩ := hm E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD ⟨t1, t2, t3⟩
+  obtain ⟨hl, _, hnd, hls, _⟩ := line_facts hbd m
+  have hk : ∀ kv ∈ steps φ m (init φ), kv.1 ∈ mapNodes φ m := by
+    intro kv hkv
+    have := (hls kv hkv).2
+    rwa [(hl kv hkv).key, show (m : Int) + 1 - 1 = m by omega] at this
+  have hlen := line_cases hnd hk
+  have hkv' : kv ∈ advance φ (steps φ m (init φ)) := by rw [← steps_succ]; exact hkv
+  have hFs : famsAt φ (m + 1) = famsNext φ (steps φ m (init φ)) (famsAt φ m) := rfl
+  -- los nodos del trío están por debajo del paso del remitente
+  have hiD := sInvB_pinF (h₁.good kv hkv).inv R
+  have hstep : ∀ u, (pinF kv.2 R).Adj u u → u.id.step < kv.2.current_step := by
+    intro u hu
+    have := (step_range_of_alive hiD.docs hiD.below hiD.zero (hiD.edges _ _ hu).1).2
+    rwa [step_pinF] at this
+  have ha1 : (pinF kv.2 R).Adj (C p) (C p) := adj_refl _ _ (hiD.edges _ _ t1).1
+  have ha2 : (pinF kv.2 R).Adj (C q) (C q) := adj_refl _ _ (hiD.edges _ _ t1).2
+  have ha3 : (pinF kv.2 R).Adj (C r) (C r) := adj_refl _ _ (hiD.edges _ _ t2).2
+  have hdist := nodeg_famsNext h₁ hE R _ _ _ hf
+  -- la forma del remitente
+  rw [hFs]
+  rcases entry_shape (famsAt φ m) hlen hnd hkv' with ⟨kv', hkv'', hs', he, hfm⟩ | ⟨a', ha', b', hb', hab', hsa', hsb', he, hfm⟩
+  · -- una sola llegada: es la de `a` o la de `b`, donde el trío no es triángulo
+    exfalso
+    rw [he] at hvD t1 t2 t3
+    rcases two_senders hnd hk ha hb hab hkv'' with rfl | rfl
+    · exact na hvD ⟨t1, t2, t3⟩
+    · exact nb hvD ⟨t1, t2, t3⟩
+  · have oka := hl a' ha'
+    have okb := hl b' hb'
+    rw [he, doJoin_arr oka okb hsa' hsb'] at hvD t1 t2 t3
+    rw [hfm]
+    have hcsA : (arrOf φ a' kv.1).current_step = kv.2.current_step := by
+      rw [he, doJoin_arr oka okb hsa' hsb']; rfl
+    -- en cada lado fijado válido el trío no es triángulo
+    have side : ∀ c ∈ steps φ m (init φ), c = a' ∨ c = b' → (pinF (arrOf φ c kv.1) R).isValid = true →
+        ¬ Tri (pinF (arrOf φ c kv.1) R) (C p) (C q) (C r) := by
+      intro c hc _ hv
+      rcases two_senders hnd hk ha hb hab hc with rfl | rfl
+      · exact na hv
+      · exact nb hv
+    have nA := side a' ha' (Or.inl rfl)
+    have nB := side b' hb' (Or.inr rfl)
+    obtain ⟨hsame, hone⟩ := hsplit a' ha' b' hb' hab' kv.1 hsa' hsb' R hvD
+    unfold pinJoin at hsame
+    have hiD' : SInvB (pinF (join (arrOf φ a' kv.1) (arrOf φ b' kv.1)) R) := by
+      rw [← doJoin_arr oka okb hsa' hsb', ← he]; exact hiD
+    have hlt : ∀ u, (pinF kv.2 R).Adj u u → u.id.step < (pinF (arrOf φ a' kv.1) R).current_step := by
+      intro u hu; rw [step_pinF, hcsA]; exact hstep u hu
+    unfold joinFam
+    by_cases hvA : (pinF (arrOf φ a' kv.1) R).isValid = true <;>
+      by_cases hvB : (pinF (arrOf φ b' kv.1) R).isValid = true
+    · simp only [hvA, hvB, if_true]
+      exact ⟨hdist.1, hdist.2.1, hdist.2.2, hlt _ ha1, hlt _ ha2, hlt _ ha3, Or.inl (nA hvA), Or.inl (nB hvB)⟩
+    · simp only [hvA, hvB, if_true] at hsame ⊢
+      exact absurd (tri_same hsame hiD'.edges ⟨t1, t2, t3⟩) (nA hvA)
+    · simp only [hvA, hvB, if_true] at hsame ⊢
+      exact absurd (tri_same hsame hiD'.edges ⟨t1, t2, t3⟩) (nB hvB)
+    · exact absurd hone (by simp [hvA, hvB])
+
+/-- **Las hipótesis, sin familias en las conclusiones**: `PinJoinSplitAll` en los joins de la máquina y `HMixed` en las
+líneas de cláusula con dos remitentes. -/
+def HypsLiveLineM (φ : Cnf) : Prop :=
+  (∀ n : Nat, HSplit φ (steps φ n (init φ))) ∧
+  (∀ m : Nat, midFusion φ + 1 < (m : Int) + 2 → (m : Int) + 2 < fusionTop φ → HMixed φ m)
+
+theorem lInv_stepsM (hbd : Bounded φ) (H : HypsLiveLineM φ) :
+    ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) := by
+  intro n
+  refine (lInv_stepsG hbd H.1 (fun n h1 h2 hL => ?_) n).1
+  cases n with
+  | zero => exfalso; unfold midFusion at h1; omega
+  | succ m =>
+    refine hnew_of_mixed hbd m (H.2 m (by push_cast at h1; omega) (by push_cast at h2; omega)) ?_ (H.1 m)
+    rw [show (m : Int) + 2 = ((m + 1 : Nat) : Int) + 1 by push_cast; omega]
     exact hL
 
 end PreClause
@@ -883,7 +1007,16 @@ theorem spineVerdict_iff_of_liveLineC {φ : Cnf} (hbd : Bounded φ) (H : HypsLiv
     SpineVerdict φ ↔ Satisfiable φ := by
   apply spineVerdict_iff_of_liveExt hbd
   intro kv hkv hval
-  exact ⟨_, ((lInv_stepsC hbd H (stepCount φ - 1).toNat).1.good kv hkv).live [] hval⟩
+  exact ⟨_, ((lInv_stepsC hbd H (stepCount φ - 1).toNat).good kv hkv).live [] hval⟩
+
+/-- **La espina con tríos decide la satisfacibilidad** bajo `PinJoinSplitAll` en los joins de la máquina y `HMixed`
+en las líneas de cláusula con dos remitentes: un trío de cadena prohibido en una entrada que es triángulo en un
+remitente es un triángulo mezclado del join de ese remitente. -/
+theorem spineVerdict_iff_of_mixed {φ : Cnf} (hbd : Bounded φ) (H : HypsLiveLineM φ) :
+    SpineVerdict φ ↔ Satisfiable φ := by
+  apply spineVerdict_iff_of_liveExt hbd
+  intro kv hkv hval
+  exact ⟨_, ((lInv_stepsM hbd H (stepCount φ - 1).toNat).good kv hkv).live [] hval⟩
 
 end SecLine
 
