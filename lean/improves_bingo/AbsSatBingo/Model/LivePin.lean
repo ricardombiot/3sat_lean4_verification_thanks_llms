@@ -156,6 +156,98 @@ theorem liveExt_dirty {g : GPathB} {F : Trios} (hli : LinksInv g) (hext : LiveEx
   liveExt_congr (A := { g with dirty := b }) (B := g) rfl (fun _ => Iff.rfl) (fun _ _ _ _ => Iff.rfl)
     (revPrims_linksInv.dirty g b hli) hli hext
 
+/-- **La llegada fijada es el UP del remitente con el filtro ampliado** (en vivos y aristas), sin hipótesis de
+cierre: la pieza de `pinStableF_arrival`, aparte. -/
+theorem arrival_pin_commute {g : GPathB} {reqs R : List NodeId} (hg : SInvB g)
+    (hpos : 0 < g.current_step) (hd : d.step = g.current_step)
+    (hvA : (pinF ((g.filterAll reqs).up d title forb) R).isValid = true) :
+    (pinF g (reqs ++ R)).isValid = true ∧
+    (∀ q, q ∈ (pinF ((g.filterAll reqs).up d title forb) R).alive ↔
+      q ∈ (({ (pinF g (reqs ++ R)).addNode d title forb with dirty := true } : GPathB)).review.alive) ∧
+    (∀ y w, y ∈ (pinF ((g.filterAll reqs).up d title forb) R).alive →
+      w ∈ (pinF ((g.filterAll reqs).up d title forb) R).alive →
+      ((pinF ((g.filterAll reqs).up d title forb) R).Adj y w ↔
+        (({ (pinF g (reqs ++ R)).addNode d title forb with dirty := true } : GPathB)).review.Adj y w)) := by
+  -- los estados
+  have hcsY : (g.filterAll reqs).current_step = g.current_step := (shrinks_filterAll g reqs).1.step
+  have hvA0 : ((g.filterAll reqs).up d title forb).isValid = true := isValid_of_sub (sub_pinF _ R) hvA
+  have hvY : (g.filterAll reqs).isValid = true := valid_of_up hvA0
+  have hdY : d.step = (g.filterAll reqs).current_step := by rw [hcsY]; exact hd
+  have hiY := sInvB_filterAll hg reqs
+  have hiYa : SInvB ((g.filterAll reqs).addNode d title forb) := sInvB_addNode hiY hdY (by omega)
+  have hA0eq : (g.filterAll reqs).up d title forb = ((g.filterAll reqs).addNode d title forb).review := by
+    unfold up; rw [if_pos hvY]
+  have hiA0 : SInvB ((g.filterAll reqs).up d title forb) := by rw [hA0eq]; exact sInvB_review hiYa
+  have hcsA0 : ((g.filterAll reqs).up d title forb).current_step = g.current_step + 1 := by
+    rw [step_up hvY, hcsY]
+  have hsubA : Sub (pinF ((g.filterAll reqs).up d title forb) R) ((g.filterAll reqs).addNode d title forb) :=
+    (sub_pinF _ R).trans (sub_up_addNode hvY)
+  have hcA := closedState_pinF hiA0 hvA (by rw [hcsA0]; omega)
+  -- A' → X: bajar y filtrar
+  have hU1 := secStruct_of_sub hsubA hiYa.nodup hcA
+  have hdown1 := secStruct_addNode_down hiY.docs hiY.below hiY.lstep hdY hU1
+  have hg1 := secStruct_of_sub (shrinks_filterAll g reqs).1 hg.nodup hdown1
+  have hX1 := secStruct_pinF hg1 (reqs ++ R) (fun b hb q ⟨hq, hqs⟩ hqb => by
+    rcases List.mem_append.mp hb with hb | hb
+    · rcases alive_addNode_cases hiY.docs hiY.below hdY (hsubA.alive q hq) with ⟨hqY, _⟩ | ⟨_, h⟩
+      · exact pinned_filterAll_list hg.docs reqs hvY b hb q hqY hqb
+      · omega
+    · exact pinned_pinF hiA0.docs hvA b hb q hq hqb)
+  -- X es válido: la parte vieja de A' no es vacía
+  obtain ⟨q0, hq0, hq0s⟩ := exists_alive_at hvA (k := 0) (by omega) (by rw [step_pinF, hcsA0]; omega)
+  have hvX : (pinF g (reqs ++ R)).isValid = true :=
+    isValid_of_sec hX1 (y := q0) ⟨hq0, by rw [hq0s, hcsY]; exact hpos⟩
+  have hcsX : (pinF g (reqs ++ R)).current_step = g.current_step := step_pinF g _
+  have hdX : d.step = (pinF g (reqs ++ R)).current_step := by rw [hcsX]; exact hd
+  have hiX := sInvB_pinF hg (reqs ++ R)
+  have hiXa : SInvB ((pinF g (reqs ++ R)).addNode d title forb) := sInvB_addNode hiX hdX (by omega)
+  have hiXd := sInvB_dirty hiXa true
+  have hiB := sInvB_review hiXd
+  -- A' → B: subir por la fila sobre X
+  have hlift1 := secStruct_addNode_lift (X := pinF g (reqs ++ R)) (Y := g.filterAll reqs) (title := title)
+    (forb := forb) (by rw [hcsX, hcsY]) (by rw [hcsY]; exact hpos) hdX hdY hiX.docs hiX.below hiX.links
+    hiY.docs hiY.below hiY.edges hiY.lstep hiY.links.2.2 hU1 hX1
+  have hB1 := secStruct_review (secStruct_dirty hlift1 true)
+  have hvB : ((({ (pinF g (reqs ++ R)).addNode d title forb with dirty := true } : GPathB)).review).isValid = true :=
+    isValid_of_sec hB1 (y := q0) (hcA.alive hq0)
+  have hcB := closedState_review rfl hvB hiXd.docs hiXd.nodup hiXd.below hiXd.zero
+    (by show 2 ≤ (pinF g (reqs ++ R)).current_step + 1; rw [hcsX]; omega)
+  -- B → A': bajar a X, al remitente, filtrar por reqs y subir por la fila sobre Y
+  have hsubB : Sub (({ (pinF g (reqs ++ R)).addNode d title forb with dirty := true } : GPathB)).review
+      ((pinF g (reqs ++ R)).addNode d title forb) := (shrinks_review _).1.trans (shrinks_dirty _ true).1
+  have hU2 := secStruct_of_sub hsubB hiXa.nodup hcB
+  have hdown2 := secStruct_addNode_down hiX.docs hiX.below hiX.lstep hdX hU2
+  have hg2 := secStruct_of_sub (sub_pinF g _) hg.nodup hdown2
+  have hY2 := secStruct_filterAll_list hg2 reqs (fun b hb q ⟨hq, hqs⟩ hqb => by
+    rcases alive_addNode_cases hiX.docs hiX.below hdX (hsubB.alive q hq) with ⟨hqX, _⟩ | ⟨_, h⟩
+    · exact pinned_pinF hg.docs hvX b (List.mem_append_left _ hb) q hqX hqb
+    · omega)
+  have hlift2 := secStruct_addNode_lift (X := g.filterAll reqs) (Y := pinF g (reqs ++ R)) (title := title)
+    (forb := forb) (by rw [hcsX, hcsY]) (by rw [hcsX]; exact hpos) hdY hdX hiY.docs hiY.below hiY.links
+    hiX.docs hiX.below hiX.edges hiX.lstep hiX.links.2.2 hU2 hY2
+  have hA02 := secStruct_review hlift2
+  rw [← hA0eq] at hA02
+  have hA2 := secStruct_pinF hA02 R (fun b hb q hq hqb => by
+    rcases alive_addNode_cases hiX.docs hiX.below hdX (hsubB.alive q hq) with ⟨hqX, _⟩ | ⟨hqn, hqT⟩
+    · exact pinned_pinF hg.docs hvX b (List.mem_append_right _ hb) q hqX hqb
+    · -- en la cima: el pin tiene que ser `d`, o A' no tendría vivos en la cima
+      obtain ⟨q1, hq1, hq1s⟩ := exists_alive_at hvA (k := g.current_step)
+        (by omega) (by rw [step_pinF, hcsA0]; omega)
+      have hb1 := pinned_pinF hiA0.docs hvA b hb q1 hq1 (by rw [hq1s, ← hqb, hqT, hcsX])
+      rcases alive_addNode_cases hiY.docs hiY.below hdY (hsubA.alive q1 hq1) with ⟨_, h⟩ | ⟨hq1n, _⟩
+      · rw [hcsY] at h; omega
+      · rw [newRow_id hqn, ← hb1, newRow_id hq1n])
+  -- mismos vivos y aristas
+  have halive : ∀ q, q ∈ (pinF ((g.filterAll reqs).up d title forb) R).alive ↔
+      q ∈ (({ (pinF g (reqs ++ R)).addNode d title forb with dirty := true } : GPathB)).review.alive :=
+    fun q => ⟨fun h => hB1.alive h, fun h => hA2.alive h⟩
+  have hadj : ∀ y w, y ∈ (pinF ((g.filterAll reqs).up d title forb) R).alive →
+      w ∈ (pinF ((g.filterAll reqs).up d title forb) R).alive →
+      ((pinF ((g.filterAll reqs).up d title forb) R).Adj y w ↔
+        (({ (pinF g (reqs ++ R)).addNode d title forb with dirty := true } : GPathB)).review.Adj y w) :=
+    fun y w hy hw => ⟨fun h => hB1.adj ⟨hy, hw, h⟩, fun h => hA2.adj ⟨hB1.alive hy, hB1.alive hw, h⟩⟩
+  exact ⟨hvX, halive, hadj⟩
+
 /-- **El UP conserva `PinStableF`**, sin hipótesis de cierre ni de pins: de los invariantes de contabilidad del
 remitente y de `PinStableF`. Para un pin `R` de la llegada `A₀ = up (filterAll g reqs) d`:
 `A' = pinF A₀ R` y `B = review {addNode (pinF g (reqs ++ R)) d, dirty}` tienen las mismas estructuras cerradas

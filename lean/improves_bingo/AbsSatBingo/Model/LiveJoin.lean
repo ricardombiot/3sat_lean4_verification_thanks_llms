@@ -444,6 +444,32 @@ def PinJoinSplit (A B : GPathB) (R : List NodeId) : Prop :=
   (∀ y w, y ∈ (pinF (join A B) R).alive → w ∈ (pinF (join A B) R).alive →
     (pinF (join A B) R).Adj y w → (join (pinF A R) (pinF B R)).Adj y w)
 
+-- ============================================================
+-- Congruencias: CrossClosed solo depende de vivos, aristas y compatibilidad
+-- ============================================================
+
+/-- Una cadena pasa a otro estado con (al menos) los mismos vivos y aristas entre ellos, con `LinksInv` en el de
+llegada (los enlaces de una cadena unen vecinos compatibles). -/
+theorem spineChain_transfer {A B : GPathB} (hcs : A.current_step = B.current_step)
+    (halive : ∀ q ∈ A.alive, q ∈ B.alive) (hadj : ∀ y w, y ∈ A.alive → w ∈ A.alive → A.Adj y w → B.Adj y w)
+    (hkA : LinksCompat A) (hliB : LinksInv B) {C : Int → PathNodeId} {j : Int} (hC : SpineChain A C j) :
+    SpineChain B C j :=
+  (liveChain_transfer (F := fun _ _ _ => False) hcs halive hadj hkA hliB ⟨hC, fun _ _ _ _ _ _ _ h => by
+    unfold Sym at h; simp at h⟩).chain
+
+/-- **`CrossClosed` pasa a estados con los mismos vivos y aristas.** -/
+theorem crossClosed_congr {A A' B B' : GPathB} {FA FB : Trios} (hc : CrossClosed A FA B FB)
+    (hcsA : A'.current_step = A.current_step)
+    (haA : ∀ q ∈ A'.alive, q ∈ A.alive) (hjA : ∀ y w, y ∈ A'.alive → w ∈ A'.alive → A'.Adj y w → A.Adj y w)
+    (hkA' : LinksCompat A') (hliA : LinksInv A) (hjB : ∀ y w, B'.Adj y w → B.Adj y w) :
+    CrossClosed A' FA B' FB := by
+  intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
+  rw [hcsA] at h2 h4 h6
+  have hs := hc C j (spineChain_transfer hcsA haA hjA hkA' hliA hC) p q r h1 h2 h3 h4 h5 h6 hf
+  rcases hs with hn | hF
+  · exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hjB _ _ a, hjB _ _ b, hjB _ _ c⟩
+  · exact Or.inr hF
+
 end GPathB
 
 end AbsSatBingo.Model
