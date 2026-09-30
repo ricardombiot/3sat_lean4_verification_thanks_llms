@@ -29,6 +29,13 @@
 #   pure_none   (de pure_nocl) ningún remitente la tiene
 #   pure_arr    hay una camarilla de alguna llegada de E (hasta su cima) por los tres
 #   pure_noarr  no la hay
+# El papel de la cadena (CHAIN=1), separando los casos con camarilla en D (cl_*) y sin ella (nocl_*):
+#   *_topD / *_topO     la cima de la cadena viene de D / del otro remitente
+#   *_reach             la cadena baja hasta el paso del literal
+#   *_litD / *_litO     (si baja) su nodo del paso del literal es vecino de los tres en D / en el otro remitente
+# Por trío de un solo lado (una vez, CHAIN=1), en la llegada A de E que contiene la cima t de la cadena:
+#   top_tri   el trío es triángulo en A;   top_k4   además t es vecino de los tres en A
+#   top_cl3   hay camarilla de A por el trío;   top_cl4   hay camarilla de A por el trío y t
 
 const OUT = abspath(ARGS[1])
 const CAP = 20000
@@ -45,6 +52,7 @@ adj(g, a, b) = a == b ? PG.is_alive(g.og, a) : PG.has_edge(g.og, a, b)
 const LIT = Ref(-1)
 const PURE = get(ENV, "PURE", "0") == "1"
 const MAXT = parse(Int, get(ENV, "MAXT", "300"))
+const CHAIN = get(ENV, "CHAIN", "0") == "1"
 
 # ¿Hay una camarilla de D (un nodo por paso, vecinos dos a dos) por los nodos de `must`, con el nodo del paso del
 # literal de índice `li` (o cualquiera si li < 0)? `nothing` si se agota el presupuesto.
@@ -129,6 +137,21 @@ function scan(s)
                 pk = Set((a, b, x))
                 if !(pk in pseen)
                     push!(pseen, pk)
+                    if CHAIN && any(D -> status(D, a, b, x) in ("T", "F") &&
+                            any(B -> B.map_parent_id == D.map_parent_id && status(B, a, b, x) in ("T", "F"), PREVARR), PREV)
+                        tp = chain[1]
+                        As = [A for A in ARR if A.map_parent_id == s.map_parent_id && PG.is_alive(A.og, tp)]
+                        if !isempty(As)
+                            A = As[1]
+                            if status(A, a, b, x) in ("T", "F")
+                                bump(:top_tri)
+                                all(u -> PG.has_edge(A.og, tp, u), (a, b, x)) && bump(:top_k4)
+                            end
+                            clique_through(A, [a, b, x], -1, -1) === true && bump(:top_cl3)
+                            clique_through(A, unique([tp, a, b, x]), -1, -1) === true && bump(:top_cl4)
+                            bump(:top_n)
+                        end
+                    end
                     for D in PREV
                         status(D, a, b, x) in ("T", "F") || continue
                         bs = [B for B in PREVARR if B.map_parent_id == D.map_parent_id]
@@ -139,6 +162,20 @@ function scan(s)
                         ra = [clique_through(A, [a, b, x], -1, -1) for A in arrs]
                         any(==(true), ra) ? bump(:pure_arr) : bump(:pure_noarr)
                         r = clique_through(D, [a, b, x], LIT[], li)
+                        if CHAIN && r !== nothing
+                            pre = r ? "cl_" : "nocl_"
+                            others = [D2 for D2 in PREV if D2 !== D]
+                            tp = chain[1]
+                            bump(Symbol(pre, tp.parent_id == D.map_parent_id ? "topD" : "topO"))
+                            cs = [w for w in chain if Int(w.id.step) == LIT[]]
+                            if !isempty(cs)
+                                bump(Symbol(pre, "reach"))
+                                w = cs[1]
+                                all(u -> PG.has_edge(D.og, w, u), (a, b, x)) && bump(Symbol(pre, "litD"))
+                                any(D2 -> all(u -> PG.has_edge(D2.og, w, u), (a, b, x)), others) &&
+                                    bump(Symbol(pre, "litO"))
+                            end
+                        end
                         if r === nothing
                             bump(:pure_unk)
                         elseif r
@@ -187,7 +224,9 @@ end
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:lines2, :trios, :n_top, :n_stop, :n_low, :m_stop, :m_low, :F_pre, :F_post, :T, :Fsrc_fresh, :Fsrc_rec,
-            :Fsrc_one, :Fsrc_open, :pure, :pure_forb, :pure_cl, :pure_nocl, :pure_any, :pure_unk, :pure_other, :pure_none, :pure_arr, :pure_noarr, :cap)
+            :Fsrc_one, :Fsrc_open, :pure, :pure_forb, :pure_cl, :pure_nocl, :pure_any, :pure_unk, :pure_other, :pure_none, :pure_arr, :pure_noarr,
+            :cl_topD, :cl_topO, :cl_reach, :cl_litD, :cl_litO, :nocl_topD, :nocl_topO, :nocl_reach, :nocl_litD,
+            :nocl_litO, :top_n, :top_tri, :top_k4, :top_cl3, :top_cl4, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
