@@ -591,6 +591,114 @@ theorem cc_line {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₀ rq₁ : List Node
     exact hto D₁ F₁ hD₁ hm₁ hd₁' hcs.symm hvB c1
   · exact absurd hone (by simp [hvA, hvB])
 
+-- ============================================================
+-- Pins triviales
+-- ============================================================
+
+/-- Ningún documento del paso de `b` es de otro nodo de mapa: fijar `b` no mata nada. -/
+def NoVictims (g : GPathB) (b : NodeId) : Prop := ∀ n ∈ g.nodes, n.id.id.step = b.step → n.id.id = b
+
+theorem noVictims_sub {h g : GPathB} {b : NodeId} (hs : Sub h g) (hg : NoVictims g b) : NoVictims h b := by
+  intro n hn hst
+  obtain ⟨m, hm, hid, _, _⟩ := hs.nodes n hn
+  rw [← hid] at hst ⊢
+  exact hg m hm hst
+
+/-- **Fijar un nodo sin víctimas no cambia el estado.** -/
+theorem filterRequire_noop {g : GPathB} {b : NodeId} (h : NoVictims g b) : g.filterRequire b = g := by
+  unfold filterRequire
+  split
+  · have hv : ((g.line b.step).map (·.id)).filter (fun q => q.id != b) = [] := by
+      apply List.filter_eq_nil_iff.mpr
+      intro q hq
+      obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hq
+      have ⟨hnm, hns⟩ := List.mem_filter.mp hn
+      have := h n hnm (by simpa using hns)
+      simp [this]
+    simp only [hv, List.foldl_nil, List.isEmpty_nil, Bool.not_true, Bool.or_false]
+  · rfl
+
+/-- **`pinF` ignora un pin sin víctimas**, esté donde esté en la lista. -/
+theorem pinF_triv {g : GPathB} {b : NodeId} (h : NoVictims g b) (L R : List NodeId) :
+    pinF g (L ++ b :: R) = pinF g (L ++ R) := by
+  unfold pinF
+  have hL : NoVictims (L.foldl filterRequire g) b := noVictims_sub (shrinks_foldl _ shrinks_filterRequire L g).1 h
+  rw [List.foldl_append, List.foldl_append, List.foldl_cons, filterRequire_noop hL]
+
+/-- **Pin trivial para un estado y su familia.** -/
+def Triv (g : GPathB) (F : FamT) (b : NodeId) : Prop := NoVictims g b ∧ ∀ L R, F (L ++ b :: R) = F (L ++ R)
+
+/-- Pins por encima del paso de un estado: ninguno cambia nada. -/
+def AboveTriv (g : GPathB) (F : FamT) : Prop := ∀ b : NodeId, g.current_step ≤ b.step → Triv g F b
+
+theorem noVictims_above {g : GPathB} (hb : Below g) {b : NodeId} (hs : g.current_step ≤ b.step) :
+    NoVictims g b := fun n hn hst => by have := hb n hn; omega
+
+/-- **Los pins por encima pasan a la llegada.** -/
+theorem aboveTriv_arrival {D : GPathB} {F : FamT} {reqs : List NodeId} (hD : SInvB D) (hT : AboveTriv D F)
+    (hd : d.step = D.current_step) (h0 : 0 ≤ D.current_step) :
+    AboveTriv ((D.filterAll reqs).up d title forb) (fun R => F (reqs ++ R)) := by
+  intro b hb
+  have hi := sInvB_up (sInvB_filterAll hD reqs) (d := d) (title := title) (forb := forb)
+    (by rw [(shrinks_filterAll D reqs).1.step]; exact hd) (by omega)
+  refine ⟨noVictims_above hi.below hb, fun L R => ?_⟩
+  have hcs : D.current_step ≤ b.step := by
+    have := step_up_le (Z := D.filterAll reqs) (d := d) (title := title) (forb := forb)
+    have h2 : D.current_step ≤ ((D.filterAll reqs).up d title forb).current_step := by
+      rw [up_step_eq]; split <;> rw [(shrinks_filterAll D reqs).1.step] <;> omega
+    omega
+  show F (reqs ++ (L ++ b :: R)) = F (reqs ++ (L ++ R))
+  rw [← List.append_assoc, ← List.append_assoc]
+  exact (hT b hcs).2 _ _
+
+/-- **La clave de su cima es un pin trivial para la llegada** (todos sus documentos de la cima son de `d`). -/
+theorem triv_arrival_top {D : GPathB} {F : FamT} {reqs : List NodeId} (hD : SInvB D) (hT : AboveTriv D F)
+    (hd : d.step = D.current_step) :
+    Triv ((D.filterAll reqs).up d title forb) (fun R => F (reqs ++ R)) d := by
+  refine ⟨fun n hn hst => ?_, fun L R => ?_⟩
+  · have hsY : Sub (D.filterAll reqs) D := (shrinks_filterAll D reqs).1
+    have hcsY : (D.filterAll reqs).current_step = D.current_step := hsY.step
+    unfold up at hn
+    split at hn
+    · have hn' := (shrinks_review _).1.nodes n hn
+      obtain ⟨m, hm, hid, _, _⟩ := hn'
+      rw [← hid] at hst ⊢
+      rcases List.mem_append.mp hm with h | h
+      · obtain ⟨m0, hm0, rfl⟩ := List.mem_map.mp h
+        have := (sInvB_filterAll hD reqs).below m0 hm0
+        exfalso
+        have h1 : m0.id.id.step = d.step := hst
+        rw [hcsY] at this; omega
+      · obtain ⟨q, hq, rfl⟩ := List.mem_map.mp h
+        exact newRow_id hq
+    · obtain ⟨m, hm, hid, _, _⟩ := hsY.nodes n hn
+      have := hD.below m hm
+      rw [hid] at this; omega
+  · show F (reqs ++ (L ++ d :: R)) = F (reqs ++ (L ++ R))
+    rw [← List.append_assoc, ← List.append_assoc]
+    exact (hT d (by omega)).2 _ _
+
+theorem noVictims_join {A B : GPathB} {b : NodeId} (hA : NoVictims A b) (hB : NoVictims B b) :
+    NoVictims (join A B) b := by
+  intro n hn hst
+  rcases List.mem_append.mp hn with h | h
+  · obtain ⟨m, hm, rfl⟩ := List.mem_map.mp h
+    cases hq : B.node? m.id with
+    | none => simp only [hq] at hst ⊢; exact hA m hm hst
+    | some m1 => simp only [hq] at hst ⊢; exact hA m hm hst
+  · exact hB n (List.mem_filter.mp h).1 hst
+
+/-- **Un pin trivial en los dos lados es trivial en la unión.** -/
+theorem triv_join {A B : GPathB} {FA FB : FamT} {b : NodeId} (hA : Triv A FA b) (hB : Triv B FB b) :
+    Triv (join A B) (joinFam A B FA FB) b := by
+  refine ⟨noVictims_join hA.1 hB.1, fun L R => ?_⟩
+  unfold joinFam
+  rw [pinF_triv hA.1, pinF_triv hB.1, hA.2, hB.2]
+
+theorem aboveTriv_join {A B : GPathB} {FA FB : FamT} (hA : AboveTriv A FA) (hB : AboveTriv B FB)
+    (hcs : A.current_step = B.current_step) : AboveTriv (join A B) (joinFam A B FA FB) :=
+  fun b hb => triv_join (hA b hb) (hB b (by rw [← hcs]; exact hb))
+
 end GPathB
 
 end AbsSatBingo.Model
