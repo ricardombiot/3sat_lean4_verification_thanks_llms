@@ -175,6 +175,131 @@ theorem avoidV_steps (hbd : Bounded φ)
     rw [steps_succ]
     exact avoidV_next hbd n (hL n) ih
 
+-- ============================================================
+-- `HMixed` desde la existencia de camarillas
+-- ============================================================
+
+/-- **`HClq`** (en la línea `m + 1`): un trío de una cadena de una entrada de la línea siguiente (fijada y válida) que
+es triángulo en un remitente de otra entrada y triángulo en alguna de las llegadas que formaron ese remitente (fijados
+y válidos) está en una selección válida que termina en la clave de la entrada y concuerda con los pins. Sin familias.
+Medido: `probe_hnewcl.jl` (`PURE=1`), 68 000/68 000 en camarillas de las llegadas de la entrada. -/
+def HClq (φ : Cnf) (m : Nat) : Prop :=
+  ∀ E ∈ advance φ (steps φ (m + 1) (init φ)), ¬ IsNeg φ E.1 →
+    ∀ kv ∈ steps φ (m + 1) (init φ), ∀ d₁, d₁ ≠ E.1 → Sends φ kv d₁ →
+    ∀ R, (pinF E.2 R).isValid = true →
+    ∀ C j p q r, OnChain3 (pinF E.2 R) C j p q r →
+      (pinF kv.2 R).isValid = true → Tri (pinF kv.2 R) (C p) (C q) (C r) →
+      ∀ c ∈ steps φ m (init φ), Sends φ c kv.1 → (pinF (arrOf φ c kv.1) R).isValid = true →
+        Tri (pinF (arrOf φ c kv.1) R) (C p) (C q) (C r) →
+      ∃ S, ValidSel φ ((m + 2 : Nat) : Int) S ∧ (S ((m + 2 : Nat) : Int)).id = E.1 ∧
+        (∀ r' ∈ R, Agrees (((m + 2 : Nat) : Int) + 1) S r') ∧
+        ∃ i k l, 0 ≤ i ∧ i < ((m + 2 : Nat) : Int) + 1 ∧ 0 ≤ k ∧ k < ((m + 2 : Nat) : Int) + 1 ∧
+          0 ≤ l ∧ l < ((m + 2 : Nat) : Int) + 1 ∧ S i = C p ∧ S k = C q ∧ S l = C r
+
+/-- **`HClq` da `HMixed`**: un trío de un solo lado está en una selección válida de la entrada, y la familia de la
+entrada la esquiva (`AvoidV`), así que no lo prohíbe; uno prohibido es, pues, mezclado. -/
+theorem mixed_of_clq (hbd : Bounded φ) (m : Nat) (hC : HClq φ m)
+    (hA : AvoidV φ (m + 2) (advance φ (steps φ (m + 1) (init φ)))
+      (famsNext φ (steps φ (m + 1) (init φ)) (famsAt φ (m + 1)))) : HMixed φ m := by
+  intro E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD htri
+  by_cases hpure : ∃ c ∈ steps φ m (init φ), Sends φ c kv.1 ∧ (pinF (arrOf φ c kv.1) R).isValid = true ∧
+      Tri (pinF (arrOf φ c kv.1) R) (C p) (C q) (C r)
+  · exfalso
+    obtain ⟨c, hc, hsc, hvc, htc⟩ := hpure
+    obtain ⟨S, hv, hid, hag, i, k, l, h0, h1, h2, h3, h4, h5, hi, hk, hl⟩ :=
+      hC E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hvD htri c hc hsc hvc htc
+    have := hA E hE R S hv hid hag i k l h0 h1 h2 h3 h4 h5
+    rw [hi, hk, hl] at this
+    exact this hf
+  · have hnp : ∀ c ∈ steps φ m (init φ), Sends φ c kv.1 → (pinF (arrOf φ c kv.1) R).isValid = true →
+        ¬ Tri (pinF (arrOf φ c kv.1) R) (C p) (C q) (C r) :=
+      fun c hc hsc hvc htc => hpure ⟨c, hc, hsc, hvc, htc⟩
+    obtain ⟨hl, _, hnd, hls, _⟩ := line_facts hbd m
+    have hk : ∀ kv ∈ steps φ m (init φ), kv.1 ∈ mapNodes φ m := by
+      intro kv hkv
+      have := (hls kv hkv).2
+      rwa [(hl kv hkv).key, show (m : Int) + 1 - 1 = m by omega] at this
+    have hkv' : kv ∈ advance φ (steps φ m (init φ)) := by rw [← steps_succ]; exact hkv
+    rcases entry_shape2 (famsAt φ m) (line_cases hnd hk) hnd hkv' with
+      ⟨kv', hkv'', hs', he, _, _⟩ | ⟨a, ha, b, hb, hab, hsa, hsb, _, _, _⟩
+    · exfalso
+      rw [he] at hvD htri
+      exact hnp kv' hkv'' hs' hvD htri
+    · exact ⟨a, ha, b, hb, hab, hsa, hsb, hnp a ha hsa, hnp b hb hsb⟩
+
+/-- **La inducción con `AvoidV`**: como `lInv_stepsG`, pero `HNew` puede usar también la solidez de la línea. -/
+theorem lInv_stepsA (hbd : Bounded φ) (hsp : ∀ n : Nat, HSplit φ (steps φ n (init φ)))
+    (hnw : ∀ n : Nat, midFusion φ + 1 < (n : Int) + 1 → (n : Int) + 1 < fusionTop φ →
+      LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) → AvoidV φ n (steps φ n (init φ)) (famsAt φ n) →
+      HNew φ (steps φ n (init φ)) (famsAt φ n)) :
+    ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) ∧
+      ((n : Int) ≤ midFusion φ + 1 → ∀ kv ∈ steps φ n (init φ), NoTriF kv.2 (famsAt φ n kv.1)) ∧
+      AvoidV φ n (steps φ n (init φ)) (famsAt φ n) := by
+  intro n
+  induction n with
+  | zero =>
+    exact ⟨lInv_init φ, fun _ kv _ R _ x y z _ hf => hf, avoidV_init⟩
+  | succ n ih =>
+    obtain ⟨ih, ihN, ihA⟩ := ih
+    have hN' : (n : Int) + 1 ≤ midFusion φ + 1 →
+        ∀ E ∈ advance φ (steps φ n (init φ)), NoTriF E.2 (famsNext φ (steps φ n (init φ)) (famsAt φ n) E.1) := by
+      intro hn
+      by_cases hpre : (n : Int) + 1 ≤ midFusion φ
+      · exact noTri_next hbd n hpre ih (ihN (by omega)) (hsp n)
+      · have hk : (n : Int) = midFusion φ := by omega
+        refine noTri_next_single ih (ihN (by omega)) (fun a ha b hb => ?_)
+        have e1 := ih.keys a ha
+        have e2 := ih.keys b hb
+        rw [show (n : Int) + 1 - 1 = midFusion φ by omega, mapNodes_fusion φ _ (Or.inr (Or.inl rfl)),
+          List.mem_singleton] at e1 e2
+        rw [e1, e2]
+    have hnew : HNew φ (steps φ n (init φ)) (famsAt φ n) := by
+      by_cases hpost : midFusion φ + 1 < (n : Int) + 1
+      · by_cases htop : (n : Int) + 1 < fusionTop φ
+        · exact hnw n hpost htop ih ihA
+        · exact hnew_top (by omega) ih (by omega)
+      · exact hnew_of_noTri (hN' (by omega))
+    have hL := lInv_advance (by omega) ih (hsp n) hnew
+    have hA' := avoidV_next hbd n ih ihA
+    rw [steps_succ]
+    refine ⟨?_, fun hn kv hkv => hN' (by push_cast at hn; omega) kv hkv, hA'⟩
+    rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+    exact hL
+
+/-- **Las hipótesis sin familias**: `PinJoinSplitAll` en los joins de la máquina y `HClq` en las líneas de cláusula
+con dos remitentes. -/
+def HypsLiveLineQ (φ : Cnf) : Prop :=
+  (∀ n : Nat, HSplit φ (steps φ n (init φ))) ∧
+  (∀ m : Nat, midFusion φ + 1 < (m : Int) + 2 → (m : Int) + 2 < fusionTop φ → HClq φ m)
+
+theorem lInv_stepsQ (hbd : Bounded φ) (H : HypsLiveLineQ φ) :
+    ∀ n : Nat, LInv φ ((n : Int) + 1) (steps φ n (init φ)) (famsAt φ n) := by
+  intro n
+  refine (lInv_stepsA hbd H.1 (fun n h1 h2 hL hA => ?_) n).1
+  cases n with
+  | zero => exfalso; unfold midFusion at h1; omega
+  | succ m =>
+    have hL' : LInv φ ((m : Int) + 2) (steps φ (m + 1) (init φ)) (famsAt φ (m + 1)) := by
+      rw [show (m : Int) + 2 = ((m + 1 : Nat) : Int) + 1 by push_cast; omega]; exact hL
+    have hA2 := avoidV_next hbd (m + 1) hL hA
+    exact hnew_of_mixed hbd m (mixed_of_clq hbd m (H.2 m (by push_cast at h1; omega) (by push_cast at h2; omega)) hA2)
+      hL' (H.1 m)
+
 end PreClause
+
+namespace SecLine
+
+open GPathB Driver PreClause
+
+/-- **La espina con tríos decide la satisfacibilidad** bajo `PinJoinSplitAll` en los joins de la máquina y `HClq` en
+las líneas de cláusula con dos remitentes: todo trío de cadena de un solo lado está en una camarilla de la entrada. Las
+hipótesis ya no mencionan las familias de tríos. -/
+theorem spineVerdict_iff_of_clq {φ : Cnf} (hbd : Bounded φ) (H : HypsLiveLineQ φ) :
+    SpineVerdict φ ↔ Satisfiable φ := by
+  apply spineVerdict_iff_of_liveExt hbd
+  intro kv hkv hval
+  exact ⟨_, ((lInv_stepsQ hbd H (stepCount φ - 1).toNat).good kv hkv).live [] hval⟩
+
+end SecLine
 
 end AbsSatBingo.Model
