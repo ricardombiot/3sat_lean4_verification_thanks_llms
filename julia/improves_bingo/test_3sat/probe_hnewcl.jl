@@ -146,6 +146,22 @@ function scan(s)
                             if status(A, a, b, x) in ("T", "F")
                                 bump(:top_tri)
                                 all(u -> PG.has_edge(A.og, tp, u), (a, b, x)) && bump(:top_k4)
+                            elseif get(ENV, "DUMP", "0") == "1"
+                                sid(z) = "$(Int(z.id.step)):$(Int(z.id.index))<$(z.parent_id === nothing ? "-" : Int(z.parent_id.index))"
+                                prior = false
+                                n = length(chain)
+                                for i1 in 1:n, i2 in i1+1:n, i3 in i2+1:n
+                                    (chain[i1], chain[i2], chain[i3]) == (a, b, x) && continue
+                                    i3 < n || continue
+                                    PG.dead_trio(s.og, chain[i1], chain[i2], chain[i3]) && (prior = true)
+                                end
+                                Ao = [A2 for A2 in ARR if A2.map_parent_id == s.map_parent_id && A2 !== A]
+                                println(stderr, "EXC lit=", LIT[], " top=", sid(tp), " trio=", sid.((a, b, x)),
+                                    " chainsteps=", [Int(w.id.step) for w in chain],
+                                    " forbE=", PG.dead_trio(s.og, a, b, x), " priorForb=", prior,
+                                    " Atop=", status(A, a, b, x), " Aother=", [status(A2, a, b, x) for A2 in Ao],
+                                    " edgesAtop=", [PG.has_edge(A.og, u, v) for (u, v) in ((a, b), (a, x), (b, x))],
+                                    " topAdjAtop=", [PG.has_edge(A.og, tp, u) for u in (a, b, x)])
                             end
                             clique_through(A, [a, b, x], -1, -1) === true && bump(:top_cl3)
                             clique_through(A, unique([tp, a, b, x]), -1, -1) === true && bump(:top_cl4)
