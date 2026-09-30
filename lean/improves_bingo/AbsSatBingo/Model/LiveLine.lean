@@ -601,11 +601,12 @@ theorem cc_gen {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₁ : List NodeId} {d�
     (hSid : ∀ u ∈ S.alive, u.id.step = D₀.current_step → u.id = d₀)
     (hsplit₁ : PinJoinSplitAll ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁))
     (hvY₀ : (D₀.filterAll rq₁).isValid = true) (hvY₁ : (D₁.filterAll rq₁).isValid = true)
-    (hnew : ∀ R, ∀ C j p q r,
+    (R : List NodeId)
+    (hnew : ∀ C j p q r,
       OnChain3 (pinF S R) C j p q r →
       GS R (C p) (C q) (C r) →
-      SideForbids (pinF D₀ R) (F₀ R) (C p) (C q) (C r) ∧ SideForbids (pinF D₁ R) (F₁ R) (C p) (C q) (C r))
-    (R : List NodeId)
+      ((pinF D₀ R).isValid = true → SideForbids (pinF D₀ R) (F₀ R) (C p) (C q) (C r)) ∧
+      ((pinF D₁ R).isValid = true → SideForbids (pinF D₁ R) (F₁ R) (C p) (C q) (C r)))
     (hv₁ : (pinF (join ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁)) R).isValid = true) :
     CrossClosed (pinF S R)
       (GS R)
@@ -613,7 +614,7 @@ theorem cc_gen {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₁ : List NodeId} {d�
       (joinFam ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁)
         (fun R => F₀ (rq₁ ++ R)) (fun R => F₁ (rq₁ ++ R)) R) := by
   intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
-  obtain ⟨c0, c1⟩ := hnew R C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ hf
+  obtain ⟨c0, c1⟩ := hnew C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ hf
   have hd₁' : d₁.step = D₁.current_step := by rw [← hcs]; exact hd₁
   have hd₀' : d₀.step = D₁.current_step := by rw [← hcs]; exact hd₀
   -- los nodos del trío están en pasos ≤ T; los del paso T tienen id d₀
@@ -632,10 +633,13 @@ theorem cc_gen {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₁ : List NodeId} {d�
   have hto : ∀ (D : GPathB) (F : FamT), Good D F → FamMono D F → d₁.step = D.current_step →
       D.current_step = D₀.current_step →
       (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true →
-      SideForbids (pinF D R) (F R) (C p) (C q) (C r) →
+      ((pinF D R).isValid = true → SideForbids (pinF D R) (F R) (C p) (C q) (C r)) →
       SideForbids (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R) (F (rq₁ ++ R)) (C p) (C q) (C r) := by
     intro D F hD hm hd hcsD hvA h
-    refine sf_to_arrival hD hm (by rw [hcsD]; exact hT2) hd hvA (fun u hu => ?_) h
+    have hvD : (pinF D R).isValid = true :=
+      valid_pinF_mono (fun b hb => List.mem_append_right _ hb) hD.inv (by rw [hcsD]; exact hT2)
+        (arrival_pin_commute (title := t₁) (forb := f₁) hD.inv (by have := hD.pos; omega) hd hvA).1
+    refine sf_to_arrival hD hm (by rw [hcsD]; exact hT2) hd hvA (fun u hu => ?_) (h hvD)
     obtain ⟨_, hus⟩ := hEalive u hu
     rcases Int.lt_or_eq_of_le hus with hlt | heq
     · exact Or.inl (by rw [hcsD]; exact hlt)
@@ -827,12 +831,16 @@ theorem cc_to_single {D : GPathB} {F : FamT} {rq₁ : List NodeId} {d₀ d₁ : 
     (hd₁ : d₁.step = D.current_step) (hdd : d₀ ≠ d₁)
     {S : GPathB} {GS : FamT} (hScs : S.current_step ≤ D.current_step + 1)
     (hSid : ∀ u ∈ S.alive, u.id.step = D.current_step → u.id = d₀)
-    (hnew : ∀ R, ∀ C j p q r, OnChain3 (pinF S R) C j p q r → GS R (C p) (C q) (C r) →
-      SideForbids (pinF D R) (F R) (C p) (C q) (C r))
-    (R : List NodeId) (hvA : (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true) :
+    (R : List NodeId)
+    (hnew : ∀ C j p q r, OnChain3 (pinF S R) C j p q r → GS R (C p) (C q) (C r) →
+      (pinF D R).isValid = true → SideForbids (pinF D R) (F R) (C p) (C q) (C r))
+    (hvA : (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R).isValid = true) :
     CrossClosed (pinF S R) (GS R) (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R) (F (rq₁ ++ R)) := by
   intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
-  have hc := hnew R C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ hf
+  have hvD : (pinF D R).isValid = true :=
+    valid_pinF_mono (fun b hb => List.mem_append_right _ hb) hD.inv hT2
+      (arrival_pin_commute (title := t₁) (forb := f₁) hD.inv (by have := hD.pos; omega) hd₁ hvA).1
+  have hc := hnew C j p q r ⟨hC, h1, h2, h3, h4, h5, h6⟩ hf hvD
   have hcsE : (pinF S R).current_step ≤ D.current_step + 1 := by rw [step_pinF]; exact hScs
   have hEalive : ∀ u, (u = C p ∨ u = C q ∨ u = C r) → u ∈ S.alive ∧ u.id.step ≤ D.current_step := by
     rintro u (rfl | rfl | rfl)

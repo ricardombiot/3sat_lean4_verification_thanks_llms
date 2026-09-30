@@ -12,7 +12,8 @@ import AbsSatBingo.Model.LineInduction
   sus requisitos, una unión la `joinFam` de sus dos llegadas.
 * **El invariante de línea** (`LInv`): contabilidad, cada entrada `Good` y `FamMono` con su familia, y `CrossClosed`
   entre las entradas fijadas.
-* **El veredicto**: bajo `PinJoinSplitAll` en los joins de la máquina y `NoNewClose` hacia los remitentes de las otras
+* **El veredicto**: bajo `PinJoinSplitAll` en los joins de la máquina y `NoNewClose` (fuera de los nodos de negación,
+  donde sale de `CrossClosed` en la línea y los pins triviales) hacia los remitentes de las otras
   entradas (`HypsLiveLine`), la espina con tríos decide la satisfacibilidad (`spineVerdict_iff_of_liveLine`).
 -/
 
@@ -281,6 +282,54 @@ theorem doJoin_arr {φ : Cnf} {T : Int} {a b : NodeId × GPathB} (ha : StateOk T
   rw [if_pos (by simp [oa.step, ob.step, oa.mp, ob.mp, oa.valid, ob.valid])]
 
 -- ============================================================
+-- El paso de negación
+-- ============================================================
+
+/-- `d` es un nodo de negación (paso par entre la raíz y la fusión central). -/
+def IsNeg (φ : Cnf) (d : NodeId) : Prop := 0 < d.step ∧ d.step < midFusion φ ∧ d.step % 2 = 0
+
+/-- **Un nodo de negación tiene un solo padre en el mapa**, el valor opuesto de la variable, que solo lo tiene a él de
+hijo. -/
+theorem sons_neg {φ : Cnf} {d k : NodeId} (hn : IsNeg φ d) (hs : d ∈ sonsOfMap φ k) :
+    k = ⟨d.step - 1, 1 - d.index⟩ ∧ sonsOfMap φ k = [d] := by
+  obtain ⟨h0, hm, h2⟩ := hn
+  have hst := sonsOfMap_step φ k d hs
+  have hc : 0 < k.step ∧ k.step < midFusion φ ∧ k.step % 2 = 1 := ⟨by omega, by omega, by omega⟩
+  have hsons : sonsOfMap φ k = [{ step := k.step + 1, index := 1 - k.index }] := by
+    unfold sonsOfMap; rw [if_pos hc]
+  rw [hsons, List.mem_singleton] at hs
+  subst hs
+  exact ⟨nodeId_eq (by show k.step = k.step + 1 - 1; omega) (by show k.index = 1 - (1 - k.index); omega), hsons⟩
+
+/-- **El requisito de un nodo de negación es su padre**: la llegada se fija a la cima de su propio remitente. -/
+theorem reqOf_negd {φ : Cnf} {d : NodeId} (hn : IsNeg φ d) : reqOf φ d = [⟨d.step - 1, 1 - d.index⟩] := by
+  obtain ⟨h0, hm, h2⟩ := hn
+  unfold reqOf
+  rw [if_neg (by omega), if_pos hm, if_neg (by omega)]
+
+/-- **`CrossClosed` desde una llegada fijada**, si valía desde su remitente fijado con los requisitos delante. -/
+theorem cc_src_arrival {D X : GPathB} {F G : Trios} {reqs R : List NodeId} {d : NodeId} {title : String}
+    {forb : PathNodeId → Bool} (hD : SInvB D) (hpos : 0 < D.current_step) (hd : d.step = D.current_step)
+    (hB : FBelow F D.current_step) (hX : EdgesAlive X) (hc : CrossClosed (pinF D (reqs ++ R)) F X G)
+    (hv : (pinF ((D.filterAll reqs).up d title forb) R).isValid = true) :
+    CrossClosed (pinF ((D.filterAll reqs).up d title forb) R) F X G := by
+  obtain ⟨_, ha, hj⟩ := arrival_pin_commute (title := title) (forb := forb) hD hpos hd hv
+  have hcsX : (pinF D (reqs ++ R)).current_step = D.current_step := step_pinF _ _
+  have hiX := sInvB_pinF hD (reqs ++ R)
+  have hup : CrossClosed (upR (pinF D (reqs ++ R)) d title forb) F X G := by
+    intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
+    obtain ⟨sp, sq, sr⟩ := hB _ _ _ hf
+    rw [(hC.node p h1 h2).1] at sp; rw [(hC.node q h3 h4).1] at sq; rw [(hC.node r h5 h6).1] at sr
+    exact hc C j (spineChain_upR hiX (by rw [hcsX]; exact hd) hC) p q r h1 (by omega) h3 (by omega) h5 (by omega) hf
+  have hvY : (D.filterAll reqs).isValid = true := valid_of_up (isValid_of_sub (sub_pinF _ R) hv)
+  have hiA := sInvB_pinF (sInvB_up (sInvB_filterAll hD reqs) (d := d) (title := title) (forb := forb)
+    (by rw [(shrinks_filterAll D reqs).1.step]; exact hd) (by omega)) R
+  have hiU : SInvB (upR (pinF D (reqs ++ R)) d title forb) :=
+    sInvB_review (sInvB_dirty (sInvB_addNode hiX (by rw [hcsX]; exact hd) (by omega)) true)
+  refine crossClosed_same hup ?_ ⟨ha, hj⟩ ⟨fun _ => Iff.rfl, fun _ _ _ _ => Iff.rfl⟩ hiA.links.2.2 hiU.links hX
+  rw [step_pinF, step_up hvY, (shrinks_filterAll D reqs).1.step, step_upR, hcsX]
+
+-- ============================================================
 -- El invariante de línea
 -- ============================================================
 
@@ -319,6 +368,8 @@ structure LInv (φ : Cnf) (T : Int) (line : Line) (Fs : NodeId → FamT) : Prop 
   tid   : ∀ kv ∈ line, TopDocsId kv.2 kv.1
   cc    : ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ R, (pinF a.2 R).isValid = true → (pinF b.2 R).isValid = true →
     CrossClosed (pinF a.2 R) (Fs a.1 R) (pinF b.2 R) (Fs b.1 R)
+  triv  : ∀ kv ∈ line, Triv kv.2 (Fs kv.1) kv.1
+  above : ∀ kv ∈ line, AboveTriv kv.2 (Fs kv.1)
 
 /-- **El caso base**: la semilla, con la relación vacía. -/
 theorem lInv_init (φ : Cnf) : LInv φ 1 (init φ) (fun _ => botF) := by
@@ -333,7 +384,7 @@ theorem lInv_init (φ : Cnf) : LInv φ 1 (init φ) (fun _ => botF) := by
       unfold up; rw [if_pos (show GPathB.empty.isValid = true by rfl)]
     rw [hup]
     exact topDocsId_of_shrinks (shrinks_review _) (topDocsId_addNode (fun n hn => absurd hn List.not_mem_nil))
-  refine ⟨hl, by rw [init_eq]; simp, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨hl, by rw [init_eq]; simp, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · rw [init_eq]; intro kv hkv; rw [List.mem_singleton] at hkv; subst hkv
     rw [show (1 : Int) - 1 = 0 by omega, mapNodes_fusion φ 0 (Or.inl rfl)]
     exact List.mem_singleton_self _
@@ -347,6 +398,11 @@ theorem lInv_init (φ : Cnf) : LInv φ 1 (init φ) (fun _ => botF) := by
   · rw [init_eq]; intro a ha b hb hab
     rw [List.mem_singleton] at ha hb; subst ha; subst hb
     exact absurd rfl hab
+  · rw [init_eq]; intro kv hkv; rw [List.mem_singleton] at hkv; subst hkv
+    refine ⟨fun n hn hst => htid n hn ?_, fun _ _ => rfl⟩
+    rw [hstep]; have : n.id.id.step = 0 := hst; omega
+  · rw [init_eq]; intro kv hkv; rw [List.mem_singleton] at hkv; subst hkv
+    exact fun b hb => ⟨noVictims_above hi.below hb, fun _ _ => rfl⟩
 
 -- ============================================================
 -- Las hipótesis sobre la línea
@@ -357,11 +413,13 @@ def HSplit (φ : Cnf) (line : Line) : Prop :=
   ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, Sends φ a d → Sends φ b d → PinJoinSplitAll (arrOf φ a d) (arrOf φ b d)
 
 /-- **`NoNewClose` hacia los remitentes de las otras entradas**: un trío de una cadena de una entrada de la línea
-siguiente que su familia prohíbe ya lo cortaba (con los mismos pins) cada remitente que envía a otra entrada. -/
+siguiente (fijada y válida) que su familia prohíbe ya lo cortaba, con los mismos pins, cada remitente que envía a otra
+entrada (si queda válido). No se pide en los nodos de negación: ahí sale de `CrossClosed` en la línea. -/
 def HNew (φ : Cnf) (line : Line) (Fs : NodeId → FamT) : Prop :=
-  ∀ E ∈ advance φ line, ∀ kv ∈ line, ∀ d₁, d₁ ≠ E.1 → Sends φ kv d₁ →
-    ∀ R C j p q r, OnChain3 (pinF E.2 R) C j p q r → famsNext φ line Fs E.1 R (C p) (C q) (C r) →
-      SideForbids (pinF kv.2 R) (Fs kv.1 R) (C p) (C q) (C r)
+  ∀ E ∈ advance φ line, ¬ IsNeg φ E.1 → ∀ kv ∈ line, ∀ d₁, d₁ ≠ E.1 → Sends φ kv d₁ →
+    ∀ R, (pinF E.2 R).isValid = true →
+    ∀ C j p q r, OnChain3 (pinF E.2 R) C j p q r → famsNext φ line Fs E.1 R (C p) (C q) (C r) →
+      (pinF kv.2 R).isValid = true → SideForbids (pinF kv.2 R) (Fs kv.1 R) (C p) (C q) (C r)
 
 -- ============================================================
 -- El paso
@@ -400,7 +458,8 @@ theorem lInv_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} {Fs : Nod
   -- lo que se sabe de cada entrada nueva
   have ent : ∀ E ∈ advance φ line, Good E.2 (famsNext φ line Fs E.1) ∧ FamMono E.2 (famsNext φ line Fs E.1) ∧
       TopDocsId E.2 E.1 ∧ E.1 ∈ mapNodes φ T ∧ E.1.step = T ∧ E.2.current_step ≤ T + 1 ∧
-      (∀ u ∈ E.2.alive, u.id.step = T → u.id = E.1) := by
+      (∀ u ∈ E.2.alive, u.id.step = T → u.id = E.1) ∧
+      Triv E.2 (famsNext φ line Fs E.1) E.1 ∧ AboveTriv E.2 (famsNext φ line Fs E.1) := by
     intro E hE
     rcases entry_shape Fs hlen h.nodup hE with ⟨kv, hkv, hs, he, hf⟩ | ⟨a, ha, b, hb, hab, hsa, hsb, he, hf⟩
     · obtain ⟨hd, _, hg, hm, htid, _, hkey⟩ := arr_facts hT h hkv hs
@@ -408,7 +467,9 @@ theorem lInv_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} {Fs : Nod
       obtain ⟨hsc, hsid⟩ := src_arrival (reqs := reqOf φ E.1) (title := "") (forb := isProhibited φ)
         (h.good kv hkv).inv hd
       rw [he, hf]
-      refine ⟨hg, hm, htid, hkey, by rw [hd, hok.step], ?_, ?_⟩
+      refine ⟨hg, hm, htid, hkey, by rw [hd, hok.step], ?_, ?_,
+        triv_arrival_top (h.good kv hkv).inv (h.above kv hkv) hd,
+        aboveTriv_arrival (h.good kv hkv).inv (h.above kv hkv) hd (by rw [hok.step]; omega)⟩
       · have : (arrOf φ kv E.1).current_step ≤ kv.2.current_step + 1 := hsc
         rw [hok.step] at this; exact this
       · intro u hu hus
@@ -437,16 +498,56 @@ theorem lInv_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} {Fs : Nod
       rw [he, doJoin_arr oka okb hsa hsb, hf]
       refine ⟨good_join hA hB hcsA (fun t ht hts hb' => sAB t hts ht hb') (fun t ht hts ha' => sBA t hts ht ha') hcc hsp,
         famMono_join hA hB hmA hmB hcsA (by rw [(stateOk_arr oka hsa).step]; omega) hsp,
-        topDocsId_join htA htB hcsA, hkey, by rw [hda, oka.step], ?_, ?_⟩
+        topDocsId_join htA htB hcsA, hkey, by rw [hda, oka.step], ?_, ?_,
+        triv_join (triv_arrival_top (h.good a ha).inv (h.above a ha) hda)
+          (triv_arrival_top (h.good b hb).inv (h.above b hb) hdb),
+        aboveTriv_join (aboveTriv_arrival (h.good a ha).inv (h.above a ha) hda (by rw [oka.step]; omega))
+          (aboveTriv_arrival (h.good b hb).inv (h.above b hb) hdb (by rw [okb.step]; omega)) hcsA⟩
       · have : (join (arrOf φ a E.1) (arrOf φ b E.1)).current_step ≤ a.2.current_step + 1 := hsc
         rw [oka.step] at this; exact this
       · intro u hu hus
         exact hsid u hu (by rw [oka.step]; exact hus)
+  -- NoNewClose: de la hipótesis, o de CrossClosed en la línea en los nodos de negación
+  have newAll : ∀ E ∈ advance φ line, ∀ kv ∈ line, ∀ d₁, d₁ ≠ E.1 → Sends φ kv d₁ →
+      ∀ R, (pinF E.2 R).isValid = true →
+      ∀ C j p q r, OnChain3 (pinF E.2 R) C j p q r → famsNext φ line Fs E.1 R (C p) (C q) (C r) →
+        (pinF kv.2 R).isValid = true → SideForbids (pinF kv.2 R) (Fs kv.1 R) (C p) (C q) (C r) := by
+    intro E hE kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD
+    by_cases hneg : IsNeg φ E.1
+    · rcases entry_shape Fs hlen h.nodup hE with ⟨kv', hkv', hs', he, hfam⟩ | ⟨a, _, b, _, hab, hsa, hsb, _⟩
+      · obtain ⟨hk', hsons⟩ := sons_neg hneg hs'.1
+        have hne : kv'.1 ≠ kv.1 := by
+          intro heq
+          have h1 := hs.1
+          rw [← heq, hsons, List.mem_singleton] at h1
+          exact hd₁ h1
+        have hreq : reqOf φ E.1 = [kv'.1] := by rw [reqOf_negd hneg, hk']
+        obtain ⟨hd', _⟩ := arr_facts hT h hkv' hs'
+        have htr := h.triv kv' hkv'
+        have e1 : pinF kv'.2 ([kv'.1] ++ R) = pinF kv'.2 R := pinF_triv htr.1 [] R
+        have e2 : Fs kv'.1 ([kv'.1] ++ R) = Fs kv'.1 R := htr.2 [] R
+        have hok' := h.ok kv' hkv'
+        rw [he] at hvE hoc
+        rw [hfam] at hf
+        have hvE' : (pinF ((kv'.2.filterAll (reqOf φ E.1)).up E.1 "" (isProhibited φ)) R).isValid = true := hvE
+        have hvX := (arrival_pin_commute (title := "") (forb := isProhibited φ) (h.good kv' hkv').inv
+          (by rw [hok'.step]; omega) hd' hvE').1
+        rw [hreq, e1] at hvX
+        have hcc : CrossClosed (pinF kv'.2 (reqOf φ E.1 ++ R)) (Fs kv'.1 (reqOf φ E.1 ++ R)) (pinF kv.2 R)
+            (Fs kv.1 R) := by
+          rw [hreq, e1, e2]; exact h.cc kv' hkv' kv hkv hne R hvX hvD
+        have hX := cc_src_arrival (h.good kv' hkv').inv (by rw [hok'.step]; omega) hd' ((h.good kv' hkv').below _)
+          (sInvB_pinF (h.good kv hkv).inv R).edges hcc hvE'
+        obtain ⟨hC, h1, h2, h3, h4, h5, h6⟩ := hoc
+        exact hX C j hC p q r h1 h2 h3 h4 h5 h6 hf
+      · exact absurd ((sons_neg hneg hsa.1).1.trans (sons_neg hneg hsb.1).1.symm) hab
+    · exact hnew E hE hneg kv hkv d₁ hd₁ hs R hvE C j p q r hoc hf hvD
   refine ⟨hl', advance_nodup φ line, fun E hE => by rw [show T + 1 - 1 = T by omega]; exact (ent E hE).2.2.2.1,
-    fun E hE => (ent E hE).1, fun E hE => (ent E hE).2.1, fun E hE => (ent E hE).2.2.1, ?_⟩
+    fun E hE => (ent E hE).1, fun E hE => (ent E hE).2.1, fun E hE => (ent E hE).2.2.1, ?_,
+    fun E hE => (ent E hE).2.2.2.2.2.2.2.1, fun E hE => (ent E hE).2.2.2.2.2.2.2.2⟩
   -- CrossClosed entre las entradas nuevas
   intro E hE E' hE' hne R hv hv'
-  obtain ⟨gE, _, _, _, hEs, hEcs, hEid⟩ := ent E hE
+  obtain ⟨gE, _, _, _, hEs, hEcs, hEid, _, _⟩ := ent E hE
   by_cases hT1 : T = 1
   · exact crossClosed_small (sInvB_pinF gE.inv R) (by rw [step_pinF, (hl' E hE).step]; omega) (gE.nodeg R)
   have hT2 : 2 ≤ T := by omega
@@ -458,7 +559,7 @@ theorem lInv_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} {Fs : Nod
     exact cc_to_single (h.good kv hkv) (h.mono kv hkv) (by rw [hok.step]; exact hT2) hd hne
       (S := E.2) (GS := famsNext φ line Fs E.1) (by rw [hok.step]; exact hEcs)
       (fun u hu hus => hEid u hu (by rw [← hok.step]; exact hus))
-      (fun R C j p q r hoc hf' => hnew E hE kv hkv E'.1 (Ne.symm hne) hs R C j p q r hoc hf') R hv'
+      R (fun C j p q r hoc hf' hvD => newAll E hE kv hkv E'.1 (Ne.symm hne) hs R hv C j p q r hoc hf' hvD) hv'
   · have oka := h.ok a ha
     have okb := h.ok b hb
     obtain ⟨hda, hvYa, _⟩ := arr_facts hT h ha hsa
@@ -469,8 +570,8 @@ theorem lInv_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} {Fs : Nod
     exact cc_gen (h.good a ha) (h.good b hb) (h.mono a ha) (h.mono b hb) hcs (by rw [hEs, oka.step]) hda hne
       (by rw [oka.step]; exact hT2) gE (by rw [oka.step]; exact hEcs)
       (fun u hu hus => hEid u hu (by rw [← oka.step]; exact hus)) (hsplit a ha b hb hab E'.1 hsa hsb) hvYa hvYb
-      (fun R C j p q r hoc hf' => ⟨hnew E hE a ha E'.1 (Ne.symm hne) hsa R C j p q r hoc hf',
-        hnew E hE b hb E'.1 (Ne.symm hne) hsb R C j p q r hoc hf'⟩) R hv'
+      R (fun C j p q r hoc hf' => ⟨fun hvD => newAll E hE a ha E'.1 (Ne.symm hne) hsa R hv C j p q r hoc hf' hvD,
+        fun hvD => newAll E hE b hb E'.1 (Ne.symm hne) hsb R hv C j p q r hoc hf' hvD⟩) hv'
 
 -- ============================================================
 -- La máquina entera y el veredicto
