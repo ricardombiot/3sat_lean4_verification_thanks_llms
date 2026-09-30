@@ -31,6 +31,8 @@ const LIT = Ref(-1)        # paso del literal que fijan los requisitos de la lí
 const DIST = Dict{Int, Int}()
 const ARR = Any[]          # llegadas del último paso (copias en :up_done)
 const PAT = Dict{String, Int}()
+const PREV = Any[]         # entradas de la línea anterior (los remitentes)
+const TRANS = Dict{String, Int}()   # remitente → llegada, por remitente, en los tríos prohibidos de cadenas
 using .AbsSat.Probes
 status(g, a, b, x) = !(PG.is_alive(g.og, a) && PG.is_alive(g.og, b) && PG.is_alive(g.og, x)) ? "n" :
     !(PG.has_edge(g.og, a, b) && PG.has_edge(g.og, a, x) && PG.has_edge(g.og, b, x)) ? "m" :
@@ -56,6 +58,20 @@ function cross(s, o)
             a, b = chain[i], chain[j]
             PG.dead_trio(s.og, a, b, x) || continue
             bump(:bad); bump(Symbol("bad_", KIND[]))
+            if !isempty(PREV)
+                opens = [status(D, a, b, x) == "T" for D in PREV]
+                any(opens) ? bump(Symbol("sender_open_", KIND[])) : bump(Symbol("sender_closed_", KIND[]))
+                for D in PREV
+                    kD = D.map_parent_id
+                    for A in ARR
+                        A.map_parent_id == s.map_parent_id || continue
+                        xs = alive_at(A, Int(A.current_step) - 1)
+                        (isempty(xs) || first(xs).parent_id != kD) && continue
+                        tk = KIND[] * " D:" * status(D, a, b, x) * "→A:" * status(A, a, b, x)
+                        TRANS[tk] = get(TRANS, tk, 0) + 1
+                    end
+                end
+            end
             isopen(o, a, b, x) && bump(:open)
             # por qué está cortado en el otro: falta un nodo, falta una arista entre vivos, o está prohibido
             if !(PG.is_alive(o.og, a) && PG.is_alive(o.og, b) && PG.is_alive(o.og, x))
@@ -89,13 +105,13 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
+    cols = (:sender_open_cl, :sender_closed_cl, :lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
         truth = ex === nothing ? "?" : string(!isempty(ex))
-        empty!(C); empty!(DIST); empty!(PAT)
+        empty!(C); empty!(DIST); empty!(PAT); empty!(PREV); empty!(TRANS)
         PG.FORBID[] = :on
         t = @elapsed begin
             machine = SatMachine.new(loader(path))
@@ -119,6 +135,7 @@ function main()
                         cross(A, B)
                     end
                     (SatMachine.is_finished(machine) || !SatMachine.have_gpaths_step(machine)) && break
+                    empty!(PREV); append!(PREV, [deepcopy(g) for g in gs])
                     empty!(ARR)
                     Probes.with(:up_done => g -> push!(ARR, deepcopy(g))) do
                         SatMachine.make_step!(machine)
@@ -127,6 +144,7 @@ function main()
             end
         end
         PG.FORBID[] = :off
+        println(stderr, basename(path), " remitente→llegada => ", sort(collect(TRANS)))
         println(stderr, basename(path), " patrones (estado de cada llegada: T abierto, F prohibido, m falta arista, n falta nodo) => ", sort(collect(PAT)))
         println(stderr, basename(path), " distancia (paso más bajo del trío − paso del literal) => casos: ", sort(collect(DIST)))
         return (truth, (get(C, c, 0) for c in cols)..., round(t, digits = 1))
