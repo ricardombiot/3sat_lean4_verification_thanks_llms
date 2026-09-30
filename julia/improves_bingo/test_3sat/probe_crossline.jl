@@ -133,7 +133,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:all_Dopen, :all_Dopen_Aclosed, :sender_open_cl, :sender_closed_cl, :lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
+    cols = (:all_Dopen, :all_Dopen_Aclosed, :sender_open_cl, :sender_closed_cl, :sender_open_var, :sender_closed_var, :sender_open_neg, :sender_closed_neg, :lines, :lines_var, :lines_neg, :lines_cl, :lines_fus, :bad_fus, :why_node_fus, :why_edge_fus, :why_forb_fus, :pairs, :bad, :open, :bad_var, :bad_neg, :bad_cl, :why_node_var, :why_node_neg, :why_node_cl, :why_edge_var, :why_edge_neg, :why_edge_cl, :why_forb_var, :why_forb_neg, :why_forb_cl, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
