@@ -129,10 +129,46 @@ function mechanism(u, s, sides, chain, x)
     end
 end
 
+# Todas las cadenas de cada lado (sin mirar tríos): cuando una pasa a tener un trío prohibido en su lado, ¿está ese
+# trío abierto (triángulo sin prohibir) en el otro lado?  sbad (tríos prohibidos en cadenas de un lado),
+# sbad_open (abiertos en el otro lado)
+function side_chains(s, o)
+    top = Int(s.current_step) - 1
+    leaves = Ref(0)
+    chain = PathNodeId[]
+    function dfs(x)
+        leaves[] > CAP && return
+        push!(chain, x)
+        k = length(chain)
+        for i in 1:k-1, j in i+1:k-1
+            a, b = chain[i], chain[j]
+            PG.dead_trio(s.og, a, b, x) || continue
+            bump(:sbad)
+            if PG.has_edge(o.og, a, b) && PG.has_edge(o.og, a, x) && PG.has_edge(o.og, b, x) &&
+               !PG.dead_trio(o.og, a, b, x)
+                bump(:sbad_open)
+            end
+        end
+        if Int(x.id.step) > 0
+            nd = PathCollectionLines.get_node(s.table_lines, x)
+            if nd !== nothing
+                for p in nd.parents
+                    PG.is_alive(s.og, p) && all(w -> adj(s, w, p), chain) && dfs(p)
+                end
+            end
+        else
+            leaves[] += 1
+        end
+        pop!(chain)
+    end
+    foreach(dfs, alive_at(s, top))
+end
+
 function judge(u, sides)
     u.is_valid || return
     bump(:joins)
     agree(sides[1], sides[2])
+    side_chains(sides[1], sides[2]); side_chains(sides[2], sides[1])
     top = Int(u.current_step) - 1
     leaves = Ref(0)
     chain = PathNodeId[]
@@ -161,7 +197,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:joins, :cand, :cand_alive, :cand_killed, :kill_unique, :kill_shared_only, :kill_depth_max, :common_tri, :tri_both, :tri_disagree, :dis_top_adj, :dis_top_open, :dis_open, :chains, :top_both, :top_none, :v_node, :v_edge, :v_link, :v_trio_t, :v_trio, :dead, :cap)
+    cols = (:joins, :sbad, :sbad_open, :cand, :cand_alive, :cand_killed, :kill_unique, :kill_shared_only, :kill_depth_max, :common_tri, :tri_both, :tri_disagree, :dis_top_adj, :dis_top_open, :dis_open, :chains, :top_both, :top_none, :v_node, :v_edge, :v_link, :v_trio_t, :v_trio, :dead, :cap)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
