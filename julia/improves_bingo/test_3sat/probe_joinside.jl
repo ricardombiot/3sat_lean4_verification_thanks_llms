@@ -1,6 +1,6 @@
 # (★) en el join: toda cadena viva de la unión es viva en el lado de su cima (30-sept-2026, rama reader-stuck).
 #
-#   PROBE_MAP=bin PROBE_ONLY=clause_mix.cnf,... julia --project=. test_3sat/probe_joinside.jl <salida.tsv>
+#   ABL=none|noup|nojoin|noboth PROBE_MAP=bin PROBE_ONLY=clause_mix.cnf,... julia --project=. test_3sat/probe_joinside.jl <salida.tsv>
 #
 # Con FORBID = :on. En cada join (puntos :join_pre / :join_post) se guardan los dos lados y se recorren todas las
 # cadenas vivas de la unión (de una cima hacia abajo por padres vivos, vecinos dos a dos, sin trío prohibido en la
@@ -24,6 +24,15 @@ const PG = PathOwnersGraph
 const C = Dict{Symbol, Int}()
 bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
 const PRE = Ref{Any}(nothing)
+
+# Ablación (ABL): none | noup (el UP no hereda tríos) | nojoin (el join no guarda ninguno) | noboth
+const ABL = get(ENV, "ABL", "none")
+if ABL in ("noup", "noboth")
+    Core.eval(PathOwnersGraph, :(up_forbid!(g :: OwnersGraph, n :: PathNodeId, parents) = nothing))
+end
+if ABL in ("nojoin", "noboth")
+    Core.eval(PathOwnersGraph, :(join_forbid(ga :: OwnersGraph, gb :: OwnersGraph) = Dict{EdgeKey, SetPathNodesId}()))
+end
 
 alive_at(g, l) = sort(collect(get(g.og.alive, l, SetPathNodesId())), by = string)
 adj(g, a, b) = a == b ? PG.is_alive(g.og, a) : PG.has_edge(g.og, a, b)
