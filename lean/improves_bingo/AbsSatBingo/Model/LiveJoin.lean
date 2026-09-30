@@ -247,16 +247,16 @@ open Machine (Below) in
 /-- **`CrossClosed` pasa de los remitentes a las llegadas** del mismo destino (con los mismos requisitos): una cadena
 de la llegada sin su cima es una cadena del remitente, los tríos que nombran `F` son de nodos viejos, y el filtro, la
 fila nueva y la revisión solo quitan aristas entre nodos viejos. -/
-theorem crossClosed_up {D₀ D₁ : GPathB} {F₀ F₁ : Trios} {reqs : List NodeId} {d : NodeId} {title : String}
-    {forb : PathNodeId → Bool} (hc : CrossClosed D₀ F₀ D₁ F₁) (hB : FBelow F₀ D₀.current_step)
+theorem crossClosed_up {D₀ D₁ : GPathB} {F₀ F₁ : Trios} {reqs reqs₁ : List NodeId} {d d₁ : NodeId}
+    {title title₁ : String} {forb forb₁ : PathNodeId → Bool} (hc : CrossClosed D₀ F₀ D₁ F₁) (hB : FBelow F₀ D₀.current_step)
     (hcs : D₀.current_step = D₁.current_step)
     (hv₀ : (D₀.filterAll reqs).isValid = true) (hnd₀ : NodupIds D₀) (hdocs₀ : AliveDocs (D₀.filterAll reqs))
     (hb₀ : Below (D₀.filterAll reqs)) (hd₀ : d.step = D₀.current_step)
-    (hv₁ : (D₁.filterAll reqs).isValid = true) :
-    CrossClosed ((D₀.filterAll reqs).up d title forb) F₀ ((D₁.filterAll reqs).up d title forb) F₁ := by
+    (hv₁ : (D₁.filterAll reqs₁).isValid = true) (hd₁ : d₁.step = D₁.current_step) :
+    CrossClosed ((D₀.filterAll reqs).up d title forb) F₀ ((D₁.filterAll reqs₁).up d₁ title₁ forb₁) F₁ := by
   intro C j hC p q r h1 h2 h3 h4 h5 h6 hf
   have hcsY₀ : (D₀.filterAll reqs).current_step = D₀.current_step := (shrinks_filterAll D₀ reqs).1.step
-  have hcsY₁ : (D₁.filterAll reqs).current_step = D₁.current_step := (shrinks_filterAll D₁ reqs).1.step
+  have hcsY₁ : (D₁.filterAll reqs₁).current_step = D₁.current_step := (shrinks_filterAll D₁ reqs₁).1.step
   have hcsA : ((D₀.filterAll reqs).up d title forb).current_step = D₀.current_step + 1 := by
     rw [step_up hv₀, hcsY₀]
   -- los tres nodos son viejos
@@ -265,13 +265,14 @@ theorem crossClosed_up {D₀ D₁ : GPathB} {F₀ F₁ : Trios} {reqs : List Nod
   have hch := spineChain_sender hv₀ hnd₀ hdocs₀ hb₀ hd₀ hC
   have hs := hc C j hch p q r h1 (by omega) h3 (by omega) h5 (by omega) hf
   -- lo cortado en D₁ sigue cortado en la llegada
-  have hdY₁ : d.step = (D₁.filterAll reqs).current_step := by rw [hcsY₁, ← hcs]; exact hd₀
-  have hsub : Sub ((D₁.filterAll reqs).up d title forb) ((D₁.filterAll reqs).addNode d title forb) := sub_up_addNode hv₁
-  have hsY := (shrinks_filterAll D₁ reqs).1
+  have hdY₁ : d₁.step = (D₁.filterAll reqs₁).current_step := by rw [hcsY₁]; exact hd₁
+  have hsub : Sub ((D₁.filterAll reqs₁).up d₁ title₁ forb₁) ((D₁.filterAll reqs₁).addNode d₁ title₁ forb₁) :=
+    sub_up_addNode hv₁
+  have hsY := (shrinks_filterAll D₁ reqs₁).1
   have hstep := fun k (h1 : j ≤ k) (h2 : k ≤ ((D₀.filterAll reqs).up d title forb).current_step - 1) =>
     (hC.node k h1 h2).1
   have hadj : ∀ u v : Int, j ≤ u → u < D₀.current_step → j ≤ v → v < D₀.current_step →
-      ((D₁.filterAll reqs).up d title forb).Adj (C u) (C v) → D₁.Adj (C u) (C v) := by
+      ((D₁.filterAll reqs₁).up d₁ title₁ forb₁).Adj (C u) (C v) → D₁.Adj (C u) (C v) := by
     intro u v hu1 hu2 hv1 hv2 ha
     exact hsY.adj _ _ (adj_addNode_old hdY₁ (by rw [hstep u hu1 (by omega), hcsY₁, ← hcs]; exact hu2)
       (by rw [hstep v hv1 (by omega), hcsY₁, ← hcs]; exact hv2) (hsub.adj _ _ ha))
