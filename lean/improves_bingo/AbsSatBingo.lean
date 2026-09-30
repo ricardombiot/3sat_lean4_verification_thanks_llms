@@ -105,3 +105,4 @@ import AbsSatBingo.Model.ForbidOn
 import AbsSatBingo.Model.ForbidOnBook
 import AbsSatBingo.Model.ForbidOnClosed
 import AbsSatBingo.Model.ForbidOnIdx
+import AbsSatBingo.Model.ForbidOnSound
