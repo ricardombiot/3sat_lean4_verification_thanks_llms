@@ -18,8 +18,11 @@ El UP de la máquina es `review (addNode (filterAll g reqs) d)`. Aquí, dos de s
 Juntos: **`liveExt_up`**, el `up` (fila nueva + revisión) conserva `LiveExt` con `upF`, bajo invariantes de la
 línea (documentos vivos, enlaces, ids únicos, raíces en el paso 0) y tríos sin degenerar.
 
-El tramo que falta es el filtro de requisitos (`filterAll`): es un pin, y un pin no conserva todas las camarillas,
-solo las que pasan por el nodo fijado. Es el mismo punto que el primer pin del lector.
+**El filtro de requisitos** (`filterAll`) es un pin: no conserva todas las camarillas, solo las que concuerdan con
+los requisitos. Lo que necesita es exactamente **`PinLive`**: toda cadena viva del estado filtrado se completa en el
+remitente por una rama que concuerda con los requisitos (`liveExt_filterAll` y, al revés, `pinLive_of_liveExt`).
+Con ella, **`liveExt_upFiltering`**: el UP entero conserva `LiveExt`. `PinLive` es la misma forma que el primer pin
+del lector y que `PinKeeps`, pero relativa a una cadena viva; medida, 0 fallos (`probe_liveext.jl`, grupo `flt`).
 -/
 
 namespace AbsSatBingo.Model
@@ -437,6 +440,48 @@ theorem liveExt_up (hext : LiveExt g F) (hv : g.isValid = true) (hdocs : AliveDo
     (linksInv_addNode hli hb hz hd) (rootNone_addNode hr hd) (nodupIds_addNode hnd hb hd) (noDeg_upF hnF)
 
 end AddNode
+
+-- ============================================================
+-- El filtro de requisitos (un pin)
+-- ============================================================
+
+/-- **`PinLive g F reqs`**: toda cadena viva del estado filtrado se completa, viva, en el remitente, por una rama que
+concuerda con los requisitos. -/
+def PinLive (g : GPathB) (F : Trios) (reqs : List NodeId) : Prop :=
+  ∀ C j, LiveChain (g.filterAll reqs) F C j → 1 ≤ j → j ≤ g.current_step - 1 →
+    ∃ D, LiveChain g F D 0 ∧ (∀ k, j ≤ k → D k = C k) ∧ ∀ r ∈ reqs, Agrees g.current_step D r
+
+/-- **`PinLive` ⟹ el filtro conserva `LiveExt`.** La rama completa es camarilla del remitente, concuerda con los
+requisitos, así que sobrevive al filtro (`carried_filterAll`). -/
+theorem liveExt_filterAll {g : GPathB} {F : Trios} {reqs : List NodeId} (hpin : PinLive g F reqs)
+    (hdocs : AliveDocs g) (hli : LinksInv g) (hr : RootNone g) (hnF : NoDeg F) : LiveExt (g.filterAll reqs) F := by
+  intro C j hC hj1 hjt
+  have hst : (g.filterAll reqs).current_step = g.current_step := (shrinks_filterAll g reqs).1.step
+  obtain ⟨D, hD, hag, hagr⟩ := hpin C j hC hj1 (by rw [← hst]; exact hjt)
+  have hc := carried_filterAll (carried_of_liveChain hdocs hli hr hD) reqs hagr
+  have hA : Avoids F (g.filterAll reqs).current_step D := by rw [hst]; exact avoids_of_liveChain hnF hD
+  exact ⟨D, liveChain_of_carried hc hA (by omega), hag⟩
+
+/-- **Y al revés**: si el filtro deja un estado válido con `LiveExt`, vale `PinLive`. Así, `PinLive` es exactamente lo
+que el filtro necesita. -/
+theorem pinLive_of_liveExt {g : GPathB} {F : Trios} {reqs : List NodeId} (hext : LiveExt (g.filterAll reqs) F)
+    (hv : (g.filterAll reqs).isValid = true) (hdocs : AliveDocs g) (hnd : NodupIds g) : PinLive g F reqs := by
+  intro C j hC hj1 hjt
+  have hs := (shrinks_filterAll g reqs).1
+  obtain ⟨D, hD, hag⟩ := liveChain_extend_full hext hC (by omega) (by rw [hs.step]; exact hjt)
+  refine ⟨D, liveChain_sub hs hnd (fun _ _ _ h => h) hD, hag, fun r hr h0 h1 => ?_⟩
+  obtain ⟨hDs, hDa⟩ := hD.chain.node r.step h0 (by rw [hs.step]; omega)
+  exact pinned_filterAll_list hdocs reqs hv r hr _ hDa hDs
+
+/-- **El UP entero** (`upFiltering`: filtro, fila nueva y revisión) conserva `LiveExt` bajo `PinLive`. -/
+theorem liveExt_upFiltering {g : GPathB} {F : Trios} {reqs : List NodeId} {d : NodeId} {title : String}
+    {forb : PathNodeId → Bool} (hpin : PinLive g F reqs) (hdocs : AliveDocs g) (hli : LinksInv g) (hr : RootNone g)
+    (hnF : NoDeg F) (hv' : (g.filterAll reqs).isValid = true) (hdocs' : AliveDocs (g.filterAll reqs))
+    (hb' : Below (g.filterAll reqs)) (hda' : DocsAlive (g.filterAll reqs)) (hli' : LinksInv (g.filterAll reqs))
+    (hz' : AboveZero (g.filterAll reqs)) (hnd' : NodupIds (g.filterAll reqs)) (hr' : RootNone (g.filterAll reqs))
+    (hd : d.step = (g.filterAll reqs).current_step) (hB : FBelow F (g.filterAll reqs).current_step) :
+    LiveExt (g.upFiltering reqs d title forb) (upF (g.filterAll reqs) F d) :=
+  liveExt_up (liveExt_filterAll hpin hdocs hli hr hnF) hv' hdocs' hb' hda' hli' hz' hnd' hr' hd hB hnF
 
 end GPathB
 
