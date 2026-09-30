@@ -13,6 +13,7 @@ fijo (`FixClosed`): ningún triángulo abierto sin testigo bueno y ninguna arist
 namespace AbsSatBingo.Model
 
 open AbsSatBin.Utils.Alias
+open AbsSatBin.GraphPath.Model.GPathM (intRange)
 
 namespace GPathB
 
@@ -351,6 +352,232 @@ theorem forbidFuel_closed : ∀ (n : Nat) (x : GPathB), phi x + x.measure < n �
 /-- **La regla llega a su punto fijo** en un estado válido. -/
 theorem forbidRule_closed (x : GPathB) (hv : x.forbidRule.isValid = true) : FixClosed x.forbidRule :=
   forbidFuel_closed _ x (by unfold forbidBound; have := phi_le x; omega) hv
+
+-- ============================================================
+-- El review `:on` sale en el punto fijo de la regla
+-- ============================================================
+
+/-- El índice solo depende de vivos, aristas, tríos y paso. -/
+theorem idx_congr {h z : GPathB} (ha : h.alive = z.alive) (he : h.edges = z.edges) (ht : h.trios = z.trios)
+    (hc : h.current_step = z.current_step) : Idx.of h = Idx.of z := by
+  unfold Idx.of; rw [ha, he, ht, hc]
+
+theorem fixClosed_congr {h z : GPathB} (ha : h.alive = z.alive) (he : h.edges = z.edges) (ht : h.trios = z.trios)
+    (hc : h.current_step = z.current_step) (hz : FixClosed z) : FixClosed h := by
+  have hi := idx_congr ha he ht hc
+  unfold FixClosed newTrios at hz ⊢
+  rw [hi, he]; exact hz
+
+theorem pruneLinks_graphOn (g : GPathB) : g.pruneLinks.alive = g.alive ∧ g.pruneLinks.edges = g.edges ∧
+    g.pruneLinks.trios = g.trios ∧ g.pruneLinks.current_step = g.current_step := by
+  unfold pruneLinks; split <;> exact ⟨rfl, rfl, rfl, rfl⟩
+
+theorem reviewParents_clean {g : GPathB} (hd : g.dirty = false) : g.reviewParents = g := by
+  unfold reviewParents; rw [if_neg (by simp [hd])]
+
+theorem reviewSons_clean {g : GPathB} (hd : g.dirty = false) : g.reviewSons = g := by
+  unfold reviewSons; rw [if_neg (by simp [hd])]
+
+/-- **El review con la regla sale en su punto fijo.** -/
+theorem fixClosed_reviewOn {g : GPathB} (hd : g.dirty = true) (hv : g.reviewOn.isValid = true) :
+    FixClosed g.reviewOn := by
+  have hc := reviewOn_exits_clean g hv
+  obtain ⟨g₁, _, he, hpd, hvp, _⟩ := reviewFuelOn_exit _ g hd hv hc
+  have heq : g.reviewOn = g₁.reviewPassOn := he
+  rw [heq]
+  have hpd' : g₁.cleanPair.forbidRule.pruneLinks.reviewParents.reviewSons.pruneLinks.dirty = false := by
+    unfold reviewPassOn at hpd; exact hpd
+  have hvp' : g₁.cleanPair.forbidRule.pruneLinks.reviewParents.reviewSons.pruneLinks.isValid = true := by
+    unfold reviewPassOn at hvp; exact hvp
+  -- tras la regla nada enciende `dirty`
+  have hz1 : g₁.cleanPair.forbidRule.pruneLinks.dirty = false := by
+    cases h : g₁.cleanPair.forbidRule.pruneLinks.dirty
+    · rfl
+    · exfalso
+      rw [keepsDirty_pruneLinks _ (keepsDirty_reviewSons _ (keepsDirty_reviewParents _ h))] at hpd'
+      cases hpd'
+  rw [reviewParents_clean hz1, reviewSons_clean hz1] at hpd' hvp'
+  show FixClosed g₁.cleanPair.forbidRule.pruneLinks.reviewParents.reviewSons.pruneLinks
+  rw [reviewParents_clean hz1, reviewSons_clean hz1]
+  obtain ⟨a1, e1, t1, c1⟩ := pruneLinks_graphOn g₁.cleanPair.forbidRule
+  obtain ⟨a2, e2, t2, c2⟩ := pruneLinks_graphOn g₁.cleanPair.forbidRule.pruneLinks
+  have hvz : g₁.cleanPair.forbidRule.isValid = true := by
+    have : g₁.cleanPair.forbidRule.pruneLinks.pruneLinks.isValid = g₁.cleanPair.forbidRule.isValid := by
+      unfold isValid; rw [a2, a1, c2, c1]
+    rw [← this]; exact hvp'
+  exact fixClosed_congr (a2.trans a1) (e2.trans e1) (t2.trans t1) (c2.trans c1) (forbidRule_closed _ hvz)
+
+-- ============================================================
+-- Del punto fijo, los testigos buenos de la parte baja
+-- ============================================================
+
+/-- La parte baja de un estado: vivos y posesiones por debajo del paso `c` (lo que baja `secStruct_addNode_down`). -/
+def LowV (H : GPathB) (c : Int) : PathNodeId → Prop := fun q => q ∈ H.alive ∧ q.id.step < c
+def LowR (H : GPathB) (c : Int) : PathNodeId → PathNodeId → Prop := fun y w =>
+  (y ∈ H.alive ∧ w ∈ H.alive ∧ H.Adj y w) ∧ y.id.step < c ∧ w.id.step < c
+
+theorem mem_incAt_iff {x : GPathB} {a s : PathNodeId} {l : Int} (hs : s ∈ (Idx.of x).incAt a l) :
+    s.id.step = l ∧ s ∈ x.alive ∧ (s = a ∨ x.hasEdge a s = true) := by
+  unfold Idx.incAt at hs
+  rcases List.mem_append.mp hs with h | h
+  · split at h
+    · rename_i hc
+      rw [List.mem_singleton] at h; subst h
+      simp only [Bool.and_eq_true, beq_iff_eq] at hc
+      exact ⟨hc.1, (idx_alive x s).mp hc.2, Or.inl rfl⟩
+    · exact absurd h List.not_mem_nil
+  · obtain ⟨h1, h2⟩ := List.mem_filter.mp h
+    have := (idx_mem_nbrs x a s).mp h1
+    exact ⟨by simpa using h2, this.2.1, Or.inr this.2.2⟩
+
+theorem deadTrio_swap12 {x : GPathB} {a b s : PathNodeId} (h : x.deadTrio a b s = true) : x.deadTrio b a s = true := by
+  unfold deadTrio at h ⊢
+  rw [Bool.and_eq_true] at h ⊢
+  obtain ⟨t, ht, hti⟩ := List.any_eq_true.mp h.2
+  refine ⟨?_, List.any_eq_true.mpr ⟨t, ht, trioIs_swap12 hti⟩⟩
+  obtain ⟨e, he, hj⟩ := List.any_eq_true.mp h.1
+  exact List.any_eq_true.mpr ⟨e, he, by rw [joins_iff] at hj ⊢; rcases hj with h | h; exact Or.inr h; exact Or.inl h⟩
+
+theorem trioIs_swap23 {a b r : PathNodeId} {t : PathNodeId × PathNodeId × PathNodeId} (h : trioIs a r b t = true) :
+    trioIs a b r t = true := by
+  obtain ⟨x, y, z⟩ := t
+  simp only [trioIs, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at h
+  rcases h with (((((⟨⟨h1, h2⟩, h3⟩ | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) | ⟨⟨h1, h2⟩, h3⟩) |
+    ⟨⟨h1, h2⟩, h3⟩) <;> subst h1 <;> subst h2 <;> subst h3 <;> simp [trioIs]
+
+/-- Una arista de `R` bajo sus dos órdenes. -/
+theorem edge_of_hasEdge {x : GPathB} {a b : PathNodeId} (h : x.hasEdge a b = true) :
+    ∃ e ∈ x.edges, (e.1 = a ∧ e.2 = b) ∨ (e.1 = b ∧ e.2 = a) := by
+  obtain ⟨e, he, hj⟩ := List.any_eq_true.mp h
+  exact ⟨e, he, (joins_iff a b e).mp hj⟩
+
+theorem adj_of_hasEdge' {x : GPathB} {a b : PathNodeId} (h : x.hasEdge a b = true) : x.Adj a b := by
+  unfold Adj adjb; simp [h]
+
+/-- **Del punto fijo de la regla, la parte baja tiene testigos buenos.** -/
+theorem trioGood_low {H : GPathB} {c : Int} (hf : FixClosed H) (hnd : NoDegT H) (hc : c ≤ H.current_step) :
+    TrioGood (LowV H c) (LowR H c) (TF H) c := by
+  have halive : ∀ e ∈ H.edges, (Idx.of H).edgeAlive e.1 e.2 = true := by
+    intro e he
+    have := hf.2
+    rw [List.filter_eq_nil_iff] at this
+    simpa using this e he
+  have hrange : ∀ l, 0 ≤ l → l < c → l ∈ intRange 0 ((Idx.of H).cs - 1) := fun l h0 h1 =>
+    mem_intRange h0 (by show l ≤ H.current_step - 1; omega)
+  have hE : ∀ {a b}, LowR H c a b → a ≠ b → H.hasEdge a b = true := fun h hne => hasEdge_of_adj h.1.2.2 hne
+  have symm : ∀ {a b}, LowR H c a b → LowR H c b a :=
+    fun h => ⟨⟨h.1.2.1, h.1.1, (adj_symm H _ _).mp h.1.2.2⟩, h.2.2, h.2.1⟩
+  have refl : ∀ {a b}, LowR H c a b → LowR H c a a :=
+    fun h => ⟨⟨h.1.1, h.1.1, adj_refl _ _ h.1.1⟩, h.2.1, h.2.1⟩
+  have mkR : ∀ {a b s}, LowR H c a b → s ∈ H.alive → s.id.step < c → H.hasEdge a s = true → LowR H c a s :=
+    fun h hs hsl he => ⟨⟨h.1.1, hs, adj_of_hasEdge' he⟩, h.2.1, hsl⟩
+  have nT : ∀ {x y z}, H.deadTrio x y z = false → ¬ TF H x y z := fun hd ⟨_, h⟩ => by rw [hd] at h; cases h
+  have nT' : ∀ {x y z}, H.deadTrio y x z = false → ¬ TF H x y z := fun hd ⟨_, h⟩ => by
+    rw [deadTrio_swap12 h] at hd; cases hd
+  have dF : ∀ {x y z}, x ≠ y → ¬ TF H x y z → H.deadTrio x y z = false := fun hne hn => by
+    cases h : H.deadTrio _ _ _
+    · rfl
+    · exact absurd ⟨hne, h⟩ hn
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · -- aristas
+    intro a b hab hne l h0 hl
+    obtain ⟨e, he, hor⟩ := edge_of_hasEdge (hE hab hne)
+    have hEA := halive e he
+    unfold Idx.edgeAlive at hEA
+    obtain ⟨s, hs, hw⟩ := List.any_eq_true.mp (List.all_eq_true.mp hEA l (hrange l h0 hl))
+    obtain ⟨hsl, hsa, hsor⟩ := mem_incAt_iff hs
+    simp only [Bool.or_eq_true, beq_iff_eq, Bool.and_eq_true, Bool.not_eq_true', idx_hasEdge, idx_deadTrio] at hw
+    have hsc : s.id.step < c := by rw [hsl]; exact hl
+    rcases hor with ⟨h1, h2⟩ | ⟨h1, h2⟩ <;> simp only [h1, h2] at hw hsor
+    · refine ⟨s, hsl, ?_, ?_, ?_⟩
+      · rcases hsor with rfl | h
+        · exact refl hab
+        · exact mkR hab hsa hsc h
+      · rcases hw with (rfl | rfl) | ⟨h, _⟩
+        · exact symm hab
+        · exact refl (symm hab)
+        · exact mkR (symm hab) hsa hsc h
+      · rcases hw with (h | h) | ⟨_, h⟩
+        · exact Or.inl h
+        · exact Or.inr (Or.inl h)
+        · exact Or.inr (Or.inr (nT h))
+    · refine ⟨s, hsl, ?_, ?_, ?_⟩
+      · rcases hw with (rfl | rfl) | ⟨h, _⟩
+        · exact hab
+        · exact refl hab
+        · exact mkR hab hsa hsc h
+      · rcases hsor with rfl | h
+        · exact refl (symm hab)
+        · exact mkR (symm hab) hsa hsc h
+      · rcases hw with (h | h) | ⟨_, h⟩
+        · exact Or.inr (Or.inl h)
+        · exact Or.inl h
+        · exact Or.inr (Or.inr (nT' h))
+  · -- triángulos
+    intro a b r hab har hbr nab nar nbr hn l h0 hl
+    obtain ⟨e, he, hor⟩ := edge_of_hasEdge (hE hab nab)
+    have hnil := hf.1
+    -- el triángulo tiene testigo bueno en cada paso: si no, sería candidato de la fase 1
+    have hTA : ∀ p q, e.1 = p → e.2 = q → p ≠ q → p ≠ r → q ≠ r → H.hasEdge p r = true → H.hasEdge q r = true →
+        H.deadTrio p q r = false → r ∈ H.alive → (Idx.of H).trioAlive p q r = true := by
+      intro p q hp hq npq npr nqr hpr hqr hd hra
+      cases hta : (Idx.of H).trioAlive p q r
+      · exfalso
+        have hin : (e.1, e.2, r) ∈ H.newTrios (Idx.of H) := by
+          unfold newTrios
+          refine List.mem_flatMap.mpr ⟨e, he, List.mem_map.mpr ⟨r, List.mem_filter.mpr ⟨?_, ?_⟩, rfl⟩⟩
+          · rw [idx_mem_nbrs, hp]; exact ⟨fun h => npr h.symm, hra, hpr⟩
+          · rw [hp, hq]
+            simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true', idx_hasEdge, idx_deadTrio]
+            exact ⟨⟨⟨fun h => nqr h.symm, hqr⟩, hd⟩, hta⟩
+        rw [hnil] at hin; exact absurd hin List.not_mem_nil
+      · rfl
+    have hra : r ∈ H.alive := har.1.2.1
+    have hrc : r.id.step < c := har.2.2
+    have wit : ∀ p q, (p = a ∧ q = b) ∨ (p = b ∧ q = a) → (Idx.of H).trioAlive p q r = true →
+        ∃ s, s.id.step = l ∧ LowR H c a s ∧ LowR H c b s ∧ LowR H c r s ∧
+          (s = a ∨ s = b ∨ s = r ∨ (¬ TF H a b s ∧ ¬ TF H a r s ∧ ¬ TF H b r s)) := by
+      intro p q hpq hta
+      unfold Idx.trioAlive at hta
+      obtain ⟨s, hs, hw⟩ := List.any_eq_true.mp (List.all_eq_true.mp hta l (hrange l h0 hl))
+      obtain ⟨hsl, hsa, _⟩ := mem_incAt_iff hs
+      have hsc : s.id.step < c := by rw [hsl]; exact hl
+      unfold Idx.goodWitness at hw
+      simp only [Bool.or_eq_true, beq_iff_eq, Bool.and_eq_true, Bool.not_eq_true', idx_hasEdge, idx_deadTrio] at hw
+      have hrr : LowR H c r r := refl (symm har)
+      refine ⟨s, hsl, ?_⟩
+      rcases hpq with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+      · rcases hw with ((rfl | rfl) | rfl) | ⟨⟨⟨⟨⟨e1, e2⟩, e3⟩, d1⟩, d2⟩, d3⟩
+        · exact ⟨refl hab, symm hab, symm har, Or.inl rfl⟩
+        · exact ⟨hab, refl (symm hab), symm hbr, Or.inr (Or.inl rfl)⟩
+        · exact ⟨har, hbr, hrr, Or.inr (Or.inr (Or.inl rfl))⟩
+        · exact ⟨mkR hab hsa hsc e1, mkR (symm hab) hsa hsc e2, mkR hrr hsa hsc e3,
+            Or.inr (Or.inr (Or.inr ⟨nT d1, nT d2, nT d3⟩))⟩
+      · rcases hw with ((rfl | rfl) | rfl) | ⟨⟨⟨⟨⟨e1, e2⟩, e3⟩, d1⟩, d2⟩, d3⟩
+        · exact ⟨hab, refl (symm hab), symm hbr, Or.inr (Or.inl rfl)⟩
+        · exact ⟨refl hab, symm hab, symm har, Or.inl rfl⟩
+        · exact ⟨har, hbr, hrr, Or.inr (Or.inr (Or.inl rfl))⟩
+        · exact ⟨mkR hab hsa hsc e2, mkR (symm hab) hsa hsc e1, mkR hrr hsa hsc e3,
+            Or.inr (Or.inr (Or.inr ⟨nT' d1, nT d3, nT d2⟩))⟩
+    rcases hor with ⟨h1, h2⟩ | ⟨h1, h2⟩
+    · apply wit a b (Or.inl ⟨rfl, rfl⟩)
+      exact hTA a b h1 h2 nab nar nbr (hE har nar) (hE hbr nbr) (dF nab hn) hra
+    · apply wit b a (Or.inr ⟨rfl, rfl⟩)
+      exact hTA b a h1 h2 (Ne.symm nab) nbr nar (hE hbr nbr) (hE har nar)
+        (by cases h : H.deadTrio b a r
+            · rfl
+            · exact absurd ⟨nab, deadTrio_swap12 h⟩ hn) hra
+  · -- T no distingue el orden: 2–3
+    intro a b r hab har hbr ⟨hne, hd⟩
+    obtain ⟨_, nar, _⟩ := noDeg_TF hnd a b r ⟨hne, hd⟩
+    refine ⟨nar, ?_⟩
+    unfold deadTrio at hd ⊢
+    rw [Bool.and_eq_true] at hd ⊢
+    obtain ⟨t, ht, hti⟩ := List.any_eq_true.mp hd.2
+    exact ⟨hE har nar, List.any_eq_true.mpr ⟨t, ht, trioIs_swap23 (a := a) (b := r) (r := b) hti⟩⟩
+  · -- 1–2
+    intro a b r _ _ _ h
+    exact tF_swap12 (a := b) (b := a) h
 
 end GPathB
 
