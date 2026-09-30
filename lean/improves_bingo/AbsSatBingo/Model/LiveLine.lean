@@ -11,7 +11,7 @@ máquina con los requisitos `R` añadidos".
 * unión `join A B`: `R ↦ joinF` de los dos lados fijados por `R` (si los dos fijados son válidos; si no, la del lado
   válido).
 
-**`Good g F`**: contabilidad (`SInvB`), paso `≥ 2`, y para todo `R` con `pinF g R` válido, `LiveExt (pinF g R) (F R)`
+**`Good g F`**: contabilidad (`SInvB`), paso `≥ 1`, y para todo `R` con `pinF g R` válido, `LiveExt (pinF g R) (F R)`
 con `F R` por debajo del paso y sin tríos degenerados.
 
 * **`good_arrival`**: `Good D F ⟹ Good (up (filterAll D reqs) d) (F (reqs ++ ·))`, por `arrival_pin_commute`.
@@ -31,7 +31,7 @@ abbrev FamT := List NodeId → Trios
 /-- **El invariante de un estado de la línea.** -/
 structure Good (g : GPathB) (F : FamT) : Prop where
   inv   : SInvB g
-  pos   : 2 ≤ g.current_step
+  pos   : 1 ≤ g.current_step
   live  : ∀ R, (pinF g R).isValid = true → LiveExt (pinF g R) (F R)
   below : ∀ R, FBelow (F R) g.current_step
   nodeg : ∀ R, NoDeg (F R)
@@ -361,11 +361,11 @@ theorem sideForbids_same {U V : GPathB} {G : Trios} (hs : SameGraph U V) (hea : 
   · exact Or.inr hF
 
 /-- Un lado: lo cortado con `R` sigue cortado con más pins. -/
-theorem sideForbids_mono {g : GPathB} {F : FamT} (hg : Good g F) (hm : FamMono g F) {R R' : List NodeId}
-    (hRR : ∀ b ∈ R, b ∈ R') (hv : (pinF g R').isValid = true) {x y z : PathNodeId}
+theorem sideForbids_mono {g : GPathB} {F : FamT} (hg : Good g F) (hm : FamMono g F) (h2 : 2 ≤ g.current_step)
+    {R R' : List NodeId} (hRR : ∀ b ∈ R, b ∈ R') (hv : (pinF g R').isValid = true) {x y z : PathNodeId}
     (h : SideForbids (pinF g R) (F R) x y z) : SideForbids (pinF g R') (F R') x y z := by
   rcases h with hn | hF
-  · have hadj := (pinF_sub_superset hRR hg.inv hg.pos hv).2
+  · have hadj := (pinF_sub_superset hRR hg.inv h2 hv).2
     exact Or.inl fun ⟨a, b, c⟩ => hn ⟨hadj _ _ a, hadj _ _ b, hadj _ _ c⟩
   · exact hm R R' hRR hv x y z hF
 
@@ -398,14 +398,14 @@ theorem famMono_arrival {D : GPathB} {F : FamT} {reqs : List NodeId} (hD : Good 
 
 /-- **`FamMono` en la unión** (con `PinJoinSplitAll`). -/
 theorem famMono_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B FB) (hmA : FamMono A FA)
-    (hmB : FamMono B FB) (hcs : A.current_step = B.current_step) (hsplit : PinJoinSplitAll A B) :
-    FamMono (join A B) (joinFam A B FA FB) := by
+    (hmB : FamMono B FB) (hcs : A.current_step = B.current_step) (h2 : 2 ≤ A.current_step)
+    (hsplit : PinJoinSplitAll A B) : FamMono (join A B) (joinFam A B FA FB) := by
   intro R R' hRR hvU x y z hf
   obtain ⟨hsame, hone⟩ := hsplit R' hvU
   have hiU := sInvB_pinF (sInvB_join hA.inv hB.inv hcs) R'
   apply sideForbids_same hsame hiU.edges
-  have hmonoA := fun hv => valid_pinF_mono hRR hA.inv hA.pos hv
-  have hmonoB := fun hv => valid_pinF_mono hRR hB.inv hB.pos hv
+  have hmonoA := fun hv => valid_pinF_mono hRR hA.inv h2 hv
+  have hmonoB := fun hv => valid_pinF_mono hRR hB.inv (by rw [← hcs]; exact h2) hv
   -- el trío de partida, cortado en cada lado válido con R
   unfold joinFam at hf
   unfold pinJoin joinFam
@@ -414,7 +414,7 @@ theorem famMono_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B
     have hvB := hmonoB hvB'
     simp only [hvA', hvB', hvA, hvB, if_true] at hf ⊢
     obtain ⟨n1, n2, n3, sx, sy, sz, sA, sB⟩ := hf
-    refine Or.inr ⟨n1, n2, n3, ?_, ?_, ?_, sideForbids_mono hA hmA hRR hvA' sA, sideForbids_mono hB hmB hRR hvB' sB⟩
+    refine Or.inr ⟨n1, n2, n3, ?_, ?_, ?_, sideForbids_mono hA hmA h2 hRR hvA' sA, sideForbids_mono hB hmB (by rw [← hcs]; exact h2) hRR hvB' sB⟩
     · rw [step_pinF] at sx ⊢; exact sx
     · rw [step_pinF] at sy ⊢; exact sy
     · rw [step_pinF] at sz ⊢; exact sz
@@ -422,14 +422,14 @@ theorem famMono_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B
     simp only [hvA', hvB', hvA, if_true] at hf ⊢
     by_cases hvB : (pinF B R).isValid = true
     · simp only [hvB, if_true] at hf
-      exact sideForbids_mono hA hmA hRR hvA' hf.2.2.2.2.2.2.1
+      exact sideForbids_mono hA hmA h2 hRR hvA' hf.2.2.2.2.2.2.1
     · simp only [hvB] at hf
       exact hmA R R' hRR hvA' x y z hf
   · have hvB := hmonoB hvB'
     simp only [hvA', hvB', hvB, if_true] at hf ⊢
     by_cases hvA : (pinF A R).isValid = true
     · simp only [hvA, if_true] at hf
-      exact sideForbids_mono hB hmB hRR hvB' hf.2.2.2.2.2.2.2
+      exact sideForbids_mono hB hmB (by rw [← hcs]; exact h2) hRR hvB' hf.2.2.2.2.2.2.2
     · simp only [hvA] at hf
       exact hmB R R' hRR hvB' x y z hf
   · exact absurd hone (by simp [hvA', hvB'])
@@ -441,7 +441,7 @@ theorem famMono_join {A B : GPathB} {FA FB : FamT} (hA : Good A FA) (hB : Good B
 /-- **Un corte en el remitente fijado pasa a su llegada fijada** (a cualquier destino), para tríos cuyos nodos del paso
 de la cima no viven en la llegada. -/
 theorem sf_to_arrival {D : GPathB} {F : FamT} {reqs R : List NodeId} (hD : Good D F) (hm : FamMono D F)
-    (hd : d.step = D.current_step) (hvA : (pinF ((D.filterAll reqs).up d title forb) R).isValid = true)
+    (h2 : 2 ≤ D.current_step) (hd : d.step = D.current_step) (hvA : (pinF ((D.filterAll reqs).up d title forb) R).isValid = true)
     {x y z : PathNodeId}
     (hn : ∀ u, (u = x ∨ u = y ∨ u = z) → u.id.step < D.current_step ∨
       u ∉ (pinF ((D.filterAll reqs).up d title forb) R).alive)
@@ -449,7 +449,7 @@ theorem sf_to_arrival {D : GPathB} {F : FamT} {reqs R : List NodeId} (hD : Good 
     SideForbids (pinF ((D.filterAll reqs).up d title forb) R) (F (reqs ++ R)) x y z := by
   obtain ⟨hvX, halive, hadj⟩ := arrival_pin_commute (title := title) (forb := forb) hD.inv
     (by have := hD.pos; omega) hd hvA
-  have hs := sideForbids_mono hD hm (R := R) (R' := reqs ++ R) (fun b hb => List.mem_append_right _ hb) hvX h
+  have hs := sideForbids_mono hD hm h2 (R := R) (R' := reqs ++ R) (fun b hb => List.mem_append_right _ hb) hvX h
   have hcsX : (pinF D (reqs ++ R)).current_step = D.current_step := step_pinF _ _
   have hiA := sInvB_pinF (sInvB_up (sInvB_filterAll hD.inv reqs) (d := d) (title := title) (forb := forb)
     (by rw [(shrinks_filterAll D reqs).1.step]; exact hd) (by have := hD.pos; omega)) R
@@ -502,7 +502,7 @@ unión de las llegadas de los dos remitentes), desde `NoNewClose` con pins extra
 theorem cc_line {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₀ rq₁ : List NodeId} {d₀ d₁ : NodeId} {t₀ t₁ : String}
     {f₀ f₁ : PathNodeId → Bool} (hD₀ : Good D₀ F₀) (hD₁ : Good D₁ F₁) (hm₀ : FamMono D₀ F₀) (hm₁ : FamMono D₁ F₁)
     (hcs : D₀.current_step = D₁.current_step) (hd₀ : d₀.step = D₀.current_step) (hd₁ : d₁.step = D₀.current_step)
-    (hdd : d₀ ≠ d₁)
+    (hdd : d₀ ≠ d₁) (hT2 : 2 ≤ D₀.current_step)
     (hE₀ : Good (join ((D₀.filterAll rq₀).up d₀ t₀ f₀) ((D₁.filterAll rq₀).up d₀ t₀ f₀))
       (joinFam ((D₀.filterAll rq₀).up d₀ t₀ f₀) ((D₁.filterAll rq₀).up d₀ t₀ f₀)
         (fun R => F₀ (rq₀ ++ R)) (fun R => F₁ (rq₀ ++ R))))
@@ -550,7 +550,7 @@ theorem cc_line {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₀ rq₁ : List Node
       SideForbids (pinF D R) (F R) (C p) (C q) (C r) →
       SideForbids (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R) (F (rq₁ ++ R)) (C p) (C q) (C r) := by
     intro D F hD hm hd hcsD hvA h
-    refine sf_to_arrival hD hm hd hvA (fun u hu => ?_) h
+    refine sf_to_arrival hD hm (by rw [hcsD]; exact hT2) hd hvA (fun u hu => ?_) h
     obtain ⟨_, hus⟩ := hEalive u hu
     rcases Int.lt_or_eq_of_le hus with hlt | heq
     · exact Or.inl (by rw [hcsD]; exact hlt)
@@ -596,7 +596,7 @@ nodos del paso de la cima tengan id `d₀` y `NoNewClose`. El destino es la uni�
 theorem cc_gen {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₁ : List NodeId} {d₀ d₁ : NodeId} {t₁ : String}
     {f₁ : PathNodeId → Bool} (hD₀ : Good D₀ F₀) (hD₁ : Good D₁ F₁) (hm₀ : FamMono D₀ F₀) (hm₁ : FamMono D₁ F₁)
     (hcs : D₀.current_step = D₁.current_step) (hd₀ : d₀.step = D₀.current_step) (hd₁ : d₁.step = D₀.current_step)
-    (hdd : d₀ ≠ d₁)
+    (hdd : d₀ ≠ d₁) (hT2 : 2 ≤ D₀.current_step)
     {S : GPathB} {GS : FamT} (hE₀ : Good S GS) (hScs : S.current_step ≤ D₀.current_step + 1)
     (hSid : ∀ u ∈ S.alive, u.id.step = D₀.current_step → u.id = d₀)
     (hsplit₁ : PinJoinSplitAll ((D₀.filterAll rq₁).up d₁ t₁ f₁) ((D₁.filterAll rq₁).up d₁ t₁ f₁))
@@ -635,7 +635,7 @@ theorem cc_gen {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {rq₁ : List NodeId} {d�
       SideForbids (pinF D R) (F R) (C p) (C q) (C r) →
       SideForbids (pinF ((D.filterAll rq₁).up d₁ t₁ f₁) R) (F (rq₁ ++ R)) (C p) (C q) (C r) := by
     intro D F hD hm hd hcsD hvA h
-    refine sf_to_arrival hD hm hd hvA (fun u hu => ?_) h
+    refine sf_to_arrival hD hm (by rw [hcsD]; exact hT2) hd hvA (fun u hu => ?_) h
     obtain ⟨_, hus⟩ := hEalive u hu
     rcases Int.lt_or_eq_of_le hus with hlt | heq
     · exact Or.inl (by rw [hcsD]; exact hlt)
@@ -823,7 +823,8 @@ theorem cc_neg {D₀ D₁ : GPathB} {F₀ F₁ : FamT} {k₀ k₁ d₀ d₁ : No
 /-- **`CrossClosed` hacia una entrada de una sola llegada**: origen cualquiera `S` (sus nodos de la cima con id `d₀`),
 destino `up (filterAll D rq₁) d₁` con `d₁ ≠ d₀`, desde `NoNewClose` hacia su remitente `D`. -/
 theorem cc_to_single {D : GPathB} {F : FamT} {rq₁ : List NodeId} {d₀ d₁ : NodeId} {t₁ : String}
-    {f₁ : PathNodeId → Bool} (hD : Good D F) (hm : FamMono D F) (hd₁ : d₁.step = D.current_step) (hdd : d₀ ≠ d₁)
+    {f₁ : PathNodeId → Bool} (hD : Good D F) (hm : FamMono D F) (hT2 : 2 ≤ D.current_step)
+    (hd₁ : d₁.step = D.current_step) (hdd : d₀ ≠ d₁)
     {S : GPathB} {GS : FamT} (hScs : S.current_step ≤ D.current_step + 1)
     (hSid : ∀ u ∈ S.alive, u.id.step = D.current_step → u.id = d₀)
     (hnew : ∀ R, ∀ C j p q r, OnChain3 (pinF S R) C j p q r → GS R (C p) (C q) (C r) →
@@ -838,7 +839,7 @@ theorem cc_to_single {D : GPathB} {F : FamT} {rq₁ : List NodeId} {d₀ d₁ : 
     · exact ⟨(sub_pinF _ R).alive _ (hC.node p h1 h2).2, by rw [(hC.node p h1 h2).1]; omega⟩
     · exact ⟨(sub_pinF _ R).alive _ (hC.node q h3 h4).2, by rw [(hC.node q h3 h4).1]; omega⟩
     · exact ⟨(sub_pinF _ R).alive _ (hC.node r h5 h6).2, by rw [(hC.node r h5 h6).1]; omega⟩
-  refine sf_to_arrival hD hm hd₁ hvA (fun u hu => ?_) hc
+  refine sf_to_arrival hD hm hT2 hd₁ hvA (fun u hu => ?_) hc
   obtain ⟨hua, hus⟩ := hEalive u hu
   rcases Int.lt_or_eq_of_le hus with hlt | heq
   · exact Or.inl hlt
