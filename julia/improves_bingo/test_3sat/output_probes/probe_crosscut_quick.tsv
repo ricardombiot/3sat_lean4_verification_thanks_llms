@@ -1,0 +1,4 @@
+instance	truth	joins	tetra	open	both_senders	same_sender	clases	secs
+clause_mix.cnf	true	34	354	0	354	104	P:Doo+o--=194 lo|sender|node:sender=164 P:-o-+oDo=112 lo|sender|dead:sender=104 hi|sender|node:sender=54 P:--o+ooD=48 lo|sender|edge:sender=32	7.1
+clause_mix_sep.cnf	true	40	1934	0	1934	848	P:Doo+o--=1242 lo|sender|dead:sender=848 lo|sender|node:sender=696 P:-o-+oDo=620 hi|sender|node:sender=246 lo|sender|edge:sender=144 P:--o+ooD=72	33.4
+v5_c20_i2.cnf	false	74	192	0	192	0	lo|sender|node:sender=144 P:--o+ooD=104 P:Doo+o--=64 hi|sender|node:sender=48 P:-o-+oDo=24	38.5
