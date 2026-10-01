@@ -7,9 +7,10 @@
 # lado donde t está viva y P = pin(S, R):
 #
 # TopSideAt (lo que el veredicto necesita): tops, top_dead (P no es válido o t no está viva en P).
-# Bases bajo t en U (triángulos entre vecinos de t, con sus tres caras con t sin prohibir en U):
-#   bases, b_deadU (prohibida en U), rev (viva en U y prohibida en S: la base «revive» en la unión; CrossCut la
-#   excluía), revP (viva en U y prohibida en P: lo que StarTriAt excluye), rev_tops (cimas con alguna rev).
+# Bases bajo t en U (triángulos entre vecinos de t, con sus tres caras con t sin prohibir en U) prohibidas en S:
+#   bases, b_deadU (prohibida también en U), rev (viva en U: la base «revive» en la unión; CrossCut la excluía),
+#   revP (bases vivas en U y prohibidas en P: lo que StarTriAt excluye), rev_tops (cimas con alguna rev).
+#   (Solo se recorren los triángulos prohibidos de S y de P, no todos los que hay entre los vecinos de t.)
 # La hipótesis reformulada, solo en las cimas con alguna rev: la familia de t en U (t y sus vecinos; parejas con el
 #   trío con t sin prohibir) con los tríos T' = (prohibidos en U) ∪ (triángulos de la familia prohibidos en S):
 #   e_cells / e_fail   aristas de la familia × paso: sin testigo (nodo de la familia vecino de los dos, con el trío
@@ -98,27 +99,37 @@ function closure(U, t, S, N)
     end
 end
 
-function judge_top(U, t, S, P)
+function dead_tris(g)
+    out = NTuple{3, PathNodeId}[]
+    for (k, e) in g.og.edges, r in collect(e.forbid)
+        (edge(g, e.a, r) && edge(g, e.b, r)) || continue
+        (PG.node_ord(e.b) < PG.node_ord(r)) || continue
+        push!(out, (e.a, e.b, r))
+    end
+    return out
+end
+
+# `dS`, `dP`: los triángulos prohibidos de S y de P (solo se miran los que caen entre los vecinos de t)
+function judge_top(U, t, S, P, dS, dP)
     pv = P.is_valid
     (pv && PG.is_alive(P.og, t)) || bump(:top_dead)
     N = [y for y in collect(PG.neighbors_all(U.og, t)) if y != t && PG.is_alive(U.og, y)]
+    NS = Set(N)
+    # base bajo t en U: triángulo de U entre vecinos de t, con sus tres caras con t sin prohibir
+    base(b) = all(x -> x in NS, b) && edge(U, b[1], b[2]) && edge(U, b[1], b[3]) && edge(U, b[2], b[3]) &&
+              !dead(U, t, b[1], b[2]) && !dead(U, t, b[1], b[3]) && !dead(U, t, b[2], b[3])
     nrev = 0
-    for i in eachindex(N), j in i+1:length(N)
-        x, y = N[i], N[j]
-        (edge(U, x, y) && !dead(U, t, x, y)) || continue
-        for k in j+1:length(N)
-            z = N[k]
-            (edge(U, x, z) && edge(U, y, z) && !dead(U, t, x, z) && !dead(U, t, y, z)) || continue
-            bump(:bases)
-            if PG.dead_trio(U.og, x, y, z)
-                bump(:b_deadU)
-            else
-                if tridead(S, x, y, z)
-                    bump(:rev); nrev += 1
-                end
-                (pv && tridead(P, x, y, z)) && bump(:revP)
-            end
+    for b in dS
+        base(b) || continue
+        bump(:bases)
+        if PG.dead_trio(U.og, b[1], b[2], b[3])
+            bump(:b_deadU)
+        else
+            bump(:rev); nrev += 1
         end
+    end
+    for b in dP
+        (base(b) && !PG.dead_trio(U.og, b[1], b[2], b[3])) && bump(:revP)
     end
     if nrev > 0
         bump(:rev_tops)
@@ -126,24 +137,37 @@ function judge_top(U, t, S, P)
     end
 end
 
+# los contadores hasta ahora, por si el proceso se corta por tiempo
+function dump_partial()
+    open(OUT * ".partial", "w") do io
+        for k in sort(collect(keys(C)), by = string)
+            println(io, k, "\t", C[k])
+        end
+    end
+end
+
 function judge(u, a, b)
     u.is_valid || return
     bump(:joins)
+    dump_partial()
     Rs = Any[NodeId[]]
     for _ in 1:SAMPLES
         R = real_pins(u.map_parent_id)
         (isempty(R) || R in Rs) || push!(Rs, R)
     end
     top = Int(u.current_step) - 1
+    dA, dB = dead_tris(a), dead_tris(b)
     for R in Rs
         ram_ok() || (bump(:ram); return)
         U = pin(u, R)
         U.is_valid || continue
         bump(:runs)
         PA, PB = pin(a, R), pin(b, R)
+        dPA = PA.is_valid ? dead_tris(PA) : NTuple{3, PathNodeId}[]
+        dPB = PB.is_valid ? dead_tris(PB) : NTuple{3, PathNodeId}[]
         for t in alive_at(U, top)
             bump(:tops)
-            PG.is_alive(a.og, t) ? judge_top(U, t, a, PA) : judge_top(U, t, b, PB)
+            PG.is_alive(a.og, t) ? judge_top(U, t, a, PA, dA, dPA) : judge_top(U, t, b, PB, dB, dPB)
         end
     end
 end

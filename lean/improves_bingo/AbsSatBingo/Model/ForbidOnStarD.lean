@@ -644,6 +644,237 @@ theorem hypsStarDOn_of_cross4 {φ : Cnf} (H : HypsCross4On φ) : HypsStarDOn φ 
   have hs := lInvBk_steps (φ := φ) (fun n hl hbk => hTopOn_of_cross4 (by omega) hl hbk (H n))
   exact fun n => hStarDOn_of_cross4 (by omega) (hs n).1 (hs n).2 (H n)
 
+-- ============================================================
+-- En el paso de los padres no hay nada nuevo: lo propio de `StarDAt` está por debajo
+-- ============================================================
+
+/-- **`StarDAt` por debajo del paso de los padres** de la cima. -/
+def StarDLowAt (S J : GPathB) (Rp : List NodeId) : Prop :=
+  (J.pinOn Rp).isValid = true → ∀ t ∈ (J.pinOn Rp).alive, t.id.step = J.current_step - 1 → t ∈ S.alive →
+    (∀ a b, a ≠ t → b ≠ t → a ≠ b → (J.pinOn Rp).Adj t a → (J.pinOn Rp).Adj t b → (J.pinOn Rp).Adj a b →
+      ¬ Sym (TF (J.pinOn Rp)) a b t → ∀ l, 0 ≤ l → l < J.current_step - 2 →
+      ∃ s, s.id.step = l ∧ (J.pinOn Rp).Adj a s ∧ (J.pinOn Rp).Adj b s ∧ (J.pinOn Rp).Adj t s ∧
+        (s = a ∨ s = b ∨ s = t ∨ (¬ Sym (TF (J.pinOn Rp)) a b s ∧ ¬ Sym (TF (J.pinOn Rp)) a t s ∧
+          ¬ Sym (TF (J.pinOn Rp)) b t s ∧ ¬ Sym (TF S) a b s))) ∧
+    (∀ a b r, Tetra (J.pinOn Rp) t a b r → ¬ Sym (TF (J.pinOn Rp)) a b r → ¬ Sym (TF S) a b r →
+      (∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false) ∨
+      (∀ l, 0 ≤ l → l < J.current_step - 2 →
+        ∃ s, s.id.step = l ∧ (s = a ∨ s = b ∨ s = r ∨ s = t ∨ (Wit4 (J.pinOn Rp) t a b r s ∧
+          ¬ Sym (TF S) a b s ∧ ¬ Sym (TF S) a r s ∧ ¬ Sym (TF S) b r s))))
+
+/-- **`StarDAt` para una cima, desde su parte baja**, en abstracto. En el paso de la cima el testigo es la cima. En el
+paso de los padres los nodos de `S` no están en el otro lado (`hex`), así que un triángulo con uno de ellos prohibido en
+`S` lo guarda el join: los testigos del punto fijo y el padre que completa el tetraedro (`hdich`, sin padres
+complementarios, `hns`) esquivan los tríos de `S` sin pedirlo. -/
+theorem starD_of_low {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : NoSelf J) (hndJ : NoDegT J)
+    (hv : (J.pinOn Rp).isValid = true) (hndS : NoDegT S) (heS : EdgesAlive S)
+    (hadj : ∀ x w, J.Adj x w → S.Adj x w ∨ O.Adj x w) (heO : EdgesAlive O)
+    (hcut2 : ∀ {x y z}, J.Adj x y → J.Adj x z → J.Adj y z → x ≠ y → x ≠ z → y ≠ z → SideForbids S (TF S) x y z →
+      SideForbids O (TF O) x y z → TF J x y z)
+    {t : PathNodeId} (ht : t ∈ (J.pinOn Rp).alive) (hts : t.id.step = J.current_step - 1) (htO : t ∉ O.alive)
+    (hex : ∀ s : PathNodeId, s.id.step = J.current_step - 2 → s ∈ S.alive → s ∉ O.alive)
+    (hbelow : ∀ q, (J.pinOn Rp).Adj t q → q ≠ t → q.id.step < J.current_step - 1)
+    (hdich : ∀ x y z, Tetra (J.pinOn Rp) t x y z → x.id.step < J.current_step - 2 → y.id.step < J.current_step - 2 →
+      z.id.step < J.current_step - 2 →
+      (∃ s, s.id.step + 1 = t.id.step ∧ Wit4 (J.pinOn Rp) t x y z s) ∨ ParSplitAt (J.pinOn Rp) t x y z ∨
+        ParSplitAt (J.pinOn Rp) t y x z ∨ ParSplitAt (J.pinOn Rp) t z x y)
+    (hns : ∀ x y z, Tetra (J.pinOn Rp) t x y z → ¬ Sym (TF (J.pinOn Rp)) x y z → x.id.step < J.current_step - 2 →
+      y.id.step < J.current_step - 2 → z.id.step < J.current_step - 2 →
+      ¬ ParSplitAt (J.pinOn Rp) t x y z ∧ ¬ ParSplitAt (J.pinOn Rp) t y x z ∧ ¬ ParSplitAt (J.pinOn Rp) t z x y)
+    (hlowF : (∀ a b, a ≠ t → b ≠ t → a ≠ b → (J.pinOn Rp).Adj t a → (J.pinOn Rp).Adj t b → (J.pinOn Rp).Adj a b →
+      ¬ Sym (TF (J.pinOn Rp)) a b t → ∀ l, 0 ≤ l → l < J.current_step - 2 →
+      ∃ s, s.id.step = l ∧ (J.pinOn Rp).Adj a s ∧ (J.pinOn Rp).Adj b s ∧ (J.pinOn Rp).Adj t s ∧
+        (s = a ∨ s = b ∨ s = t ∨ (¬ Sym (TF (J.pinOn Rp)) a b s ∧ ¬ Sym (TF (J.pinOn Rp)) a t s ∧
+          ¬ Sym (TF (J.pinOn Rp)) b t s ∧ ¬ Sym (TF S) a b s))))
+    (hlowB : (∀ a b r, Tetra (J.pinOn Rp) t a b r → ¬ Sym (TF (J.pinOn Rp)) a b r → ¬ Sym (TF S) a b r →
+      (∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false) ∨
+      (∀ l, 0 ≤ l → l < J.current_step - 2 →
+        ∃ s, s.id.step = l ∧ (s = a ∨ s = b ∨ s = r ∨ s = t ∨ (Wit4 (J.pinOn Rp) t a b r s ∧
+          ¬ Sym (TF S) a b s ∧ ¬ Sym (TF S) a r s ∧ ¬ Sym (TF S) b r s))))) :
+    (∀ a b, a ≠ t → b ≠ t → a ≠ b → (J.pinOn Rp).Adj t a → (J.pinOn Rp).Adj t b → (J.pinOn Rp).Adj a b →
+      ¬ Sym (TF (J.pinOn Rp)) a b t → ∀ l, 0 ≤ l → l < J.current_step →
+      ∃ s, s.id.step = l ∧ (J.pinOn Rp).Adj a s ∧ (J.pinOn Rp).Adj b s ∧ (J.pinOn Rp).Adj t s ∧
+        (s = a ∨ s = b ∨ s = t ∨ (¬ Sym (TF (J.pinOn Rp)) a b s ∧ ¬ Sym (TF (J.pinOn Rp)) a t s ∧
+          ¬ Sym (TF (J.pinOn Rp)) b t s ∧ ¬ Sym (TF S) a b s))) ∧
+    (∀ a b r, Tetra (J.pinOn Rp) t a b r → ¬ Sym (TF (J.pinOn Rp)) a b r → ¬ Sym (TF S) a b r →
+      (∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false) ∨
+      (∀ l, 0 ≤ l → l < J.current_step →
+        ∃ s, s.id.step = l ∧ (s = a ∨ s = b ∨ s = r ∨ s = t ∨ (Wit4 (J.pinOn Rp) t a b r s ∧
+          ¬ Sym (TF S) a b s ∧ ¬ Sym (TF S) a r s ∧ ¬ Sym (TF S) b r s)))) := by
+  let u := J.pinOn Rp
+  have hsub : Sub u J := sub_pinOn J Rp
+  have usymm : ∀ {y w}, u.Adj y w → u.Adj w y := fun h => (adj_symm u _ _).mp h
+  have htt : u.Adj t t := adj_refl u t ht
+  -- un triángulo de `u` con un nodo que no es del otro lado: sin prohibir en `u`, sin prohibir en `S`
+  have excl : ∀ {y w e : PathNodeId}, u.Adj y w → u.Adj e y → u.Adj e w → e ∉ O.alive → ¬ Sym (TF u) y w e →
+      ¬ Sym (TF S) y w e := by
+    intro y w e hyw hey hew heO' hn hs
+    apply hn
+    refine sym_mono (fun p q x hp hf => ?_) hs
+    obtain ⟨h1, h2, h3⟩ := tri_of_perms (R := fun y w => u.Adj y w) usymm hyw (usymm hey) (usymm hew) hp
+    have hd := hf.2
+    unfold deadTrio at hd
+    rw [Bool.and_eq_true] at hd
+    obtain ⟨τ, hτ, hti⟩ := List.any_eq_true.mp hd.2
+    obtain ⟨npq, npx, nqx⟩ := distinct_of_trioIs hti (hndS τ hτ)
+    have hO : SideForbids O (TF O) p q x := by
+      left
+      intro ⟨k1, k2, _⟩
+      apply heO'
+      rcases perms_mem3 hp with e' | e' | e'
+      · rw [e']; exact (heO p q k1).1
+      · rw [e']; exact (heO p q k1).2
+      · rw [e']; exact (heO p x k2).2
+    exact tF_mono (trios_grow_pinOn J Rp) h1
+      (hcut2 (hsub.adj _ _ h1) (hsub.adj _ _ h2) (hsub.adj _ _ h3) npq npx nqx (Or.inr hf) hO)
+  -- un vecino de la cima en el paso de los padres no es del otro lado
+  have parO : ∀ {s : PathNodeId}, u.Adj t s → s.id.step = J.current_step - 2 → s ∉ O.alive := by
+    intro s hs hstep
+    have hS : S.Adj t s := (hadj t s (hsub.adj _ _ hs)).resolve_right (fun ho => htO (heO t s ho).1)
+    exact hex s hstep (heS t s hS).2
+  refine ⟨?_, ?_⟩
+  · intro a b hat hbt nab hta htb hab hf l h0 h1
+    by_cases hl : l < J.current_step - 2
+    · exact hlowF a b hat hbt nab hta htb hab hf l h0 hl
+    by_cases hl1 : l = J.current_step - 1
+    · exact ⟨t, by rw [hts, hl1], usymm hta, usymm htb, htt, Or.inr (Or.inr (Or.inl rfl))⟩
+    have hl2 : l = J.current_step - 2 := by omega
+    obtain ⟨s, hsl, has, hbs, hts', hw⟩ := fix_witness hJ hnsJ hndJ hv hab (usymm hta) (usymm htb) nab hat hbt hf
+      l h0 h1
+    refine ⟨s, hsl, has, hbs, hts', ?_⟩
+    rcases hw with e | e | e | ⟨n1, n2, n3⟩
+    · exact Or.inl e
+    · exact Or.inr (Or.inl e)
+    · exact Or.inr (Or.inr (Or.inl e))
+    · exact Or.inr (Or.inr (Or.inr ⟨n1, n2, n3,
+        excl hab (usymm has) (usymm hbs) (parO hts' (by rw [hsl, hl2])) n1⟩))
+  · intro a b r htet hnU hnS
+    rcases hlowB a b r htet hnU hnS with hk | hw
+    · exact Or.inl hk
+    right
+    intro l h0 h1
+    by_cases hl : l < J.current_step - 2
+    · exact hw l h0 hl
+    by_cases hl1 : l = J.current_step - 1
+    · exact ⟨t, by rw [hts, hl1], Or.inr (Or.inr (Or.inr (Or.inl rfl)))⟩
+    have hl2 : l = J.current_step - 2 := by omega
+    by_cases ca : a.id.step = l
+    · exact ⟨a, ca, Or.inl rfl⟩
+    by_cases cb : b.id.step = l
+    · exact ⟨b, cb, Or.inr (Or.inl rfl)⟩
+    by_cases cr : r.id.step = l
+    · exact ⟨r, cr, Or.inr (Or.inr (Or.inl rfl))⟩
+    have htet' := htet
+    obtain ⟨nat, nbt, nrt, _, _, _, hta, htb, htr, hab, har, hbr, _⟩ := htet
+    have ha : a.id.step < J.current_step - 2 := by have := hbelow a hta nat; omega
+    have hb : b.id.step < J.current_step - 2 := by have := hbelow b htb nbt; omega
+    have hr : r.id.step < J.current_step - 2 := by have := hbelow r htr nrt; omega
+    obtain ⟨m1, m2, m3⟩ := hns a b r htet' hnU ha hb hr
+    rcases hdich a b r htet' ha hb hr with ⟨s, hs, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10⟩ | hsp | hsp | hsp
+    · have hsl : s.id.step = l := by rw [hts] at hs; omega
+      have hsO := parO k1 (by rw [hsl, hl2])
+      exact ⟨s, hsl, Or.inr (Or.inr (Or.inr (Or.inr ⟨⟨k1, k2, k3, k4, k5, k6, k7, k8, k9, k10⟩,
+        excl hab (usymm k2) (usymm k3) hsO k8, excl har (usymm k2) (usymm k4) hsO k9,
+        excl hbr (usymm k3) (usymm k4) hsO k10⟩)))⟩
+    · exact absurd hsp m1
+    · exact absurd hsp m2
+    · exact absurd hsp m3
+
+/-- **`StarDAt` sale de su parte baja y de que no haya padres complementarios sobre bases vivas**, en los dos lados
+de un join de la máquina. Lo que `StarDAt` añade a `Star4At` (esquivar las bases prohibidas en el lado) solo tiene
+contenido por debajo del paso de los padres. -/
+theorem starDAt_of_low_noSplit {φ : Cnf} {T : Int} {L0 : Line} (hT : 1 ≤ T) (h0 : LInvTop φ T L0)
+    (hbk0 : LineBk L0) (h1 : LInvTop φ (T + 1) (advanceM .on φ L0)) (hbk1 : LineBk (advanceM .on φ L0))
+    (h2 : LInvTop φ (T + 1 + 1) (advanceM .on φ (advanceM .on φ L0)))
+    (hbk2 : LineBk (advanceM .on φ (advanceM .on φ L0)))
+    {a b : NodeId × GPathB} (ha : a ∈ advanceM .on φ (advanceM .on φ L0))
+    (hb : b ∈ advanceM .on φ (advanceM .on φ L0)) (hab : a.1 ≠ b.1) {d : NodeId} (hsa : SendsOn φ a d)
+    (hsb : SendsOn φ b d) {R : List NodeId}
+    (hlA : StarDLowAt (arrOn φ a d) (joinOn (arrOn φ a d) (arrOn φ b d)) R)
+    (hlB : StarDLowAt (arrOn φ b d) (joinOn (arrOn φ a d) (arrOn φ b d)) R)
+    (hns : NoParSplitAt (joinOn (arrOn φ a d) (arrOn φ b d)) R) :
+    StarDAt (arrOn φ a d) (joinOn (arrOn φ a d) (arrOn φ b d)) R ∧
+    StarDAt (arrOn φ b d) (joinOn (arrOn φ a d) (arrOn φ b d)) R := by
+  have hT2 : (1 : Int) ≤ T + 1 + 1 := by omega
+  obtain ⟨ea, ia, na, _, _⟩ := arrTop_facts hT2 h2 ha hsa
+  obtain ⟨eb, ib, nb, _, _⟩ := arrTop_facts hT2 h2 hb hsb
+  have hcs : (arrOn φ a d).current_step = (arrOn φ b d).current_step := ea.1.step.trans eb.1.step.symm
+  have hJ : SInvB (joinOn (arrOn φ a d) (arrOn φ b d)) := sInvB_joinOn ia ib hcs
+  have hnsJ : NoSelf (joinOn (arrOn φ a d) (arrOn φ b d)) := noSelf_joinOn ea.2.1 eb.2.1
+  have hndJ : NoDegT (joinOn (arrOn φ a d) (arrOn φ b d)) := noDegT_joinOn ea.2.1 eb.2.1 ia.edges ib.edges
+  have hcsJ : (joinOn (arrOn φ a d) (arrOn φ b d)).current_step = T + 1 + 1 + 1 := by
+    rw [step_joinOn]; exact ea.1.step
+  obtain ⟨T', hT'e⟩ := joinOn_eq (arrOn φ a d) (arrOn φ b d)
+  have hadj : ∀ x w, (joinOn (arrOn φ a d) (arrOn φ b d)).Adj x w →
+      (arrOn φ a d).Adj x w ∨ (arrOn φ b d).Adj x w := fun x w h => by
+    rw [hT'e] at h; exact adj_join_cases h
+  obtain ⟨fa, _⟩ := arrOn_tops hT2 (h2.on a ha) (hbk2 a ha).1 hsa
+  obtain ⟨fb, _⟩ := arrOn_tops hT2 (h2.on b hb) (hbk2 b hb).1 hsb
+  have hsep : ∀ t : PathNodeId, t.id.step = (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 1 →
+      t ∈ (arrOn φ a d).alive → t ∈ (arrOn φ b d).alive → False := by
+    intro t hts k1 k2
+    obtain ⟨x, hx, hp⟩ := fa t k1 (by rw [ea.1.step, hts, hcsJ])
+    obtain ⟨y, hy, hp'⟩ := fb t k2 (by rw [eb.1.step, hts, hcsJ])
+    rw [hp, hx, hy] at hp'
+    exact hab (Option.some.inj hp')
+  -- los nodos del paso de los padres son de un solo lado
+  have keyOf : ∀ kv ∈ advanceM .on φ (advanceM .on φ L0), ∀ s : PathNodeId, s.id.step = T + 1 → s ∈ kv.2.alive →
+      s.id = kv.1 := by
+    intro kv hkv s hss hs
+    obtain ⟨n, hn', hnid⟩ := (h2.inv kv hkv).docs s hs
+    have := (hbk2 kv hkv).1 n hn' (by rw [hnid, (h2.on kv hkv).1.step, hss]; omega)
+    rw [hnid] at this
+    exact this
+  have hexc : ∀ s : PathNodeId, s.id.step = (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 2 →
+      s ∈ (arrOn φ a d).alive → s ∈ (arrOn φ b d).alive → False := by
+    intro s hss k1 k2
+    have hs' : s.id.step = T + 1 := by rw [hss, hcsJ]; omega
+    exact hab ((keyOf a ha s hs' (arrOn_alive_old (h2.on a ha) (h2.inv a ha) hsa (by omega) k1)).symm.trans
+      (keyOf b hb s hs' (arrOn_alive_old (h2.on b hb) (h2.inv b hb) hsb (by omega) k2)))
+  -- los vecinos de una cima están por debajo de ella
+  obtain ⟨_, ta⟩ := arrOn_adjPar (h2.on a ha) (h2.inv a ha) (hbk2 a ha).2.1 (hbk2 a ha).2.2 hsa
+  obtain ⟨_, tb⟩ := arrOn_adjPar (h2.on b hb) (h2.inv b hb) (hbk2 b hb).2.1 (hbk2 b hb).2.2 hsb
+  have htaJ : TopsApart (joinOn (arrOn φ a d) (arrOn φ b d)) := by
+    rw [hT'e]; exact topsApart_setT (topsApart_join ta tb hcs) T'
+  have hiu := sInvB_pinOn hJ R
+  have below : ∀ {t : PathNodeId}, t.id.step = (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 1 →
+      ∀ q, ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R).Adj t q → q ≠ t →
+      q.id.step < (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 1 := by
+    intro t hts q hq hne
+    have hb1 := alive_below hiu.docs hiu.below (hiu.edges t q hq).2
+    rw [step_pinOn] at hb1
+    have hb2 : q.id.step ≠ (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 1 := fun e =>
+      hne (htaJ t q hts e ((sub_pinOn _ R).adj _ _ hq)).symm
+    omega
+  have dich : ∀ {t : PathNodeId}, t.id.step = (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 1 →
+      ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R).isValid = true → ∀ x y z,
+      Tetra ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R) t x y z →
+      x.id.step < (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 2 →
+      y.id.step < (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 2 →
+      z.id.step < (joinOn (arrOn φ a d) (arrOn φ b d)).current_step - 2 →
+      (∃ s, s.id.step + 1 = t.id.step ∧ Wit4 ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R) t x y z s) ∨
+        ParSplitAt ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R) t x y z ∨
+        ParSplitAt ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R) t y x z ∨
+        ParSplitAt ((joinOn (arrOn φ a d) (arrOn φ b d)).pinOn R) t z x y := by
+    intro t hts hv x y z htet hx hy hz
+    rw [hcsJ] at hx hy hz
+    exact tetra_parent_or_split hT h0 hbk0 h1 hbk1 h2 hbk2 ha hb hab hsa hsb hv hts htet (by omega) (by omega)
+      (by omega)
+  constructor
+  · intro hv t ht hts htA
+    obtain ⟨lf, lb⟩ := hlA hv t ht hts htA
+    exact starD_of_low (S := arrOn φ a d) (O := arrOn φ b d) hJ hnsJ hndJ hv na ia.edges hadj ib.edges
+      (fun hxy hxz hyz nxy nxz nyz s1 s2 => tF_joinOn_of_cut ia.edges ib.edges hxy hxz hyz nxy nxz nyz s1 s2)
+      ht hts (fun h => hsep t hts htA h) (fun s hss k1 k2 => hexc s hss k1 k2) (below hts) (dich hts hv)
+      (fun x y z htet hnU hx hy hz => hns hv t ht hts x y z htet hnU hx hy hz) lf lb
+  · intro hv t ht hts htB
+    obtain ⟨lf, lb⟩ := hlB hv t ht hts htB
+    exact starD_of_low (S := arrOn φ b d) (O := arrOn φ a d) hJ hnsJ hndJ hv nb ib.edges
+      (fun x w h => (hadj x w h).symm) ia.edges
+      (fun hxy hxz hyz nxy nxz nyz s2 s1 => tF_joinOn_of_cut ia.edges ib.edges hxy hxz hyz nxy nxz nyz s1 s2)
+      ht hts (fun h => hsep t hts h htB) (fun s hss k2 k1 => hexc s hss k1 k2) (below hts) (dich hts hv)
+      (fun x y z htet hnU hx hy hz => hns hv t ht hts x y z htet hnU hx hy hz) lf lb
+
 end GPathB
 
 namespace MachineOn
