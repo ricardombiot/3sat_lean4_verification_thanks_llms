@@ -115,3 +115,4 @@ import AbsSatBingo.Model.ForbidOnPin
 import AbsSatBingo.Model.ForbidOnArr
 import AbsSatBingo.Model.ForbidOnGood
 import AbsSatBingo.Model.ForbidOnDriver
+import AbsSatBingo.Model.ForbidOnSide
