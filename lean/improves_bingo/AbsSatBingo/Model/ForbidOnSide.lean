@@ -92,35 +92,36 @@ theorem liveChain_of_downInv {s x : GPathB} {c : Int} (hX : DownInv (LowV s c) (
 
 /-- **Un lado fijado vive entero en el estado mayor fijado.** `J` contiene las estructuras de `g`, y todo trío de `J`
 sobre un triángulo de `g` lo corta `g` en algún orden. -/
-theorem downInv_side {g J : GPathB} {R : List NodeId} (hg : SInvB g) (hns : NoSelf g) (hnd : NoDegT g)
-    (hcs2 : 2 ≤ g.current_step) (hv : (g.pinOn R).isValid = true)
+theorem downInv_side_gen {g J : GPathB} {R R' : List NodeId} (hRR : ∀ p ∈ R, p ∈ R') (hg : SInvB g) (hns : NoSelf g)
+    (hnd : NoDegT g) (hcs2 : 2 ≤ g.current_step) (hv : (g.pinOn R').isValid = true)
     (hJstep : J.current_step = g.current_step) (hJns : NoSelf J)
     (hJsec : ∀ {V : PathNodeId → Prop} {Rr : PathNodeId → PathNodeId → Prop}, SecStruct g V Rr → SecStruct J V Rr)
     (hJtri : ∀ {a b r}, g.Adj a b → g.Adj a r → g.Adj b r → TF J a b r →
       ∃ p q w, (p, q, w) ∈ perms a b r ∧ TF g p q w) :
-    DownInv (LowV (g.pinOn R) g.current_step) (LowR (g.pinOn R) g.current_step) (TF (g.pinOn R)) g.current_step
+    DownInv (LowV (g.pinOn R') g.current_step) (LowR (g.pinOn R') g.current_step) (TF (g.pinOn R')) g.current_step
       (J.pinOn R) := by
-  let s := g.pinOn R
+  let s := g.pinOn R'
   let c := g.current_step
-  have hcss : s.current_step = c := step_pinOn g R
-  have his : SInvB s := sInvB_pinOn hg R
+  have hcss : s.current_step = c := step_pinOn g R'
+  have his : SInvB s := sInvB_pinOn hg R'
   have hbs : ∀ q ∈ s.alive, q.id.step < c := fun q hq => by
     have := alive_below his.docs his.below hq; rw [hcss] at this; exact this
   have hcl : ClosedState s := closedState_pinOn hg hv hcs2
-  have hfix : FixClosed s := fixClosed_reviewOn (g := { R.foldl filterRequire g with dirty := true }) rfl hv
+  have hfix : FixClosed s := fixClosed_reviewOn (g := { R'.foldl filterRequire g with dirty := true }) rfl hv
   have hTG : TrioGood (LowV s c) (LowR s c) (TF s) c :=
-    trioGood_low hfix (noDegT_pinOn hns hnd R) (by rw [hcss]; exact Int.le_refl _)
+    trioGood_low hfix (noDegT_pinOn hns hnd R') (by rw [hcss]; exact Int.le_refl _)
   have hsymm : ∀ {y w}, LowR s c y w → LowR s c w y :=
     fun hr => ⟨⟨hr.1.2.1, hr.1.1, (adj_symm s _ _).mp hr.1.2.2⟩, hr.2.2, hr.2.1⟩
-  have hsub : Sub s g := sub_pinOn g R
+  have hsub : Sub s g := sub_pinOn g R'
   have hsec : SecStruct J (LowV s c) (LowR s c) := hJsec (secStruct_of_sub hsub hg.nodup (closed_low hcl hbs))
   have h0 : DownInv (LowV s c) (LowR s c) (TF s) c J := by
     refine ⟨hsec, hJns, hJstep, ?_⟩
     intro a b r hab har hbr hf
     obtain ⟨p, q, w, hp, ht⟩ := hJtri (hsub.adj _ _ hab.1.2.2) (hsub.adj _ _ har.1.2.2) (hsub.adj _ _ hbr.1.2.2) hf
     obtain ⟨hpq, _, _⟩ := tri_of_perms (R := LowR s c) hsymm hab har hbr hp
-    exact trioGood_perm hTG hsymm hab har hbr hp (tF_mono (trios_grow_pinOn g R) hpq.1.2.2 ht)
-  have hagree : ∀ p ∈ R, SecAgrees (LowV s c) p := fun p hp q hq hqs => pinned_pinOn hg.docs hv p hp q hq.1 hqs
+    exact trioGood_perm hTG hsymm hab har hbr hp (tF_mono (trios_grow_pinOn g R') hpq.1.2.2 ht)
+  have hagree : ∀ p ∈ R, SecAgrees (LowV s c) p := fun p hp q hq hqs =>
+    pinned_pinOn hg.docs hv p (hRR p hp) q hq.1 hqs
   have hfold : ∀ (l : List NodeId) (x : GPathB), (∀ p ∈ l, SecAgrees (LowV s c) p) →
       DownInv (LowV s c) (LowR s c) (TF s) c x → DownInv (LowV s c) (LowR s c) (TF s) c (l.foldl filterRequire x) := by
     intro l
@@ -134,6 +135,33 @@ theorem downInv_side {g J : GPathB} {R : List NodeId} (hg : SInvB g) (hns : NoSe
   have h2 : DownInv (LowV s c) (LowR s c) (TF s) c { R.foldl filterRequire J with dirty := true } :=
     downInv_shrink h1 (shrinks_dirty _ true).1 rfl (sec_dirty h1.sec true) h1.ns
   exact downInv_reviewOn h2 hTG hsymm
+
+theorem downInv_side {g J : GPathB} {R : List NodeId} (hg : SInvB g) (hns : NoSelf g) (hnd : NoDegT g)
+    (hcs2 : 2 ≤ g.current_step) (hv : (g.pinOn R).isValid = true)
+    (hJstep : J.current_step = g.current_step) (hJns : NoSelf J)
+    (hJsec : ∀ {V : PathNodeId → Prop} {Rr : PathNodeId → PathNodeId → Prop}, SecStruct g V Rr → SecStruct J V Rr)
+    (hJtri : ∀ {a b r}, g.Adj a b → g.Adj a r → g.Adj b r → TF J a b r →
+      ∃ p q w, (p, q, w) ∈ perms a b r ∧ TF g p q w) :
+    DownInv (LowV (g.pinOn R) g.current_step) (LowR (g.pinOn R) g.current_step) (TF (g.pinOn R)) g.current_step
+      (J.pinOn R) :=
+  downInv_side_gen (fun _ h => h) hg hns hnd hcs2 hv hJstep hJns hJsec hJtri
+
+/-- **Más pins, menos cadenas vivas**: con `R ⊆ R'`, el estado fijado en `R'` (válido) vive entero en el fijado en
+`R`, y toda cadena viva suya lo es del fijado en `R`. Sin hipótesis. -/
+theorem liveChain_pin_mono {g : GPathB} {R R' : List NodeId} (hRR : ∀ p ∈ R, p ∈ R') (hg : SInvB g) (hns : NoSelf g)
+    (hnd : NoDegT g) (hcs2 : 2 ≤ g.current_step) (hv : (g.pinOn R').isValid = true)
+    {C : Int → PathNodeId} {j : Int} (hC : LiveChain (g.pinOn R') (TF (g.pinOn R')) C j) :
+    (g.pinOn R).isValid = true ∧ LiveChain (g.pinOn R) (TF (g.pinOn R)) C j := by
+  have his := sInvB_pinOn hg R'
+  have hb : ∀ q ∈ (g.pinOn R').alive, q.id.step < g.current_step := fun q hq => by
+    have := alive_below his.docs his.below hq; rw [step_pinOn] at this; exact this
+  have hX : DownInv (LowV (g.pinOn R') g.current_step) (LowR (g.pinOn R') g.current_step) (TF (g.pinOn R'))
+      g.current_step (g.pinOn R) :=
+    downInv_side_gen hRR hg hns hnd hcs2 hv rfl hns (fun h => h)
+      (fun {a b r} _ _ _ hf => ⟨a, b, r, by simp [perms], hf⟩)
+  obtain ⟨q, hq, _⟩ := exists_alive_at hv (k := 0) (Int.le_refl 0) (by rw [step_pinOn]; omega)
+  exact ⟨isValid_of_sec hX.sec (y := q) ⟨hq, hb q hq⟩,
+    liveChain_of_downInv hX (sInvB_pinOn hg R).links his.links (step_pinOn g R') hb hC⟩
 
 /-- Un trío de la unión `:on` lo cortan los dos lados; sobre un triángulo de un lado, ese lado lo tiene prohibido. -/
 theorem tF_joinOn_side {A B : GPathB} (hnsA : NoSelf A) (hnsB : NoSelf B) (heA : EdgesAlive A) (heB : EdgesAlive B)

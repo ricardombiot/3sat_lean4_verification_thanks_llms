@@ -16,9 +16,13 @@ todas las medidas de la rama se hicieron con `:on`. Decisiones de Ricardo:
 | F3 contabilidad y cierre | `0cf4677`, `eddcaae`, `028db8f` | `revPrims_reviewOn`; **`closedState_reviewOn`**; el índice dice lo mismo que las listas |
 | F3 solidez | `f4d40c4`, `b9a97e4`, `ed6b2ab` | la rama solución esquiva los tríos reales por regla, review, filtro, join y UP (`CT`); **`machineVerdictOn_of_sat`** |
 | F3/F4 forma y veredicto | `a948b61` | **`spineVerdictOn_iff_of_liveExt`**: la espina `:on` decide la satisfacibilidad si los estados finales revisados cumplen `LiveExt` con sus propios tríos (`TF`). Sin familias fantasma |
+| F4 `LiveExt` por operación | `a30ace0`, `a994f21`, `48aeab5`, `5d7dd82` | review y UP sin hipótesis; join bajo (★) con los tríos reales (`ForbidOnLive.lean`) |
+| F4 llegada fijada | `b4bc73f`, `5289cd8`, `77e3f02`, `7ea78ae`, `becd957` | la regla llega a su punto fijo; direcciones 2 y 1; **`good_arrivalOn` sin hipótesis** (`ForbidOnFix`, `ForbidOnPin`, `ForbidOnArr`) |
+| F4 join fijado e inducción de línea | `2f194ac`, `fec9f47`, `f00186b` | `good_joinAt` bajo `PinSideAt`; el recíproco sin hipótesis (`ForbidOnSide`); `LInvOn`; **`spineVerdictOn_iff_of_joinOn`**: la espina `:on` decide bajo `PinSideAt` en los joins de la máquina, solo para los pins de `PinsFrom` |
 
-Lo abierto: `LiveExt (reviewAllOn g) (TF (reviewAllOn g))` en los estados finales de la máquina `:on`. En Julia lo mide
-`probe_liveext.jl` (columnas `fin_*`, `FORBID=:on`), que ahora es el espejo exacto.
+Lo abierto (1-oct-2026): **`PinSideAt`** en los joins de la máquina: toda cadena viva de la unión fijada
+`pinOn (joinOn A B) R` es cadena viva de `pinOn A R` o de `pinOn B R`, con los tríos de ese lado. El recíproco está
+demostrado (`pinSideAt_iff`). La mide `probe_pinside.jl` (`FORBID=:on`; `PIN_MODE=real` para los pins de `PinsFrom`).
 
 ## Qué hace Julia `:on` (el objetivo del espejo)
 
