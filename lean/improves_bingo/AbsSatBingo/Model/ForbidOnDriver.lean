@@ -11,9 +11,9 @@ El análogo `:on` de `LiveDriver`, sin familias fantasma: la relación de tríos
   (`entry_shapeOn`).
 * **El invariante de línea** (`LInvOn`): contabilidad (`LineOn`, `SInvB`, `NoDegT`) y `GoodOn` en cada entrada.
 * **El paso**: las entradas de una llegada, por `good_arrivalOn`, sin hipótesis; las de dos, por `good_joinOn`, bajo
-  `PinSideOn` entre las dos llegadas (`HJoinOn`).
-* **El veredicto** (`spineVerdictOn_iff_of_joinOn`): la espina `:on` decide la satisfacibilidad bajo `PinSideOn` en los
-  joins de la máquina, y nada más.
+  `PinSideAt` entre las dos llegadas (`HJoinOn`).
+* **El veredicto** (`spineVerdictOn_iff_of_joinOn`): la espina `:on` decide la satisfacibilidad bajo `PinSideAt` en los
+  joins de la máquina, y nada más; solo para los pins que la máquina usa de verdad (`PinsFrom`).
 -/
 
 namespace AbsSatBingo.Model
@@ -220,6 +220,13 @@ theorem entry_shapeOn {φ : Cnf} {line : Line}
 -- El invariante de línea
 -- ============================================================
 
+/-- **Los pins que la máquina usa de verdad** desde el nodo de mapa `k`: los requisitos de un camino del mapa que sale
+de `k`, concatenados. El veredicto solo mira `R = []` en la línea final, y cada llegada a `d` pide a su remitente
+`reqOf φ d ++ R`. -/
+inductive PinsFrom (φ : Cnf) : NodeId → List NodeId → Prop
+  | nil (k : NodeId) : PinsFrom φ k []
+  | cons {k d : NodeId} {R : List NodeId} : d ∈ sonsOfMap φ k → PinsFrom φ d R → PinsFrom φ k (reqOf φ d ++ R)
+
 /-- **El invariante de la línea `:on`** del paso `T`. -/
 structure LInvOn (φ : Cnf) (T : Int) (line : Line) : Prop where
   on    : LineOn T line
@@ -227,7 +234,7 @@ structure LInvOn (φ : Cnf) (T : Int) (line : Line) : Prop where
   keys  : ∀ kv ∈ line, kv.1 ∈ mapNodes φ (T - 1)
   inv   : ∀ kv ∈ line, SInvB kv.2
   ndt   : ∀ kv ∈ line, NoDegT kv.2
-  good  : ∀ kv ∈ line, GoodOn kv.2
+  good  : ∀ kv ∈ line, ∀ R, PinsFrom φ kv.1 R → GoodAt kv.2 R
 
 /-- **El caso base**: la semilla. -/
 theorem lInvOn_init (φ : Cnf) : LInvOn φ 1 (initM .on φ) := by
@@ -247,17 +254,19 @@ theorem lInvOn_init (φ : Cnf) : LInvOn φ 1 (initM .on φ) := by
     exact noDegT_upOn (g := GPathB.empty) (d := d) (title := "") (forb := fun _ => false) hns0
       (fun _ ht => absurd ht List.not_mem_nil)
   · rw [initM_eq]; intro kv hkv; rw [List.mem_singleton] at hkv; subst hkv
-    exact fun R _ => liveExt_small (by rw [step_pinOn, hstep]; omega)
+    exact fun R _ _ => liveExt_small (by rw [step_pinOn, hstep]; omega)
 
-/-- **`PinSideOn` en los joins de la máquina**: en cada destino, entre las llegadas de dos remitentes. -/
+/-- **`PinSideAt` en los joins de la máquina**: en cada destino `d`, entre las llegadas de dos remitentes, para los
+pins que la máquina usa desde `d` (`PinsFrom`). -/
 def HJoinOn (φ : Cnf) (line : Line) : Prop :=
-  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d → PinSideOn (arrOn φ a d) (arrOn φ b d)
+  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d →
+    ∀ R, PinsFrom φ d R → PinSideAt (arrOn φ a d) (arrOn φ b d) R
 
 /-- Lo que se sabe de una llegada válida de una entrada de la línea. -/
 theorem arrOn_facts {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvOn φ T line)
     {kv : NodeId × GPathB} (hkv : kv ∈ line) {d : NodeId} (hs : SendsOn φ kv d) :
-    EntOn (T + 1) d (arrOn φ kv d) ∧ SInvB (arrOn φ kv d) ∧ NoDegT (arrOn φ kv d) ∧ GoodOn (arrOn φ kv d) ∧
-    d ∈ mapNodes φ T := by
+    EntOn (T + 1) d (arrOn φ kv d) ∧ SInvB (arrOn φ kv d) ∧ NoDegT (arrOn φ kv d) ∧
+    (∀ R, PinsFrom φ d R → GoodAt (arrOn φ kv d) R) ∧ d ∈ mapNodes φ T := by
   have hent := h.on kv hkv
   have hok := hent.1
   have hd : d.step = kv.2.current_step := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key, hok.step]; omega
@@ -266,8 +275,8 @@ theorem arrOn_facts {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvO
   refine ⟨entOn_upFilteringOn hent hs.1 hs.2,
     sInvB_upOn (sInvB_filterAllOn hi _) hdY (by rw [hd, hok.step]; omega),
     noDegT_upOn (noSelf_filterAllOn hent.2.1 _) (noDegT_filterAllOn hent.2.1 (h.ndt kv hkv) _),
-    good_arrivalOn hi hent.2.1 (h.ndt kv hkv) hent.2.2 (reqOf_length_le_one φ d) hd (by rw [hok.step]; exact hT)
-      (h.good kv hkv), ?_⟩
+    fun R hR => good_arrivalAt hi hent.2.1 (h.ndt kv hkv) hent.2.2 (reqOf_length_le_one φ d) hd
+      (by rw [hok.step]; exact hT) (h.good kv hkv _ (PinsFrom.cons hs.1 hR)), ?_⟩
   have hk : kv.1 ∈ mapNodes φ kv.1.step := by rw [hok.key]; exact h.keys kv hkv
   have := sonsOfMap_subset φ kv.1 hk d hs.1
   rw [hok.key, show T - 1 + 1 = T by omega] at this
@@ -277,7 +286,8 @@ theorem arrOn_facts {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvO
 theorem lInvOn_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvOn φ T line)
     (hj : HJoinOn φ line) : LInvOn φ (T + 1) (advanceM .on φ line) := by
   have hlen := line_cases h.nodup h.keys
-  have ent : ∀ E ∈ advanceM .on φ line, SInvB E.2 ∧ NoDegT E.2 ∧ GoodOn E.2 ∧ E.1 ∈ mapNodes φ T := by
+  have ent : ∀ E ∈ advanceM .on φ line, SInvB E.2 ∧ NoDegT E.2 ∧ (∀ R, PinsFrom φ E.1 R → GoodAt E.2 R) ∧
+      E.1 ∈ mapNodes φ T := by
     intro E hE
     rcases entry_shapeOn hlen h.nodup hE with ⟨kv, hkv, hs, he⟩ | ⟨a, ha, b, hb, hab, hsa, hsb, he⟩
     · obtain ⟨_, hi, hn, hg, hk⟩ := arrOn_facts hT h hkv hs
@@ -290,7 +300,8 @@ theorem lInvOn_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LI
         rw [if_pos (by simp [ea.1.step, eb.1.step, ea.1.mp, eb.1.mp, ea.1.valid, eb.1.valid])]
       rw [he, hjoin]
       exact ⟨sInvB_joinOn ia ib hcs, noDegT_joinOn ea.2.1 eb.2.1 ia.edges ib.edges,
-        good_joinOn ia ib ea.2.1 eb.2.1 na nb hcs ga gb (hj a ha b hb hab E.1 hsa hsb), hk⟩
+        fun R hR => good_joinAt ia ib ea.2.1 eb.2.1 na nb hcs (ga R hR) (gb R hR) (hj a ha b hb hab E.1 hsa hsb R hR),
+        hk⟩
   exact ⟨lineOn_advance h.on, advanceOn_nodup φ line,
     fun E hE => by rw [show T + 1 - 1 = T by omega]; exact (ent E hE).2.2.2,
     fun E hE => (ent E hE).1, fun E hE => (ent E hE).2.1, fun E hE => (ent E hE).2.2.1⟩
@@ -306,7 +317,7 @@ theorem stepsM_succ (m : Mode) (φ : Cnf) :
   | zero => intro L; rfl
   | succ n ih => intro L; show stepsM m φ (n + 1) (advanceM m φ L) = advanceM m φ (stepsM m φ (n + 1) L); rw [ih]; rfl
 
-/-- **La hipótesis**: en cada línea de la máquina `:on`, `PinSideOn` en sus joins. -/
+/-- **La hipótesis**: en cada línea de la máquina `:on`, `PinSideAt` en sus joins, para los pins de `PinsFrom`. -/
 def HypsJoinOn (φ : Cnf) : Prop := ∀ n : Nat, HJoinOn φ (stepsM .on φ n (initM .on φ))
 
 theorem lInvOn_steps {φ : Cnf} (H : HypsJoinOn φ) :
@@ -320,9 +331,9 @@ theorem lInvOn_steps {φ : Cnf} (H : HypsJoinOn φ) :
     rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
     exact this
 
-/-- **Todo estado final de la máquina `:on` cumple `GoodOn`** bajo `PinSideOn` en sus joins. -/
-theorem goodOn_run {φ : Cnf} (H : HypsJoinOn φ) : ∀ kv ∈ runM .on φ, GoodOn kv.2 :=
-  (lInvOn_steps H (stepCount φ - 1).toNat).good
+/-- **Todo estado final de la máquina `:on` cumple `GoodAt` sin pins** bajo `PinSideAt` en sus joins. -/
+theorem goodAt_run {φ : Cnf} (H : HypsJoinOn φ) : ∀ kv ∈ runM .on φ, GoodAt kv.2 [] := fun kv hkv =>
+  (lInvOn_steps H (stepCount φ - 1).toNat).good kv hkv [] (PinsFrom.nil _)
 
 end GPathB
 
@@ -330,14 +341,14 @@ namespace MachineOn
 
 open GPathB Driver
 
-/-- **La espina con la regla activa decide la satisfacibilidad** bajo `PinSideOn` en los joins de la máquina: toda
-cadena viva de una unión fijada es cadena viva de una de sus dos llegadas fijadas, con sus tríos. Es la única
-hipótesis. -/
+/-- **La espina con la regla activa decide la satisfacibilidad** bajo `PinSideAt` en los joins de la máquina: toda
+cadena viva de una unión fijada es cadena viva de una de sus dos llegadas fijadas, con sus tríos; y solo para los pins
+que la máquina usa (los requisitos de un camino del mapa desde el destino). Es la única hipótesis. -/
 theorem spineVerdictOn_iff_of_joinOn {φ : Cnf} (hbd : Bounded φ) (H : HypsJoinOn φ) :
     SpineVerdictOn φ ↔ Satisfiable φ := by
   apply spineVerdictOn_iff_of_liveExt hbd
   intro kv hkv hval
-  exact goodOn_run H kv hkv [] hval
+  exact goodAt_run H kv hkv hval
 
 end MachineOn
 

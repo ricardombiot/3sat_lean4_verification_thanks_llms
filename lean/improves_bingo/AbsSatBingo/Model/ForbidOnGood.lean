@@ -49,37 +49,60 @@ theorem noDegT_joinOn {A B : GPathB} (hnsA : NoSelf A) (hnsB : NoSelf B) (heA : 
   · exact absurd h List.not_mem_nil
   · exact (joinForbid_facts hnsA hnsB heA heB h).1
 
-/-- **(★) con pins y tríos reales**: toda cadena viva de la unión fijada es cadena viva de un lado fijado (válido). -/
-def PinSideOn (A B : GPathB) : Prop :=
-  ∀ R, ((joinOn A B).pinOn R).isValid = true → ∀ C j,
+/-- `LiveExt` con los tríos reales tras el pin `R`, si es válido (`GoodOn` es esto para todo `R`). -/
+def GoodAt (g : GPathB) (R : List NodeId) : Prop :=
+  (g.pinOn R).isValid = true → LiveExt (g.pinOn R) (TF (g.pinOn R))
+
+theorem goodOn_iff (g : GPathB) : GoodOn g ↔ ∀ R, GoodAt g R := Iff.rfl
+
+/-- **(★) con el pin `R` y tríos reales**: toda cadena viva de la unión fijada es cadena viva de un lado fijado
+(válido). -/
+def PinSideAt (A B : GPathB) (R : List NodeId) : Prop :=
+  ((joinOn A B).pinOn R).isValid = true → ∀ C j,
     LiveChain ((joinOn A B).pinOn R) (TF ((joinOn A B).pinOn R)) C j → 1 ≤ j → j ≤ A.current_step - 1 →
       ((A.pinOn R).isValid = true ∧ LiveChain (A.pinOn R) (TF (A.pinOn R)) C j) ∨
       ((B.pinOn R).isValid = true ∧ LiveChain (B.pinOn R) (TF (B.pinOn R)) C j)
 
-/-- **El join `:on` conserva `GoodOn` bajo `PinSideOn`.** -/
-theorem good_joinOn {A B : GPathB} (hA : SInvB A) (hB : SInvB B) (hnsA : NoSelf A) (hnsB : NoSelf B)
-    (hndA : NoDegT A) (hndB : NoDegT B) (hcs : A.current_step = B.current_step) (gA : GoodOn A) (gB : GoodOn B)
-    (hs : PinSideOn A B) : GoodOn (joinOn A B) := by
-  intro R hv C j hC hj1 hjt
+/-- `PinSideAt` para todo pin. -/
+def PinSideOn (A B : GPathB) : Prop := ∀ R, PinSideAt A B R
+
+/-- **El join `:on` conserva `GoodAt`, pin a pin, bajo `PinSideAt`.** -/
+theorem good_joinAt {A B : GPathB} {R : List NodeId} (hA : SInvB A) (hB : SInvB B) (hnsA : NoSelf A)
+    (hnsB : NoSelf B) (hndA : NoDegT A) (hndB : NoDegT B) (hcs : A.current_step = B.current_step)
+    (gA : GoodAt A R) (gB : GoodAt B R) (hs : PinSideAt A B R) : GoodAt (joinOn A B) R := by
+  intro hv C j hC hj1 hjt
   have hcsu : ((joinOn A B).pinOn R).current_step = A.current_step := (step_pinOn _ R).trans (step_joinOn A B)
   rw [hcsu] at hjt
   -- una camarilla de un lado fijado sube a la unión fijada
-  have up : ∀ (g : GPathB), SInvB g → NoSelf g → NoDegT g → g.current_step = A.current_step → GoodOn g →
+  have up : ∀ (g : GPathB), SInvB g → NoSelf g → NoDegT g → g.current_step = A.current_step → GoodAt g R →
       (∀ D, CT g D → CT (joinOn A B) D) → (g.pinOn R).isValid = true → LiveChain (g.pinOn R) (TF (g.pinOn R)) C j →
       ∃ C', LiveChain ((joinOn A B).pinOn R) (TF ((joinOn A B).pinOn R)) C' (j - 1) ∧ ∀ k, j ≤ k → C' k = C k := by
     intro g hg hns hnd hcsg gg hjoin hvg hCg
     have hi := sInvB_pinOn hg R
     have hcsp : (g.pinOn R).current_step = A.current_step := (step_pinOn g R).trans hcsg
-    obtain ⟨D, hD, hag⟩ := liveChain_to_zero (gg R hvg) hCg (by omega) (by rw [hcsp]; exact hjt)
+    obtain ⟨D, hD, hag⟩ := liveChain_to_zero (gg hvg) hCg (by omega) (by rw [hcsp]; exact hjt)
     have hc : Carried (g.pinOn R) D := carried_of_liveChain hi.docs hi.links hi.root hD
     have hAv := avoids_of_liveChain (noDeg_TF (noDegT_pinOn hns hnd R)) hD
     obtain ⟨hct, hagr⟩ := ct_of_pinOn hg hns hc hAv
     have hct' : CT ((joinOn A B).pinOn R) D := ct_pinOn (hjoin D hct) R (fun r hr => by
       rw [step_joinOn, ← hcsg]; exact hagr r hr)
     exact ⟨D, liveChain_of_carried hct'.1 hct'.2.1 (by omega), hag⟩
-  rcases hs R hv C j hC hj1 hjt with ⟨hvA, hCA⟩ | ⟨hvB, hCB⟩
+  rcases hs hv C j hC hj1 hjt with ⟨hvA, hCA⟩ | ⟨hvB, hCB⟩
   · exact up A hA hnsA hndA rfl gA (fun D h => ct_joinOn_left h hnsB) hvA hCA
   · exact up B hB hnsB hndB hcs.symm gB (fun D h => ct_joinOn_right hcs h hnsA) hvB hCB
+
+/-- **El join `:on` conserva `GoodOn` bajo `PinSideOn`.** -/
+theorem good_joinOn {A B : GPathB} (hA : SInvB A) (hB : SInvB B) (hnsA : NoSelf A) (hnsB : NoSelf B)
+    (hndA : NoDegT A) (hndB : NoDegT B) (hcs : A.current_step = B.current_step) (gA : GoodOn A) (gB : GoodOn B)
+    (hs : PinSideOn A B) : GoodOn (joinOn A B) :=
+  fun R => good_joinAt hA hB hnsA hnsB hndA hndB hcs (gA R) (gB R) (hs R)
+
+/-- **La llegada, pin a pin**: `GoodAt` de la entrada con los requisitos delante da `GoodAt` de la llegada. -/
+theorem good_arrivalAt {E : GPathB} {reqs R : List NodeId} {d : NodeId} {title : String} {forb : PathNodeId → Bool}
+    (hE : SInvB E) (hns : NoSelf E) (hndt : NoDegT E) (htb : TB E) (hlen : reqs.length ≤ 1)
+    (hd : d.step = E.current_step) (hpos : 1 ≤ E.current_step) (hg : GoodAt E (reqs ++ R)) :
+    GoodAt ((E.filterAllOn reqs).upOn d title forb) R := fun hvh =>
+  liveExt_arrivalOn hE hns hndt htb hlen hd hpos hvh (hg (valid_down hE hns hndt hlen hd hpos hvh))
 
 end GPathB
 
