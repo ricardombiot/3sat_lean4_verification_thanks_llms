@@ -115,6 +115,18 @@ theorem tF_of_sym {u : GPathB} {c : Int} (hTG : TrioGood (LowV u c) (LowR u c) (
 -- La familia de la cima es una estructura del lado, con testigos
 -- ============================================================
 
+/-- **Una base bajo la cima**: `a`, `b`, `r` son vecinos distintos de `t` en `u`, vecinos entre sí, y sus tres caras
+con `t` no están prohibidas en `u`. -/
+def Tetra (u : GPathB) (t a b r : PathNodeId) : Prop :=
+  a ≠ t ∧ b ≠ t ∧ r ≠ t ∧ a ≠ b ∧ a ≠ r ∧ b ≠ r ∧ u.Adj t a ∧ u.Adj t b ∧ u.Adj t r ∧ u.Adj a b ∧ u.Adj a r ∧ u.Adj b r ∧
+    ¬ Sym (TF u) a b t ∧ ¬ Sym (TF u) a r t ∧ ¬ Sym (TF u) b r t
+
+/-- **`s` completa el tetraedro `(t, a, b, r)`**: es vecino de los cuatro en `u` y sus seis caras nuevas no están
+prohibidas. -/
+def Wit4 (u : GPathB) (t a b r s : PathNodeId) : Prop :=
+  u.Adj t s ∧ u.Adj a s ∧ u.Adj b s ∧ u.Adj r s ∧ ¬ Sym (TF u) a s t ∧ ¬ Sym (TF u) b s t ∧ ¬ Sym (TF u) r s t ∧
+    ¬ Sym (TF u) a b s ∧ ¬ Sym (TF u) a r s ∧ ¬ Sym (TF u) b r s
+
 /-- **`StarTriAt`**: en la unión fijada `u = pinOn J Rp`, un triángulo `(a, b, r)` entre vecinos de una cima `t` del
 lado `S`, vivo en `u` y con sus tres caras con `t` vivas en `u`, no está en la lista de tríos de `pinOn S Rp`. -/
 def StarTriAt (S J : GPathB) (Rp : List NodeId) : Prop :=
@@ -125,17 +137,23 @@ def StarTriAt (S J : GPathB) (Rp : List NodeId) : Prop :=
       ¬ Sym (TF (J.pinOn Rp)) a b t → ¬ Sym (TF (J.pinOn Rp)) a r t → ¬ Sym (TF (J.pinOn Rp)) b r t →
       ¬ Sym (TF (J.pinOn Rp)) a b r → ∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false
 
-/-- **Una cima viva de `pinOn J Rp` que es del lado `S` y no del otro está viva en `pinOn S Rp`**, bajo `StarTriAt`.
-`O` es el otro lado; `hcut` dice que `J` prohíbe todo triángulo suyo que `S` corta y que `O` no tiene (para el join
-`:on`, `tF_joinOn_of_cut`). -/
-theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : NoSelf J) (hndJ : NoDegT J)
+/-- **El núcleo**: una cima viva de `pinOn J Rp` que no está en el otro lado `O` está viva en `pinOn S Rp`, si las
+bases bajo la cima (los triángulos de su familia que no la contienen) cumplen dos cosas: (`hlow1`) una base prohibida
+en `S` está prohibida en la unión fijada; (`hlow2`) una base viva en la unión fijada, o no está en los tríos de
+`pinOn S Rp`, o tiene en cada paso un nodo que completa el tetraedro. `hcut` dice que `J` prohíbe todo triángulo suyo
+que `S` corta y que `O` no tiene. -/
+theorem star_core {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : NoSelf J) (hndJ : NoDegT J)
     (hc2 : 2 ≤ J.current_step) (hv : (J.pinOn Rp).isValid = true) (hS : SInvB S) (hnsS : NoSelf S)
     (hndS : NoDegT S) (hcs : J.current_step = S.current_step) (hap : AdjPar S)
     (hadj : ∀ x w, J.Adj x w → S.Adj x w ∨ O.Adj x w) (heO : EdgesAlive O)
     (hcut : ∀ {x y z}, J.Adj x y → J.Adj x z → J.Adj y z → x ≠ y → x ≠ z → y ≠ z → SideForbids S (TF S) x y z →
       ¬ (O.Adj x y ∧ O.Adj x z ∧ O.Adj y z) → TF J x y z)
-    {t : PathNodeId} (ht : t ∈ (J.pinOn Rp).alive) (hts : t.id.step = J.current_step - 1) (htS : t ∈ S.alive)
-    (htO : t ∉ O.alive) (hstar : StarTriAt S J Rp) :
+    {t : PathNodeId} (ht : t ∈ (J.pinOn Rp).alive) (htO : t ∉ O.alive)
+    (hlow1 : ∀ a b r, Tetra (J.pinOn Rp) t a b r → TF S a b r → Sym (TF (J.pinOn Rp)) a b r)
+    (hlow2 : ∀ a b r, Tetra (J.pinOn Rp) t a b r → ¬ Sym (TF (J.pinOn Rp)) a b r →
+      (∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false) ∨
+      (∀ l, 0 ≤ l → l < J.current_step →
+        ∃ s, s.id.step = l ∧ (s = a ∨ s = b ∨ s = r ∨ s = t ∨ Wit4 (J.pinOn Rp) t a b r s))) :
     (S.pinOn Rp).isValid = true ∧ t ∈ (S.pinOn Rp).alive := by
   let u := J.pinOn Rp
   let c := J.current_step
@@ -162,7 +180,8 @@ theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : No
   let Rr : PathNodeId → PathNodeId → Prop := fun y w =>
     u.Adj t y ∧ u.Adj t w ∧ u.Adj y w ∧ (y = w ∨ y = t ∨ w = t ∨ ¬ Sym (TF u) y w t)
   let T : Trios := Sym (TF u)
-  let K : Trios := fun a b r => a ≠ t ∧ b ≠ t ∧ r ≠ t ∧ ¬ Sym (TF u) a b r
+  let K : Trios := fun a b r => a ≠ t ∧ b ≠ t ∧ r ≠ t ∧ ¬ Sym (TF u) a b r ∧
+    ∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false
   have htt : u.Adj t t := adj_refl u t ht
   have rsymm : ∀ {y w}, Rr y w → Rr w y := by
     intro y w ⟨h1, h2, h3, h4⟩
@@ -310,24 +329,19 @@ theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : No
       rw [← hcs] at hst
       obtain ⟨s, hsl, hxs, hws, _⟩ := hedge hR hne (x.id.step + 1) (by have := hstep0 hR.1; omega) (by omega)
       exact ⟨s, hson hn hxs (by omega), hxs, rsymm hws⟩
-  -- los triángulos de la familia sin la cima, vivos en `u`, no están en los tríos del lado fijado
-  have hndP : NoDegT (S.pinOn Rp) := noDegT_pinOn hnsS hndS Rp
-  have hK : KeptOut Rr K (S.pinOn Rp).trios := by
-    intro a b r hab har hbr ⟨nat, nbt, nrt, hnT⟩ τ hτ
-    cases hti : trioIs a b r τ
-    · rfl
-    · exfalso
-      obtain ⟨nab, nar, nbr⟩ := distinct_of_trioIs hti (hndP τ hτ)
-      have f : ∀ {y w}, Rr y w → y ≠ w → y ≠ t → w ≠ t → ¬ Sym (TF u) y w t := by
-        intro y w hR h1 h2 h3
-        rcases hR.2.2.2 with e | e | e | e
-        · exact absurd e h1
-        · exact absurd e h2
-        · exact absurd e h3
-        · exact e
-      have := hstar hv t ht hts htS a b r nat nbt nrt nab nar nbr hab.1 hab.2.1 har.2.1 hab.2.2.1 har.2.2.1
-        hbr.2.2.1 (f hab nab nat nbt) (f har nar nat nrt) (f hbr nbr nbt nrt) hnT τ hτ
-      rw [hti] at this; cases this
+  -- las bases bajo la cima
+  have f : ∀ {y w}, Rr y w → y ≠ w → y ≠ t → w ≠ t → ¬ Sym (TF u) y w t := by
+    intro y w hR h1 h2 h3
+    rcases hR.2.2.2 with e | e | e | e
+    · exact absurd e h1
+    · exact absurd e h2
+    · exact absurd e h3
+    · exact e
+  have tetra : ∀ {a b r}, Rr a b → Rr a r → Rr b r → a ≠ b → a ≠ r → b ≠ r → a ≠ t → b ≠ t → r ≠ t →
+      Tetra u t a b r := fun hab har hbr nab nar nbr nat nbt nrt =>
+    ⟨nat, nbt, nrt, nab, nar, nbr, hab.1, hab.2.1, har.2.1, hab.2.2.1, har.2.2.1, hbr.2.2.1, f hab nab nat nbt,
+      f har nar nat nrt, f hbr nbr nbt nrt⟩
+  have hK : KeptOut Rr K (S.pinOn Rp).trios := fun a b r _ _ _ hk => hk.2.2.2.2
   -- el invariante en el lado sin fijar
   have h0 : DownInv V Rr T c S := by
     refine ⟨hsec, hnsS, hcs.symm, ?_⟩
@@ -341,9 +355,8 @@ theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : No
     obtain ⟨τ, hτ, hti⟩ := List.any_eq_true.mp hd'.2
     obtain ⟨_, nar, nbr⟩ := distinct_of_trioIs hti (hndS τ hτ)
     by_cases hno : a ≠ t ∧ b ≠ t ∧ r ≠ t
-    · -- sin la cima: la hipótesis
-      have := hK a b r hab har hbr ⟨hno.1, hno.2.1, hno.2.2, hnT⟩ τ (trios_grow_pinOn S Rp τ hτ)
-      rw [hti] at this; cases this
+    · -- sin la cima: una base prohibida en el lado lo está en la unión fijada
+      exact hnT (hlow1 a b r (tetra hab har hbr nab nar nbr hno.1 hno.2.1 hno.2.2) ⟨nab, hd⟩)
     · -- con la cima: el otro lado no tiene el triángulo, y el join lo habría prohibido
       have hO : ¬ (O.Adj a b ∧ O.Adj a r ∧ O.Adj b r) := by
         intro ⟨h1, h2, h3⟩
@@ -363,7 +376,24 @@ theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : No
     refine ⟨hedge, ?_, fun _ _ _ h => sym_perm h (by simp [perms]), fun _ _ _ h => sym_perm h (by simp [perms])⟩
     intro a b r hab har hbr nab nar nbr hnT
     by_cases hno : a ≠ t ∧ b ≠ t ∧ r ≠ t
-    · exact Or.inl ⟨hno.1, hno.2.1, hno.2.2, hnT⟩
+    · have htet := tetra hab har hbr nab nar nbr hno.1 hno.2.1 hno.2.2
+      rcases hlow2 a b r htet hnT with hk | hw
+      · exact Or.inl ⟨hno.1, hno.2.1, hno.2.2, hnT, hk⟩
+      · right
+        intro l h0' h1'
+        obtain ⟨s, hsl, hs⟩ := hw l h0' h1'
+        refine ⟨s, hsl, ?_⟩
+        have rrefl : ∀ {y}, u.Adj t y → Rr y y := fun {y} hy => ⟨hy, hy, adj_refl u y (hiu.edges _ _ hy).2, Or.inl rfl⟩
+        have rt : ∀ {y}, u.Adj t y → Rr y t := fun {y} hy => ⟨hy, htt, usymm hy, Or.inr (Or.inr (Or.inl rfl))⟩
+        rcases hs with e | e | e | e | ⟨k1, k2, k3, k4, k5, k6, k7, k8, k9, k10⟩
+        · rw [e]; exact ⟨rrefl hab.1, rsymm hab, rsymm har, Or.inl rfl⟩
+        · rw [e]; exact ⟨hab, rrefl hab.2.1, rsymm hbr, Or.inr (Or.inl rfl)⟩
+        · rw [e]; exact ⟨har, hbr, rrefl har.2.1, Or.inr (Or.inr (Or.inl rfl))⟩
+        · rw [e]
+          exact ⟨rt hab.1, rt hab.2.1, rt har.2.1, Or.inr (Or.inr (Or.inr ⟨f hab nab hno.1 hno.2.1,
+            f har nar hno.1 hno.2.2, f hbr nbr hno.2.1 hno.2.2⟩))⟩
+        · exact ⟨⟨hab.1, k1, k2, Or.inr (Or.inr (Or.inr k5))⟩, ⟨hab.2.1, k1, k3, Or.inr (Or.inr (Or.inr k6))⟩,
+            ⟨har.2.1, k1, k4, Or.inr (Or.inr (Or.inr k7))⟩, Or.inr (Or.inr (Or.inr ⟨k8, k9, k10⟩))⟩
     · right
       intro l h0' h1'
       have htin : t = a ∨ t = b ∨ t = r := by
@@ -436,6 +466,127 @@ theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : No
     pinned_pinOn hJ.docs hv p hp q (hiu.edges _ _ hq).2 hqs
   have hX := downInv_pinOnK hTGK rsymm h0 hagree hK
   exact ⟨isValid_of_sec hX.sec (y := t) htt, hX.sec.alive htt⟩
+
+/-- **Una cima viva de `pinOn J Rp` que es del lado `S` y no del otro está viva en `pinOn S Rp`**, bajo `StarTriAt`. -/
+theorem star_alive {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : NoSelf J) (hndJ : NoDegT J)
+    (hc2 : 2 ≤ J.current_step) (hv : (J.pinOn Rp).isValid = true) (hS : SInvB S) (hnsS : NoSelf S)
+    (hndS : NoDegT S) (hcs : J.current_step = S.current_step) (hap : AdjPar S)
+    (hadj : ∀ x w, J.Adj x w → S.Adj x w ∨ O.Adj x w) (heO : EdgesAlive O)
+    (hcut : ∀ {x y z}, J.Adj x y → J.Adj x z → J.Adj y z → x ≠ y → x ≠ z → y ≠ z → SideForbids S (TF S) x y z →
+      ¬ (O.Adj x y ∧ O.Adj x z ∧ O.Adj y z) → TF J x y z)
+    {t : PathNodeId} (ht : t ∈ (J.pinOn Rp).alive) (hts : t.id.step = J.current_step - 1) (htS : t ∈ S.alive)
+    (htO : t ∉ O.alive) (hstar : StarTriAt S J Rp) :
+    (S.pinOn Rp).isValid = true ∧ t ∈ (S.pinOn Rp).alive := by
+  refine star_core hJ hnsJ hndJ hc2 hv hS hnsS hndS hcs hap hadj heO hcut ht htO ?_ ?_
+  · intro a b r ⟨nat, nbt, nrt, nab, nar, nbr, hta, htb, htr, hab, har, hbr, f1, f2, f3⟩ hf
+    apply Classical.byContradiction
+    intro hnT
+    have hd := hf.2
+    unfold deadTrio at hd
+    rw [Bool.and_eq_true] at hd
+    obtain ⟨τ, hτ, hti⟩ := List.any_eq_true.mp hd.2
+    have := hstar hv t ht hts htS a b r nat nbt nrt nab nar nbr hta htb htr hab har hbr f1 f2 f3 hnT τ
+      (trios_grow_pinOn S Rp τ hτ)
+    rw [hti] at this; cases this
+  · intro a b r ⟨nat, nbt, nrt, nab, nar, nbr, hta, htb, htr, hab, har, hbr, f1, f2, f3⟩ hnT
+    exact Or.inl (hstar hv t ht hts htS a b r nat nbt nrt nab nar nbr hta htb htr hab har hbr f1 f2 f3 hnT)
+
+-- ============================================================
+-- Las dos mitades de `StarTriAt`: el corte cruzado y el cierre a nivel cuatro
+-- ============================================================
+
+/-- **El corte cruzado**: una base prohibida en el lado `S` bajo una cima de `S` con sus tres caras sin prohibir la
+corta también el otro lado `O` (le falta una arista, o la tiene prohibida). Un hecho de los dos lados, sin pins ni
+review. -/
+def CrossCut (S O : GPathB) : Prop :=
+  ∀ t a b r, t ∈ S.alive → t.id.step = S.current_step - 1 → a ≠ t → b ≠ t → r ≠ t → a ≠ b → a ≠ r → b ≠ r →
+    S.Adj t a → S.Adj t b → S.Adj t r → S.Adj a b → S.Adj a r → S.Adj b r →
+    ¬ Sym (TF S) a b t → ¬ Sym (TF S) a r t → ¬ Sym (TF S) b r t → TF S a b r → SideForbids O (TF O) a b r
+
+/-- **El cierre a nivel cuatro de la estrella**: en `pinOn J Rp`, todo tetraedro vivo con cima (una base bajo la
+cima, viva) tiene en cada paso un nodo que lo completa. -/
+def Star4At (J : GPathB) (Rp : List NodeId) : Prop :=
+  (J.pinOn Rp).isValid = true → ∀ t ∈ (J.pinOn Rp).alive, t.id.step = J.current_step - 1 →
+    ∀ a b r, Tetra (J.pinOn Rp) t a b r → ¬ Sym (TF (J.pinOn Rp)) a b r → ∀ l, 0 ≤ l → l < J.current_step →
+      ∃ s, s.id.step = l ∧ (s = a ∨ s = b ∨ s = r ∨ s = t ∨ Wit4 (J.pinOn Rp) t a b r s)
+
+theorem perms_mem3 {a b r p q w : PathNodeId} (hp : (p, q, w) ∈ perms a b r) : r = p ∨ r = q ∨ r = w := by
+  simp only [perms, List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hp
+  rcases hp with ⟨rfl, rfl, rfl⟩ | ⟨rfl, rfl, rfl⟩ | ⟨rfl, rfl, rfl⟩ | ⟨rfl, rfl, rfl⟩ | ⟨rfl, rfl, rfl⟩ |
+    ⟨rfl, rfl, rfl⟩ <;> simp
+
+theorem sym_mono {F G : Trios} {a b r : PathNodeId}
+    (h : ∀ p q w, (p, q, w) ∈ perms a b r → F p q w → G p q w) (hs : Sym F a b r) : Sym G a b r := by
+  unfold Sym at hs ⊢
+  rcases hs with h1 | h1 | h1 | h1 | h1 | h1
+  · exact Or.inl (h _ _ _ (by simp [perms]) h1)
+  · exact Or.inr (Or.inl (h _ _ _ (by simp [perms]) h1))
+  · exact Or.inr (Or.inr (Or.inl (h _ _ _ (by simp [perms]) h1)))
+  · exact Or.inr (Or.inr (Or.inr (Or.inl (h _ _ _ (by simp [perms]) h1))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl (h _ _ _ (by simp [perms]) h1)))))
+  · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (h _ _ _ (by simp [perms]) h1)))))
+
+/-- **Una cima viva de `pinOn J Rp` del lado `S` está viva en `pinOn S Rp`**, bajo el corte cruzado y el cierre a
+nivel cuatro. `hcut2`: `J` prohíbe todo triángulo suyo que cortan los dos lados. -/
+theorem star_alive4 {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : NoSelf J) (hndJ : NoDegT J)
+    (hc2 : 2 ≤ J.current_step) (hv : (J.pinOn Rp).isValid = true) (hS : SInvB S) (hnsS : NoSelf S)
+    (hndS : NoDegT S) (hcs : J.current_step = S.current_step) (hap : AdjPar S)
+    (hadj : ∀ x w, J.Adj x w → S.Adj x w ∨ O.Adj x w) (heO : EdgesAlive O)
+    (hcut2 : ∀ {x y z}, J.Adj x y → J.Adj x z → J.Adj y z → x ≠ y → x ≠ z → y ≠ z → SideForbids S (TF S) x y z →
+      SideForbids O (TF O) x y z → TF J x y z)
+    {t : PathNodeId} (ht : t ∈ (J.pinOn Rp).alive) (hts : t.id.step = J.current_step - 1) (htS : t ∈ S.alive)
+    (htO : t ∉ O.alive) (hcross : CrossCut S O) (h4 : Star4At J Rp) :
+    (S.pinOn Rp).isValid = true ∧ t ∈ (S.pinOn Rp).alive := by
+  let u := J.pinOn Rp
+  have hsub : Sub u J := sub_pinOn J Rp
+  have usymm : ∀ {y w}, u.Adj y w → u.Adj w y := fun h => (adj_symm u _ _).mp h
+  -- un triángulo de `u` con la cima, prohibido en `S`, está prohibido en `u`
+  have face_up : ∀ {p q w}, u.Adj p q → u.Adj p w → u.Adj q w → (t = p ∨ t = q ∨ t = w) → TF S p q w →
+      TF u p q w := by
+    intro p q w hpq hpw hqw htin hf
+    have hd := hf.2
+    unfold deadTrio at hd
+    rw [Bool.and_eq_true] at hd
+    obtain ⟨τ, hτ, hti⟩ := List.any_eq_true.mp hd.2
+    obtain ⟨npq, npw, nqw⟩ := distinct_of_trioIs hti (hndS τ hτ)
+    have hO : SideForbids O (TF O) p q w := by
+      left
+      intro ⟨h1, h2, h3⟩
+      apply htO
+      rcases htin with e | e | e
+      · rw [e]; exact (heO p q h1).1
+      · rw [e]; exact (heO p q h1).2
+      · rw [e]; exact (heO p w h2).2
+    exact tF_mono (trios_grow_pinOn J Rp) hpq
+      (hcut2 (hsub.adj _ _ hpq) (hsub.adj _ _ hpw) (hsub.adj _ _ hqw) npq npw nqw (Or.inr hf) hO)
+  -- una cara con la cima sin prohibir en `u` no está prohibida en `S`
+  have nsymS : ∀ {y w}, u.Adj y w → u.Adj t y → u.Adj t w → ¬ Sym (TF u) y w t → ¬ Sym (TF S) y w t := by
+    intro y w hyw hty htw hn hs
+    apply hn
+    refine sym_mono (fun p q x hp hf => ?_) hs
+    obtain ⟨h1, h2, h3⟩ := tri_of_perms (R := fun y w => u.Adj y w) usymm hyw (usymm hty) (usymm htw) hp
+    exact face_up h1 h2 h3 (perms_mem3 hp) hf
+  -- una arista de `u` entre vecinos de la cima, con la cara viva, es de `S`
+  have key : ∀ a b, u.Adj a b → a ∉ O.alive → S.Adj a b := fun a b h hn =>
+    (hadj a b (hsub.adj _ _ h)).resolve_right (fun ho => hn (heO a b ho).1)
+  have sadj : ∀ {y w}, y ≠ w → y ≠ t → w ≠ t → u.Adj y w → u.Adj t y → u.Adj t w → ¬ Sym (TF u) y w t →
+      S.Adj y w := by
+    intro y w hyw hyt hwt h3 h1 h2 hn
+    apply Classical.byContradiction
+    intro hno
+    have hJf : TF J y w t := hcut2 (hsub.adj _ _ h3) (hsub.adj _ _ (usymm h1)) (hsub.adj _ _ (usymm h2)) hyw hyt hwt
+      (Or.inl fun h => hno h.1) (Or.inl fun h => htO (heO y t h.2.1).2)
+    exact hn (Or.inl (tF_mono (trios_grow_pinOn J Rp) h3 hJf))
+  refine star_core hJ hnsJ hndJ hc2 hv hS hnsS hndS hcs hap hadj heO
+    (fun hxy hxz hyz nxy nxz nyz s1 hO => hcut2 hxy hxz hyz nxy nxz nyz s1 (Or.inl hO)) ht htO ?_ ?_
+  · intro a b r ⟨nat, nbt, nrt, nab, nar, nbr, hta, htb, htr, hab, har, hbr, f1, f2, f3⟩ hf
+    have hO := hcross t a b r htS (by rw [← hcs]; exact hts) nat nbt nrt nab nar nbr (key t a hta htO)
+      (key t b htb htO) (key t r htr htO) (sadj nab nat nbt hab hta htb f1) (sadj nar nat nrt har hta htr f2)
+      (sadj nbr nbt nrt hbr htb htr f3) (nsymS hab hta htb f1) (nsymS har hta htr f2) (nsymS hbr htb htr f3) hf
+    exact Or.inl (tF_mono (trios_grow_pinOn J Rp) hab
+      (hcut2 (hsub.adj _ _ hab) (hsub.adj _ _ har) (hsub.adj _ _ hbr) nab nar nbr (Or.inr hf) hO))
+  · intro a b r htet hnT
+    exact Or.inr (h4 hv t ht hts a b r htet hnT)
 
 -- ============================================================
 -- `TopSideAt` desde `StarTriAt`
@@ -558,7 +709,10 @@ theorem empty_noAdj {x s : PathNodeId} (h : GPathB.empty.Adj x s) : False := by
 /-- **La hipótesis de tríos**, en cada línea de la máquina `:on`. -/
 def HypsStarOn (φ : Cnf) : Prop := ∀ n : Nat, HStarOn φ (stepsM .on φ n (initM .on φ))
 
-theorem lInvStar_steps {φ : Cnf} (H : HypsStarOn φ) :
+/-- La inducción de línea con la contabilidad extra, para cualquier hipótesis que dé `TopSideAt` en los joins. -/
+theorem lInvBk_steps {φ : Cnf}
+    (H : ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) →
+      LineBk (stepsM .on φ n (initM .on φ)) → HTopOn φ (stepsM .on φ n (initM .on φ))) :
     ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) ∧ LineBk (stepsM .on φ n (initM .on φ)) := by
   intro n
   induction n with
@@ -586,12 +740,81 @@ theorem lInvStar_steps {φ : Cnf} (H : HypsStarOn φ) :
     obtain ⟨hl, hbk⟩ := ih
     have hT : (1 : Int) ≤ (n : Int) + 1 := by omega
     rw [stepsM_succ]
-    have := lInvTop_advance hT hl (hTopOn_of_star hT hl hbk (H n))
+    have := lInvTop_advance hT hl (H n hl hbk)
     rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
     exact ⟨this, lineBk_advance hT hl hbk⟩
 
+theorem lInvStar_steps {φ : Cnf} (H : HypsStarOn φ) :
+    ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) ∧ LineBk (stepsM .on φ n (initM .on φ)) :=
+  lInvBk_steps (fun n hl hbk => hTopOn_of_star (by omega) hl hbk (H n))
+
 theorem hypsTopOn_of_star {φ : Cnf} (H : HypsStarOn φ) : HypsTopOn φ := fun n =>
   hTopOn_of_star (by omega) (lInvStar_steps H n).1 (lInvStar_steps H n).2 (H n)
+
+-- ============================================================
+-- El corte cruzado y el cierre a nivel cuatro, en el join y en la máquina
+-- ============================================================
+
+/-- **`TopSideAt` bajo el corte cruzado de los dos lados y el cierre a nivel cuatro de la unión fijada.** -/
+theorem topSideAt_of_cross4 {A B : GPathB} {Rp : List NodeId} {bA bB : NodeId} (hA : SInvB A) (hB : SInvB B)
+    (hnsA : NoSelf A) (hnsB : NoSelf B) (hndA : NoDegT A) (hndB : NoDegT B)
+    (hcs : A.current_step = B.current_step) (hc2 : 2 ≤ A.current_step) (hne : bA ≠ bB)
+    (hfA : TopsFrom A (fun a => a = bA)) (hfB : TopsFrom B (fun a => a = bB)) (hapA : AdjPar A) (hapB : AdjPar B)
+    (hxA : CrossCut A B) (hxB : CrossCut B A) (h4 : Star4At (joinOn A B) Rp) : TopSideAt A B Rp := by
+  intro hv t ht hts
+  have hcsJ : (joinOn A B).current_step = A.current_step := step_joinOn A B
+  have hJ : SInvB (joinOn A B) := sInvB_joinOn hA hB hcs
+  have hnsJ : NoSelf (joinOn A B) := noSelf_joinOn hnsA hnsB
+  have hndJ : NoDegT (joinOn A B) := noDegT_joinOn hnsA hnsB hA.edges hB.edges
+  obtain ⟨T', hT⟩ := joinOn_eq A B
+  have halive : ∀ q ∈ (joinOn A B).alive, q ∈ A.alive ∨ q ∈ B.alive := fun q hq => by
+    rw [hT] at hq; exact (alive_join A B q).mp hq
+  have hadj : ∀ x w, (joinOn A B).Adj x w → A.Adj x w ∨ B.Adj x w := fun x w h => by
+    rw [hT] at h; exact adj_join_cases h
+  have parA : ∀ q ∈ A.alive, q.id.step = A.current_step - 1 → q.parent_id = some bA := fun q hq hs => by
+    obtain ⟨a, rfl, hp⟩ := hfA q hq hs; exact hp
+  have parB : ∀ q ∈ B.alive, q.id.step = A.current_step - 1 → q.parent_id = some bB := fun q hq hs => by
+    obtain ⟨a, rfl, hp⟩ := hfB q hq (by rw [← hcs]; exact hs); exact hp
+  have hsep : t ∈ A.alive → t ∈ B.alive → False := fun h1 h2 => by
+    have e := parA t h1 hts
+    rw [parB t h2 hts] at e
+    exact hne (Option.some.inj e).symm
+  rcases halive t ((sub_pinOn _ Rp).alive t ht) with htA | htB
+  · exact Or.inl (star_alive4 (S := A) (O := B) hJ hnsJ hndJ (by rw [hcsJ]; exact hc2) hv hA hnsA hndA hcsJ hapA hadj
+      hB.edges
+      (fun hxy hxz hyz nxy nxz nyz s1 s2 => tF_joinOn_of_cut hA.edges hB.edges hxy hxz hyz nxy nxz nyz s1 s2)
+      ht (by rw [hcsJ]; exact hts) htA (fun h => hsep htA h) hxA h4)
+  · exact Or.inr (star_alive4 (S := B) (O := A) hJ hnsJ hndJ (by rw [hcsJ]; exact hc2) hv hB hnsB hndB (hcsJ.trans hcs)
+      hapB (fun x w h => (hadj x w h).symm) hA.edges
+      (fun hxy hxz hyz nxy nxz nyz s2 s1 => tF_joinOn_of_cut hA.edges hB.edges hxy hxz hyz nxy nxz nyz s1 s2)
+      ht (by rw [hcsJ]; exact hts) htB (fun h => hsep h htB) hxB h4)
+
+/-- **Las dos mitades en los joins de la máquina**: el corte cruzado entre las dos llegadas (sin pins) y el cierre a
+nivel cuatro de su unión fijada, para los pins de `PinsFrom`. -/
+def HCross4On (φ : Cnf) (line : Line) : Prop :=
+  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d →
+    CrossCut (arrOn φ a d) (arrOn φ b d) ∧ CrossCut (arrOn φ b d) (arrOn φ a d) ∧
+    ∀ R, PinsFrom φ d R → Star4At (joinOn (arrOn φ a d) (arrOn φ b d)) R
+
+theorem hTopOn_of_cross4 {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvTop φ T line)
+    (hbk : LineBk line) (hp : HCross4On φ line) : HTopOn φ line := by
+  intro a ha b hb hab d hsa hsb R hR
+  obtain ⟨ea, ia, na, _, _⟩ := arrTop_facts hT h ha hsa
+  obtain ⟨eb, ib, nb, _, _⟩ := arrTop_facts hT h hb hsb
+  obtain ⟨fa, _⟩ := arrOn_tops hT (h.on a ha) (hbk a ha).1 hsa
+  obtain ⟨fb, _⟩ := arrOn_tops hT (h.on b hb) (hbk b hb).1 hsb
+  obtain ⟨pa, _⟩ := arrOn_adjPar (h.on a ha) (h.inv a ha) (hbk a ha).2.1 (hbk a ha).2.2 hsa
+  obtain ⟨pb, _⟩ := arrOn_adjPar (h.on b hb) (h.inv b hb) (hbk b hb).2.1 (hbk b hb).2.2 hsb
+  obtain ⟨hxA, hxB, h4⟩ := hp a ha b hb hab d hsa hsb
+  exact topSideAt_of_cross4 ia ib ea.2.1 eb.2.1 na nb (ea.1.step.trans eb.1.step.symm) (by rw [ea.1.step]; omega)
+    hab fa fb pa pb hxA hxB (h4 R hR)
+
+/-- **Las hipótesis**, en cada línea de la máquina `:on`. -/
+def HypsCross4On (φ : Cnf) : Prop := ∀ n : Nat, HCross4On φ (stepsM .on φ n (initM .on φ))
+
+theorem hypsTopOn_of_cross4 {φ : Cnf} (H : HypsCross4On φ) : HypsTopOn φ := by
+  have hs := lInvBk_steps (φ := φ) (fun n hl hbk => hTopOn_of_cross4 (by omega) hl hbk (H n))
+  exact fun n => hTopOn_of_cross4 (by omega) (hs n).1 (hs n).2 (H n)
 
 end GPathB
 
@@ -606,6 +829,17 @@ lado está demostrada («el primero que muere»). -/
 theorem spineVerdictOn_iff_of_starTri {φ : Cnf} (hbd : Bounded φ) (H : HypsStarOn φ) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_star H)
+
+/-- **La espina con la regla activa decide la satisfacibilidad bajo el corte cruzado y el cierre a nivel cuatro** en
+los joins de la máquina:
+
+* **corte cruzado** (de las dos llegadas, sin pins ni review): una base prohibida en una llegada bajo una cima suya
+  con sus tres caras sin prohibir la corta también la otra;
+* **cierre a nivel cuatro** (de la unión fijada sola): todo tetraedro vivo con cima tiene en cada paso un nodo que lo
+  completa. -/
+theorem spineVerdictOn_iff_of_cross4 {φ : Cnf} (hbd : Bounded φ) (H : HypsCross4On φ) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_cross4 H)
 
 end MachineOn
 

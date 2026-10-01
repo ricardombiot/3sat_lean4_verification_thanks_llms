@@ -22,8 +22,12 @@ todas las medidas de la rama se hicieron con `:on`. Decisiones de Ricardo:
 | F4 invariante de cimas | `0102019` | `TopAt`, `topAt_arrival` sin hipótesis, **`spineVerdictOn_iff_of_topOn`** bajo `TopSideAt` en los joins (`ForbidOnTop`): la hipótesis mínima, de nodos |
 | F4 `TopSideAt` en piezas | `4521816` | `sideGraph` demostrado; `topSideAt_of_parts` bajo `TopKeepAt` + `TriSideAt`; **`spineVerdictOn_iff_of_parts`** (`ForbidOnParts`) |
 | F4 la estrella de la cima | `4c65e95`, y el siguiente | `downInv_pinOnK`, `AdjPar`, `star_alive`, **`spineVerdictOn_iff_of_starTri`** bajo `StarTriAt` (`ForbidOnKeep`, `ForbidOnStar`): la hipótesis ya es solo de tríos |
+| F4 las dos mitades | el siguiente | `star_core`, `CrossCut`, `Star4At`, **`spineVerdictOn_iff_of_cross4`** (`ForbidOnStar`) |
 
-Lo abierto, en su forma más estrecha (1-oct-2026): **`StarTriAt`** en los joins de la máquina: en la unión fijada, un
+Lo abierto (2-oct-2026), dos hipótesis en los joins de la máquina, medidas sin fallos con `probe_tetra.jl`:
+**`CrossCut`** (de las dos llegadas, sin pins ni review: una base prohibida en una bajo una cima suya con sus tres
+caras sin prohibir la corta también la otra) y **`Star4At`** (de la unión fijada sola: todo tetraedro vivo con cima
+tiene en cada paso un nodo que lo completa). Juntas dan `TopSideAt`. La forma anterior: **`StarTriAt`** en los joins de la máquina: en la unión fijada, un
 triángulo entre vecinos de una cima, vivo y con sus tres caras con la cima vivas, no está en la lista de tríos del lado
 fijado de esa cima (`probe_startri.jl`, columna `m3_dead`). Implica **`TopSideAt`** en los joins de la máquina: toda cima viva de la unión
 fijada `pinOn (joinOn A B) R` está viva en `pinOn A R` o en `pinOn B R` (`probe_pinside.jl`, columnas `tops` /

@@ -27,7 +27,7 @@
 #   x_tetra_low, x_open_low
 #
 # SONDA 2 — la estrella a nivel cuatro: para cada cima viva t de U y una muestra de tetraedros vivos (t, a, b, r)
-# (vecinos de t, las cuatro caras sin prohibir en U), y cada paso l por debajo de la cima que no sea el de a, b, r:
+# (TRI_CAP por cima; TRI_CAP=0: todos) (vecinos de t, las cuatro caras sin prohibir en U), y cada paso l por debajo de la cima que no sea el de a, b, r:
 # ¿hay un vecino s de t en el paso l, vecino de a, b, r, con las seis caras nuevas sin prohibir en U?
 #   q_tetra, q_cells, q_fail (ningún s), q_fail_tetra (tetraedros con algún paso sin s)
 
@@ -132,7 +132,16 @@ function star4(U)
         tetra = NTuple{3, PathNodeId}[]
         n = length(N)
         tries = 0
-        while length(tetra) < TRI_CAP && tries < 40 * TRI_CAP && n >= 3
+        if TRI_CAP <= 0    # sin muestreo: todos los tetraedros vivos con esta cima
+            for i in 1:n, j in i+1:n, k in j+1:n
+                a, b, r = N[i], N[j], N[k]
+                (edge(U, a, b) && edge(U, a, r) && edge(U, b, r)) || continue
+                (PG.dead_trio(U.og, a, b, r) || PG.dead_trio(U.og, t, a, b) || PG.dead_trio(U.og, t, a, r) ||
+                 PG.dead_trio(U.og, t, b, r)) && continue
+                push!(tetra, (a, b, r))
+            end
+        end
+        while TRI_CAP > 0 && length(tetra) < TRI_CAP && tries < 40 * TRI_CAP && n >= 3
             tries += 1
             a, b, r = N[rand(RNG[], 1:n)], N[rand(RNG[], 1:n)], N[rand(RNG[], 1:n)]
             (a != b && a != r && b != r) || continue
