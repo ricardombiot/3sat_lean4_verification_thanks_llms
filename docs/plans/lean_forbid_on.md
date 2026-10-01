@@ -20,6 +20,7 @@ todas las medidas de la rama se hicieron con `:on`. Decisiones de Ricardo:
 | F4 llegada fijada | `b4bc73f`, `5289cd8`, `77e3f02`, `7ea78ae`, `becd957` | la regla llega a su punto fijo; direcciones 2 y 1; **`good_arrivalOn` sin hipótesis** (`ForbidOnFix`, `ForbidOnPin`, `ForbidOnArr`) |
 | F4 join fijado e inducción de línea | `2f194ac`, `fec9f47`, `f00186b` | `good_joinAt` bajo `PinSideAt`; el recíproco sin hipótesis (`ForbidOnSide`); `LInvOn`; **`spineVerdictOn_iff_of_joinOn`**: la espina `:on` decide bajo `PinSideAt` en los joins de la máquina, solo para los pins de `PinsFrom` |
 | F4 invariante de cimas | `0102019` | `TopAt`, `topAt_arrival` sin hipótesis, **`spineVerdictOn_iff_of_topOn`** bajo `TopSideAt` en los joins (`ForbidOnTop`): la hipótesis mínima, de nodos |
+| F4 `TopSideAt` en piezas | `4521816` | `sideGraph` demostrado; `topSideAt_of_parts` bajo `TopKeepAt` + `TriSideAt`; **`spineVerdictOn_iff_of_parts`** (`ForbidOnParts`) |
 
 Lo abierto en su forma mínima (1-oct-2026): **`TopSideAt`** en los joins de la máquina: toda cima viva de la unión
 fijada `pinOn (joinOn A B) R` está viva en `pinOn A R` o en `pinOn B R` (`probe_pinside.jl`, columnas `tops` /
