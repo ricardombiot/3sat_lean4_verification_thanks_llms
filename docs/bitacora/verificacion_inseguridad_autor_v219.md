@@ -173,8 +173,9 @@ ni review.
 | `v5_c20_i2` (UNSAT) | 144 | 0 | 48 |
 | `v5_c20_i4` | 72 | 0 | 24 |
 | `v6_c26_i1` (UNSAT) | 520 | 0 | 79 |
+| `v6_c26_i2` | 563 | 0 | 55 |
 
-`v6_c26_i2` y `v7_c30_i1` están corriendo al cerrar este informe.
+`v7_c30_i1` no se pudo medir: la sonda guarda una copia de cada envío y el guardián la cortó al pasar de 4 GB.
 
 ### 5.4 Lo que se sabe por dentro
 
@@ -266,7 +267,7 @@ hipótesis, y es lo que habría que entender.
 
 * Ninguna de las dos está medida en `v7` ni mayores.
 * `Star4At` sin muestreo, solo en 4 instancias pequeñas.
-* `PrevCut` en 6 instancias; los casos B y C de §5.5 no están contados por separado sobre todas las llegadas (el
+* `PrevCut` en 7 instancias; los casos B y C de §5.5 no están contados por separado sobre todas las llegadas (el
   patrón de padres se midió solo en las llegadas que entran en un join).
 * No está medido quién es el nodo `s` de `Star4At`.
 
