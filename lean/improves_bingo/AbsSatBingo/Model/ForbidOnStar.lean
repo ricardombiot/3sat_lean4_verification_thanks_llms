@@ -809,12 +809,93 @@ theorem hTopOn_of_cross4 {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : 
   exact topSideAt_of_cross4 ia ib ea.2.1 eb.2.1 na nb (ea.1.step.trans eb.1.step.symm) (by rw [ea.1.step]; omega)
     hab fa fb pa pb hxA hxB (h4 R hR)
 
+-- ============================================================
+-- El corte cruzado baja al remitente del otro lado
+-- ============================================================
+
+section Sender
+
+variable {E : GPathB} {reqs : List NodeId} {d : NodeId} {title : String} {forb : PathNodeId → Bool}
+
+/-- **Un corte del remitente se conserva en su llegada**: por debajo de la cima nueva, la llegada no tiene aristas que
+el remitente no tuviera, y sus tríos están entre los de la llegada. -/
+theorem sideForbids_arrivalOn (hd : d.step = E.current_step) {x y z : PathNodeId}
+    (hx : x.id.step < E.current_step) (hy : y.id.step < E.current_step) (hz : z.id.step < E.current_step)
+    (hs : SideForbids E (TF E) x y z) :
+    SideForbids ((E.filterAllOn reqs).upOn d title forb) (TF ((E.filterAllOn reqs).upOn d title forb)) x y z := by
+  let Y := E.filterAllOn reqs
+  have hcsY : Y.current_step = E.current_step := step_filterAllOn E reqs
+  have hdY : d.step = Y.current_step := by rw [hcsY]; exact hd
+  have down : ∀ {p q : PathNodeId}, p.id.step < E.current_step → q.id.step < E.current_step →
+      (Y.upOn d title forb).Adj p q → E.Adj p q := by
+    intro p q hp hq h
+    apply (shrinks_filterAllOn E reqs).1.adj
+    by_cases hv : Y.isValid = true
+    · exact adj_addNode_old (title := title) (forb := forb) hdY (by rw [hcsY]; exact hp) (by rw [hcsY]; exact hq)
+        ((sub_upOn_addNode hv).adj _ _ h)
+    · unfold upOn at h; rw [if_neg hv] at h; exact h
+  by_cases hadj : (Y.upOn d title forb).Adj x y ∧ (Y.upOn d title forb).Adj x z ∧ (Y.upOn d title forb).Adj y z
+  · rcases hs with hn | hf
+    · exact absurd ⟨down hx hy hadj.1, down hx hz hadj.2.1, down hy hz hadj.2.2⟩ hn
+    · exact Or.inr (tF_mono (fun t ht => trios_grow_upOn Y d title forb t (trios_grow_filterAllOn E reqs t ht))
+        hadj.1 hf)
+  · exact Or.inl hadj
+
+/-- **El corte cruzado contra el remitente del otro lado da el corte cruzado contra su llegada.** -/
+theorem crossCut_of_sender {S : GPathB} (hS : SInvB S) (htaS : TopsApart S)
+    (hd : d.step = E.current_step) (hcs : S.current_step = E.current_step + 1) (h : CrossCut S E) :
+    CrossCut S ((E.filterAllOn reqs).upOn d title forb) := by
+  intro t a b r ht hts nat nbt nrt nab nar nbr hta htb htr hab har hbr f1 f2 f3 hf
+  have low : ∀ {q : PathNodeId}, S.Adj t q → q ≠ t → q.id.step < E.current_step := by
+    intro q hq hne
+    have h1 := alive_below hS.docs hS.below (hS.edges t q hq).2
+    have h2 : q.id.step ≠ S.current_step - 1 := fun e => hne (htaS t q hts e hq).symm
+    omega
+  exact sideForbids_arrivalOn hd (low hta nat) (low htb nbt) (low htr nrt)
+    (h t a b r ht hts nat nbt nrt nab nar nbr hta htb htr hab har hbr f1 f2 f3 hf)
+
+end Sender
+
+/-- **Las hipótesis contra los remitentes**: el corte cruzado de cada llegada contra la *entrada* que envía la otra
+(sin su filtro ni su UP), y el cierre a nivel cuatro de la unión fijada. -/
+def HSender4On (φ : Cnf) (line : Line) : Prop :=
+  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d →
+    CrossCut (arrOn φ a d) b.2 ∧ CrossCut (arrOn φ b d) a.2 ∧
+    ∀ R, PinsFrom φ d R → Star4At (joinOn (arrOn φ a d) (arrOn φ b d)) R
+
+theorem hCross4On_of_sender {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvTop φ T line)
+    (hbk : LineBk line) (hp : HSender4On φ line) : HCross4On φ line := by
+  intro a ha b hb hab d hsa hsb
+  obtain ⟨ea, ia, _, _, _⟩ := arrTop_facts hT h ha hsa
+  obtain ⟨eb, ib, _, _, _⟩ := arrTop_facts hT h hb hsb
+  obtain ⟨_, ta⟩ := arrOn_adjPar (h.on a ha) (h.inv a ha) (hbk a ha).2.1 (hbk a ha).2.2 hsa
+  obtain ⟨_, tb⟩ := arrOn_adjPar (h.on b hb) (h.inv b hb) (hbk b hb).2.1 (hbk b hb).2.2 hsb
+  obtain ⟨hxA, hxB, h4⟩ := hp a ha b hb hab d hsa hsb
+  have oka := (h.on a ha).1
+  have okb := (h.on b hb).1
+  have hda : d.step = a.2.current_step := by rw [sonsOfMap_step φ a.1 d hsa.1, oka.key, oka.step]; omega
+  have hdb : d.step = b.2.current_step := by rw [sonsOfMap_step φ b.1 d hsb.1, okb.key, okb.step]; omega
+  refine ⟨?_, ?_, h4⟩
+  · exact crossCut_of_sender (reqs := reqOf φ d) (title := "") (forb := isProhibited φ) ia ta hdb
+      (by rw [ea.1.step, okb.step]) hxA
+  · exact crossCut_of_sender (reqs := reqOf φ d) (title := "") (forb := isProhibited φ) ib tb hda
+      (by rw [eb.1.step, oka.step]) hxB
+
 /-- **Las hipótesis**, en cada línea de la máquina `:on`. -/
 def HypsCross4On (φ : Cnf) : Prop := ∀ n : Nat, HCross4On φ (stepsM .on φ n (initM .on φ))
+
+/-- **Las hipótesis contra los remitentes**, en cada línea de la máquina `:on`. -/
+def HypsSender4On (φ : Cnf) : Prop := ∀ n : Nat, HSender4On φ (stepsM .on φ n (initM .on φ))
 
 theorem hypsTopOn_of_cross4 {φ : Cnf} (H : HypsCross4On φ) : HypsTopOn φ := by
   have hs := lInvBk_steps (φ := φ) (fun n hl hbk => hTopOn_of_cross4 (by omega) hl hbk (H n))
   exact fun n => hTopOn_of_cross4 (by omega) (hs n).1 (hs n).2 (H n)
+
+theorem hypsTopOn_of_sender4 {φ : Cnf} (H : HypsSender4On φ) : HypsTopOn φ := by
+  have hs := lInvBk_steps (φ := φ) (fun n hl hbk =>
+    hTopOn_of_cross4 (by omega) hl hbk (hCross4On_of_sender (by omega) hl hbk (H n)))
+  exact fun n => hTopOn_of_cross4 (by omega) (hs n).1 (hs n).2
+    (hCross4On_of_sender (by omega) (hs n).1 (hs n).2 (H n))
 
 end GPathB
 
@@ -840,6 +921,12 @@ los joins de la máquina:
 theorem spineVerdictOn_iff_of_cross4 {φ : Cnf} (hbd : Bounded φ) (H : HypsCross4On φ) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_cross4 H)
+
+/-- **El veredicto con el corte cruzado contra los remitentes**: la hipótesis del corte ya no mira el filtro ni el UP
+del otro lado; compara una llegada con la entrada de la línea que envía la otra. -/
+theorem spineVerdictOn_iff_of_sender4 {φ : Cnf} (hbd : Bounded φ) (H : HypsSender4On φ) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_sender4 H)
 
 end MachineOn
 
