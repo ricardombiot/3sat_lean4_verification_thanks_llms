@@ -12,6 +12,10 @@
 # B — la historia de las bases «TopFace» de las llegadas de cada join (cima t de la llegada S, base prohibida en S,
 #   t vecina de los tres con sus tres caras sin prohibir): con m el paso más alto de la base y T la línea de los
 #   remitentes, se mira la base en todas las entradas de las líneas m+1 … T:
+# C — PrevCut (lean ForbidOnStar.lean, HPrevCut), sobre TODAS las llegadas válidas (con uno o dos remitentes): para
+#   cada base TopFace de la llegada de una entrada de la línea T cuyos nodos ya existen en la línea T-1:
+#   pc_bases, pc_open (alguna entrada de la línea T-1 no la corta: se espera 0), pc_hi (bases con un nodo en la cima
+#   del remitente, que no entran en PrevCut)
 #   bases
 #   born_cut   — cortada en todas las entradas de todas esas líneas (desde que existe su nodo más alto)
 #   late       — alguna entrada de alguna línea la tiene abierta; first_all = la primera línea desde la que todas
@@ -100,7 +104,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    header = "instance\ttruth\tlc_dead\tlc_open\tbases\tborn_cut\tlate\tborn_edge\tborn_dead\tborn_open\tfirst_all\tcats\tsecs"
+    header = "instance\ttruth\tpc_bases\tpc_open\tpc_hi\tlc_dead\tlc_open\tbases\tborn_cut\tlate\tborn_edge\tborn_dead\tborn_open\tfirst_all\tcats\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
         ex = ProbeLib.exhaustive(path)
@@ -127,6 +131,19 @@ function main()
                         bump("lc_dead")
                         cut(b, q) || bump("lc_open")
                     end
+                end
+            end
+            # C — PrevCut, sobre todas las llegadas
+            for s in SENDS
+                T = Int(s[1].current_step)
+                A = arrival(s)
+                A.is_valid || continue
+                for b in topface(A)
+                    if maximum(st, b) >= T - 1
+                        bump("pc_hi"); continue
+                    end
+                    bump("pc_bases")
+                    all(g -> cut(g, b), values(get(lines, T - 1, Dict{Any, Any}()))) || bump("pc_open")
                 end
             end
             # B — la historia de las bases TopFace
@@ -167,7 +184,7 @@ function main()
             d = get(C, "$tag:$c:dead", 0)
             d > 0 && push!(cs, "$tag:$c=$d/$(get(C, "$tag:$c:open", 0))")
         end
-        return (truth, (get(C, k, 0) for k in ("lc_dead", "lc_open", "bases", "born_cut", "late", "born_edge", "born_dead", "born_open"))..., hist, join(cs, " "), round(t, digits = 1))
+        return (truth, (get(C, k, 0) for k in ("pc_bases", "pc_open", "pc_hi", "lc_dead", "lc_open", "bases", "born_cut", "late", "born_edge", "born_dead", "born_open"))..., hist, join(cs, " "), round(t, digits = 1))
     end
 end
 

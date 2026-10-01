@@ -709,6 +709,25 @@ theorem empty_noAdj {x s : PathNodeId} (h : GPathB.empty.Adj x s) : False := by
 /-- **La hipótesis de tríos**, en cada línea de la máquina `:on`. -/
 def HypsStarOn (φ : Cnf) : Prop := ∀ n : Nat, HStarOn φ (stepsM .on φ n (initM .on φ))
 
+theorem lineBk_init (φ : Cnf) : LineBk (initM .on φ) := by
+  rw [initM_eq]; intro kv hkv; rw [List.mem_singleton] at hkv; subst hkv
+  obtain ⟨T', hT'⟩ := upOn_eq (g := GPathB.empty) (d := (⟨0, 0⟩ : NodeId)) (title := "")
+    (forb := fun _ => false) (by rfl)
+  have e : initSeedOn (⟨0, 0⟩ : NodeId) "" = ((GPathB.empty.addNode ⟨0, 0⟩ "" (fun _ => false)).setT T').reviewOn :=
+    hT'
+  show TopDocsId (initSeedOn (⟨0, 0⟩ : NodeId) "") ⟨0, 0⟩ ∧ AdjPar (initSeedOn (⟨0, 0⟩ : NodeId) "") ∧
+    TopsApart (initSeedOn (⟨0, 0⟩ : NodeId) "")
+  rw [e]
+  have hta0 : TopsApart GPathB.empty := fun y w _ _ h => (empty_noAdj h).elim
+  have hap0 : AdjPar GPathB.empty := fun x s h _ => (empty_noAdj h).elim
+  refine ⟨topDocsId_of_shrinks (shrinks_reviewOn _)
+    (topDocsId_addNode (g := GPathB.empty) (title := "") (forb := fun _ => false)
+      (fun n hn => absurd hn List.not_mem_nil)),
+    adjPar_of_sub (shrinks_reviewOn _).1 (adjPar_setT (adjPar_addNode hta0 (by rfl) hap0) T'), ?_⟩
+  apply revPrims_reviewOn revPrims_topsApart trioBlind_topsApart
+  exact topsApart_addNode (g := GPathB.empty) (title := "") (forb := fun _ => false) sInvB_empty.docs
+    sInvB_empty.below sInvB_empty.edges
+
 /-- La inducción de línea con la contabilidad extra, para cualquier hipótesis que dé `TopSideAt` en los joins. -/
 theorem lInvBk_steps {φ : Cnf}
     (H : ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) →
@@ -716,26 +735,7 @@ theorem lInvBk_steps {φ : Cnf}
     ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) ∧ LineBk (stepsM .on φ n (initM .on φ)) := by
   intro n
   induction n with
-  | zero =>
-    refine ⟨lInvTop_init φ, ?_⟩
-    show LineBk (initM .on φ)
-    rw [initM_eq]; intro kv hkv; rw [List.mem_singleton] at hkv; subst hkv
-    obtain ⟨T', hT'⟩ := upOn_eq (g := GPathB.empty) (d := (⟨0, 0⟩ : NodeId)) (title := "")
-      (forb := fun _ => false) (by rfl)
-    have e : initSeedOn (⟨0, 0⟩ : NodeId) "" = ((GPathB.empty.addNode ⟨0, 0⟩ "" (fun _ => false)).setT T').reviewOn :=
-      hT'
-    show TopDocsId (initSeedOn (⟨0, 0⟩ : NodeId) "") ⟨0, 0⟩ ∧ AdjPar (initSeedOn (⟨0, 0⟩ : NodeId) "") ∧
-      TopsApart (initSeedOn (⟨0, 0⟩ : NodeId) "")
-    rw [e]
-    have hta0 : TopsApart GPathB.empty := fun y w _ _ h => (empty_noAdj h).elim
-    have hap0 : AdjPar GPathB.empty := fun x s h _ => (empty_noAdj h).elim
-    refine ⟨topDocsId_of_shrinks (shrinks_reviewOn _)
-      (topDocsId_addNode (g := GPathB.empty) (title := "") (forb := fun _ => false)
-        (fun n hn => absurd hn List.not_mem_nil)),
-      adjPar_of_sub (shrinks_reviewOn _).1 (adjPar_setT (adjPar_addNode hta0 (by rfl) hap0) T'), ?_⟩
-    apply revPrims_reviewOn revPrims_topsApart trioBlind_topsApart
-    exact topsApart_addNode (g := GPathB.empty) (title := "") (forb := fun _ => false) sInvB_empty.docs
-      sInvB_empty.below sInvB_empty.edges
+  | zero => exact ⟨lInvTop_init φ, lineBk_init φ⟩
   | succ n ih =>
     obtain ⟨hl, hbk⟩ := ih
     have hT : (1 : Int) ≤ (n : Int) + 1 := by omega
@@ -881,6 +881,112 @@ theorem hCross4On_of_sender {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h
   · exact crossCut_of_sender (reqs := reqOf φ d) (title := "") (forb := isProhibited φ) ib tb hda
       (by rw [eb.1.step, oka.step]) hxB
 
+-- ============================================================
+-- El corte baja a la línea anterior: un corte de toda una línea se conserva
+-- ============================================================
+
+/-- **Un triángulo que cortan los dos lados lo corta su unión `:on`.** -/
+theorem sideForbids_joinOn {A B : GPathB} (heA : EdgesAlive A) (heB : EdgesAlive B) {x y z : PathNodeId}
+    (nxy : x ≠ y) (nxz : x ≠ z) (nyz : y ≠ z) (s1 : SideForbids A (TF A) x y z) (s2 : SideForbids B (TF B) x y z) :
+    SideForbids (joinOn A B) (TF (joinOn A B)) x y z := by
+  by_cases hadj : (joinOn A B).Adj x y ∧ (joinOn A B).Adj x z ∧ (joinOn A B).Adj y z
+  · exact Or.inr (tF_joinOn_of_cut heA heB hadj.1 hadj.2.1 hadj.2.2 nxy nxz nyz s1 s2)
+  · exact Or.inl hadj
+
+/-- **Un corte de toda una línea se conserva en la siguiente**: si todas las entradas de la línea cortan un triángulo
+(de nodos por debajo de su cima), todas las de la línea siguiente lo cortan. -/
+theorem lineCut_advance {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvTop φ T line) {x y z : PathNodeId}
+    (nxy : x ≠ y) (nxz : x ≠ z) (nyz : y ≠ z) (hx : x.id.step < T) (hy : y.id.step < T) (hz : z.id.step < T)
+    (hc : ∀ e ∈ line, SideForbids e.2 (TF e.2) x y z) :
+    ∀ E ∈ advanceM .on φ line, SideForbids E.2 (TF E.2) x y z := by
+  have arr : ∀ kv ∈ line, ∀ d, SendsOn φ kv d → SideForbids (arrOn φ kv d) (TF (arrOn φ kv d)) x y z := by
+    intro kv hkv d hs
+    have hok := (h.on kv hkv).1
+    have hd : d.step = kv.2.current_step := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key, hok.step]; omega
+    exact sideForbids_arrivalOn (reqs := reqOf φ d) (title := "") (forb := isProhibited φ) hd
+      (by rw [hok.step]; exact hx) (by rw [hok.step]; exact hy) (by rw [hok.step]; exact hz) (hc kv hkv)
+  intro E hE
+  rcases entry_shapeOn (line_cases h.nodup h.keys) h.nodup hE with ⟨kv, hkv, hs, he⟩ |
+    ⟨a, ha, b, hb, _, hsa, hsb, he⟩
+  · rw [he]; exact arr kv hkv E.1 hs
+  · obtain ⟨ea, ia, _, _, _⟩ := arrTop_facts hT h ha hsa
+    obtain ⟨eb, ib, _, _, _⟩ := arrTop_facts hT h hb hsb
+    have hjoin : doJoinOn (arrOn φ a E.1) (arrOn φ b E.1) = joinOn (arrOn φ a E.1) (arrOn φ b E.1) := by
+      unfold doJoinOn okJoin
+      rw [if_pos (by simp [ea.1.step, eb.1.step, ea.1.mp, eb.1.mp, ea.1.valid, eb.1.valid])]
+    rw [he, hjoin]
+    exact sideForbids_joinOn ia.edges ib.edges nxy nxz nyz (arr a ha E.1 hsa) (arr b hb E.1 hsb)
+
+/-- **`PrevCut`**: en la línea siguiente a `prev` (de paso `T`), toda base prohibida en una llegada bajo una cima suya
+con sus tres caras sin prohibir, si sus nodos ya existían en `prev` (pasos por debajo de `T`), la cortan todas las
+entradas de `prev`. Habla de un triángulo y una línea: no hay segundo lado. -/
+def HPrevCut (φ : Cnf) (prev : Line) (T : Int) : Prop :=
+  ∀ a ∈ advanceM .on φ prev, ∀ d, SendsOn φ a d → ∀ t x y z, t ∈ (arrOn φ a d).alive →
+    t.id.step = (arrOn φ a d).current_step - 1 → x ≠ t → y ≠ t → z ≠ t → x ≠ y → x ≠ z → y ≠ z →
+    (arrOn φ a d).Adj t x → (arrOn φ a d).Adj t y → (arrOn φ a d).Adj t z →
+    (arrOn φ a d).Adj x y → (arrOn φ a d).Adj x z → (arrOn φ a d).Adj y z →
+    ¬ Sym (TF (arrOn φ a d)) x y t → ¬ Sym (TF (arrOn φ a d)) x z t → ¬ Sym (TF (arrOn φ a d)) y z t →
+    TF (arrOn φ a d) x y z → x.id.step < T → y.id.step < T → z.id.step < T →
+    ∀ e ∈ prev, SideForbids e.2 (TF e.2) x y z
+
+/-- **El corte cruzado contra el otro remitente, desde `PrevCut`.** Si la base ya existía dos líneas atrás, la cortan
+todas las entradas de esa línea y el corte se conserva; si no, tiene un nodo en la cima del remitente, que la otra
+entrada no tiene (su cima es de otro nodo de mapa). -/
+theorem crossCut_of_prevCut {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : LInvTop φ T prev)
+    (h' : LInvTop φ (T + 1) (advanceM .on φ prev)) (hbk' : LineBk (advanceM .on φ prev)) (hp : HPrevCut φ prev T)
+    {a b : NodeId × GPathB} (ha : a ∈ advanceM .on φ prev) (hb : b ∈ advanceM .on φ prev) (hab : a.1 ≠ b.1)
+    {d : NodeId} (hsa : SendsOn φ a d) : CrossCut (arrOn φ a d) b.2 := by
+  intro t x y z ht hts nxt nyt nzt nxy nxz nyz htx hty htz hxy hxz hyz f1 f2 f3 hf
+  have hT' : (1 : Int) ≤ T + 1 := by omega
+  obtain ⟨ea, ia, _, _, _⟩ := arrTop_facts hT' h' ha hsa
+  obtain ⟨_, ta⟩ := arrOn_adjPar (h'.on a ha) (h'.inv a ha) (hbk' a ha).2.1 (hbk' a ha).2.2 hsa
+  have oka := (h'.on a ha).1
+  have okb := (h'.on b hb).1
+  -- los nodos de la base están por debajo de la cima de la llegada
+  have low : ∀ {q : PathNodeId}, (arrOn φ a d).Adj t q → q ≠ t → q.id.step < T + 1 := by
+    intro q hq hne
+    have h1 := alive_below ia.docs ia.below (ia.edges t q hq).2
+    have h2 : q.id.step ≠ (arrOn φ a d).current_step - 1 := fun e => hne (ta t q hts e hq).symm
+    rw [ea.1.step] at h1 h2
+    omega
+  by_cases hlo : x.id.step < T ∧ y.id.step < T ∧ z.id.step < T
+  · exact lineCut_advance hT h nxy nxz nyz hlo.1 hlo.2.1 hlo.2.2
+      (hp a ha d hsa t x y z ht hts nxt nyt nzt nxy nxz nyz htx hty htz hxy hxz hyz f1 f2 f3 hf hlo.1 hlo.2.1 hlo.2.2)
+      b hb
+  · -- un nodo de la base está en la cima del remitente `a`: la otra entrada no lo tiene
+    have hi : ∀ {q : PathNodeId}, (arrOn φ a d).Adj t q → q ≠ t → ¬ q.id.step < T → q ∉ b.2.alive := by
+      intro q hq hne hnl hqb
+      have hqs : q.id.step = T := by have := low hq hne; omega
+      -- `q` está vivo en el remitente `a`
+      have hvY : (a.2.filterAllOn (reqOf φ d)).isValid = true :=
+        valid_of_upOn (d := d) (title := "") (forb := isProhibited φ) hsa.2
+      have hiY := sInvB_filterAllOn (h'.inv a ha) (reqOf φ d)
+      have hdY : d.step = (a.2.filterAllOn (reqOf φ d)).current_step := by
+        rw [step_filterAllOn, sonsOfMap_step φ a.1 d hsa.1, oka.key, oka.step]; omega
+      have hqA : q ∈ (arrOn φ a d).alive := (ia.edges t q hq).2
+      have hqa : q ∈ a.2.alive := by
+        rcases alive_addNode_cases (title := "") (forb := isProhibited φ) hiY.docs hiY.below hdY
+          ((sub_upOn_addNode hvY).alive q hqA) with ⟨hq1, _⟩ | ⟨_, hq2⟩
+        · exact (shrinks_filterAllOn a.2 (reqOf φ d)).1.alive q hq1
+        · rw [step_filterAllOn, oka.step] at hq2; omega
+      -- las cimas de cada entrada tienen por id su clave
+      obtain ⟨na, hna, hnaid⟩ := (h'.inv a ha).docs q hqa
+      obtain ⟨nb, hnb, hnbid⟩ := (h'.inv b hb).docs q hqb
+      have e1 := (hbk' a ha).1 na hna (by rw [hnaid, oka.step, hqs]; omega)
+      have e2 := (hbk' b hb).1 nb hnb (by rw [hnbid, okb.step, hqs]; omega)
+      rw [hnaid] at e1; rw [hnbid] at e2
+      exact hab (e1.symm.trans e2)
+    have heb := (h'.inv b hb).edges
+    left
+    intro ⟨h1, h2, h3⟩
+    by_cases hx : x.id.step < T
+    · by_cases hy : y.id.step < T
+      · by_cases hz : z.id.step < T
+        · exact hlo ⟨hx, hy, hz⟩
+        · exact hi htz nzt hz (heb x z h2).2
+      · exact hi hty nyt hy (heb x y h1).2
+    · exact hi htx nxt hx (heb x y h1).1
+
 /-- **Las hipótesis**, en cada línea de la máquina `:on`. -/
 def HypsCross4On (φ : Cnf) : Prop := ∀ n : Nat, HCross4On φ (stepsM .on φ n (initM .on φ))
 
@@ -890,6 +996,48 @@ def HypsSender4On (φ : Cnf) : Prop := ∀ n : Nat, HSender4On φ (stepsM .on φ
 theorem hypsTopOn_of_cross4 {φ : Cnf} (H : HypsCross4On φ) : HypsTopOn φ := by
   have hs := lInvBk_steps (φ := φ) (fun n hl hbk => hTopOn_of_cross4 (by omega) hl hbk (H n))
   exact fun n => hTopOn_of_cross4 (by omega) (hs n).1 (hs n).2 (H n)
+
+/-- El cierre a nivel cuatro en los joins de la línea, para los pins de `PinsFrom`. -/
+def HStar4On (φ : Cnf) (line : Line) : Prop :=
+  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d →
+    ∀ R, PinsFrom φ d R → Star4At (joinOn (arrOn φ a d) (arrOn φ b d)) R
+
+/-- **Las hipótesis con el corte en la línea anterior**: `PrevCut` de cada línea a la siguiente, y el cierre a nivel
+cuatro en cada join. -/
+def HypsPrev4On (φ : Cnf) : Prop :=
+  (∀ n : Nat, HPrevCut φ (stepsM .on φ n (initM .on φ)) ((n : Int) + 1)) ∧
+  (∀ n : Nat, HStar4On φ (stepsM .on φ n (initM .on φ)))
+
+/-- La inducción de línea bajo `HypsPrev4On`: el invariante, la contabilidad, y el corte cruzado contra los
+remitentes en cada línea. -/
+theorem lInvPrev_steps {φ : Cnf} (H : HypsPrev4On φ) :
+    ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) ∧ LineBk (stepsM .on φ n (initM .on φ)) ∧
+      HSender4On φ (stepsM .on φ n (initM .on φ)) := by
+  intro n
+  induction n with
+  | zero =>
+    refine ⟨lInvTop_init φ, lineBk_init φ, ?_⟩
+    show HSender4On φ (initM .on φ)
+    intro a ha b hb hab
+    rw [initM_eq, List.mem_singleton] at ha hb
+    exact absurd (by rw [ha, hb]) hab
+  | succ n ih =>
+    obtain ⟨hl, hbk, hs⟩ := ih
+    have hT : (1 : Int) ≤ (n : Int) + 1 := by omega
+    have hl' := lInvTop_advance hT hl (hTopOn_of_cross4 hT hl hbk (hCross4On_of_sender hT hl hbk hs))
+    have hbk' := lineBk_advance hT hl hbk
+    have h4 := H.2 (n + 1)
+    rw [stepsM_succ] at h4 ⊢
+    refine ⟨?_, hbk', ?_⟩
+    · rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+      exact hl'
+    · intro a ha b hb hab d hsa hsb
+      exact ⟨crossCut_of_prevCut hT hl hl' hbk' (H.1 n) ha hb hab hsa,
+        crossCut_of_prevCut hT hl hl' hbk' (H.1 n) hb ha (Ne.symm hab) hsb, h4 a ha b hb hab d hsa hsb⟩
+
+theorem hypsTopOn_of_prev4 {φ : Cnf} (H : HypsPrev4On φ) : HypsTopOn φ := fun n =>
+  hTopOn_of_cross4 (by omega) (lInvPrev_steps H n).1 (lInvPrev_steps H n).2.1
+    (hCross4On_of_sender (by omega) (lInvPrev_steps H n).1 (lInvPrev_steps H n).2.1 (lInvPrev_steps H n).2.2)
 
 theorem hypsTopOn_of_sender4 {φ : Cnf} (H : HypsSender4On φ) : HypsTopOn φ := by
   have hs := lInvBk_steps (φ := φ) (fun n hl hbk =>
@@ -927,6 +1075,16 @@ del otro lado; compara una llegada con la entrada de la línea que envía la otr
 theorem spineVerdictOn_iff_of_sender4 {φ : Cnf} (hbd : Bounded φ) (H : HypsSender4On φ) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_sender4 H)
+
+/-- **El veredicto con el corte en la línea anterior**: la espina `:on` decide la satisfacibilidad si
+
+* **`PrevCut`**: toda base prohibida en una llegada bajo una cima suya con sus tres caras sin prohibir, y cuyos nodos
+  ya existían dos líneas atrás, la cortan todas las entradas de esa línea (un triángulo y una línea, sin segundo
+  lado; el corte se conserva línea a línea, `lineCut_advance`);
+* **`Star4At`**: la estrella de una cima de la unión fijada cierra a nivel cuatro. -/
+theorem spineVerdictOn_iff_of_prev4 {φ : Cnf} (hbd : Bounded φ) (H : HypsPrev4On φ) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_prev4 H)
 
 end MachineOn
 
