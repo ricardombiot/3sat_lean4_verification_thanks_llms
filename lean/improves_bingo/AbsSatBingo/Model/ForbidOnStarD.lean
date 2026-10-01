@@ -465,6 +465,185 @@ theorem hypsTopOn_of_starD {φ : Cnf} (H : HypsStarDOn φ) : HypsTopOn φ := by
   have hs := lInvBk_steps (φ := φ) (fun n hl hbk => hTopOn_of_starD (by omega) hl hbk (H n))
   exact fun n => hTopOn_of_starD (by omega) (hs n).1 (hs n).2 (H n)
 
+-- ============================================================
+-- Donde vale el corte cruzado, `StarDAt` sale de las hipótesis anteriores
+-- ============================================================
+
+/-- **`CrossCut` + `Star4At` dan las dos hipótesis de `star_coreD`** para una cima del lado `S`: bajo el corte
+cruzado una base bajo la cima prohibida en `S` está prohibida en la unión fijada, así que los testigos del punto fijo
+y los de `Star4At`, que esquivan los tríos de la unión, esquivan también los de `S`. -/
+theorem starD_of_cross4 {J S O : GPathB} {Rp : List NodeId} (hJ : SInvB J) (hnsJ : NoSelf J) (hndJ : NoDegT J)
+    (hv : (J.pinOn Rp).isValid = true) (hndS : NoDegT S) (hcs : J.current_step = S.current_step)
+    (hadj : ∀ x w, J.Adj x w → S.Adj x w ∨ O.Adj x w) (heO : EdgesAlive O)
+    (hcut2 : ∀ {x y z}, J.Adj x y → J.Adj x z → J.Adj y z → x ≠ y → x ≠ z → y ≠ z → SideForbids S (TF S) x y z →
+      SideForbids O (TF O) x y z → TF J x y z)
+    {t : PathNodeId} (ht : t ∈ (J.pinOn Rp).alive) (hts : t.id.step = J.current_step - 1) (htS : t ∈ S.alive)
+    (htO : t ∉ O.alive) (hcross : CrossCut S O) (h4 : Star4At J Rp) :
+    (∀ a b, a ≠ t → b ≠ t → a ≠ b → (J.pinOn Rp).Adj t a → (J.pinOn Rp).Adj t b → (J.pinOn Rp).Adj a b →
+      ¬ Sym (TF (J.pinOn Rp)) a b t → ∀ l, 0 ≤ l → l < J.current_step →
+      ∃ s, s.id.step = l ∧ (J.pinOn Rp).Adj a s ∧ (J.pinOn Rp).Adj b s ∧ (J.pinOn Rp).Adj t s ∧
+        (s = a ∨ s = b ∨ s = t ∨ (¬ Sym (TF (J.pinOn Rp)) a b s ∧ ¬ Sym (TF (J.pinOn Rp)) a t s ∧
+          ¬ Sym (TF (J.pinOn Rp)) b t s ∧ ¬ Sym (TF S) a b s))) ∧
+    (∀ a b r, Tetra (J.pinOn Rp) t a b r → ¬ Sym (TF (J.pinOn Rp)) a b r → ¬ Sym (TF S) a b r →
+      (∀ τ ∈ (S.pinOn Rp).trios, trioIs a b r τ = false) ∨
+      (∀ l, 0 ≤ l → l < J.current_step →
+        ∃ s, s.id.step = l ∧ (s = a ∨ s = b ∨ s = r ∨ s = t ∨ (Wit4 (J.pinOn Rp) t a b r s ∧
+          ¬ Sym (TF S) a b s ∧ ¬ Sym (TF S) a r s ∧ ¬ Sym (TF S) b r s)))) := by
+  let u := J.pinOn Rp
+  have hsub : Sub u J := sub_pinOn J Rp
+  have usymm : ∀ {y w}, u.Adj y w → u.Adj w y := fun h => (adj_symm u _ _).mp h
+  -- un triángulo de `u` con la cima, prohibido en `S`, está prohibido en `u`
+  have face_up : ∀ {p q w}, u.Adj p q → u.Adj p w → u.Adj q w → (t = p ∨ t = q ∨ t = w) → TF S p q w →
+      TF u p q w := by
+    intro p q w hpq hpw hqw htin hf
+    have hd := hf.2
+    unfold deadTrio at hd
+    rw [Bool.and_eq_true] at hd
+    obtain ⟨τ, hτ, hti⟩ := List.any_eq_true.mp hd.2
+    obtain ⟨npq, npw, nqw⟩ := distinct_of_trioIs hti (hndS τ hτ)
+    have hO : SideForbids O (TF O) p q w := by
+      left
+      intro ⟨h1, h2, _⟩
+      apply htO
+      rcases htin with e | e | e
+      · rw [e]; exact (heO p q h1).1
+      · rw [e]; exact (heO p q h1).2
+      · rw [e]; exact (heO p w h2).2
+    exact tF_mono (trios_grow_pinOn J Rp) hpq
+      (hcut2 (hsub.adj _ _ hpq) (hsub.adj _ _ hpw) (hsub.adj _ _ hqw) npq npw nqw (Or.inr hf) hO)
+  have nsymS : ∀ {y w}, u.Adj y w → u.Adj t y → u.Adj t w → ¬ Sym (TF u) y w t → ¬ Sym (TF S) y w t := by
+    intro y w hyw hty htw hn hs
+    apply hn
+    refine sym_mono (fun p q x hp hf => ?_) hs
+    obtain ⟨h1, h2, h3⟩ := tri_of_perms (R := fun y w => u.Adj y w) usymm hyw (usymm hty) (usymm htw) hp
+    exact face_up h1 h2 h3 (perms_mem3 hp) hf
+  have key : ∀ a b, u.Adj a b → a ∉ O.alive → S.Adj a b := fun a b h hn =>
+    (hadj a b (hsub.adj _ _ h)).resolve_right (fun ho => hn (heO a b ho).1)
+  have sadj : ∀ {y w}, y ≠ w → y ≠ t → w ≠ t → u.Adj y w → u.Adj t y → u.Adj t w → ¬ Sym (TF u) y w t →
+      S.Adj y w := by
+    intro y w hyw hyt hwt h3 h1 h2 hn
+    apply Classical.byContradiction
+    intro hno
+    have hJf : TF J y w t := hcut2 (hsub.adj _ _ h3) (hsub.adj _ _ (usymm h1)) (hsub.adj _ _ (usymm h2)) hyw hyt hwt
+      (Or.inl fun h => hno h.1) (Or.inl fun h => htO (heO y t h.2.1).2)
+    exact hn (Or.inl (tF_mono (trios_grow_pinOn J Rp) h3 hJf))
+  -- una base bajo la cima prohibida en `S` está prohibida en `u`
+  have up : ∀ {p q w}, p ≠ t → q ≠ t → w ≠ t → p ≠ q → p ≠ w → q ≠ w → u.Adj t p → u.Adj t q → u.Adj t w →
+      u.Adj p q → u.Adj p w → u.Adj q w → ¬ Sym (TF u) p q t → ¬ Sym (TF u) p w t → ¬ Sym (TF u) q w t →
+      TF S p q w → TF u p q w := by
+    intro p q w npt nqt nwt npq npw nqw htp htq htw hpq hpw hqw f1 f2 f3 hf
+    have hO := hcross t p q w htS (by rw [← hcs]; exact hts) npt nqt nwt npq npw nqw (key t p htp htO)
+      (key t q htq htO) (key t w htw htO) (sadj npq npt nqt hpq htp htq f1) (sadj npw npt nwt hpw htp htw f2)
+      (sadj nqw nqt nwt hqw htq htw f3) (nsymS hpq htp htq f1) (nsymS hpw htp htw f2) (nsymS hqw htq htw f3) hf
+    exact tF_mono (trios_grow_pinOn J Rp) hpq
+      (hcut2 (hsub.adj _ _ hpq) (hsub.adj _ _ hpw) (hsub.adj _ _ hqw) npq npw nqw (Or.inr hf) hO)
+  have upS : ∀ {p q w}, p ≠ t → q ≠ t → w ≠ t → p ≠ q → p ≠ w → q ≠ w → u.Adj t p → u.Adj t q → u.Adj t w →
+      u.Adj p q → u.Adj p w → u.Adj q w → ¬ Sym (TF u) p q t → ¬ Sym (TF u) p w t → ¬ Sym (TF u) q w t →
+      Sym (TF S) p q w → Sym (TF u) p q w := by
+    intro p q w npt nqt nwt npq npw nqw htp htq htw hpq hpw hqw f1 f2 f3 hs
+    have g1 : ¬ Sym (TF u) q p t := nsym_perm f1 (by simp [perms])
+    have g2 : ¬ Sym (TF u) w p t := nsym_perm f2 (by simp [perms])
+    have g3 : ¬ Sym (TF u) w q t := nsym_perm f3 (by simp [perms])
+    unfold Sym at hs
+    rcases hs with h | h | h | h | h | h
+    · exact Or.inl (up npt nqt nwt npq npw nqw htp htq htw hpq hpw hqw f1 f2 f3 h)
+    · exact Or.inr (Or.inl (up npt nwt nqt npw npq (Ne.symm nqw) htp htw htq hpw hpq (usymm hqw) f2 f1 g3 h))
+    · exact Or.inr (Or.inr (Or.inl (up nqt npt nwt (Ne.symm npq) nqw npw htq htp htw (usymm hpq) hqw hpw g1 f3 f2
+        h)))
+    · exact Or.inr (Or.inr (Or.inr (Or.inl (up nqt nwt npt nqw (Ne.symm npq) (Ne.symm npw) htq htw htp hqw
+        (usymm hpq) (usymm hpw) f3 g1 g2 h))))
+    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl (up nwt npt nqt (Ne.symm npw) (Ne.symm nqw) npq htw htp htq
+        (usymm hpw) (usymm hqw) hpq g2 g3 f1 h)))))
+    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (up nwt nqt npt (Ne.symm nqw) (Ne.symm npw) (Ne.symm npq) htw
+        htq htp (usymm hqw) (usymm hpw) (usymm hpq) g3 g2 g1 h)))))
+  refine ⟨?_, ?_⟩
+  · intro a b hat hbt nab hta htb hab hf l h0 h1
+    obtain ⟨s, hsl, has, hbs, hts', hw⟩ := fix_witness hJ hnsJ hndJ hv hab (usymm hta) (usymm htb) nab hat hbt hf
+      l h0 h1
+    refine ⟨s, hsl, has, hbs, hts', ?_⟩
+    by_cases e1 : s = a
+    · exact Or.inl e1
+    by_cases e2 : s = b
+    · exact Or.inr (Or.inl e2)
+    by_cases e3 : s = t
+    · exact Or.inr (Or.inr (Or.inl e3))
+    rcases hw with e | e | e | ⟨n1, n2, n3⟩
+    · exact absurd e e1
+    · exact absurd e e2
+    · exact absurd e e3
+    · exact Or.inr (Or.inr (Or.inr ⟨n1, n2, n3, fun hS => n1 (upS hat hbt e3 nab (Ne.symm e1) (Ne.symm e2) hta htb
+        hts' hab has hbs hf (nsym_perm n2 (by simp [perms])) (nsym_perm n3 (by simp [perms])) hS)⟩))
+  · intro a b r htet hnU _
+    right
+    intro l h0 h1
+    obtain ⟨s, hsl, hs⟩ := h4 hv t ht hts a b r htet hnU l h0 h1
+    refine ⟨s, hsl, ?_⟩
+    by_cases e1 : s = a
+    · exact Or.inl e1
+    by_cases e2 : s = b
+    · exact Or.inr (Or.inl e2)
+    by_cases e3 : s = r
+    · exact Or.inr (Or.inr (Or.inl e3))
+    by_cases e4 : s = t
+    · exact Or.inr (Or.inr (Or.inr (Or.inl e4)))
+    obtain ⟨nat, nbt, nrt, nab, nar, nbr, hta, htb, htr, hab, har, hbr, f1, f2, f3⟩ := htet
+    rcases hs with e | e | e | e | ⟨k1, k2, k3, k4, k5, k6, k7, k8, k9, k10⟩
+    · exact absurd e e1
+    · exact absurd e e2
+    · exact absurd e e3
+    · exact absurd e e4
+    · exact Or.inr (Or.inr (Or.inr (Or.inr ⟨⟨k1, k2, k3, k4, k5, k6, k7, k8, k9, k10⟩,
+        fun hS => k8 (upS nat nbt e4 nab (Ne.symm e1) (Ne.symm e2) hta htb k1 hab k2 k3 f1 k5 k6 hS),
+        fun hS => k9 (upS nat nrt e4 nar (Ne.symm e1) (Ne.symm e3) hta htr k1 har k2 k4 f2 k5 k7 hS),
+        fun hS => k10 (upS nbt nrt e4 nbr (Ne.symm e2) (Ne.symm e3) htb htr k1 hbr k3 k4 f3 k6 k7 hS)⟩)))
+
+/-- **`StarDAt` en los dos lados, bajo el corte cruzado y el cierre a nivel cuatro.** -/
+theorem starDAt_of_cross4 {A B : GPathB} {Rp : List NodeId} {bA bB : NodeId} (hA : SInvB A) (hB : SInvB B)
+    (hnsA : NoSelf A) (hnsB : NoSelf B) (hndA : NoDegT A) (hndB : NoDegT B)
+    (hcs : A.current_step = B.current_step) (hne : bA ≠ bB)
+    (hfA : TopsFrom A (fun a => a = bA)) (hfB : TopsFrom B (fun a => a = bB))
+    (hxA : CrossCut A B) (hxB : CrossCut B A) (h4 : Star4At (joinOn A B) Rp) :
+    StarDAt A (joinOn A B) Rp ∧ StarDAt B (joinOn A B) Rp := by
+  have hcsJ : (joinOn A B).current_step = A.current_step := step_joinOn A B
+  have hJ : SInvB (joinOn A B) := sInvB_joinOn hA hB hcs
+  have hnsJ : NoSelf (joinOn A B) := noSelf_joinOn hnsA hnsB
+  have hndJ : NoDegT (joinOn A B) := noDegT_joinOn hnsA hnsB hA.edges hB.edges
+  obtain ⟨T', hT⟩ := joinOn_eq A B
+  have hadj : ∀ x w, (joinOn A B).Adj x w → A.Adj x w ∨ B.Adj x w := fun x w h => by
+    rw [hT] at h; exact adj_join_cases h
+  have hsep : ∀ t : PathNodeId, t.id.step = (joinOn A B).current_step - 1 → t ∈ A.alive → t ∈ B.alive → False := by
+    intro t hts h1 h2
+    obtain ⟨a, ha, hp⟩ := hfA t h1 (by rw [← hcsJ]; exact hts)
+    obtain ⟨b, hb, hp'⟩ := hfB t h2 (by rw [← hcs, ← hcsJ]; exact hts)
+    rw [hp, ha, hb] at hp'
+    exact hne (Option.some.inj hp')
+  constructor
+  · intro hv t ht hts htA
+    exact starD_of_cross4 (S := A) (O := B) hJ hnsJ hndJ hv hndA hcsJ hadj hB.edges
+      (fun hxy hxz hyz nxy nxz nyz s1 s2 => tF_joinOn_of_cut hA.edges hB.edges hxy hxz hyz nxy nxz nyz s1 s2)
+      ht hts htA (fun h => hsep t hts htA h) hxA h4
+  · intro hv t ht hts htB
+    exact starD_of_cross4 (S := B) (O := A) hJ hnsJ hndJ hv hndB (hcsJ.trans hcs) (fun x w h => (hadj x w h).symm)
+      hA.edges
+      (fun hxy hxz hyz nxy nxz nyz s2 s1 => tF_joinOn_of_cut hA.edges hB.edges hxy hxz hyz nxy nxz nyz s1 s2)
+      ht hts htB (fun h => hsep t hts h htB) hxB h4
+
+theorem hStarDOn_of_cross4 {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvTop φ T line)
+    (hbk : LineBk line) (hp : HCross4On φ line) : HStarDOn φ line := by
+  intro a ha b hb hab d hsa hsb R hR
+  obtain ⟨ea, ia, na, _, _⟩ := arrTop_facts hT h ha hsa
+  obtain ⟨eb, ib, nb, _, _⟩ := arrTop_facts hT h hb hsb
+  obtain ⟨fa, _⟩ := arrOn_tops hT (h.on a ha) (hbk a ha).1 hsa
+  obtain ⟨fb, _⟩ := arrOn_tops hT (h.on b hb) (hbk b hb).1 hsb
+  obtain ⟨hxA, hxB, h4⟩ := hp a ha b hb hab d hsa hsb
+  exact starDAt_of_cross4 ia ib ea.2.1 eb.2.1 na nb (ea.1.step.trans eb.1.step.symm) hab fa fb hxA hxB (h4 R hR)
+
+/-- **Las hipótesis anteriores dan la nueva**: donde valen `CrossCut` y `Star4At` vale `StarDAt`. Las medidas sin
+fallos de `CrossCut` y `Star4At` respaldan también `HypsStarDOn` en esas instancias. -/
+theorem hypsStarDOn_of_cross4 {φ : Cnf} (H : HypsCross4On φ) : HypsStarDOn φ := by
+  have hs := lInvBk_steps (φ := φ) (fun n hl hbk => hTopOn_of_cross4 (by omega) hl hbk (H n))
+  exact fun n => hStarDOn_of_cross4 (by omega) (hs n).1 (hs n).2 (H n)
+
 end GPathB
 
 namespace MachineOn
