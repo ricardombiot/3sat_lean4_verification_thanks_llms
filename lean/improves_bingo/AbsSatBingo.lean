@@ -126,3 +126,4 @@ import AbsSatBingo.Model.ForbidOnBirth
 import AbsSatBingo.Model.ForbidOnSplit
 import AbsSatBingo.Model.ForbidOnStarD
 import AbsSatBingo.Model.ForbidOnFam
+import AbsSatBingo.Model.ForbidOnApart

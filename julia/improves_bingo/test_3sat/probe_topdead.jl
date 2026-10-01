@@ -1,7 +1,7 @@
 # Las bases muertas en un lado y vivas en la unión fijada: ¿sobrevive la cima?, ¿sigue cerrada su estrella?
 # (1-oct-2026, rama reader-stuck; tras refutarse CrossCut en v7, probe_prevbig.jl)
 #
-#   PIN_MODE=real PROBE_MAP=bin PROBE_ONLY=... julia --project=. test_3sat/probe_topdead.jl <salida.tsv> [muestras]
+#   PIN_MODE=real|short [PIN_MAXLEN=3] PROBE_MAP=bin PROBE_ONLY=... julia --project=. test_3sat/probe_topdead.jl <salida.tsv> [muestras]
 #
 # Con FORBID = :on. En cada join, para R = [] y pins R: U = pin(join(A,B), R). Para cada cima viva t de U, con S el
 # lado donde t está viva y P = pin(S, R):
@@ -44,6 +44,8 @@ end
 const RNG = Ref(MersenneTwister(20261001))
 const PRE = Ref{Any}(nothing)
 const GMAP = Ref{Any}(nothing)
+const PIN_MODE = get(ENV, "PIN_MODE", "real")
+const PIN_MAXLEN = parse(Int, get(ENV, "PIN_MAXLEN", "3"))
 
 ram_ok() = Sys.maxrss() / 2^20 < RAM_MB
 alive_at(g, l) = sort(collect(get(g.og.alive, l, SetPathNodesId())), by = string)
@@ -55,7 +57,10 @@ st(x) = Int(x.id.step)
 function real_pins(d)
     R = NodeId[]
     last = Int(GMAP[].step) - 1
-    len = rand(RNG[], Bool) ? typemax(Int) : rand(RNG[], 1:max(1, last - Int(d.step)))
+    # PIN_MODE=short: caminos cortos (1 … PIN_MAXLEN pasos del mapa), para que la unión fijada suela ser válida;
+    # PIN_MODE=real: la mitad hasta el final del mapa y la otra mitad de longitud al azar
+    len = PIN_MODE == "short" ? rand(RNG[], 1:PIN_MAXLEN) :
+          (rand(RNG[], Bool) ? typemax(Int) : rand(RNG[], 1:max(1, last - Int(d.step))))
     k = d
     while len > 0
         sons = collect(SatMachine.map_get_node(GMAP[], k).sons)
