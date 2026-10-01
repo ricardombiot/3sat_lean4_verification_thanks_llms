@@ -142,14 +142,14 @@ theorem valid_of_upOn {Y : GPathB} (hv : (Y.upOn d title forb).isValid = true) :
   · assumption
   · exact hv
 
-/-- **Dirección 2**: una cadena viva de la llegada fijada, sin su cima, es cadena viva de la entrada fijada. -/
-theorem liveChain_down (hE : SInvB E) (hns : NoSelf E) (hndt : NoDegT E) (hlen : reqs.length ≤ 1)
+/-- **La parte baja de la llegada fijada vive en la entrada fijada**: es una estructura cerrada de
+`pinOn E (reqs ++ R)`, y los tríos de la entrada fijada sobre sus triángulos están entre los de la llegada fijada. -/
+theorem downInv_arrival (hE : SInvB E) (hns : NoSelf E) (hndt : NoDegT E) (hlen : reqs.length ≤ 1)
     (hd : d.step = E.current_step) (hpos : 1 ≤ E.current_step)
-    (hvh : (((E.filterAllOn reqs).upOn d title forb).pinOn R).isValid = true)
-    {C : Int → PathNodeId} {j : Int}
-    (hC : LiveChain (((E.filterAllOn reqs).upOn d title forb).pinOn R)
-      (TF (((E.filterAllOn reqs).upOn d title forb).pinOn R)) C j) :
-    LiveChain (E.pinOn (reqs ++ R)) (TF (E.pinOn (reqs ++ R))) C j := by
+    (hvh : (((E.filterAllOn reqs).upOn d title forb).pinOn R).isValid = true) :
+    DownInv (LowV (((E.filterAllOn reqs).upOn d title forb).pinOn R) E.current_step)
+      (LowR (((E.filterAllOn reqs).upOn d title forb).pinOn R) E.current_step)
+      (TF (((E.filterAllOn reqs).upOn d title forb).pinOn R)) E.current_step (E.pinOn (reqs ++ R)) := by
   -- los estados
   let Y := E.filterAllOn reqs
   let A := Y.upOn d title forb
@@ -213,7 +213,34 @@ theorem liveChain_down (hE : SInvB E) (hns : NoSelf E) (hndt : NoDegT E) (hlen :
   have h2 : DownInv (LowV h c) (LowR h c) (TF h) c { (reqs ++ R).foldl filterRequire E with dirty := true } :=
     downInv_shrink h1 (shrinks_dirty _ true).1 rfl (sec_dirty h1.sec true) h1.ns
   have hTG : TrioGood (LowV h c) (LowR h c) (TF h) c := trioGood_low hfix hndth (by rw [hcsh]; omega)
-  have hX : DownInv (LowV h c) (LowR h c) (TF h) c X := downInv_reviewOn h2 hTG hsymm
+  exact downInv_reviewOn h2 hTG hsymm
+
+/-- **Dirección 2**: una cadena viva de la llegada fijada, sin su cima, es cadena viva de la entrada fijada. -/
+theorem liveChain_down (hE : SInvB E) (hns : NoSelf E) (hndt : NoDegT E) (hlen : reqs.length ≤ 1)
+    (hd : d.step = E.current_step) (hpos : 1 ≤ E.current_step)
+    (hvh : (((E.filterAllOn reqs).upOn d title forb).pinOn R).isValid = true)
+    {C : Int → PathNodeId} {j : Int}
+    (hC : LiveChain (((E.filterAllOn reqs).upOn d title forb).pinOn R)
+      (TF (((E.filterAllOn reqs).upOn d title forb).pinOn R)) C j) :
+    LiveChain (E.pinOn (reqs ++ R)) (TF (E.pinOn (reqs ++ R))) C j := by
+  let Y := E.filterAllOn reqs
+  let A := Y.upOn d title forb
+  let h := A.pinOn R
+  let X := E.pinOn (reqs ++ R)
+  let c := E.current_step
+  have hcsY : Y.current_step = c := step_filterAllOn E reqs
+  have hvA : A.isValid = true := isValid_of_sub (sub_pinOn A R) hvh
+  have hvY : Y.isValid = true := valid_of_upOn hvA
+  have hdY : d.step = Y.current_step := by rw [hcsY]; exact hd
+  have hiY : SInvB Y := sInvB_filterAllOn hE reqs
+  have hiA : SInvB A := sInvB_upOn hiY hdY (by omega)
+  have hcsA : A.current_step = c + 1 := by
+    rw [(sub_upOn_addNode hvY).step]; show Y.current_step + 1 = _; rw [hcsY]
+  have hcsh : h.current_step = c + 1 := (step_pinOn A R).trans hcsA
+  have hcsX : X.current_step = c := step_pinOn E _
+  have hsymm : ∀ {y w}, LowR h c y w → LowR h c w y :=
+    fun hr => ⟨⟨hr.1.2.1, hr.1.1, (adj_symm h _ _).mp hr.1.2.2⟩, hr.2.2, hr.2.1⟩
+  have hX : DownInv (LowV h c) (LowR h c) (TF h) c X := downInv_arrival hE hns hndt hlen hd hpos hvh
   -- la cadena
   have hliX : LinksInv X := (sInvB_pinOn hE _).links
   have hlih : LinksInv h := (sInvB_pinOn hiA R).links

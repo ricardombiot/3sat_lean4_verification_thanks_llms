@@ -112,3 +112,4 @@ import AbsSatBingo.Model.ForbidOnLive
 import AbsSatBingo.Model.ForbidOnDown
 import AbsSatBingo.Model.ForbidOnFix
 import AbsSatBingo.Model.ForbidOnPin
+import AbsSatBingo.Model.ForbidOnArr
