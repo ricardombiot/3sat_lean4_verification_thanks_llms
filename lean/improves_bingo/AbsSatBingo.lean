@@ -123,3 +123,4 @@ import AbsSatBingo.Model.ForbidOnStar
 import AbsSatBingo.Model.ForbidOnInherit
 import AbsSatBingo.Model.ForbidOnHi
 import AbsSatBingo.Model.ForbidOnBirth
+import AbsSatBingo.Model.ForbidOnSplit
