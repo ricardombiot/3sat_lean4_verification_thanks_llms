@@ -4,11 +4,12 @@
 #
 # Con FORBID = :on, sobre TODAS las llegadas válidas S = arrOn a d. Un triángulo viejo (sus tres nodos por debajo del
 # paso de `a`, o sea vivos antes del UP) prohibido en S solo puede venir de `a` o de la regla del review (del filtro o
-# del UP): `up_forbid` solo escribe tríos con la cima nueva. `NoRuleOld` (lean ForbidOnHi.lean, HNoRule): está ya
-# prohibido en `a`.
+# del UP): `up_forbid` solo escribe tríos con la cima nueva. `HNoRule` (lean ForbidOnHi.lean) dice que ya estaba
+# prohibido en `a` si es de la zona «top» o de la categoría f3 (base muerta bajo una cima de S). Sin esa restricción
+# es FALSO: v6_c26_i1 tiene 16 triángulos low:f2 que prohíbe la regla.
 #
 #   old_dead          triángulos viejos prohibidos en S
-#   rule_new          los que en `a` son un triángulo sin prohibir (los prohíbe la regla): fallos de `NoRuleOld`
+#   rule_new          los que en `a` son un triángulo sin prohibir (los prohíbe la regla)
 #   cats              por categoría «zona:cat=prohibidos/de la regla»: zona «top» si el triángulo tiene un nodo en la
 #                     cima de `a`, «low» si no; cat = la mejor cima de S vecina de los tres («nostar» si ninguna, o
 #                     f0…f3 = el máximo de caras con esa cima sin prohibir)

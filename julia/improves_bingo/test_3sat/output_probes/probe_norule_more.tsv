@@ -1,0 +1,3 @@
+instance	truth	old_dead	rule_new	cats	secs
+v6_c26_i1.cnf	false	1867	16	top:f2=85/0 top:f3=79/0 low:f2=1183/16 low:f3=520/0	161.1
+v6_c26_i2.cnf	true	2610	0	top:f2=147/0 top:f3=55/0 low:f2=1845/0 low:f3=563/0	163.6

@@ -6,9 +6,11 @@ import AbsSatBingo.Model.ForbidOnInherit
 
 Lo que queda de `PrevCut` tras la herencia (`HPrevNew`) se parte en dos hipótesis:
 
-* **`HNoRule`** (una llegada sola, sin contexto): un triángulo viejo prohibido en la llegada `arrOn φ kv d` ya estaba
-  prohibido en la entrada `kv`. En una llegada `up_forbid` solo escribe tríos con la cima nueva, así que dice que la
-  regla del review (del filtro y del UP) no prohíbe triángulos viejos.
+* **`HNoRule`** (una llegada sola): un triángulo viejo prohibido en la llegada `arrOn φ kv d` ya estaba prohibido en
+  la entrada `kv`, si es una base muerta bajo una cima de la llegada o tiene un nodo en la cima de `kv`. En una
+  llegada `up_forbid` solo escribe tríos con la cima nueva, así que dice que la regla del review (del filtro y del
+  UP) no prohíbe esos triángulos. **Sin esa restricción es falsa**: en `v6_c26_i1` la regla prohíbe 16 triángulos
+  viejos, todos bajos y con una cima de dos caras vivas (`probe_norule.jl`).
 * **`HPrevLo`**: `PrevCut` para las bases de nacimiento (ninguna cima de la entrada sostiene las tres caras) cuyos
   nodos existían una línea más atrás. Sale de **`HPrevLo2`**, el mismo corte dos líneas atrás (`hPrevLo_of_two`,
   por `lineCut_advance`), que es como se ve en las medidas: sin tríos, por un nodo o una arista que falta.
@@ -66,11 +68,13 @@ theorem arrOn_alive_old {φ : Cnf} {T : Int} {kv : NodeId × GPathB} (hent : Ent
 -- Las dos hipótesis
 -- ============================================================
 
-/-- **La regla no prohíbe triángulos viejos**: un triángulo de nodos viejos (por debajo del paso `T` de la línea),
-prohibido en la llegada de una entrada de la línea, ya estaba prohibido en la entrada. -/
+/-- **La regla no prohíbe ciertos triángulos viejos**: un triángulo de nodos viejos (por debajo del paso `T` de la
+línea), prohibido en la llegada de una entrada de la línea, ya estaba prohibido en la entrada, si es una base muerta
+bajo una cima de la llegada (sus tres caras con la cima sin prohibir) o tiene un nodo en la cima de la entrada. -/
 def HNoRule (φ : Cnf) (line : Line) (T : Int) : Prop :=
   ∀ kv ∈ line, ∀ d, SendsOn φ kv d → ∀ x y z, x.id.step < T → y.id.step < T → z.id.step < T →
     (arrOn φ kv d).Adj x y → (arrOn φ kv d).Adj x z → (arrOn φ kv d).Adj y z →
+    ((∃ t, DeadBase (arrOn φ kv d) t x y z) ∨ x.id.step = T - 1 ∨ y.id.step = T - 1 ∨ z.id.step = T - 1) →
     TF (arrOn φ kv d) x y z → TF kv.2 x y z
 
 /-- **El nacimiento bajo**: `PrevCut` para las bases muertas de una llegada cuyos nodos existían una línea antes de
@@ -144,7 +148,8 @@ theorem tF_sender_of_top {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : 
     (h' : LInvTop φ (T + 1) (advanceM .on φ prev)) (hbk' : LineBk (advanceM .on φ prev)) (hR : HNoRule φ prev T)
     {a : NodeId × GPathB} (ha : a ∈ advanceM .on φ prev) {t q u w x y z : PathNodeId}
     (hperm : (x, y, z) ∈ perms q u w) (hf : TF a.2 x y z) (hx : x.id.step < T) (hy : y.id.step < T)
-    (hz : z.id.step < T) (hqs : q.id.step = T - 1) (hus : u.id.step < T) (hws : w.id.step < T) (nuw : u ≠ w)
+    (hz : z.id.step < T) (htop : x.id.step = T - 1 ∨ y.id.step = T - 1 ∨ z.id.step = T - 1)
+    (hqs : q.id.step = T - 1) (hus : u.id.step < T) (hws : w.id.step < T) (nuw : u ≠ w)
     (hqu : a.2.Adj q u) (hqw : a.2.Adj q w) (huw : HoldsFace a.2 t u w)
     (hpq : ∃ p ∈ a.2.alive, p.id.step = a.2.current_step - 1 ∧ Compat p t ∧ a.2.Adj p q) :
     ∀ e ∈ prev, q ∈ e.2.alive → TF e.2 x y z := by
@@ -179,7 +184,7 @@ theorem tF_sender_of_top {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : 
     subst this
     obtain ⟨sxy, sxz, syz⟩ := tri_of_perms (R := fun y w => (arrOn φ kv a.1).Adj y w)
       (fun h => (adj_symm _ _ _).mp h) hqu hqw huw' hperm
-    exact hR kv hkv a.1 hs x y z hx hy hz sxy sxz syz hf
+    exact hR kv hkv a.1 hs x y z hx hy hz sxy sxz syz (Or.inr htop) hf
   · -- la unión de dos llegadas
     obtain ⟨e1, i1, n1, _, _⟩ := arrTop_facts hT h hk1 hs1
     obtain ⟨e2, i2, n2, _, _⟩ := arrTop_facts hT h hk2 hs2
@@ -223,7 +228,7 @@ theorem tF_sender_of_top {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : 
           obtain ⟨τ, c1, c2, _⟩ := tF_joinOn_inv e1.2.1 e2.2.1 i1.edges i2.edges hf'
           exact ⟨τ, c1, c2⟩) hperm hf hqO hpO nuw npu npw hqu hqw hpu hpw huw' hntr'
       rw [← hk]
-      exact hR k1 hk1 a.1 hs1 x y z hx hy hz sxy sxz syz hTF
+      exact hR k1 hk1 a.1 hs1 x y z hx hy hz sxy sxz syz (Or.inr htop) hTF
     · have hk := q2 hq
       have hqO : q ∉ (arrOn φ k1 a.1).alive := fun hq' => hne (by rw [hk, q1 hq'])
       have hpO : p ∉ (arrOn φ k1 a.1).alive := fun hp' => hne (by rw [hk, ← keyq e he hqe, p1 hp'])
@@ -234,7 +239,7 @@ theorem tF_sender_of_top {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : 
           obtain ⟨τ, c1, _, c2⟩ := tF_joinOn_inv e1.2.1 e2.2.1 i1.edges i2.edges hf'
           exact ⟨τ, c1, c2⟩) hperm hf hqO hpO nuw npu npw hqu hqw hpu hpw huw' hntr'
       rw [← hk]
-      exact hR k2 hk2 a.1 hs2 x y z hx hy hz sxy sxz syz hTF
+      exact hR k2 hk2 a.1 hs2 x y z hx hy hz sxy sxz syz (Or.inr htop) hTF
 
 /-- **`PrevCut` para las bases con un nodo en la cima de la línea anterior**, bajo `HNoRule`: las entradas que no
 tienen ese nodo cortan la base sin más, y la que lo tiene la tiene prohibida (`tF_sender_of_top`). -/
@@ -248,12 +253,13 @@ theorem prevCut_hi {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : LInvTo
   have hT' : (1 : Int) ≤ T + 1 := by omega
   have hent' := h'.on a ha
   obtain ⟨fxy, fxz, fyz⟩ := deadBase_arr_parents hT' hent' (h'.inv a ha) (hbk' a ha).2.1 (hbk' a ha).2.2 hs hd
+  have hd0 := hd
   obtain ⟨_, _, _, _, _, nxy, nxz, nyz, _, _, _, hxy, hxz, hyz, _, _, _, hf⟩ := hd
   have axy : a.2.Adj x y := arrOn_adj_old hent' hs (by omega) (by omega) hxy
   have axz : a.2.Adj x z := arrOn_adj_old hent' hs (by omega) (by omega) hxz
   have ayz : a.2.Adj y z := arrOn_adj_old hent' hs (by omega) (by omega) hyz
   have asymm : ∀ {y w}, a.2.Adj y w → a.2.Adj w y := fun h => (adj_symm a.2 _ _).mp h
-  have hfa : TF a.2 x y z := hR' a ha d hs x y z (by omega) (by omega) (by omega) hxy hxz hyz hf
+  have hfa : TF a.2 x y z := hR' a ha d hs x y z (by omega) (by omega) (by omega) hxy hxz hyz (Or.inl ⟨t, hd0⟩) hf
   have par : ∀ {u w}, HoldsFace a.2 t u w →
       (∃ p ∈ a.2.alive, p.id.step = a.2.current_step - 1 ∧ Compat p t ∧ a.2.Adj p u) ∧
       (∃ p ∈ a.2.alive, p.id.step = a.2.current_step - 1 ∧ Compat p t ∧ a.2.Adj p w) :=
@@ -263,17 +269,17 @@ theorem prevCut_hi {φ : Cnf} {T : Int} (hT : 1 ≤ T) {prev : Line} (h : LInvTo
   by_cases cx : x.id.step = T - 1
   · by_cases hq : x ∈ e.2.alive
     · exact Or.inr (tF_sender_of_top hT h hbk h' hbk' hR ha (q := x) (u := y) (w := z) (by simp [perms]) hfa hx hy
-        hz cx hy hz nyz axy axz fyz (par fxy).1 e he hq)
+        hz (Or.inl cx) cx hy hz nyz axy axz fyz (par fxy).1 e he hq)
     · exact Or.inl fun hh => hq (edg x y hh.1).1
   · by_cases cy : y.id.step = T - 1
     · by_cases hq : y ∈ e.2.alive
       · exact Or.inr (tF_sender_of_top hT h hbk h' hbk' hR ha (q := y) (u := x) (w := z) (by simp [perms]) hfa hx hy
-          hz cy hx hz nxz (asymm axy) ayz fxz (par fxy).2 e he hq)
+          hz (Or.inr (Or.inl cy)) cy hx hz nxz (asymm axy) ayz fxz (par fxy).2 e he hq)
       · exact Or.inl fun hh => hq (edg x y hh.1).2
     · have cz : z.id.step = T - 1 := by omega
       by_cases hq : z ∈ e.2.alive
       · exact Or.inr (tF_sender_of_top hT h hbk h' hbk' hR ha (q := z) (u := x) (w := y) (by simp [perms]) hfa hx hy
-          hz cz hx hy nxy (asymm axz) (asymm ayz) fxy (par fxz).2 e he hq)
+          hz (Or.inr (Or.inr cz)) cz hx hy nxy (asymm axz) (asymm ayz) fxy (par fxz).2 e he hq)
       · exact Or.inl fun hh => hq (edg x z hh.2.1).2
 
 /-- **`HPrevNew` sale de `HNoRule` y del nacimiento bajo.** -/
@@ -333,8 +339,8 @@ theorem lInvNewC_steps {φ : Cnf} (H4 : ∀ n : Nat, HStar4On φ (stepsM .on φ 
     have hbk'' := lineBk_advance hT' hl' hbk'
     exact ⟨hl', hbk', hs', hPrevCut_succ hT hl hl' hbk' hpc (Hs n hl hl' hbk' hl'' hbk'')⟩
 
-/-- **Las hipótesis divididas**: la regla no prohíbe triángulos viejos, el nacimiento bajo, y el cierre a nivel
-cuatro en cada join. -/
+/-- **Las hipótesis divididas**: la regla no prohíbe las bases muertas ni los triángulos con un nodo en la cima de la
+entrada, el nacimiento bajo, y el cierre a nivel cuatro en cada join. -/
 def HypsLo4On (φ : Cnf) : Prop :=
   (∀ n : Nat, HNoRule φ (stepsM .on φ n (initM .on φ)) ((n : Int) + 1)) ∧
   (∀ n : Nat, HPrevLo φ (stepsM .on φ n (initM .on φ)) ((n : Int) + 1)) ∧
@@ -396,7 +402,8 @@ open GPathB Driver
 
 /-- **El veredicto con `PrevCut` dividida**: la espina `:on` decide la satisfacibilidad si
 
-* **`HNoRule`**: una llegada no prohíbe triángulos de nodos viejos que su entrada no tuviera prohibidos;
+* **`HNoRule`**: una llegada no prohíbe un triángulo de nodos viejos que su entrada no tuviera prohibido, si es una
+  base muerta bajo una cima de la llegada o tiene un nodo en la cima de la entrada;
 * **`HPrevLo`**: `PrevCut` para las bases de nacimiento cuyos nodos existían una línea más atrás;
 * **`Star4At`**: la estrella de una cima de la unión fijada cierra a nivel cuatro.
 
