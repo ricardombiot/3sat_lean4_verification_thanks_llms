@@ -21,8 +21,11 @@ todas las medidas de la rama se hicieron con `:on`. Decisiones de Ricardo:
 | F4 join fijado e inducción de línea | `2f194ac`, `fec9f47`, `f00186b` | `good_joinAt` bajo `PinSideAt`; el recíproco sin hipótesis (`ForbidOnSide`); `LInvOn`; **`spineVerdictOn_iff_of_joinOn`**: la espina `:on` decide bajo `PinSideAt` en los joins de la máquina, solo para los pins de `PinsFrom` |
 | F4 invariante de cimas | `0102019` | `TopAt`, `topAt_arrival` sin hipótesis, **`spineVerdictOn_iff_of_topOn`** bajo `TopSideAt` en los joins (`ForbidOnTop`): la hipótesis mínima, de nodos |
 | F4 `TopSideAt` en piezas | `4521816` | `sideGraph` demostrado; `topSideAt_of_parts` bajo `TopKeepAt` + `TriSideAt`; **`spineVerdictOn_iff_of_parts`** (`ForbidOnParts`) |
+| F4 la estrella de la cima | `4c65e95`, y el siguiente | `downInv_pinOnK`, `AdjPar`, `star_alive`, **`spineVerdictOn_iff_of_starTri`** bajo `StarTriAt` (`ForbidOnKeep`, `ForbidOnStar`): la hipótesis ya es solo de tríos |
 
-Lo abierto en su forma mínima (1-oct-2026): **`TopSideAt`** en los joins de la máquina: toda cima viva de la unión
+Lo abierto, en su forma más estrecha (1-oct-2026): **`StarTriAt`** en los joins de la máquina: en la unión fijada, un
+triángulo entre vecinos de una cima, vivo y con sus tres caras con la cima vivas, no está en la lista de tríos del lado
+fijado de esa cima (`probe_startri.jl`, columna `m3_dead`). Implica **`TopSideAt`** en los joins de la máquina: toda cima viva de la unión
 fijada `pinOn (joinOn A B) R` está viva en `pinOn A R` o en `pinOn B R` (`probe_pinside.jl`, columnas `tops` /
 `top_none`). La versión de cadenas, más fuerte, es **`PinSideAt`** en los joins de la máquina: toda cadena viva de la unión fijada
 `pinOn (joinOn A B) R` es cadena viva de `pinOn A R` o de `pinOn B R`, con los tríos de ese lado. El recíproco está
