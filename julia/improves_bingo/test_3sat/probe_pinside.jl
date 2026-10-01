@@ -21,6 +21,8 @@
 #   dead       — callejones de U (control: LiveExt de la unión fijada)
 #   side_dead  — callejones de PA y PB (control: GoodOn de los lados)
 #   cap        — uniones fijadas donde se cortó el recorrido
+#   tops, top_none — TopSideAt (lean ForbidOnTop.lean): cimas vivas de U, y las que no están vivas en ningún lado
+#                    fijado y válido. Con CHAINS=0 solo se mide esto (sin recorrer cadenas: más instancias y pins).
 
 using Random
 const OUT = abspath(ARGS[1])
@@ -36,6 +38,7 @@ const C = Dict{Symbol, Int}()
 bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
 const RNG = Ref(MersenneTwister(20261001))
 const PIN_MODE = get(ENV, "PIN_MODE", "random")
+const CHAINS = get(ENV, "CHAINS", "1") == "1"
 const GMAP = Ref{Any}(nothing)
 const PRE = Ref{Any}(nothing)
 
@@ -115,8 +118,13 @@ end
 function judge_pinned(U, PA, PB)
     U.is_valid || return
     bump(:runs)
-    bump(:side_dead, dead_ends(PA) + dead_ends(PB))
     top = Int(U.current_step) - 1
+    for t in alive_at(U, top)
+        bump(:tops)
+        ((PA.is_valid && PG.is_alive(PA.og, t)) || (PB.is_valid && PG.is_alive(PB.og, t))) || bump(:top_none)
+    end
+    CHAINS || return
+    bump(:side_dead, dead_ends(PA) + dead_ends(PB))
     leaves = Ref(0)
     chain = PathNodeId[]
     # ra, rb: estado de la cadena en cada lado (:ok o el primer motivo); tside: lado de la cima (1, 2 o 0)
@@ -164,7 +172,7 @@ end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    cols = (:joins, :runs, :chains, :none, :both, :n_invalid, :n_node, :n_edge, :n_link, :n_trio, :dead, :side_dead,
+    cols = (:joins, :runs, :tops, :top_none, :chains, :none, :both, :n_invalid, :n_node, :n_edge, :n_link, :n_trio, :dead, :side_dead,
             :cap, :ram)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],

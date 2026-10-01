@@ -329,6 +329,18 @@ theorem spineVerdictOn_iff_of_topOn {φ : Cnf} (hbd : Bounded φ) (H : HypsTopOn
     refine ⟨_, List.mem_of_find?_eq_some hf, ?_⟩
     exact isValid_of_carried (ct_reviewOn (ct_dirty hct true)).1
 
+/-- **El veredicto certificado, sin hipótesis**: las dos respuestas definidas de la máquina `:on` son correctas.
+Si la línea final queda vacía, la fórmula es insatisfacible; y toda camarilla de un estado final se descodifica en una
+asignación que satisface la fórmula. Lo único que queda bajo hipótesis (`TopSideAt`) es que un estado final válido
+tenga siempre una camarilla que leer. -/
+theorem verdictOn_certified {φ : Cnf} (hbd : Bounded φ) :
+    (machineVerdictM .on φ = false → ¬ Satisfiable φ) ∧
+    (∀ kv ∈ runM .on φ, ∀ S, Carried kv.2 S → Sat (Decode.decode S) φ) := by
+  refine ⟨fun hf hs => ?_, fun kv hkv S hc => ?_⟩
+  · rw [machineVerdictOn_of_sat hbd hs] at hf; cases hf
+  · obtain ⟨hlo, hls⟩ := lineOn_run_shape hbd
+    exact Decode.sat_of_carried hbd (hls kv hkv).2.2.1 hc (hlo kv hkv).1.step
+
 end MachineOn
 
 end AbsSatBingo.Model
