@@ -331,6 +331,42 @@ theorem hypsTopOn_of_starTriPins {φ : Cnf} (H : HypsStarTriPinsOn φ) : HypsTop
   hTopOn_of_starPin (by omega) (lInvRaw_steps H n).1 (lInvRaw_steps H n).2.1
     (hStarPinOn_of_pins (by omega) (lInvRaw_steps H n).1 (lInvRaw_steps H n).2.2 (H n))
 
+-- ============================================================
+-- La hipótesis mínima: `TopSideAt` solo con pins
+-- ============================================================
+
+/-- **`TopSideAt` con pins**, en los joins de una línea: para cada lista de pins no vacía de `PinsFrom`. -/
+def HTopPinsOn (φ : Cnf) (line : Line) : Prop :=
+  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d → ∀ R, PinsFrom φ d R → R ≠ [] →
+    TopSideAt (arrOn φ a d) (arrOn φ b d) R
+
+theorem hTopOn_of_pins {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvTop φ T line)
+    (hr : LineRaw line) (hp : HTopPinsOn φ line) : HTopOn φ line := by
+  intro a ha b hb hab d hsa hsb R hR
+  by_cases hR0 : R = []
+  · rw [hR0]; exact topSideAt_nil_line hT h hr ha hb hsa hsb
+  · exact hp a ha b hb hab d hsa hsb R hR hR0
+
+/-- **La hipótesis mínima**: `TopSideAt` con pins en cada línea de la máquina `:on`. -/
+def HypsTopPinsOn (φ : Cnf) : Prop := ∀ n : Nat, HTopPinsOn φ (stepsM .on φ n (initM .on φ))
+
+theorem lInvTopPins_steps {φ : Cnf} (H : HypsTopPinsOn φ) :
+    ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) ∧ LineBk (stepsM .on φ n (initM .on φ)) ∧
+      LineRaw (stepsM .on φ n (initM .on φ)) := by
+  intro n
+  induction n with
+  | zero => exact ⟨lInvTop_init φ, lineBk_init φ, lineRaw_init φ⟩
+  | succ n ih =>
+    obtain ⟨hl, hbk, hr⟩ := ih
+    have hT : (1 : Int) ≤ (n : Int) + 1 := by omega
+    have hl' := lInvTop_advance hT hl (hTopOn_of_pins hT hl hr (H n))
+    rw [stepsM_succ]
+    rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+    exact ⟨hl', lineBk_advance hT hl hbk, lineRaw_advance hT hl hr⟩
+
+theorem hypsTopOn_of_topPins {φ : Cnf} (H : HypsTopPinsOn φ) : HypsTopOn φ := fun n =>
+  hTopOn_of_pins (by omega) (lInvTopPins_steps H n).1 (lInvTopPins_steps H n).2.2 (H n)
+
 end GPathB
 
 namespace MachineOn
@@ -343,6 +379,13 @@ no está en los tríos del lado fijado (`StarTriAt`). El caso sin pins está dem
 theorem spineVerdictOn_iff_of_starTriPins {φ : Cnf} (hbd : Bounded φ) (H : HypsStarTriPinsOn φ) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_starTriPins H)
+
+/-- **El veredicto bajo `TopSideAt` solo con pins**: la espina `:on` decide la satisfacibilidad si, en los joins de la
+máquina y para cada lista de pins **no vacía**, una cima viva de la unión fijada está viva en un lado fijado. Es la
+hipótesis de `spineVerdictOn_iff_of_topOn` sin su caso sin pins, que está demostrado. -/
+theorem spineVerdictOn_iff_of_topPins {φ : Cnf} (hbd : Bounded φ) (H : HypsTopPinsOn φ) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_topPins H)
 
 end MachineOn
 
