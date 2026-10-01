@@ -7,6 +7,8 @@
 # las uniones (:join_post), solo tras la fusión central.
 #   arr_tri, arr_cl, arr_nocl, arr_forb (triángulos prohibidos), arr_forb_cl (prohibidos y en camarilla)
 #   join_tri, join_cl, join_nocl, join_forb, join_forb_cl, unk (presupuesto agotado)
+#   *_chain: triángulos en una cadena de la espina; *_forb_chain: prohibidos que están en una cadena de la espina del estado (desde una cima, padres enlazados, vecinos
+#   dos a dos): si hay alguno, TriClq tal como se formalizó (sobre OnChain3, sin vida) es falsa.
 #   PINS=k (TriClq, CliqueSound.lean): además, en cada estado, k listas de pins al azar (1-3 nodos de mapa por debajo de
 #   la cima); se juzga el estado fijado (pin = filter! con revisión) con prefijo parr_/pjoin_. Lanzar siempre con
 #   run_capped.sh.
@@ -76,6 +78,39 @@ function judge(g, pre, rng)
     end
 end
 
+# ¿hay una cadena de la espina (desde una cima, padres enlazados, vecinos dos a dos) que pase por los tres nodos?
+function chain_through(D, must; budget = 20000)
+    top = Int(D.current_step) - 1
+    low = minimum(Int(m.id.step) for m in must)
+    mustat = Dict(Int(m.id.step) => m for m in must)
+    chosen = PathNodeId[]
+    b = Ref(budget)
+    function go(k, prev)
+        b[] -= 1
+        b[] < 0 && return false
+        k < low && return true
+        cands = if prev === nothing
+            alive_at(D, k)
+        else
+            nd = PathCollectionLines.get_node(D.table_lines, prev)
+            nd === nothing ? PathNodeId[] : collect(nd.parents)
+        end
+        haskey(mustat, k) && (cands = [c for c in cands if c == mustat[k]])
+        for c in cands
+            PG.is_alive(D.og, c) || continue
+            all(w -> PG.has_edge(D.og, c, w), chosen) || continue
+            push!(chosen, c)
+            r = go(k - 1, c)
+            pop!(chosen)
+            r && return true
+            b[] < 0 && return false
+        end
+        return false
+    end
+    r = go(top, nothing)
+    return b[] < 0 ? nothing : r
+end
+
 function judge_state(g, pre, rng)
     xs = [x for (_, s) in g.og.alive for x in s]
     length(xs) < 3 && return
@@ -89,6 +124,12 @@ function judge_state(g, pre, rng)
         bump(Symbol(pre, "_tri"))
         forb = PG.dead_trio(g.og, a, b, c)
         forb && bump(Symbol(pre, "_forb"))
+        ch = chain_through(g, [a, b, c])
+        if ch === nothing
+            bump(:unk)
+        elseif ch
+            bump(Symbol(pre, "_chain")); forb && bump(Symbol(pre, "_forb_chain"))
+        end
         r = clique_through(g, [a, b, c])
         if r === nothing
             bump(:unk)
@@ -105,7 +146,7 @@ function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:arr_tri, :arr_cl, :arr_nocl, :arr_forb, :arr_forb_cl, :join_tri, :join_cl, :join_nocl, :join_forb,
             :join_forb_cl, :parr_runs, :parr_tri, :parr_cl, :parr_nocl, :parr_forb, :parr_forb_cl, :pjoin_runs,
-            :pjoin_tri, :pjoin_cl, :pjoin_nocl, :pjoin_forb, :pjoin_forb_cl, :unk)
+            :pjoin_tri, :pjoin_cl, :pjoin_nocl, :pjoin_forb, :pjoin_forb_cl, :arr_chain, :join_chain, :parr_chain, :pjoin_chain, :arr_forb_chain, :join_forb_chain, :parr_forb_chain, :pjoin_forb_chain, :unk)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _

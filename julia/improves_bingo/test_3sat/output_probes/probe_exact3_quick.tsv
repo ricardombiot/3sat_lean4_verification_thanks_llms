@@ -1,0 +1,5 @@
+instance	truth	arr_states	arr_cap	arr_cliq	arr_dead	arr_n	arr_n_out	arr_e	arr_e_out	arr_t	arr_t_out	jrev_states	jrev_cap	jrev_cliq	jrev_dead	jrev_n	jrev_n_out	jrev_e	jrev_e_out	jrev_t	jrev_t_out	fin_states	fin_cap	fin_cliq	fin_dead	fin_n	fin_n_out	fin_e	fin_e_out	fin_t	fin_t_out	secs
+clause_mix.cnf	true	82	0	32	0	3429	0	57984	0	532241	0	34	0	64	0	1994	0	42089	0	441076	0	1	0	37	0	130	0	4236	0	57630	0	7.5
+clause_mix_sep.cnf	true	100	0	256	0	5571	0	146116	0	2196569	0	40	0	512	0	2908	0	92703	0	1603975	0	1	0	296	0	154	0	7422	0	165933	0	31.7
+v5_c20_i1.cnf	true	209	0	16	0	11670	0	282829	0	4566852	0	82	0	32	0	6766	0	172154	0	2614486	0	1	0	2	0	101	0	4266	0	110202	0	64.5
+v5_c20_i2.cnf	false	189	0	16	0	9502	0	194232	0	2530790	0	74	0	32	0	5741	0	128011	0	1591504	0	0	0	0	0	0	0	0	0	0	0	31.7
