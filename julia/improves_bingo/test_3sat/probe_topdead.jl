@@ -18,6 +18,12 @@
 #   tt_cells / tt_fail triángulos con t fuera de T' × paso: sin testigo bueno (vecino de los tres, sus tres caras
 #                      nuevas fuera de T')     tt_failT: tampoco con T
 #   tb_cells / tb_fail lo mismo para las bases (triángulos sin t) fuera de T';   tb_failT: con T (es Star4At)
+# SideFace (en todas las cimas): sf_faces (caras vivas (a, b, t) de U), sf_fail (no es un triángulo sin prohibir de P).
+#   Con las condiciones de las bases, es equivalente a la primera hipótesis de star_coreD (lean ForbidOnStarD.lean,
+#   hface_of_sideFace / star_coreD_fam).
+# Los pins: pin_try, pin_empty (camino sin requisitos), pin_dup, pin_invalid (la unión fijada no es válida).
+# Cada contador tiene además su versión «p_…» solo sobre las uniones fijadas con pins (R ≠ []): sin pins TopSideAt
+#   es trivial, así que lo que cuenta son las columnas p_.
 
 using Random
 const OUT = abspath(ARGS[1])
@@ -29,7 +35,12 @@ using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
 using .AbsSat.Probes
 const PG = PathOwnersGraph
 const C = Dict{Symbol, Int}()
-bump(k, n = 1) = (C[k] = get(C, k, 0) + n)
+const PINNED = Ref(false)
+# cada contador se lleva también aparte («p_…») para las uniones fijadas con pins (R ≠ [])
+function bump(k, n = 1)
+    C[k] = get(C, k, 0) + n
+    PINNED[] && (pk = Symbol("p_", k); C[pk] = get(C, pk, 0) + n)
+end
 const RNG = Ref(MersenneTwister(20261001))
 const PRE = Ref{Any}(nothing)
 const GMAP = Ref{Any}(nothing)
@@ -118,6 +129,13 @@ function judge_top(U, t, S, P, dS, dP)
     # base bajo t en U: triángulo de U entre vecinos de t, con sus tres caras con t sin prohibir
     base(b) = all(x -> x in NS, b) && edge(U, b[1], b[2]) && edge(U, b[1], b[3]) && edge(U, b[2], b[3]) &&
               !dead(U, t, b[1], b[2]) && !dead(U, t, b[1], b[3]) && !dead(U, t, b[2], b[3])
+    # SideFace: cada cara viva (a, b, t) de U es un triángulo sin prohibir de P
+    for i in eachindex(N), j in i+1:length(N)
+        x, y = N[i], N[j]
+        (edge(U, x, y) && !dead(U, t, x, y)) || continue
+        bump(:sf_faces)
+        (pv && edge(P, t, x) && edge(P, t, y) && edge(P, x, y) && !PG.dead_trio(P.og, t, x, y)) || bump(:sf_fail)
+    end
     nrev = 0
     for b in dS
         base(b) || continue
@@ -153,14 +171,20 @@ function judge(u, a, b)
     Rs = Any[NodeId[]]
     for _ in 1:SAMPLES
         R = real_pins(u.map_parent_id)
-        (isempty(R) || R in Rs) || push!(Rs, R)
+        bump(:pin_try)
+        isempty(R) ? bump(:pin_empty) : (R in Rs ? bump(:pin_dup) : push!(Rs, R))
     end
     top = Int(u.current_step) - 1
     dA, dB = dead_tris(a), dead_tris(b)
     for R in Rs
         ram_ok() || (bump(:ram); return)
+        PINNED[] = false
         U = pin(u, R)
-        U.is_valid || continue
+        if !U.is_valid
+            isempty(R) || bump(:pin_invalid)
+            continue
+        end
+        PINNED[] = !isempty(R)
         bump(:runs)
         PA, PB = pin(a, R), pin(b, R)
         dPA = PA.is_valid ? dead_tris(PA) : NTuple{3, PathNodeId}[]
@@ -169,13 +193,17 @@ function judge(u, a, b)
             bump(:tops)
             PG.is_alive(a.og, t) ? judge_top(U, t, a, PA, dA, dPA) : judge_top(U, t, b, PB, dB, dPB)
         end
+        PINNED[] = false
     end
 end
 
 function main()
     _, loader, _ = ProbeLib.map_of_env()
     cols = (:joins, :runs, :tops, :top_dead, :bases, :b_deadU, :rev, :revP, :rev_tops, :e_cells, :e_fail, :e_failT,
-            :tt_cells, :tt_fail, :tt_failT, :tb_cells, :tb_fail, :tb_failT, :ram)
+            :tt_cells, :tt_fail, :tt_failT, :tb_cells, :tb_fail, :tb_failT, :sf_faces, :sf_fail,
+            :pin_try, :pin_empty, :pin_dup, :pin_invalid,
+            :p_runs, :p_tops, :p_top_dead, :p_bases, :p_rev, :p_revP, :p_rev_tops, :p_tt_cells, :p_tt_fail,
+            :p_tb_cells, :p_tb_fail, :p_sf_faces, :p_sf_fail, :ram)
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],
                                                    dirs = [ProbeLib.DIRS[end]; ProbeLib.DIRS[1:end-1]])) do path, _
