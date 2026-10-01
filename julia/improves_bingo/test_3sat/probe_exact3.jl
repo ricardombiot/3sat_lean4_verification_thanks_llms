@@ -6,15 +6,25 @@
 # dos a dos, sin trío prohibido): k = 1 nodos vivos, k = 2 aristas vivas, k = 3 triángulos vivos sin prohibir.
 # Se enumeran todas las camarillas del estado (DFS de la cima hacia abajo, todos los candidatos; tope EXACT_CAP: un
 # estado que lo alcanza cuenta en `cap` y no se juzga) y se compara con los nodos, aristas y triángulos del grafo.
+#   flt_*   remitentes tras el filtro de requisitos de cada llegada, antes de la fila nueva: el estado de la hipótesis
+#           Lean `HypsTriFlt` (ForbidOnExact.lean): `TopTri (kv.2.filterAllOn (reqOf φ d))`
 #   arr_*   llegadas (tras el UP y su review, punto :up_done)
 #   jrev_*  uniones tras una revisión (lo que ve el siguiente UP)
 #   fin_*   estados finales revisados
 # Tras cada estado juzgado se vuelcan los contadores a <salida>.partial (una sonda larga no pierde lo medido).
 # Por grupo: states, cap, cliq (camarillas, máximo de un estado), dead (callejones del DFS), n / n_out (nodos vivos /
-# fuera de toda camarilla), e / e_out (aristas), t / t_out (triángulos sin prohibir).
+# fuera de toda camarilla), e / e_out (aristas), t / t_out (triángulos sin prohibir), tt / tt_out (los triángulos con
+# un nodo en la cima: Lean `TopTri`; con `te / te_out`, las aristas de cima: `TopEdge`).
+# Solo en flt, con el requisito r de la llegada (paso σ): tt_free (triángulos de cima con un nodo en σ: no piden nada),
+# q (tetraedros de Lean `PinTetra`: triángulo de cima sin prohibir + nodo s de σ vecino de los tres, con las tres caras
+# con s sin prohibir) y q_dead (los que no están en ninguna camarilla: si tt_out = 0, su triángulo de cima se salva por
+# otro nodo de σ).
 
 const OUT = abspath(ARGS[1])
 const CAP = parse(Int, get(ENV, "EXACT_CAP", "50000"))
+# EXACT_LINKS=1: la camarilla además sigue los enlaces de documentos (cada nodo es padre del anterior), como Lean
+# `Carried.node`. Sin ella solo se pide vecindad dos a dos y ningún trío prohibido.
+const LINKS = get(ENV, "EXACT_LINKS", "0") == "1"
 include(joinpath(@__DIR__, "..", "src/main.jl"))
 include(joinpath(@__DIR__, "probes_lib.jl"))
 using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
@@ -35,7 +45,7 @@ function reviewed(g)
     return h
 end
 
-function judge(g, pre)
+function judge(g, pre; reqs = nothing)
     g.is_valid || return
     og = g.og
     top = Int(g.current_step) - 1
@@ -44,8 +54,11 @@ function judge(g, pre)
     bump(Symbol(pre, "_states"))
     # camarillas
     N = Set{PathNodeId}(); E = Set{NTuple{2, PathNodeId}}(); T = Set{NTuple{3, PathNodeId}}()
+    sigmas = reqs === nothing ? Int[] : [Int(r.step) for r in reqs if 0 <= Int(r.step) <= top]
+    Q = Dict{NTuple{3, PathNodeId}, Set{PathNodeId}}()     # triángulo de cima => nodos de σ de sus camarillas
     cliq = Ref(0); deads = Ref(0); chain = PathNodeId[]
-    ok(p) = all(w -> PG.has_edge(og, w, p), chain) &&
+    linked(p) = !LINKS || (nd = PathCollectionLines.get_node(g.table_lines, chain[end]); nd !== nothing && p in nd.parents)
+    ok(p) = linked(p) && all(w -> PG.has_edge(og, w, p), chain) &&
             !any(PG.dead_trio(og, chain[i], chain[j], p) for i in eachindex(chain) for j in (i + 1):length(chain))
     function dfs(x, s)
         cliq[] > CAP && return
@@ -59,6 +72,11 @@ function judge(g, pre)
                     push!(E, (chain[j], chain[i]))
                     for k in (j + 1):L
                         push!(T, (chain[k], chain[j], chain[i]))
+                        if i == 1
+                            for σ in sigmas
+                                push!(get!(() -> Set{PathNodeId}(), Q, (chain[k], chain[j], chain[1])), chain[top - σ + 1])
+                            end
+                        end
                     end
                 end
             end
@@ -80,20 +98,49 @@ function judge(g, pre)
         for sb in (sa + 1):top, b in PG.neighbors(og, a, Step(sb))
             PG.is_alive(og, b) || continue
             bump(Symbol(pre, "_e")); (a, b) in E || bump(Symbol(pre, "_e_out"))
+            if sb == top
+                bump(Symbol(pre, "_te")); (a, b) in E || bump(Symbol(pre, "_te_out"))
+            end
             for sr in (sb + 1):top, r in PG.neighbors(og, a, Step(sr))
                 (PG.is_alive(og, r) && PG.has_edge(og, b, r)) || continue
                 PG.dead_trio(og, a, b, r) && continue
                 bump(Symbol(pre, "_t")); (a, b, r) in T || bump(Symbol(pre, "_t_out"))
+                if sr == top
+                    bump(Symbol(pre, "_tt")); (a, b, r) in T || bump(Symbol(pre, "_tt_out"))
+                    for σ in sigmas
+                        if σ == sa || σ == sb || σ == sr
+                            bump(Symbol(pre, "_tt_free")); continue
+                        end
+                        inq = get(Q, (a, b, r), nothing)
+                        for x in PG.neighbors(og, a, Step(σ))
+                            (PG.is_alive(og, x) && PG.has_edge(og, b, x) && PG.has_edge(og, r, x)) || continue
+                            (PG.dead_trio(og, a, b, x) || PG.dead_trio(og, a, r, x) || PG.dead_trio(og, b, r, x)) && continue
+                            bump(Symbol(pre, "_q"))
+                            (inq !== nothing && x in inq) || bump(Symbol(pre, "_q_dead"))
+                        end
+                    end
+                end
             end
         end
     end
     dump_partial()
 end
 
+# Tras el filtro de requisitos del UP (antes de la fila nueva).
+Core.eval(GraphPath, quote
+    function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
+                              prohibited :: Set{PathNodeId} = Set{PathNodeId}())
+        gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
+        filter!(gpath, requires)
+        $(judge)(gpath, "flt"; reqs = requires)
+        do_up!(gpath, map_id_node, title, prohibited)
+    end
+end)
+
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    groups = ("arr", "jrev", "fin")
-    fields = ("states", "cap", "cliq", "dead", "n", "n_out", "e", "e_out", "t", "t_out")
+    groups = ("flt", "arr", "jrev", "fin")
+    fields = ("states", "cap", "cliq", "dead", "n", "n_out", "e", "e_out", "t", "t_out", "te", "te_out", "tt", "tt_out", "tt_free", "q", "q_dead")
     cols = [Symbol(g, "_", f) for g in groups for f in fields]
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus(skip = ["simple_v3_c2.cnf"],

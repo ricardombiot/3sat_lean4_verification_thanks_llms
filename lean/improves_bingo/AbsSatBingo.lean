@@ -128,3 +128,4 @@ import AbsSatBingo.Model.ForbidOnStarD
 import AbsSatBingo.Model.ForbidOnFam
 import AbsSatBingo.Model.ForbidOnApart
 import AbsSatBingo.Model.ForbidOnNoPin
+import AbsSatBingo.Model.ForbidOnExact
