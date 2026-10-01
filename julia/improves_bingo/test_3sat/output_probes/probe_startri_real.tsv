@@ -1,0 +1,6 @@
+instance	truth	joins	runs	tops	p_invalid	fam_nodes	fam_edges	m1_node	m1_tedge	m1_edge	m1_trio	m2_cells	m2_nowit	m2_fail	m2_fail_len	m3_wit	m3_dead	m3_missing	m3_deadS	consec_fail	ram	secs
+clause_mix.cnf	true	34	61	157	0	5444	78341	0	0	0	0	1506892	0	0	0	1912716	0	0	0	0	0	12.7
+clause_mix_sep.cnf	true	40	73	182	0	9435	223169	0	0	0	0	5458042	0	0	0	9109065	0	0	0	0	0	52.0
+xor3.cnf	true	28	42	92	0	1242	8218	0	0	0	0	108509	0	0	0	108765	0	0	0	0	0	0.5
+v5_c20_i2.cnf	false	74	79	221	0	8619	145217	0	0	0	0	4392365	0	0	0	4733838	0	0	0	0	0	39.9
+v5_c20_i3.cnf	true	85	96	262	0	12460	278585	0	0	0	0	12264879	0	0	0	13096545	0	0	0	0	0	146.5
