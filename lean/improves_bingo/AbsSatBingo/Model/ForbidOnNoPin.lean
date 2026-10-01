@@ -17,8 +17,9 @@ en los joins de la máquina, **sin hipótesis nuevas**, por camarillas:
 * Una camarilla que esquiva los tríos **sobrevive a cualquier review** (`ct_pinOn`), así que la cima está viva en el
   lado revisado (`topSideAt_nil`).
 
-Con eso, de la hipótesis separada por pins solo queda la mitad con pins: `StarTriAt` para `R ≠ []`
-(`spineVerdictOn_iff_of_starTriPins`).
+Con eso las hipótesis del veredicto solo hacen falta con pins (`R ≠ []`): `TopSideAt`
+(`spineVerdictOn_iff_of_topPins`, la mínima), `StarDAt` (`spineVerdictOn_iff_of_starDPins`) o `StarTriAt`
+(`spineVerdictOn_iff_of_starTriPins`, falsa en una instancia de `v7`).
 -/
 
 namespace AbsSatBingo.Model
@@ -367,6 +368,54 @@ theorem lInvTopPins_steps {φ : Cnf} (H : HypsTopPinsOn φ) :
 theorem hypsTopOn_of_topPins {φ : Cnf} (H : HypsTopPinsOn φ) : HypsTopOn φ := fun n =>
   hTopOn_of_pins (by omega) (lInvTopPins_steps H n).1 (lInvTopPins_steps H n).2.2 (H n)
 
+-- ============================================================
+-- `StarDAt` solo con pins
+-- ============================================================
+
+/-- La inducción de línea con la contabilidad de los estados sin revisar, para cualquier hipótesis que dé
+`TopSideAt` con pins en los joins de cada línea a partir de sus invariantes. -/
+theorem lInvRawGen_steps {φ : Cnf}
+    (H : ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) →
+      LineBk (stepsM .on φ n (initM .on φ)) → HTopPinsOn φ (stepsM .on φ n (initM .on φ))) :
+    ∀ n : Nat, LInvTop φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) ∧ LineBk (stepsM .on φ n (initM .on φ)) ∧
+      LineRaw (stepsM .on φ n (initM .on φ)) := by
+  intro n
+  induction n with
+  | zero => exact ⟨lInvTop_init φ, lineBk_init φ, lineRaw_init φ⟩
+  | succ n ih =>
+    obtain ⟨hl, hbk, hr⟩ := ih
+    have hT : (1 : Int) ≤ (n : Int) + 1 := by omega
+    have hl' := lInvTop_advance hT hl (hTopOn_of_pins hT hl hr (H n hl hbk))
+    rw [stepsM_succ]
+    rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+    exact ⟨hl', lineBk_advance hT hl hbk, lineRaw_advance hT hl hr⟩
+
+/-- **`StarDAt` con pins**, en los joins de una línea: para cada lista de pins no vacía de `PinsFrom`. -/
+def HStarDPinsOn (φ : Cnf) (line : Line) : Prop :=
+  ∀ a ∈ line, ∀ b ∈ line, a.1 ≠ b.1 → ∀ d, SendsOn φ a d → SendsOn φ b d → ∀ R, PinsFrom φ d R → R ≠ [] →
+    StarDAt (arrOn φ a d) (joinOn (arrOn φ a d) (arrOn φ b d)) R ∧
+    StarDAt (arrOn φ b d) (joinOn (arrOn φ a d) (arrOn φ b d)) R
+
+theorem hTopPinsOn_of_starD {φ : Cnf} {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvTop φ T line)
+    (hbk : LineBk line) (hp : HStarDPinsOn φ line) : HTopPinsOn φ line := by
+  intro a ha b hb hab d hsa hsb R hR hR0
+  obtain ⟨ea, ia, na, _, _⟩ := arrTop_facts hT h ha hsa
+  obtain ⟨eb, ib, nb, _, _⟩ := arrTop_facts hT h hb hsb
+  obtain ⟨fa, _⟩ := arrOn_tops hT (h.on a ha) (hbk a ha).1 hsa
+  obtain ⟨fb, _⟩ := arrOn_tops hT (h.on b hb) (hbk b hb).1 hsb
+  obtain ⟨pa, _⟩ := arrOn_adjPar (h.on a ha) (h.inv a ha) (hbk a ha).2.1 (hbk a ha).2.2 hsa
+  obtain ⟨pb, _⟩ := arrOn_adjPar (h.on b hb) (h.inv b hb) (hbk b hb).2.1 (hbk b hb).2.2 hsb
+  obtain ⟨hsA, hsB⟩ := hp a ha b hb hab d hsa hsb R hR hR0
+  exact topSideAt_of_starD ia ib ea.2.1 eb.2.1 na nb (ea.1.step.trans eb.1.step.symm) (by rw [ea.1.step]; omega)
+    hab fa fb pa pb hsA hsB
+
+/-- **`StarDAt` con pins**, en cada línea de la máquina `:on`. -/
+def HypsStarDPinsOn (φ : Cnf) : Prop := ∀ n : Nat, HStarDPinsOn φ (stepsM .on φ n (initM .on φ))
+
+theorem hypsTopPinsOn_of_starD {φ : Cnf} (H : HypsStarDPinsOn φ) : HypsTopPinsOn φ := by
+  have hs := lInvRawGen_steps (φ := φ) (fun n hl hbk => hTopPinsOn_of_starD (by omega) hl hbk (H n))
+  exact fun n => hTopPinsOn_of_starD (by omega) (hs n).1 (hs n).2.1 (H n)
+
 end GPathB
 
 namespace MachineOn
@@ -375,7 +424,10 @@ open GPathB Driver
 
 /-- **El veredicto con solo la mitad con pins**: la espina `:on` decide la satisfacibilidad si, en los joins de la
 máquina y para cada lista de pins **no vacía**, una base viva en la unión fijada bajo una cima con sus tres caras vivas
-no está en los tríos del lado fijado (`StarTriAt`). El caso sin pins está demostrado (`topSideAt_nil_line`). -/
+no está en los tríos del lado fijado (`StarTriAt`). El caso sin pins está demostrado (`topSideAt_nil_line`).
+**Aviso**: la hipótesis es falsa en `set011221_2004_i3_v7_c27` (una unión fijada con pins tiene 24 bases vivas que el
+lado fijado prohíbe, `probe_topdead.jl` `p_revP`); ver `spineVerdictOn_iff_of_starDPins` y
+`spineVerdictOn_iff_of_topPins`. -/
 theorem spineVerdictOn_iff_of_starTriPins {φ : Cnf} (hbd : Bounded φ) (H : HypsStarTriPinsOn φ) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_starTriPins H)
@@ -386,6 +438,15 @@ hipótesis de `spineVerdictOn_iff_of_topOn` sin su caso sin pins, que está demo
 theorem spineVerdictOn_iff_of_topPins {φ : Cnf} (hbd : Bounded φ) (H : HypsTopPinsOn φ) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_topOn hbd (hypsTopOn_of_topPins H)
+
+/-- **El veredicto bajo `StarDAt` solo con pins**: la espina `:on` decide la satisfacibilidad si, en los joins de la
+máquina y para cada lista de pins **no vacía**, valen las dos hipótesis de `star_coreD` (los testigos de la familia de
+cada cima de la unión fijada esquivan las bases prohibidas en su lado). Es la condición suficiente que se sostiene en
+lo medido en `v7` con pins; `StarTriAt` con pins no (una unión fijada de `set011221_2004_i3_v7_c27` tiene 24 bases
+vivas que el lado fijado prohíbe). -/
+theorem spineVerdictOn_iff_of_starDPins {φ : Cnf} (hbd : Bounded φ) (H : HypsStarDPinsOn φ) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_topPins hbd (hypsTopPinsOn_of_starD H)
 
 end MachineOn
 
