@@ -1,0 +1,4 @@
+instance	truth	jrev_states	jrev_cap	jrev_cliq	jrev_n	jrev_n1	jrev_e	jrev_e1	jrev_t	jrev_t1	jrev_t_max	jrev_m_tri	jrev_m_ok	jrev_m_node	jrev_m_edge	fin_states	fin_cap	fin_cliq	fin_n	fin_n1	fin_e	fin_e1	fin_t	fin_t1	fin_t_max	fin_m_tri	fin_m_ok	fin_m_node	fin_m_edge	secs
+clause_mix.cnf	true	34	0	779	1994	58	42089	6676	441076	175376	32	80981	76362	1831	2788	1	0	37	130	3	4236	867	57630	26596	24	12643	11446	445	752	7.7
+clause_mix_sep.cnf	true	40	0	6260	2908	28	92703	400	1603975	6424	256	221761	216636	2849	2276	1	0	296	154	0	7422	0	165933	128	192	22609	21404	563	642	31.0
+v5_c20_i1.cnf	true	82	0	584	6766	2782	172154	116754	2614486	2183752	16	38273	29710	2949	5614	1	0	2	101	56	4266	3276	110202	96012	2	0	0	0	0	65.6

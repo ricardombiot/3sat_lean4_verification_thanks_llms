@@ -31,6 +31,15 @@ estado y un requisito, sin lados ni listas de pins; el UP y el join están demos
 un triángulo de cima en el paso fijado forma un tetraedro que puede no estar en ninguna camarilla.
 
 Veredictos: `spineVerdictOn_iff_of_nodeKeep`, `_of_edgeKeep`, `_of_triKeep`, `_of_triFlt`, `_of_pinTetra`.
+
+**Dónde empieza la dificultad.** Un filtro cuyo requisito está en el paso de la cima no consume nivel
+(`ct_filter_of_topReq`). En la parte de variables todos los requisitos son así (`reqOf_step_pre`) y no hay ventanas
+prohibidas, así que los tres niveles valen sin hipótesis hasta la fusión central (`lInvX_pre`) y las hipótesis solo
+hacen falta en las líneas de cláusula (`HypsNodeKeepC`, `spineVerdictOn_iff_of_nodeKeepC`). Los dos primeros filtros
+lejanos (las copias de los dos primeros literales de la primera cláusula) consumen un nivel cada uno, y por eso toda
+cima viva está en una camarilla, sin hipótesis, hasta justo antes de la primera ventana prohibida
+(`topCT_before_first_window`). No está formalizado lo más fuerte: que sin ventanas prohibidas las copias no consumen
+nivel nunca (haría falta el invariante semántico «vecinos ⟺ ventanas compatibles» para la máquina `:on`).
 -/
 
 namespace AbsSatBingo.Model
@@ -800,6 +809,141 @@ theorem hypsNodeKeep_of_edgeKeep {φ : Cnf} (H : HypsEdgeKeep φ) : HypsNodeKeep
 theorem hypsEdgeKeep_of_triKeep {φ : Cnf} (H : HypsTriKeep φ) : HypsEdgeKeep φ :=
   fun n => hKeep_edge_of_x (lInvX_steps H n)
 
+-- ============================================================
+-- El filtro con el requisito en la cima no consume nivel
+-- ============================================================
+
+/-- **Un requisito en el paso de la cima no consume nivel**: una camarilla de la entrada por una cima que sobrevive al
+filtro cumple el requisito sola, porque en el paso del requisito pasa por esa cima. -/
+theorem ct_filter_of_topReq {E : GPathB} {reqs : List NodeId} (hE : SInvB E)
+    (htr : ∀ r ∈ reqs, r.step = E.current_step - 1) (hvY : (E.filterAllOn reqs).isValid = true)
+    {t : PathNodeId} (ht : t ∈ (E.filterAllOn reqs).alive) (hts : t.id.step = E.current_step - 1)
+    {D : Int → PathNodeId} (hD : CT E D) (hDt : D (E.current_step - 1) = t) : CT (E.filterAllOn reqs) D := by
+  refine ct_filterAllOn hD reqs (fun r hr _ _ => ?_)
+  rw [htr r hr, hDt]
+  have hs1 : Sub (E.filterAllOn reqs) (reqs.foldl filterRequire E) := (shrinks_reviewOn _).1
+  exact pinned_foldl reqs E hE.docs (isValid_of_sub hs1 hvY) t (hs1.alive t ht) hr (by rw [hts, htr r hr])
+
+/-- Con los requisitos en la cima, el filtro conserva los tres niveles sin pedir el de encima. -/
+theorem topCT_filter_topReq {E : GPathB} {reqs : List NodeId} (hE : SInvB E)
+    (htr : ∀ r ∈ reqs, r.step = E.current_step - 1) (h : TopCT E) (hvY : (E.filterAllOn reqs).isValid = true) :
+    TopCT (E.filterAllOn reqs) := by
+  intro t ht hts
+  rw [step_filterAllOn] at hts ⊢
+  obtain ⟨D, hD, hDt⟩ := h t ((shrinks_filterAllOn E reqs).1.alive t ht) hts
+  exact ⟨D, ct_filter_of_topReq hE htr hvY ht hts hD hDt, hDt⟩
+
+theorem topEdge_filter_topReq {E : GPathB} {reqs : List NodeId} (hE : SInvB E)
+    (htr : ∀ r ∈ reqs, r.step = E.current_step - 1) (h : TopEdge E) (hvY : (E.filterAllOn reqs).isValid = true) :
+    TopEdge (E.filterAllOn reqs) := by
+  intro t ht hts w htw
+  rw [step_filterAllOn] at hts ⊢
+  have hsh := (shrinks_filterAllOn E reqs).1
+  obtain ⟨D, hD, hDt, hDw⟩ := h t (hsh.alive t ht) hts w (hsh.adj _ _ htw)
+  exact ⟨D, ct_filter_of_topReq hE htr hvY ht hts hD hDt, hDt, hDw⟩
+
+theorem topTri_filter_topReq {E : GPathB} {reqs : List NodeId} (hE : SInvB E)
+    (htr : ∀ r ∈ reqs, r.step = E.current_step - 1) (h : TopTri E) (hvY : (E.filterAllOn reqs).isValid = true) :
+    TopTri (E.filterAllOn reqs) := by
+  intro t ht hts u w htu htw huw ntu ntw nuw hn
+  rw [step_filterAllOn] at hts ⊢
+  have hsh := (shrinks_filterAllOn E reqs).1
+  have hnE : ¬ TF E t u w := fun hf' => hn (tF_mono (trios_grow_filterAllOn E reqs) htu hf')
+  obtain ⟨D, hD, hDt, hDu, hDw⟩ := h t (hsh.alive t ht) hts u w (hsh.adj _ _ htu) (hsh.adj _ _ htw)
+    (hsh.adj _ _ huw) ntu ntw nuw hnE
+  exact ⟨D, ct_filter_of_topReq hE htr hvY ht hts hD hDt, hDt, hDu, hDw⟩
+
+-- ============================================================
+-- Antes de la primera ventana prohibida, sin hipótesis
+-- ============================================================
+
+/-- Hasta la fusión central, el requisito de un nodo del mapa (si lo tiene) está en el paso anterior: el de la cima
+del remitente. Los requisitos lejanos (las copias de literales) empiezan con las cláusulas. -/
+theorem reqOf_step_pre {φ : Cnf} {d : NodeId} (hd : d.step ≤ midFusion φ) : ∀ r ∈ reqOf φ d, r.step = d.step - 1 := by
+  intro r hr
+  unfold reqOf at hr
+  split at hr
+  · simp at hr
+  · split at hr
+    · split at hr
+      · simp at hr
+      · rw [List.mem_singleton] at hr; rw [hr]
+    · split at hr
+      · simp at hr
+      · omega
+
+/-- **En la parte de variables el filtro conserva `TopTri`** (y con él los otros dos niveles): no hay ventanas
+prohibidas ni requisitos lejanos. -/
+theorem hTriKeep_pre {φ : Cnf} {T : Int} {line : Line} (h : LInvX φ T line) (hT : T ≤ midFusion φ) :
+    HTriKeep φ line := by
+  intro kv hkv d hs _ h3
+  have hok := (h.on kv hkv).1
+  have hd : d.step = T := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key]; omega
+  exact topTri_filter_topReq (h.inv kv hkv)
+    (fun r hr => by rw [reqOf_step_pre (by rw [hd]; exact hT) r hr, hd, hok.step]) h3
+    (valid_of_upOn (d := d) (title := "") (forb := isProhibited φ) hs.2)
+
+/-- **Hasta la fusión central, los tres niveles valen sin hipótesis**: toda entrada de las líneas de la parte de
+variables, y la de la fusión central, cumple `TopEdge` y `TopTri`. -/
+theorem lInvX_pre (φ : Cnf) : ∀ n : Nat, (n : Int) ≤ midFusion φ →
+    LInvX φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) := by
+  intro n
+  induction n with
+  | zero => intro _; exact lInvX_init φ
+  | succ n ih =>
+    intro hn
+    have hn' : (n : Int) + 1 ≤ midFusion φ := by push_cast at hn; omega
+    have hl := ih (by omega)
+    rw [stepsM_succ]
+    have := lInvX_advance (by omega) hl (hTriKeep_pre hl hn')
+    rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
+    exact this
+
+/-- **Las hipótesis solo hacen falta desde las cláusulas.** `HypsNodeKeepC`: el filtro de cada llegada conserva
+`TopCT`, solo en las líneas posteriores a la fusión central. -/
+def HypsNodeKeepC (φ : Cnf) : Prop :=
+  ∀ n : Nat, midFusion φ < (n : Int) + 1 → HKeepP TopCT φ (stepsM .on φ n (initM .on φ))
+
+theorem hypsNodeKeep_of_clause {φ : Cnf} (H : HypsNodeKeepC φ) : HypsNodeKeep φ := by
+  intro n
+  by_cases hn : midFusion φ < (n : Int) + 1
+  · exact H n hn
+  · have hl := lInvX_pre φ n (by omega)
+    intro kv hkv d hs hc
+    have hok := (hl.on kv hkv).1
+    have hd : d.step = (n : Int) + 1 := by rw [sonsOfMap_step φ kv.1 d hs.1, hok.key]; omega
+    exact topCT_filter_topReq (hl.inv kv hkv)
+      (fun r hr => by rw [reqOf_step_pre (by rw [hd]; omega) r hr, hd, hok.step]) hc
+      (valid_of_upOn (d := d) (title := "") (forb := isProhibited φ) hs.2)
+
+/-- **Sin hipótesis, toda cima viva está en una camarilla hasta justo antes de la primera ventana prohibida.** La
+parte de variables deja los tres niveles (`lInvX_pre`); la llegada al primer literal de la primera cláusula es el
+primer filtro lejano y consume uno (queda `TopEdge`); la llegada al segundo consume otro (queda `TopCT`). La línea
+siguiente es la del tercer literal, donde entra la primera ventana prohibida. -/
+theorem topCT_before_first_window (φ : Cnf) : ∀ n : Nat, (n : Int) ≤ midFusion φ + 2 →
+    ∀ kv ∈ stepsM .on φ n (initM .on φ), TopCT kv.2 := by
+  have hmid : 0 ≤ midFusion φ := by unfold midFusion; omega
+  have edge1 : ∀ n : Nat, (n : Int) ≤ midFusion φ + 1 →
+      LInvP TopEdge φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) := by
+    intro n hn
+    by_cases h0 : (n : Int) ≤ midFusion φ
+    · exact lInvP_edge_of_x (lInvX_pre φ n h0)
+    · obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 := Nat.exists_eq_succ_of_ne_zero (by
+        intro e; subst e; exact h0 (by have := hmid; simp; omega))
+      have hl := lInvX_pre φ m (by push_cast at hn; omega)
+      rw [stepsM_succ]
+      have := lInvP_advance opsP_topEdge (by omega) (lInvP_edge_of_x hl) (hKeep_edge_of_x hl)
+      rw [show ((m + 1 : Nat) : Int) + 1 = (m : Int) + 1 + 1 by push_cast; omega]
+      exact this
+  intro n hn kv hkv
+  by_cases h1 : (n : Int) ≤ midFusion φ + 1
+  · exact topCT_of_topEdge ((edge1 n h1).p kv hkv)
+  · obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 := Nat.exists_eq_succ_of_ne_zero (by
+      intro e; subst e; exact h1 (by have := hmid; simp; omega))
+    have hl := edge1 m (by push_cast at hn; omega)
+    rw [stepsM_succ] at hkv
+    exact (lInvP_advance opsP_topCT (by omega) (lInvP_node_of_edge hl) (hKeep_node_of_edge hl)).p kv hkv
+
 end GPathB
 
 namespace MachineOn
@@ -832,6 +976,12 @@ theorem spineVerdictOn_iff_of_nodeKeep {φ : Cnf} (hbd : Bounded φ) (H : HypsNo
     obtain ⟨g, hf, hct, _⟩ := run_carriesOn hbd a ha
     refine ⟨_, List.mem_of_find?_eq_some hf, ?_⟩
     exact isValid_of_carried (ct_reviewOn (ct_dirty hct true)).1
+
+/-- **El veredicto con la hipótesis solo en las cláusulas** (`HypsNodeKeepC`): en la parte de variables el filtro
+conserva los niveles sin hipótesis (`lInvX_pre`). -/
+theorem spineVerdictOn_iff_of_nodeKeepC {φ : Cnf} (hbd : Bounded φ) (H : HypsNodeKeepC φ) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_nodeKeep hbd (hypsNodeKeep_of_clause H)
 
 /-- **El veredicto bajo el nivel 2** (`HypsEdgeKeep`): el filtro de cada llegada conserva `TopEdge`. -/
 theorem spineVerdictOn_iff_of_edgeKeep {φ : Cnf} (hbd : Bounded φ) (H : HypsEdgeKeep φ) :
