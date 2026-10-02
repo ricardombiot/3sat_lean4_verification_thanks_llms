@@ -17,9 +17,17 @@ Espejo de las definiciones de Lean (`CnfMapBin`, `CnfSelBin`, `ForbidOnMaj`): `s
 
 Por línea de salida: fichero, variables, cláusulas, casos (T, k, d) comprobados, ramas a0 que no están ya en P,
 hipótesis (pares de pasos con algún tercero candidato) y fallos, con su desglose por operación. Con fallos, el primero se imprime entero.
+
+Donde `HellyAt` falla (o en todos los casos, con `--phantom-all`) se comprueba además `PhantomAt`, la condición de
+todos los pasos (`PhantomFree P0 P N σ`, con N = T en el filtro y N = T + 1 en el UP): se calcula la mayor estructura
+cerrada por la regla hecha de nodos, parejas y tríos de ramas de P0 (los nodos del paso σ, solo los que anclan en P) y
+se cuentan sus elementos que no son de ninguna rama de P: los fantasmas. Los elementos de ramas de P forman una
+estructura cerrada y nunca caen, así que solo se itera sobre los sospechosos (de P0 y no de P).
+  casos_f   casos en los que se calculó la estructura
+  fantasmas nodos + parejas + tríos fantasma (0 = `PhantomFree` se cumple en esos casos)
 """
 import sys
-from itertools import product
+from itertools import product, combinations
 
 
 def parse(path):
@@ -175,6 +183,101 @@ def check(path):
                         rest >>= 1
                         j += 1
 
+    ph_cases = ph_total = 0
+
+    def phantom(P0, P, N, sigma):
+        """Elementos de la mayor estructura cerrada (pasos 0..N-1) que no son de ninguna rama de P."""
+        inP = set(P)
+        # nodos del paso σ que anclan: toda rama de P0 que pasa por ellos es de P
+        thru = {}
+        for a in P0:
+            thru.setdefault(pids[a][sigma], []).append(a)
+        anchor = {w for w, lst in thru.items() if NO_ANCHOR or all(a in inP for a in lst)}
+        ids = {}
+
+        def nid(l, w):
+            key = (l, w)
+            if key not in ids:
+                ids[key] = len(ids)
+            return ids[key]
+
+        def nodes_of(a):
+            out = []
+            for l in range(N):
+                w = pids[a][l]
+                if l == sigma and w not in anchor:
+                    continue
+                out.append(nid(l, w))
+            return out
+
+        def collect(family):
+            V, R, G = set(), set(), set()
+            for a in family:
+                ns = nodes_of(a)                      # crecientes en paso, y por tanto no en id: se ordenan
+                V.update(ns)
+                for pr in combinations(ns, 2):
+                    R.add(pr if pr[0] < pr[1] else (pr[1], pr[0]))
+                for tr in combinations(ns, 3):
+                    G.add(tuple(sorted(tr)))
+            return V, R, G
+
+        V1, R1, G1 = collect(P)
+        V0, R0, G0 = collect(P0)
+        Vs, Rs, Gs = V0 - V1, R0 - R1, G0 - G1
+        step_of = {i: l for (l, _), i in ids.items()}
+        at = {}
+        for i, l in step_of.items():
+            at.setdefault(l, []).append(i)
+        inV = lambda x: x in V1 or x in Vs
+        inR = lambda x, y: ((x, y) if x < y else (y, x)) in R1 or ((x, y) if x < y else (y, x)) in Rs
+        def inG(x, y, z):
+            t = tuple(sorted((x, y, z)))
+            return t in G1 or t in Gs
+        changed = True
+        while changed:
+            changed = False
+            for y in list(Vs):
+                for l in range(N):
+                    if l == step_of[y]:
+                        continue
+                    if not any(inV(s) and inR(y, s) for s in at.get(l, ())):
+                        Vs.discard(y); changed = True
+                        break
+            for (y, w) in list(Rs):
+                ok = inV(y) and inV(w)
+                if ok:
+                    sy, sw = step_of[y], step_of[w]
+                    for l in range(N):
+                        if l == sy or l == sw:
+                            continue
+                        if not any(inV(s) and inR(y, s) and inR(w, s) and inG(y, w, s) for s in at.get(l, ())):
+                            ok = False
+                            break
+                if not ok:
+                    Rs.discard((y, w)); changed = True
+            for (x, u, w) in list(Gs):
+                ok = inR(x, u) and inR(x, w) and inR(u, w)
+                if ok:
+                    st = (step_of[x], step_of[u], step_of[w])
+                    for l in range(N):
+                        if l in st:
+                            continue
+                        if not any(inV(s) and inR(x, s) and inR(u, s) and inR(w, s) and inG(x, u, s)
+                                   and inG(x, w, s) and inG(u, w, s) for s in at.get(l, ())):
+                            ok = False
+                            break
+                if not ok:
+                    Gs.discard((x, u, w)); changed = True
+        return len(Vs) + len(Rs) + len(Gs)
+
+    def both(P0, P, T, N, sigma, tag):
+        nonlocal ph_cases, ph_total
+        before = fails
+        helly(P0, P, T, sigma, tag)
+        if fails > before or PHANTOM_ALL:
+            ph_cases += 1
+            ph_total += phantom(P0, P, N, sigma)
+
     for T in range(1, C + 1):
         for ki in M.map_nodes(T - 1):
             base = [a for a in A if first[a] >= T and sels[a][T - 1] == ki]
@@ -184,18 +287,22 @@ def check(path):
                 cases += 1
                 reqs = M.req(ds, di)
                 for (rs, ri) in reqs:
-                    helly(base, [a for a in base if sels[a][rs] == ri], T, rs, "filtro")
+                    both(base, [a for a in base if sels[a][rs] == ri], T, T, rs, "filtro")
                 if T < C:
                     P0 = [a for a in base if all(sels[a][rs] == ri for (rs, ri) in reqs)]
                     P = [a for a in A if first[a] >= T + 1 and sels[a][T] == di and sels[a][T - 1] == ki]
-                    helly(P0, P, T, T, "UP")
+                    both(P0, P, T, T + 1, T, "UP")
     name = path.split("/")[-1]
-    print(f"{name}\tvars={n}\tclausulas={len(clauses)}\tcasos={cases}\tfuera={outside}\thipotesis={hyps}\tfallos={fails}\tfiltro={by_op['filtro']}\tUP={by_op['UP']}")
+    print(f"{name}\tvars={n}\tclausulas={len(clauses)}\tcasos={cases}\tfuera={outside}\thipotesis={hyps}\tfallos={fails}\tfiltro={by_op['filtro']}\tUP={by_op['UP']}\tcasos_f={ph_cases}\tfantasmas={ph_total}")
     if example is not None:
         print("   primer fallo (operación, T, σ, nodo de σ, tres nodos (paso, ventana)):", example)
     return fails
 
 
+PHANTOM_ALL = "--phantom-all" in sys.argv
+# control del propio script: sin el ancla la estructura entera de P0 es cerrada y todo sospechoso sobrevive
+NO_ANCHOR = "--no-anchor" in sys.argv
+
 if __name__ == "__main__":
-    total = sum(check(p) for p in sys.argv[1:])
+    total = sum(check(p) for p in sys.argv[1:] if not p.startswith("--"))
     sys.exit(1 if total else 0)

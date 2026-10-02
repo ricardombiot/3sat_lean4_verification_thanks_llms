@@ -5,36 +5,42 @@ import AbsSatBingo.Model.ForbidOnMaj
 # El nivel de triángulos: el veredicto bajo una condición sobre la fórmula
 
 `ForbidOnMaj` cierra la inducción con parejas porque la mayoría da «tres ramas que comparten nodos dos a dos ⟹ una
-rama por los tres». Aquí el invariante sube un nivel y la propiedad que hace falta baja a lo mínimo que la prueba usa.
+rama por los tres». Aquí el invariante sube un nivel y la hipótesis es la mínima que deja fuera a la máquina.
 
 * **`Snd3 φ P g`**: toda pareja de vecinos y **todo triángulo sin prohibir** de `g` está en la rama de una asignación
   de `P`.
-* **`Helly4 φ P0 P σ`**: cuatro ramas — una de `P0` por tres nodos `x`, `u`, `w` y tres de `P` por cada dos de ellos
-  y por un mismo nodo del paso `σ` — dan una rama de `P` por `x`, `u` y `w`. Es una propiedad de conjuntos de
-  asignaciones: **no menciona la máquina**.
+* **`PhantomFree φ P0 P N σ`** (sin familias fantasma, la condición de **todos los pasos**): toda estructura de
+  nodos, parejas y tríos prohibidos, cerrada por la regla en los pasos `0 … N - 1` y hecha de ramas de `P0`, es de
+  ramas de `P`; el ancla dice que una rama de `P0` por un nodo de la estructura en el paso `σ` es de `P`. Es una
+  propiedad de conjuntos de asignaciones: **no menciona la máquina**.
+* **`Helly4 φ P0 P N σ`** (la de **un paso**): una rama de `P0` por tres nodos y tres ramas de `P` por cada dos de
+  ellos y por un mismo nodo del paso `σ` dan una rama de `P` por los tres. Da la anterior
+  (`phantomFree_of_helly4`): basta mirar el testigo del paso `σ`.
 
-La prueba solo pide `Helly4` en dos situaciones:
+La prueba solo pide `PhantomFree` en dos situaciones:
 
-| operación | cuándo | `σ` |
-|---|---|---|
-| filtro | un triángulo que sobrevive, con su testigo bueno en el paso del requisito (`trioGood_low`) | el paso del requisito |
-| UP que salta una ventana | un triángulo de nodos viejos, con su cima testigo | el paso nuevo |
+| operación | cuándo | `P0` → `P` | `σ` |
+|---|---|---|---|
+| filtro (`snd3_filter`) | el filtro mata algo | las ramas de la entrada → las que cumplen el requisito | el paso del requisito |
+| UP (`snd3_upOn`) | la fila salta una ventana | las ramas del remitente filtrado → las de la llegada | el paso nuevo |
 
-El join no pide nada (`snd3_joinOn`: un triángulo que la unión no prohíbe no lo corta algún lado), y las parejas
-tampoco: su testigo bueno da un triángulo sin prohibir, que ya está en una rama.
+En las dos la estructura es el propio estado revisado: está cerrado por la regla (`ClosedState`, `trioGood_low`) y
+sus objetos son de ramas de antes (`Snd3` de la entrada; en el UP, los que tienen un nodo de la fila bajan a un
+padre, `upOn_face_parent`). El join no pide nada (`snd3_joinOn`).
 
-**El resultado.** `HellyAt φ T` reúne las dos condiciones de la línea `T` (para cada nodo `k` del paso `T - 1` y cada
-hijo suyo `d` en el mapa), y
+**El resultado.** `PhantomAt φ T` reúne las dos condiciones de la línea `T` (para cada nodo `k` del paso `T - 1` y
+cada hijo suyo `d` en el mapa), y
 
-  `spineVerdictOn_iff_of_helly : Bounded φ → (∀ T, 1 ≤ T → HellyAt φ T) → (SpineVerdictOn φ ↔ Satisfiable φ)`.
+  `spineVerdictOn_iff_of_phantomFree : Bounded φ → (∀ T, 1 ≤ T → PhantomAt φ T) → (SpineVerdictOn φ ↔ Satisfiable φ)`.
 
-La hipótesis es una propiedad de las soluciones de los prefijos de `φ`. Es más débil que la clausura por mayoría
-(`hellyAt_of_majClosed`), así que cubre las fórmulas con forma 2-CNF, y se comprueba por fuerza bruta sin ejecutar la
-máquina (`scripts/helly_formula.py`).
+La de un paso (`HellyAt`, `spineVerdictOn_iff_of_helly`) y la clausura por mayoría (`hellyAt_of_majClosed`) son casos
+particulares, cada una más fuerte que la anterior:
 
-**Lo que no es.** Es suficiente, no necesaria: usa el testigo de **un** paso (el del requisito, o el nuevo), y la
-regla de la máquina busca testigo en **todos**. `scripts/cnf/parity_use.cnf` (una paridad de cuatro variables y
-después una cláusula que lee una de ellas) la incumple en el UP, 768 veces, y nunca en el filtro.
+  `MajClosed` ⟹ `HellyAt` ⟹ `PhantomAt` ⟹ veredicto.
+
+`scripts/helly_formula.py` comprueba `HellyAt` por fuerza bruta sin ejecutar la máquina y, donde falla, `PhantomAt`
+(calculando la mayor estructura cerrada). `scripts/cnf/parity_use.cnf` (una paridad de cuatro variables y después una
+cláusula que lee una de ellas) incumple `HellyAt` en el UP, 768 veces.
 -/
 
 namespace AbsSatBingo.Model
@@ -56,6 +62,101 @@ def Helly4 (φ : Cnf) (P0 P : Assign → Prop) (N σ : Int) : Prop :=
     pidOfAssign φ a2 σ = pidOfAssign φ a1 σ → pidOfAssign φ a3 σ = pidOfAssign φ a1 σ →
     ∃ a, P a ∧ pidOfAssign φ a i = pidOfAssign φ a0 i ∧ pidOfAssign φ a j = pidOfAssign φ a0 j ∧
       pidOfAssign φ a l = pidOfAssign φ a0 l
+
+/-- **`PhantomFree`**: sin familias fantasma. Toda estructura de nodos, parejas (`R`) y tríos prohibidos (`Tf`)
+**cerrada por la regla** en los pasos `0 … N - 1` (cada pareja tiene en cada paso un testigo bueno, y cada triángulo
+sin prohibir también) cuyas parejas y triángulos sin prohibir son todos de ramas de `P0`, es de ramas de `P`; donde
+una rama de `P0` que pasa por un nodo de la estructura en el paso `σ` es de `P` (el ancla).
+
+Es la condición de **todos los pasos**: la de `Helly4` usa solo el testigo del paso `σ`. Sigue sin mencionar la
+máquina. -/
+def PhantomFree (φ : Cnf) (P0 P : Assign → Prop) (N σ : Int) : Prop :=
+  ∀ (R : PathNodeId → PathNodeId → Prop) (Tf : GPathB.Trios),
+    (∀ y w, R y w → R y y ∧ R w w) →
+    (∀ y w, R y w → 0 ≤ y.id.step ∧ y.id.step < N) →
+    (∀ y w, R y w → ∀ l, 0 ≤ l → l < N →
+      ∃ s, s.id.step = l ∧ R y s ∧ R w s ∧ (y = w ∨ s = y ∨ s = w ∨ ¬ Tf y w s)) →
+    (∀ x u w, R x u → R x w → R u w → x ≠ u → x ≠ w → u ≠ w → ¬ Tf x u w → ∀ l, 0 ≤ l → l < N →
+      ∃ s, s.id.step = l ∧ R x s ∧ R u s ∧ R w s ∧
+        (s = x ∨ s = u ∨ s = w ∨ (¬ Tf x u s ∧ ¬ Tf x w s ∧ ¬ Tf u w s))) →
+    (∀ y w, R y w → ∃ a, P0 a ∧ pidOfAssign φ a y.id.step = y ∧ pidOfAssign φ a w.id.step = w) →
+    (∀ x u w, R x u → R x w → R u w → x ≠ u → x ≠ w → u ≠ w → ¬ Tf x u w →
+      ∃ a, P0 a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a u.id.step = u ∧ pidOfAssign φ a w.id.step = w) →
+    (∀ a s, P0 a → R s s → s.id.step = σ → pidOfAssign φ a σ = s → P a) →
+    (∀ y w, R y w → ∃ a, P a ∧ pidOfAssign φ a y.id.step = y ∧ pidOfAssign φ a w.id.step = w) ∧
+    (∀ x u w, R x u → R x w → R u w → x ≠ u → x ≠ w → u ≠ w → ¬ Tf x u w →
+      ∃ a, P a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a u.id.step = u ∧ pidOfAssign φ a w.id.step = w)
+
+/-- **La condición de un paso da la de todos**: basta mirar el testigo del paso `σ`. -/
+theorem phantomFree_of_helly4 {φ : Cnf} {P0 P : Assign → Prop} {N σ : Int} (hσ0 : 0 ≤ σ) (hσN : σ < N)
+    (h : Helly4 φ P0 P N σ) : PhantomFree φ P0 P N σ := by
+  intro R Tf hrefl hsteps hpair htrio hb2 hb3 hanch
+  refine ⟨fun y w hyw => ?_, fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩
+  · obtain ⟨s, hss, hys, hws, hor⟩ := hpair y w hyw σ hσ0 hσN
+    by_cases e : y = w
+    · subst e
+      obtain ⟨a, ha, h1, h2⟩ := hb2 y s hys
+      exact ⟨a, hanch a s ha (hrefl y s hys).2 hss (by rw [← hss]; exact h2), h1, h1⟩
+    · by_cases hsy : s = y
+      · obtain ⟨a, ha, h1, h2⟩ := hb2 y w hyw
+        exact ⟨a, hanch a s ha (hrefl s s (by rw [hsy]; exact (hrefl y w hyw).1)).1 hss
+          (by rw [← hss, hsy]; exact h1), h1, h2⟩
+      · by_cases hsw : s = w
+        · obtain ⟨a, ha, h1, h2⟩ := hb2 y w hyw
+          exact ⟨a, hanch a s ha (hrefl s s (by rw [hsw]; exact (hrefl y w hyw).2)).1 hss
+            (by rw [← hss, hsw]; exact h2), h1, h2⟩
+        · have hnT : ¬ Tf y w s := by
+            rcases hor with h' | h' | h' | h'
+            · exact absurd h' e
+            · exact absurd h' hsy
+            · exact absurd h' hsw
+            · exact h'
+          obtain ⟨a, ha, h1, h2, h3⟩ := hb3 y w s hyw hys hws e (Ne.symm hsy) (Ne.symm hsw) hnT
+          exact ⟨a, hanch a s ha (hrefl y s hys).2 hss (by rw [← hss]; exact h3), h1, h2⟩
+  · obtain ⟨a0, hP0, hx0, hu0, hw0⟩ := hb3 x u w hxu hxw huw nxu nxw nuw hn
+    obtain ⟨s, hss, hxs, hus, hws, hor⟩ := htrio x u w hxu hxw huw nxu nxw nuw hn σ hσ0 hσN
+    have hRs := (hrefl x s hxs).2
+    by_cases hsx : s = x
+    · exact ⟨a0, hanch a0 s hP0 hRs hss (by rw [← hss, hsx]; exact hx0), hx0, hu0, hw0⟩
+    · by_cases hsu : s = u
+      · exact ⟨a0, hanch a0 s hP0 hRs hss (by rw [← hss, hsu]; exact hu0), hx0, hu0, hw0⟩
+      · by_cases hsw : s = w
+        · exact ⟨a0, hanch a0 s hP0 hRs hss (by rw [← hss, hsw]; exact hw0), hx0, hu0, hw0⟩
+        · obtain ⟨n1, n2, n3⟩ : ¬ Tf x u s ∧ ¬ Tf x w s ∧ ¬ Tf u w s := by
+            rcases hor with h' | h' | h' | h'
+            · exact absurd h' hsx
+            · exact absurd h' hsu
+            · exact absurd h' hsw
+            · exact h'
+          obtain ⟨a1, hP1, hx1, hu1, hs1⟩ := hb3 x u s hxu hxs hus nxu (Ne.symm hsx) (Ne.symm hsu) n1
+          obtain ⟨a2, hP2, hx2, hw2, hs2⟩ := hb3 x w s hxw hxs hws nxw (Ne.symm hsx) (Ne.symm hsw) n2
+          obtain ⟨a3, hP3, hu3, hw3, hs3⟩ := hb3 u w s huw hus hws nuw (Ne.symm hsu) (Ne.symm hsw) n3
+          have q1 := hanch a1 s hP1 hRs hss (by rw [← hss]; exact hs1)
+          have q2 := hanch a2 s hP2 hRs hss (by rw [← hss]; exact hs2)
+          have q3 := hanch a3 s hP3 hRs hss (by rw [← hss]; exact hs3)
+          obtain ⟨bx0, bx1⟩ := hsteps x u hxu
+          obtain ⟨bu0, bu1⟩ := hsteps u w huw
+          obtain ⟨bw0, bw1⟩ := hsteps w w (hrefl u w huw).2
+          obtain ⟨a, hP, e1, e2, e3⟩ := h a0 a1 a2 a3 x.id.step u.id.step w.id.step bx0 bx1 bu0 bu1 bw0 bw1
+            hP0 q1 q2 q3 (hx1.trans hx0.symm) (hx2.trans hx0.symm) (hu1.trans hu0.symm) (hu3.trans hu0.symm)
+            (hw2.trans hw0.symm) (hw3.trans hw0.symm)
+            (by rw [← hss]; exact hs2.trans hs1.symm) (by rw [← hss]; exact hs3.trans hs1.symm)
+          exact ⟨a, hP, e1.trans hx0, e2.trans hu0, e3.trans hw0⟩
+
+/-- La condición de un paso con los tres nodos por debajo de `σ` da la misma con alguno en `σ`: si uno de los tres
+nodos está en el paso `σ`, es el nodo común de las tres ramas, y una de ellas ya pasa por los tres. -/
+theorem helly4_extend {φ : Cnf} {P0 P : Assign → Prop} {σ : Int} (h : Helly4 φ P0 P σ σ) :
+    Helly4 φ P0 P (σ + 1) σ := by
+  intro a0 a1 a2 a3 i j l i0 i1 j0 j1 l0 l1 h0 h1 h2 h3 e1 e2 e3 e4 e5 e6 e7 e8
+  by_cases hi : i = σ
+  · exact ⟨a3, h3, by rw [hi, e8, ← hi]; exact e1, e4, e6⟩
+  · by_cases hj : j = σ
+    · exact ⟨a2, h2, e2, by rw [hj, e7, ← hj]; exact e3, e5⟩
+    · by_cases hl : l = σ
+      · refine ⟨a1, h1, e1, e3, ?_⟩
+        have : pidOfAssign φ a1 l = pidOfAssign φ a2 l := by rw [hl]; exact e7.symm
+        rw [this]; exact e5
+      · exact h a0 a1 a2 a3 i j l i0 (by omega) j0 (by omega) l0 (by omega) h0 h1 h2 h3 e1 e2 e3 e4 e5 e6 e7 e8
 
 namespace GPathB
 
@@ -96,7 +197,7 @@ su testigo bueno da un triángulo sin prohibir de la entrada. -/
 theorem snd3_filter {E : GPathB} {T : Int} {k : NodeId} {reqs : List NodeId} (hE : SInvB E) (hns : NoSelf E)
     (hndt : NoDegT E) (hcs : E.current_step = T) (hvE : E.isValid = true) (hlen : reqs.length ≤ 1)
     (hrange : ∀ r ∈ reqs, 1 ≤ r.step ∧ r.step < T)
-    (hH : ∀ r ∈ reqs, Helly4 φ (SolE φ T k) (fun a => SolE φ T k a ∧ selOfAssign φ a r.step = r) T r.step)
+    (hH : ∀ r ∈ reqs, PhantomFree φ (SolE φ T k) (fun a => SolE φ T k a ∧ selOfAssign φ a r.step = r) T r.step)
     (hs : Snd3 φ (SolE φ T k) E) (hc : ∀ a, SolE φ T k a → CT E (pidOfAssign φ a))
     (hvY : (E.filterAllOn reqs).isValid = true) :
     Snd3 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqs, selOfAssign φ a r.step = r) (E.filterAllOn reqs) := by
@@ -166,82 +267,49 @@ theorem snd3_filter {E : GPathB} {T : Int} {k : NodeId} {reqs : List NodeId} (hE
         have := congrArg PathNodeId.id hp
         rw [pid_id, hss] at this
         rw [this]; exact pinned s hsa hss
+      have b0 : ∀ {q : PathNodeId}, q ∈ (E.pinOn [r]).alive → 0 ≤ q.id.step ∧ q.id.step < T := by
+        intro q hq
+        obtain ⟨n, hn, rfl⟩ := hiY.docs q hq
+        have h1 := hiY.below n hn
+        rw [step_pinOn, hcs] at h1
+        exact ⟨hiY.zero n hn, h1⟩
+      have hcT : (E.pinOn [r]).current_step = T := by rw [step_pinOn, hcs]
+      -- la estructura del estado fijado: sus vivos, sus aristas y sus tríos
+      obtain ⟨c2, c3⟩ := hH r (List.mem_singleton_self _)
+        (LowR (E.pinOn [r]) (E.pinOn [r]).current_step) (TF (E.pinOn [r]))
+        (fun y w h => ⟨hR (adj_refl _ _ h.1.1), hR (adj_refl _ _ h.1.2.1)⟩)
+        (fun y w h => b0 h.1.1)
+        (fun y w h l l0 l1 => by
+          by_cases e : y = w
+          · obtain ⟨s, hss, hys, hws⟩ := hcl.pair (y := y) (w := w) h.1 l l0 (by rw [hcT]; exact l1)
+            exact ⟨s, hss, hR hys.2.2, hR hws.2.2, Or.inl e⟩
+          · obtain ⟨s, hss, hys, hws, hor⟩ := hg.edge h e l l0 (by rw [hcT]; exact l1)
+            exact ⟨s, hss, hys, hws, Or.inr hor⟩)
+        (fun x u w h1 h2 h3 n1 n2 n3 hn l l0 l1 => hg.trio h1 h2 h3 n1 n2 n3 hn l l0 (by rw [hcT]; exact l1))
+        (fun y w h => hs.1 y w (hsub.adj _ _ h.1.2.2))
+        (fun x u w h1 h2 h3 n1 n2 n3 hn => hs.2 x u w (hsub.adj _ _ h1.1.2.2) (hsub.adj _ _ h2.1.2.2)
+          (hsub.adj _ _ h3.1.2.2) n1 n2 n3 (nE h1.1.2.2 hn))
+        (fun a s hS hss' hstep hp => ⟨hS, agS hss'.1.1 hstep (by rw [hstep]; exact hp)⟩)
       refine ⟨fun x w hxw => ?_, fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩
-      · obtain ⟨hxa, hwa⟩ := hiY.edges x w hxw
-        by_cases hxw' : x = w
-        · subst hxw'
-          obtain ⟨s, hss, hxs, _⟩ := hcl.pair (y := x) (w := x) ⟨hxa, hxa, hxw⟩ r.step hσ1 hσ2
-          obtain ⟨a, hS, h1, h2⟩ := hs.1 x s (hsub.adj _ _ hxs.2.2)
-          exact ⟨a, ⟨hS, one (agS hxs.2.1 hss h2)⟩, h1, h1⟩
-        · obtain ⟨s, hss, hxs, hws, hor⟩ := hg.edge (hR hxw) hxw' r.step hσ1 hσ2
-          have hsa := hxs.1.2.1
-          by_cases hsx : s = x
-          · obtain ⟨a, hS, h1, h2⟩ := hs.1 x w (hsub.adj _ _ hxw)
-            exact ⟨a, ⟨hS, one (agS hsa hss (by rw [hsx]; exact h1))⟩, h1, h2⟩
-          · by_cases hsw : s = w
-            · obtain ⟨a, hS, h1, h2⟩ := hs.1 x w (hsub.adj _ _ hxw)
-              exact ⟨a, ⟨hS, one (agS hsa hss (by rw [hsw]; exact h2))⟩, h1, h2⟩
-            · have hnT : ¬ TF (E.pinOn [r]) x w s := by
-                rcases hor with h | h | h
-                · exact absurd h hsx
-                · exact absurd h hsw
-                · exact h
-              obtain ⟨a, hS, h1, h2, h3⟩ := hs.2 x w s (hsub.adj _ _ hxw) (hsub.adj _ _ hxs.1.2.2)
-                (hsub.adj _ _ hws.1.2.2) hxw' (Ne.symm hsx) (Ne.symm hsw) (nE hxw hnT)
-              exact ⟨a, ⟨hS, one (agS hsa hss h3)⟩, h1, h2⟩
-      · obtain ⟨a0, hS0, hx0, hu0, hw0⟩ := hs.2 x u w (hsub.adj _ _ hxu) (hsub.adj _ _ hxw) (hsub.adj _ _ huw)
-          nxu nxw nuw (nE hxu hn)
-        obtain ⟨s, hss, hxs, hus, hws, hor⟩ := hg.trio (hR hxu) (hR hxw) (hR huw) nxu nxw nuw hn r.step hσ1 hσ2
-        have hsa := hxs.1.2.1
-        by_cases hsx : s = x
-        · exact ⟨a0, ⟨hS0, one (agS hsa hss (by rw [hsx]; exact hx0))⟩, hx0, hu0, hw0⟩
-        · by_cases hsu : s = u
-          · exact ⟨a0, ⟨hS0, one (agS hsa hss (by rw [hsu]; exact hu0))⟩, hx0, hu0, hw0⟩
-          · by_cases hsw : s = w
-            · exact ⟨a0, ⟨hS0, one (agS hsa hss (by rw [hsw]; exact hw0))⟩, hx0, hu0, hw0⟩
-            · obtain ⟨n1, n2, n3⟩ : ¬ TF (E.pinOn [r]) x u s ∧ ¬ TF (E.pinOn [r]) x w s ∧
-                  ¬ TF (E.pinOn [r]) u w s := by
-                rcases hor with h | h | h | h
-                · exact absurd h hsx
-                · exact absurd h hsu
-                · exact absurd h hsw
-                · exact h
-              have axs := hsub.adj _ _ hxs.1.2.2
-              have aus := hsub.adj _ _ hus.1.2.2
-              have aws := hsub.adj _ _ hws.1.2.2
-              obtain ⟨a1, hS1, hx1, hu1, hs1⟩ := hs.2 x u s (hsub.adj _ _ hxu) axs aus nxu (Ne.symm hsx)
-                (Ne.symm hsu) (nE hxu n1)
-              obtain ⟨a2, hS2, hx2, hw2, hs2⟩ := hs.2 x w s (hsub.adj _ _ hxw) axs aws nxw (Ne.symm hsx)
-                (Ne.symm hsw) (nE hxw n2)
-              obtain ⟨a3, hS3, hu3, hw3, hs3⟩ := hs.2 u w s (hsub.adj _ _ huw) aus aws nuw (Ne.symm hsu)
-                (Ne.symm hsw) (nE huw n3)
-              have b0 : ∀ {q : PathNodeId}, q ∈ (E.pinOn [r]).alive → 0 ≤ q.id.step ∧ q.id.step < T := by
-                intro q hq
-                obtain ⟨n, hn, rfl⟩ := hiY.docs q hq
-                have h1 := hiY.below n hn
-                rw [step_pinOn, hcs] at h1
-                exact ⟨hiY.zero n hn, h1⟩
-              obtain ⟨a, hP, e1, e2, e3⟩ := hH r (List.mem_singleton_self _) a0 a1 a2 a3 x.id.step u.id.step
-                w.id.step (b0 hxs.1.1).1 (b0 hxs.1.1).2 (b0 hus.1.1).1 (b0 hus.1.1).2 (b0 hws.1.1).1 (b0 hws.1.1).2
-                hS0 ⟨hS1, agS hsa hss hs1⟩ ⟨hS2, agS hsa hss hs2⟩ ⟨hS3, agS hsa hss hs3⟩
-                (hx1.trans hx0.symm) (hx2.trans hx0.symm) (hu1.trans hu0.symm) (hu3.trans hu0.symm)
-                (hw2.trans hw0.symm) (hw3.trans hw0.symm)
-                (by rw [← hss]; exact hs2.trans hs1.symm) (by rw [← hss]; exact hs3.trans hs1.symm)
-              exact ⟨a, ⟨hP.1, one hP.2⟩, e1.trans hx0, e2.trans hu0, e3.trans hw0⟩
+      · obtain ⟨a, hP, h1, h2⟩ := c2 x w (hR hxw)
+        exact ⟨a, ⟨hP.1, one hP.2⟩, h1, h2⟩
+      · obtain ⟨a, hP, h1, h2, h3⟩ := c3 x u w (hR hxu) (hR hxw) (hR huw) nxu nxw nuw hn
+        exact ⟨a, ⟨hP.1, one hP.2⟩, h1, h2, h3⟩
 
 section Up
 
 variable {Y : GPathB} {T : Int} {k d : NodeId} {title : String}
 
-/-- **El UP conserva `Snd3`**, bajo `Helly4` en el paso nuevo y solo cuando la fila salta una ventana. Un triángulo
-con un nodo de la fila baja a un padre que sostiene su cara (`upOn_face_parent`); un triángulo de nodos viejos, si la
-fila saltó una ventana, tiene una cima testigo buena en el punto fijo de la llegada, y las cuatro ramas (la del
-triángulo en el remitente y las tres de sus caras con la cima) dan una por los tres; si no saltó ninguna, su rama se
-alarga. -/
+/-- **El UP conserva `Snd3`**, bajo `PhantomFree` y solo cuando la fila salta una ventana. Un triángulo con un nodo
+de la fila baja a un padre que sostiene su cara (`upOn_face_parent`). Si la fila no saltó ninguna ventana, la rama de
+todo objeto de nodos viejos se alarga. Si saltó alguna, la llegada revisada es una estructura cerrada por la regla
+cuyos objetos son todos de ramas del remitente (los de nodos viejos, por `Snd3` del remitente; los que tienen un nodo
+de la fila, por su padre), y una rama del remitente que pasa por un nodo de la fila es de la llegada: `PhantomFree`
+da que todos son de ramas de la llegada. -/
 theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : NoDegT Y) (hcs : Y.current_step = T)
     (hT : 1 ≤ T) (hvY : Y.isValid = true) (hda : DocsAlive Y) (hdk : d ∈ sonsOfMap φ k) (hdm : d ∈ mapNodes φ T)
-    (hH : Helly4 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
-      (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) T T)
+    (hH : PhantomFree φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
+      (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (T + 1) T)
     (hs : Snd3 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) Y)
     (hc : ∀ a, (SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) → CT Y (pidOfAssign φ a))
     (hvA : (Y.upOn d title (isProhibited φ)).isValid = true) :
@@ -324,34 +392,31 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
         obtain ⟨a, ha, h1, h2, h3⟩ := hs.2 p x w hpx hpw hxw' hpx' hpw' nxw hnfY
         exact fin a ha h1 h2 h3
   -- lo que falta lo dan las parejas y los triángulos de nodos viejos, que dependen de si la fila saltó una ventana
-  have main :
+  have main : ∀ (Q : Assign → Prop), (∀ a, (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) → Q a) →
       (∀ {x w : PathNodeId}, x.id.step < T → w.id.step < T → (Y.upOn d title (isProhibited φ)).Adj x w →
-        ∃ a, (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) ∧ pidOfAssign φ a x.id.step = x ∧
-          pidOfAssign φ a w.id.step = w) →
+        ∃ a, Q a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a w.id.step = w) →
       (∀ {x u w : PathNodeId}, x.id.step < T → u.id.step < T → w.id.step < T →
         (Y.upOn d title (isProhibited φ)).Adj x u → (Y.upOn d title (isProhibited φ)).Adj x w →
         (Y.upOn d title (isProhibited φ)).Adj u w → x ≠ u → x ≠ w → u ≠ w →
         ¬ TF (Y.upOn d title (isProhibited φ)) x u w →
-        ∃ a, (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) ∧ pidOfAssign φ a x.id.step = x ∧
-          pidOfAssign φ a u.id.step = u ∧ pidOfAssign φ a w.id.step = w) →
-      Snd3 φ (SolE φ (T + 1) d) (Y.upOn d title (isProhibited φ)) := by
-    intro oo2 oo3
-    apply snd3_mono (P := fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) _ (fun a ha => ha.1)
+        ∃ a, Q a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a u.id.step = u ∧ pidOfAssign φ a w.id.step = w) →
+      Snd3 φ Q (Y.upOn d title (isProhibited φ)) := by
+    intro Q hQ oo2 oo3
     refine ⟨fun x w hxw => ?_, fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩
     · obtain ⟨hxa, hwa⟩ := hiA.edges x w hxw
       rcases cls hxa with ⟨_, hxs⟩ | ⟨hxn, hxs⟩ <;> rcases cls hwa with ⟨_, hws⟩ | ⟨hwn, hws⟩
       · exact oo2 hxs hws hxw
       · obtain ⟨a, hS, hpT, hpx⟩ := newOld hwn hxs ((adj_symm _ _ _).mp hxw)
-        exact ⟨a, hS, hpx, by rw [hws]; exact hpT⟩
+        exact ⟨a, hQ a hS, hpx, by rw [hws]; exact hpT⟩
       · obtain ⟨a, hS, hpT, hpw⟩ := newOld hxn hws hxw
-        exact ⟨a, hS, by rw [hxs]; exact hpT, hpw⟩
+        exact ⟨a, hQ a hS, by rw [hxs]; exact hpT, hpw⟩
       · have e := twoNew hxs hws hxw
         subst e
         obtain ⟨q, hq, hqa, hqs⟩ := exists_rowParent (d := d) (forb := isProhibited φ) hda (by rw [hcs]; omega) hxn
         obtain ⟨a, ha, hq', _⟩ := hs.1 q q (adj_refl _ _ hqa)
         rw [hqs, hcs] at hq'
         obtain ⟨a', hS, hpT, _⟩ := liftA ha hq' hq hxn
-        exact ⟨a', hS, by rw [hxs]; exact hpT, by rw [hxs]; exact hpT⟩
+        exact ⟨a', hQ a' hS, by rw [hxs]; exact hpT, by rw [hxs]; exact hpT⟩
     · obtain ⟨hxa, hua⟩ := hiA.edges x u hxu
       have hwa := (hiA.edges x w hxw).2
       have hux := (adj_symm _ _ _).mp hxu
@@ -364,16 +429,16 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
         have hnf : ¬ TF (Y.upOn d title (isProhibited φ)) w x u := fun hf =>
           hn (tF_of_perm hxu nxu (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl hf))))))
         obtain ⟨a, hS, hpT, h1, h2⟩ := newTri hwa hwn hws hxs hus nxu hwx hwu hxu hnf
-        exact ⟨a, hS, h1, h2, by rw [hws]; exact hpT⟩
+        exact ⟨a, hQ a hS, h1, h2, by rw [hws]; exact hpT⟩
       · -- u es de la fila
         have hnf : ¬ TF (Y.upOn d title (isProhibited φ)) u x w := fun hf =>
           hn (tF_of_perm hxu nxu (Or.inr (Or.inr (Or.inl hf))))
         obtain ⟨a, hS, hpT, h1, h2⟩ := newTri hua hun hus hxs hws nxw hux huw hxw hnf
-        exact ⟨a, hS, h1, by rw [hus]; exact hpT, h2⟩
+        exact ⟨a, hQ a hS, h1, by rw [hus]; exact hpT, h2⟩
       · exact absurd (twoNew hus hws huw) nuw
       · -- x es de la fila
         obtain ⟨a, hS, hpT, h1, h2⟩ := newTri hxa hxn hxs hus hws nuw hxu hxw huw hn
-        exact ⟨a, hS, by rw [hxs]; exact hpT, h1, h2⟩
+        exact ⟨a, hQ a hS, by rw [hxs]; exact hpT, h1, h2⟩
       · exact absurd (twoNew hxs hws hxw) nxw
       · exact absurd (twoNew hxs hus hxu) nxu
       · exact absurd (twoNew hxs hus hxu) nxu
@@ -402,7 +467,8 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
         simpa using this
       obtain ⟨a', hS, _, hpl⟩ := liftA ha0 rfl (List.mem_filter.mpr ⟨hnpar, by simp⟩) hnew
       exact ⟨a', hS, hpl⟩
-    refine main (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)
+    refine snd3_mono (main (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (fun _ h => h)
+      (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)) (fun a ha => ha.1)
     · obtain ⟨a0, ha0, hx0, hw0⟩ := hs.1 x w (oldAdj hxs hws hxw)
       obtain ⟨a', hS, hpl⟩ := ext a0 ha0
       exact ⟨a', hS, by rw [hpl _ hxs]; exact hx0, by rw [hpl _ hws]; exact hw0⟩
@@ -439,56 +505,51 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
       rcases cls hna with ⟨_, h⟩ | ⟨h, _⟩
       · omega
       · exact h
-    -- la cara con la cima, leída con la cima delante
-    have face : ∀ {y z n : PathNodeId}, (Y.upOn d title (isProhibited φ)).Adj y z → y ≠ z →
-        ¬ TF (Y.upOn d title (isProhibited φ)) y z n → ¬ TF (Y.upOn d title (isProhibited φ)) n y z :=
-      fun hyz nyz hn hf => hn (tF_of_perm hyz nyz (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl hf))))))
-    refine main (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)
-    · obtain ⟨hxa, hwa⟩ := hiA.edges x w hxw
-      by_cases hxw' : x = w
-      · subst hxw'
-        obtain ⟨n, hns, hxn, _⟩ := hcl.pair (y := x) (w := x) ⟨hxa, hxa, hxw⟩ T (by omega) (by rw [hcsA]; omega)
-        obtain ⟨a, hS, _, hpx⟩ := newOld (topNew hxn.2.1 hns) hxs ((adj_symm _ _ _).mp hxn.2.2)
-        exact ⟨a, hS, hpx, hpx⟩
-      · obtain ⟨n, hns, hxn, hwn, hor⟩ := hg.edge (hR hxw) hxw' T (by omega) (by rw [hcsA]; omega)
-        have hna := hxn.1.2.1
-        have hnT : ¬ TF (Y.upOn d title (isProhibited φ)) x w n := by
-          rcases hor with h | h | h
-          · rw [h] at hns; omega
-          · rw [h] at hns; omega
-          · exact h
-        obtain ⟨a, hS, _, hpx, hpw⟩ := newTri hna (topNew hna hns) hns hxs hws hxw'
-          ((adj_symm _ _ _).mp hxn.1.2.2) ((adj_symm _ _ _).mp hwn.1.2.2) hxw (face hxw hxw' hnT)
-        exact ⟨a, hS, hpx, hpw⟩
-    · have hnY : ¬ TF Y x u w := fun hf => hn (tF_mono (trios_grow_upOn Y d title (isProhibited φ)) hxu hf)
-      obtain ⟨a0, ha0, hx0, hu0, hw0⟩ := hs.2 x u w (oldAdj hxs hus hxu) (oldAdj hxs hws hxw) (oldAdj hus hws huw)
-        nxu nxw nuw hnY
-      obtain ⟨n, hns, hxn, hun, hwn, hor⟩ := hg.trio (hR hxu) (hR hxw) (hR huw) nxu nxw nuw hn T (by omega)
-        (by rw [hcsA]; omega)
-      have hna := hxn.1.2.1
-      obtain ⟨n1, n2, n3⟩ : ¬ TF (Y.upOn d title (isProhibited φ)) x u n ∧
-          ¬ TF (Y.upOn d title (isProhibited φ)) x w n ∧ ¬ TF (Y.upOn d title (isProhibited φ)) u w n := by
-        rcases hor with h | h | h | h
-        · rw [h] at hns; omega
-        · rw [h] at hns; omega
-        · rw [h] at hns; omega
-        · exact h
-      have hnx := (adj_symm _ _ _).mp hxn.1.2.2
-      have hnu := (adj_symm _ _ _).mp hun.1.2.2
-      have hnw := (adj_symm _ _ _).mp hwn.1.2.2
-      have hnn := topNew hna hns
-      obtain ⟨a1, hS1, hn1, hx1, hu1⟩ := newTri hna hnn hns hxs hus nxu hnx hnu hxu (face hxu nxu n1)
-      obtain ⟨a2, hS2, hn2, hx2, hw2⟩ := newTri hna hnn hns hxs hws nxw hnx hnw hxw (face hxw nxw n2)
-      obtain ⟨a3, hS3, hn3, hu3, hw3⟩ := newTri hna hnn hns hus hws nuw hnu hnw huw (face huw nuw n3)
-      have z0 : ∀ {q : PathNodeId}, q ∈ (Y.upOn d title (isProhibited φ)).alive → 0 ≤ q.id.step := by
-        intro q hq
-        obtain ⟨m, hm, rfl⟩ := hiA.docs q hq
-        exact hiA.zero m hm
-      obtain ⟨a, hP, e1, e2, e3⟩ := hH a0 a1 a2 a3 x.id.step u.id.step w.id.step (z0 hxn.1.1) hxs (z0 hun.1.1) hus
-        (z0 hwn.1.1) hws ha0 hS1 hS2 hS3
-        (hx1.trans hx0.symm) (hx2.trans hx0.symm) (hu1.trans hu0.symm) (hu3.trans hu0.symm)
-        (hw2.trans hw0.symm) (hw3.trans hw0.symm) (hn2.trans hn1.symm) (hn3.trans hn1.symm)
-      exact ⟨a, hP, e1.trans hx0, e2.trans hu0, e3.trans hw0⟩
+    have b0 : ∀ {q : PathNodeId}, q ∈ (Y.upOn d title (isProhibited φ)).alive → 0 ≤ q.id.step ∧ q.id.step < T + 1 := by
+      intro q hq
+      obtain ⟨m, hm, rfl⟩ := hiA.docs q hq
+      have h1 := hiA.below m hm
+      rw [hcsA] at h1
+      exact ⟨hiA.zero m hm, h1⟩
+    -- las ramas de la llegada son ramas del remitente filtrado
+    have sub : ∀ a, (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) →
+        (SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) := by
+      intro a ha
+      have hd' : selOfAssign φ a T = d := by have := ha.1.2; rw [show T + 1 - 1 = T by omega] at this; exact this
+      refine ⟨⟨validUpTo_mono ha.1.1 (by omega), ha.2⟩, fun r hr => ?_⟩
+      have := reqSat_selOfAssign φ hb a T r (by rw [hd']; exact hr)
+      exact this
+    -- todo objeto de la llegada es de una rama del remitente
+    have base := main (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) sub
+      (fun {x w} hxs hws hxw => hs.1 x w (oldAdj hxs hws hxw))
+      (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn =>
+        hs.2 x u w (oldAdj hxs hus hxu) (oldAdj hxs hws hxw) (oldAdj hus hws huw) nxu nxw nuw
+          (fun hf => hn (tF_mono (trios_grow_upOn Y d title (isProhibited φ)) hxu hf)))
+    obtain ⟨c2, c3⟩ := hH
+      (LowR (Y.upOn d title (isProhibited φ)) (Y.upOn d title (isProhibited φ)).current_step)
+      (TF (Y.upOn d title (isProhibited φ)))
+      (fun y w h => ⟨hR (adj_refl _ _ h.1.1), hR (adj_refl _ _ h.1.2.1)⟩)
+      (fun y w h => b0 h.1.1)
+      (fun y w h l l0 l1 => by
+        by_cases e : y = w
+        · obtain ⟨s, hss, hys, hws⟩ := hcl.pair (y := y) (w := w) h.1 l l0 (by rw [hcsA]; exact l1)
+          exact ⟨s, hss, hR hys.2.2, hR hws.2.2, Or.inl e⟩
+        · obtain ⟨s, hss, hys, hws, hor⟩ := hg.edge h e l l0 (by rw [hcsA]; exact l1)
+          exact ⟨s, hss, hys, hws, Or.inr hor⟩)
+      (fun x u w h1 h2 h3 n1 n2 n3 hn l l0 l1 => hg.trio h1 h2 h3 n1 n2 n3 hn l l0 (by rw [hcsA]; exact l1))
+      (fun y w h => base.1 y w h.1.2.2)
+      (fun x u w h1 h2 h3 n1 n2 n3 hn => base.2 x u w h1.1.2.2 h2.1.2.2 h3.1.2.2 n1 n2 n3 hn)
+      (fun a n ha hnn hstep hp => by
+        have hnew := topNew hnn.1.1 hstep
+        refine ⟨⟨validUpTo_succ ha.1.1 ?_, ?_⟩, ha.1.2⟩
+        · rw [hp]
+          have := (List.mem_filter.mp hnew).2
+          simpa using this
+        · rw [show T + 1 - 1 = T by omega, ← pid_id, hp]; exact newRow_id' hnew)
+    refine snd3_mono (P := fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) ⟨fun x w hxw => ?_,
+      fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩ (fun a ha => ha.1)
+    · exact c2 x w (hR hxw)
+    · exact c3 x u w (hR hxu) (hR hxw) (hR huw) nxu nxw nuw hn
 
 end Up
 
@@ -509,14 +570,34 @@ theorem levels_of_snd3 {E : GPathB} {T : Int} {k : NodeId} (hs : Snd3 φ (SolE �
 -- La condición sobre la fórmula y el invariante de línea
 -- ============================================================
 
-/-- **`HellyAt φ T`**: la condición de cuatro ramas en la línea `T`, para cada nodo `k` del paso `T - 1` y cada hijo
-suyo `d` en el mapa: en el paso del requisito de `d` (el filtro) y en el paso nuevo (el UP). Solo habla de las
+/-- **`PhantomAt φ T`**: sin familias fantasma en la línea `T`, para cada nodo `k` del paso `T - 1` y cada hijo
+suyo `d` en el mapa: al fijar el requisito de `d` (el filtro) y al añadir el paso nuevo (el UP). Solo habla de las
 soluciones del prefijo de `φ`: no menciona la máquina. -/
+def PhantomAt (φ : Cnf) (T : Int) : Prop :=
+  ∀ k d : NodeId, k ∈ mapNodes φ (T - 1) → d ∈ sonsOfMap φ k →
+    (∀ r ∈ reqOf φ d, PhantomFree φ (SolE φ T k) (fun a => SolE φ T k a ∧ selOfAssign φ a r.step = r) T r.step) ∧
+    PhantomFree φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
+      (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (T + 1) T
+
+/-- **`HellyAt φ T`**: la condición de cuatro ramas en la línea `T` (la de un solo paso): en el paso del requisito
+de `d` (el filtro) y en el paso nuevo (el UP). -/
 def HellyAt (φ : Cnf) (T : Int) : Prop :=
   ∀ k d : NodeId, k ∈ mapNodes φ (T - 1) → d ∈ sonsOfMap φ k →
     (∀ r ∈ reqOf φ d, Helly4 φ (SolE φ T k) (fun a => SolE φ T k a ∧ selOfAssign φ a r.step = r) T r.step) ∧
     Helly4 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
       (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) T T
+
+/-- **La condición de un paso da la de todos.** -/
+theorem phantomAt_of_hellyAt (hb : Bounded φ) {T : Int} (hT : 1 ≤ T) (h : HellyAt φ T) : PhantomAt φ T := by
+  intro k d hk hd
+  obtain ⟨hF, hU⟩ := h k d hk hd
+  refine ⟨fun r hr => ?_, phantomFree_of_helly4 (by omega) (by omega) (helly4_extend hU)⟩
+  have hds : d.step = T := by
+    have := sonsOfMap_step φ k d hd
+    have hks := mapNodes_step φ (T - 1) k hk
+    omega
+  obtain ⟨r1, r2⟩ := reqOf_range hb r hr
+  exact phantomFree_of_helly4 (by omega) (by rw [hds] at r2; exact r2) (hF r hr)
 
 /-- **El invariante semántico de triángulos de la línea `:on`.** -/
 structure LInvS3 (φ : Cnf) (T : Int) (line : Line) : Prop where
@@ -531,9 +612,9 @@ structure LInvS3 (φ : Cnf) (T : Int) (line : Line) : Prop where
 theorem lInvS_of_s3 {T : Int} {line : Line} (h : LInvS3 φ T line) : LInvS φ T line :=
   ⟨h.on, h.nodup, h.keys, h.inv, h.ndt, h.docs, fun kv hkv => (h.snd kv hkv).1⟩
 
-/-- **El paso de la máquina bajo `HellyAt`.** -/
+/-- **El paso de la máquina bajo `PhantomAt`.** -/
 theorem lInvS3_advance (hb : Bounded φ) {T : Int} (hT : 1 ≤ T) {line : Line} (h : LInvS3 φ T line)
-    (hcomp : CompLine φ T line) (hH : HellyAt φ T) : LInvS3 φ (T + 1) (advanceM .on φ line) := by
+    (hcomp : CompLine φ T line) (hH : PhantomAt φ T) : LInvS3 φ (T + 1) (advanceM .on φ line) := by
   have hlen := line_cases h.nodup h.keys
   have arr : ∀ kv ∈ line, ∀ d, SendsOn φ kv d →
       EntOn (T + 1) d (arrOn φ kv d) ∧ SInvB (arrOn φ kv d) ∧ NoDegT (arrOn φ kv d) ∧ DocsAlive (arrOn φ kv d) ∧
@@ -605,8 +686,8 @@ theorem lInvS3_init (φ : Cnf) : LInvS3 φ 1 (initM .on φ) := by
   rw [st hua] at hu
   exact nxu (hx.symm.trans hu)
 
-/-- **La inducción**: bajo la condición de cuatro ramas hasta la línea, el invariante de triángulos vale en ella. -/
-theorem lInvS3_steps (hb : Bounded φ) : ∀ n : Nat, (∀ T : Int, 1 ≤ T → T ≤ n → HellyAt φ T) →
+/-- **La inducción**: sin familias fantasma hasta la línea, el invariante de triángulos vale en ella. -/
+theorem lInvS3_steps (hb : Bounded φ) : ∀ n : Nat, (∀ T : Int, 1 ≤ T → T ≤ n → PhantomAt φ T) →
     LInvS3 φ ((n : Int) + 1) (stepsM .on φ n (initM .on φ)) := by
   intro n
   induction n with
@@ -619,8 +700,8 @@ theorem lInvS3_steps (hb : Bounded φ) : ∀ n : Nat, (∀ T : Int, 1 ≤ T → 
     rw [show ((n + 1 : Nat) : Int) + 1 = (n : Int) + 1 + 1 by push_cast; omega]
     exact this
 
-/-- **Bajo la condición de cuatro ramas, toda entrada de la máquina cumple los tres niveles.** -/
-theorem levels_steps3 (hb : Bounded φ) (n : Nat) (hm : ∀ T : Int, 1 ≤ T → T ≤ n → HellyAt φ T) :
+/-- **Sin familias fantasma, toda entrada de la máquina cumple los tres niveles.** -/
+theorem levels_steps3 (hb : Bounded φ) (n : Nat) (hm : ∀ T : Int, 1 ≤ T → T ≤ n → PhantomAt φ T) :
     ∀ kv ∈ stepsM .on φ n (initM .on φ), TopCT kv.2 ∧ TopEdge kv.2 ∧ TopTri kv.2 := by
   intro kv hkv
   have hl := lInvS3_steps hb n hm
@@ -655,12 +736,18 @@ open GPathB Driver Machine
 
 variable {φ : Cnf}
 
-/-- **La espina `:on` decide toda fórmula que cumple la condición de cuatro ramas.** La hipótesis es una propiedad
-de las soluciones de los prefijos de `φ`; la máquina no aparece en ella. -/
-theorem spineVerdictOn_iff_of_helly (hbd : Bounded φ) (H : ∀ T : Int, 1 ≤ T → HellyAt φ T) :
+/-- **La espina `:on` decide toda fórmula sin familias fantasma.** La hipótesis es una propiedad de las soluciones
+de los prefijos de `φ` (toda estructura cerrada por la regla y hecha de ramas es de ramas que cumplen lo fijado); la
+máquina no aparece en ella. -/
+theorem spineVerdictOn_iff_of_phantomFree (hbd : Bounded φ) (H : ∀ T : Int, 1 ≤ T → PhantomAt φ T) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
   spineVerdictOn_iff_of_finalTopCT hbd
     (fun kv hkv => (levels_steps3 hbd (stepCount φ - 1).toNat (fun T h1 _ => H T h1) kv hkv).1)
+
+/-- **La espina `:on` decide toda fórmula que cumple la condición de cuatro ramas** (la de un solo paso). -/
+theorem spineVerdictOn_iff_of_helly (hbd : Bounded φ) (H : ∀ T : Int, 1 ≤ T → HellyAt φ T) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_phantomFree hbd (fun T hT => phantomAt_of_hellyAt hbd hT (H T hT))
 
 end MachineOn
 
