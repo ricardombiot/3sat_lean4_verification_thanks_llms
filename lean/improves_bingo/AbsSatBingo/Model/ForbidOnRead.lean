@@ -18,7 +18,7 @@ lector fija el color (el nodo del mapa) de un nodo vivo y revisa, una elección 
   elecciones. El lector no retrocede.
 
 La hipótesis de la lectura (`HRead`) es, como `PhantomAt`, una propiedad de las soluciones de `φ`: sin familias
-fantasma al fijar un color más, sea cual sea la lista de colores ya fijados. La mayoría la da (`hRead_of_maj`), así
+fantasma al fijar un color más, sea cual sea la lista de colores ya fijados (de pasos del estado). La mayoría la da (`hRead_of_maj`), así
 que en las fórmulas con forma 2-CNF el lector no se atasca **sin hipótesis** (`reader_on_twoLike`).
 -/
 
@@ -104,18 +104,19 @@ def Pinned (φ : Cnf) (P : Assign → Prop) (R : List NodeId) (a : Assign) : Pro
 
 /-- **La hipótesis de la lectura**: sin familias fantasma al fijar un color más, tras cualquier lista de colores. -/
 def HRead (φ : Cnf) (T : Int) (P : Assign → Prop) : Prop :=
-  ∀ (R : List NodeId) (r : NodeId), 1 ≤ r.step → r.step < T →
+  ∀ (R : List NodeId) (r : NodeId), (∀ x ∈ R, 1 ≤ x.step ∧ x.step < T) → 1 ≤ r.step → r.step < T →
     PhantomFree φ (Pinned φ P R) (fun a => Pinned φ P R a ∧ selOfAssign φ a r.step = r) T r.step
 
 /-- **Toda lectura conserva el invariante**, con las asignaciones que eligen los colores leídos. -/
 theorem reading_inv {T : Int} {P : Assign → Prop} (hH : HRead φ T P) {g g' : GPathB} {R : List NodeId}
-    (hr : Reading g R g') : ∀ R0, RInv φ T (Pinned φ P R0) g → RInv φ T (Pinned φ P (R0 ++ R)) g' := by
+    (hr : Reading g R g') : ∀ R0, (∀ x ∈ R0, 1 ≤ x.step ∧ x.step < T) → RInv φ T (Pinned φ P R0) g →
+      RInv φ T (Pinned φ P (R0 ++ R)) g' := by
   induction hr with
-  | nil g => intro R0 h; rw [List.append_nil]; exact h
+  | nil g => intro R0 _ h; rw [List.append_nil]; exact h
   | @cons g g' q rs hq hq1 _ ih =>
-    intro R0 h
+    intro R0 hR0 h
     have hqT : q.id.step < T := by rw [← h.step]; exact alive_below h.inv.docs h.inv.below hq
-    have h1 := read_step h hq hq1 (hH R0 q.id hq1 hqT)
+    have h1 := read_step h hq hq1 (hH R0 q.id hR0 hq1 hqT)
     have h2 : RInv φ T (Pinned φ P (R0 ++ [q.id])) (g.filterAllOn [q.id]) := by
       refine rInv_congr h1 (fun a => ⟨fun ha => ⟨ha.1.1, fun r hr => ?_⟩, fun ha => ⟨⟨ha.1, fun r hr => ?_⟩, ?_⟩⟩)
       · rcases List.mem_append.mp hr with h' | h'
@@ -123,14 +124,17 @@ theorem reading_inv {T : Int} {P : Assign → Prop} (hH : HRead φ T P) {g g' : 
         · rw [List.mem_singleton] at h'; subst h'; exact ha.2
       · exact ha.2 r (List.mem_append_left _ hr)
       · exact ha.2 q.id (List.mem_append_right _ (List.mem_singleton_self _))
-    have := ih (R0 ++ [q.id]) h2
+    have := ih (R0 ++ [q.id]) (fun x hx => by
+      rcases List.mem_append.mp hx with h' | h'
+      · exact hR0 x h'
+      · rw [List.mem_singleton] at h'; subst h'; exact ⟨hq1, hqT⟩) h2
     rw [List.append_assoc] at this
     exact this
 
 /-- **La mayoría da la hipótesis de la lectura.** -/
 theorem hRead_of_maj {T : Int} {P : Assign → Prop} (hP : ∀ a b c, P a → P b → P c → P (maj3 a b c)) :
     HRead φ T P := by
-  intro R r hr1 hrT
+  intro R r _ hr1 hrT
   refine phantomFree_of_helly4 (by omega) hrT (helly4_of_maj (fun a b c ha hb hc => ?_))
   exact ⟨⟨hP _ _ _ ha.1.1 hb.1.1 hc.1.1, fun x hx => by
       rw [sel_maj_ab ((ha.1.2 x hx).trans (hb.1.2 x hx).symm)]; exact ha.1.2 x hx⟩,
@@ -164,7 +168,7 @@ theorem reader_on (hbd : Bounded φ) (HA : ∀ T : Int, 1 ≤ T → PhantomAt φ
     rInv_congr (P := SolE φ (stepCount φ) kv.1)
       ⟨hl.inv kv hkv', hent.2.1, hl.ndt kv hkv', hent.1.step, hent.1.valid, hl.snd kv hkv', hcomp kv hkv'⟩
       (fun a => ⟨fun ha => ⟨ha, fun r hr => absurd hr List.not_mem_nil⟩, fun ha => ha.1⟩)
-  have hfin := reading_inv (HR kv.1) hr [] h0
+  have hfin := reading_inv (HR kv.1) hr [] (fun x hx => absurd hx List.not_mem_nil) h0
   rw [List.nil_append] at hfin
   refine ⟨hfin.valid, ?_⟩
   obtain ⟨q, hq, _⟩ := exists_alive_at hfin.valid (k := 0) (Int.le_refl 0) (by rw [hfin.step]; exact hpos)
