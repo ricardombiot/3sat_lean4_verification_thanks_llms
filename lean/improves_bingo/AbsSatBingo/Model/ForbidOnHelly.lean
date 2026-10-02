@@ -306,20 +306,21 @@ section Up
 
 variable {Y : GPathB} {T : Int} {k d : NodeId} {title : String}
 
-/-- **El UP conserva `Snd3`**, bajo `PhantomFree` y solo cuando la fila salta una ventana. Un triángulo con un nodo
+/-- **El UP conserva `Snd3`**, bajo `PhantomFree` y solo cuando la fila salta una ventana, hacia cualquier familia
+`Pt` que contenga las ramas de la llegada (los objetos con un nodo de la fila son siempre de ramas de la llegada). Un triángulo con un nodo
 de la fila baja a un padre que sostiene su cara (`upOn_face_parent`). Si la fila no saltó ninguna ventana, la rama de
 todo objeto de nodos viejos se alarga. Si saltó alguna, la llegada revisada es una estructura cerrada por la regla
 cuyos objetos son todos de ramas del remitente (los de nodos viejos, por `Snd3` del remitente; los que tienen un nodo
 de la fila, por su padre), y una rama del remitente que pasa por un nodo de la fila es de la llegada: `PhantomFree`
 da que todos son de ramas de la llegada. -/
-theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : NoDegT Y) (hcs : Y.current_step = T)
+theorem snd3_upOnG {Pt : Assign → Prop} (hPt : ∀ a, (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) → Pt a)
+    (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : NoDegT Y) (hcs : Y.current_step = T)
     (hT : 1 ≤ T) (hvY : Y.isValid = true) (hda : DocsAlive Y) (hdk : d ∈ sonsOfMap φ k) (hdm : d ∈ mapNodes φ T)
-    (hH : PhantomFree φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
-      (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (T + 1) T)
+    (hH : PhantomFree φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) Pt (T + 1) T)
     (hs : Snd3 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) Y)
     (hc : ∀ a, (SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) → CT Y (pidOfAssign φ a))
     (hvA : (Y.upOn d title (isProhibited φ)).isValid = true) :
-    Snd3 φ (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (Y.upOn d title (isProhibited φ)) := by
+    Snd3 φ Pt (Y.upOn d title (isProhibited φ)) := by
   have hd : d.step = Y.current_step := by rw [hcs]; exact mapNodes_step φ T d hdm
   have hsub := sub_upOn_addNode (d := d) (title := title) (forb := isProhibited φ) hvY
   have hiA : SInvB (Y.upOn d title (isProhibited φ)) := sInvB_upOn hiY hd (by rw [hd, hcs]; omega)
@@ -473,8 +474,8 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
         simpa using this
       obtain ⟨a', hS, _, hpl⟩ := liftA ha0 rfl (List.mem_filter.mpr ⟨hnpar, by simp⟩) hnew
       exact ⟨a', hS, hpl⟩
-    refine main (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (fun _ h => h)
-      (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)
+    refine snd3_mono (main (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (fun _ h => h)
+      (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)) hPt
     · obtain ⟨a0, ha0, hx0, hw0⟩ := hs.1 x w (oldAdj hxs hws hxw)
       obtain ⟨a', hS, hpl⟩ := ext a0 ha0
       exact ⟨a', hS, by rw [hpl _ hxs]; exact hx0, by rw [hpl _ hws]; exact hw0⟩
@@ -550,7 +551,7 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
       (fun x u w h1 h2 h3 n1 n2 n3 hn => base.2 x u w h1.1.2.2 h2.1.2.2 h3.1.2.2 n1 n2 n3 hn)
       (fun a n ha hnn hstep hp => by
         have hnew := topNew hnn.1.1 hstep
-        refine ⟨⟨validUpTo_succ ha.1.1 ?_, ?_⟩, ha.1.2⟩
+        refine hPt a ⟨⟨validUpTo_succ ha.1.1 ?_, ?_⟩, ha.1.2⟩
         · rw [hp]
           have := (List.mem_filter.mp hnew).2
           simpa using this
@@ -558,6 +559,17 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
     refine ⟨fun x w hxw => ?_, fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩
     · exact c2 x w (hR hxw)
     · exact c3 x u w (hR hxu) (hR hxw) (hR huw) nxu nxw nuw hn
+
+/-- **El UP conserva `Snd3`** con las ramas de la propia llegada (el caso `Pt` = ramas de la llegada). -/
+theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : NoDegT Y) (hcs : Y.current_step = T)
+    (hT : 1 ≤ T) (hvY : Y.isValid = true) (hda : DocsAlive Y) (hdk : d ∈ sonsOfMap φ k) (hdm : d ∈ mapNodes φ T)
+    (hH : PhantomFree φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
+      (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (T + 1) T)
+    (hs : Snd3 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) Y)
+    (hc : ∀ a, (SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) → CT Y (pidOfAssign φ a))
+    (hvA : (Y.upOn d title (isProhibited φ)).isValid = true) :
+    Snd3 φ (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (Y.upOn d title (isProhibited φ)) :=
+  snd3_upOnG (fun _ h => h) hb hiY hnsY hndtY hcs hT hvY hda hdk hdm hH hs hc hvA
 
 end Up
 
