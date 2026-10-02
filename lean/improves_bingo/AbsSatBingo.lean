@@ -134,3 +134,4 @@ import AbsSatBingo.Model.ForbidOnHelly
 import AbsSatBingo.Model.ForbidOnRead
 import AbsSatBingo.Model.ForbidOnTight
 import AbsSatBingo.Model.ForbidOnReadIff
+import AbsSatBingo.Model.ForbidOnBlock
