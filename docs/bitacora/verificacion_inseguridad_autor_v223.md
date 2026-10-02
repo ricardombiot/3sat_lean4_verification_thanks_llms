@@ -120,7 +120,8 @@ le basta que sus objetos sean de soluciones que eligen `d`, vengan del remitente
 * `spineVerdictOn_iff_of_phantomW`, `reader_onW` y la equivalencia **`machineExactW_iff`**:
   `MachineExactW φ ↔ ∀ T ≥ 1, PhantomAtW φ T`.
 
-Queda sin rehacer con la condición débil `readerExact_iff`.
+También están con la condición débil la escalera de niveles (`hypsTriKeep_of_phantomAtW`,
+`hypsNodeKeep_of_phantomAtW`) y la equivalencia del lector (`readerExactW_iff`).
 
 ## 7. Comprobaciones en la máquina (`FORBID = :on`, con tope de memoria de 3,5 GB)
 
@@ -178,7 +179,7 @@ máquina.
 
 1. Medir `MachineExactW` con `probe_exactw.jl` en cadenas de cinco y seis con varias numeraciones, para saber si la
    condición débil aguanta donde la fuerte cae.
-2. Rehacer `readerExact_iff` con la condición débil.
+2. Hecho tras cerrar el informe: `readerExactW_iff`.
 3. Buscar la prueba de cuatro bloques apuntando a `PhantomAtW`, que es lo que la máquina cumple.
 
 ## Ficheros y teoremas
