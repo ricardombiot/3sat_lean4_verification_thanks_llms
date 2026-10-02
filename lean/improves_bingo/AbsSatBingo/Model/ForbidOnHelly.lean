@@ -64,8 +64,8 @@ def Helly4 (φ : Cnf) (P0 P : Assign → Prop) (N σ : Int) : Prop :=
       pidOfAssign φ a l = pidOfAssign φ a0 l
 
 /-- **`PhantomFree`**: sin familias fantasma. Toda estructura de nodos, parejas (`R`) y tríos prohibidos (`Tf`)
-**cerrada por la regla** en los pasos `0 … N - 1` (cada pareja tiene en cada paso un testigo bueno, y cada triángulo
-sin prohibir también) cuyas parejas y triángulos sin prohibir son todos de ramas de `P0`, es de ramas de `P`; donde
+simétrica y **cerrada por la regla** en los pasos `0 … N - 1` (cada pareja tiene en cada paso un testigo bueno, y
+cada triángulo sin prohibir también) cuyas parejas y triángulos sin prohibir son todos de ramas de `P0`, es de ramas de `P`; donde
 una rama de `P0` que pasa por un nodo de la estructura en el paso `σ` es de `P` (el ancla).
 
 Es la condición de **todos los pasos**: la de `Helly4` usa solo el testigo del paso `σ`. Sigue sin mencionar la
@@ -73,6 +73,9 @@ máquina. -/
 def PhantomFree (φ : Cnf) (P0 P : Assign → Prop) (N σ : Int) : Prop :=
   ∀ (R : PathNodeId → PathNodeId → Prop) (Tf : GPathB.Trios),
     (∀ y w, R y w → R y y ∧ R w w) →
+    (∀ y w, R y w → R w y) →
+    (∀ a b r, R a b → R a r → R b r → Tf a b r → Tf a r b) →
+    (∀ a b r, R a b → R a r → R b r → Tf a b r → Tf b a r) →
     (∀ y w, R y w → 0 ≤ y.id.step ∧ y.id.step < N) →
     (∀ y w, R y w → ∀ l, 0 ≤ l → l < N →
       ∃ s, s.id.step = l ∧ R y s ∧ R w s ∧ (y = w ∨ s = y ∨ s = w ∨ ¬ Tf y w s)) →
@@ -90,7 +93,7 @@ def PhantomFree (φ : Cnf) (P0 P : Assign → Prop) (N σ : Int) : Prop :=
 /-- **La condición de un paso da la de todos**: basta mirar el testigo del paso `σ`. -/
 theorem phantomFree_of_helly4 {φ : Cnf} {P0 P : Assign → Prop} {N σ : Int} (hσ0 : 0 ≤ σ) (hσN : σ < N)
     (h : Helly4 φ P0 P N σ) : PhantomFree φ P0 P N σ := by
-  intro R Tf hrefl hsteps hpair htrio hb2 hb3 hanch
+  intro R Tf hrefl _ _ _ hsteps hpair htrio hb2 hb3 hanch
   refine ⟨fun y w hyw => ?_, fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩
   · obtain ⟨s, hss, hys, hws, hor⟩ := hpair y w hyw σ hσ0 hσN
     by_cases e : y = w
@@ -278,6 +281,9 @@ theorem snd3_filter {E : GPathB} {T : Int} {P0 : Assign → Prop} {reqs : List N
       obtain ⟨c2, c3⟩ := hH r (List.mem_singleton_self _)
         (LowR (E.pinOn [r]) (E.pinOn [r]).current_step) (TF (E.pinOn [r]))
         (fun y w h => ⟨hR (adj_refl _ _ h.1.1), hR (adj_refl _ _ h.1.2.1)⟩)
+        (fun y w h => hR ((adj_symm _ _ _).mp h.1.2.2))
+        (fun a b r h1 h2 h3 hT => hg.swap23 h1 h2 h3 hT)
+        (fun a b r h1 h2 h3 hT => hg.swap12 h1 h2 h3 hT)
         (fun y w h => b0 h.1.1)
         (fun y w h l l0 l1 => by
           by_cases e : y = w
@@ -313,7 +319,7 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
     (hs : Snd3 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) Y)
     (hc : ∀ a, (SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) → CT Y (pidOfAssign φ a))
     (hvA : (Y.upOn d title (isProhibited φ)).isValid = true) :
-    Snd3 φ (SolE φ (T + 1) d) (Y.upOn d title (isProhibited φ)) := by
+    Snd3 φ (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (Y.upOn d title (isProhibited φ)) := by
   have hd : d.step = Y.current_step := by rw [hcs]; exact mapNodes_step φ T d hdm
   have hsub := sub_upOn_addNode (d := d) (title := title) (forb := isProhibited φ) hvY
   have hiA : SInvB (Y.upOn d title (isProhibited φ)) := sInvB_upOn hiY hd (by rw [hd, hcs]; omega)
@@ -467,8 +473,8 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
         simpa using this
       obtain ⟨a', hS, _, hpl⟩ := liftA ha0 rfl (List.mem_filter.mpr ⟨hnpar, by simp⟩) hnew
       exact ⟨a', hS, hpl⟩
-    refine snd3_mono (main (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (fun _ h => h)
-      (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)) (fun a ha => ha.1)
+    refine main (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (fun _ h => h)
+      (fun {x w} hxs hws hxw => ?_) (fun {x u w} hxs hus hws hxu hxw huw nxu nxw nuw hn => ?_)
     · obtain ⟨a0, ha0, hx0, hw0⟩ := hs.1 x w (oldAdj hxs hws hxw)
       obtain ⟨a', hS, hpl⟩ := ext a0 ha0
       exact ⟨a', hS, by rw [hpl _ hxs]; exact hx0, by rw [hpl _ hws]; exact hw0⟩
@@ -529,6 +535,9 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
       (LowR (Y.upOn d title (isProhibited φ)) (Y.upOn d title (isProhibited φ)).current_step)
       (TF (Y.upOn d title (isProhibited φ)))
       (fun y w h => ⟨hR (adj_refl _ _ h.1.1), hR (adj_refl _ _ h.1.2.1)⟩)
+      (fun y w h => hR ((adj_symm _ _ _).mp h.1.2.2))
+      (fun a b r h1 h2 h3 hT => hg.swap23 h1 h2 h3 hT)
+      (fun a b r h1 h2 h3 hT => hg.swap12 h1 h2 h3 hT)
       (fun y w h => b0 h.1.1)
       (fun y w h l l0 l1 => by
         by_cases e : y = w
@@ -546,8 +555,7 @@ theorem snd3_upOn (hb : Bounded φ) (hiY : SInvB Y) (hnsY : NoSelf Y) (hndtY : N
           have := (List.mem_filter.mp hnew).2
           simpa using this
         · rw [show T + 1 - 1 = T by omega, ← pid_id, hp]; exact newRow_id' hnew)
-    refine snd3_mono (P := fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) ⟨fun x w hxw => ?_,
-      fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩ (fun a ha => ha.1)
+    refine ⟨fun x w hxw => ?_, fun x u w hxu hxw huw nxu nxw nuw hn => ?_⟩
     · exact c2 x w (hR hxw)
     · exact c3 x u w (hR hxu) (hR hxw) (hR huw) nxu nxw nuw hn
 
@@ -643,8 +651,8 @@ theorem lInvS3_advance (hb : Bounded φ) {T : Int} (hT : 1 ≤ T) {line : Line} 
       sInvB_upOn hiY hdY (by rw [hd, hok.step]; omega),
       noDegT_upOn (noSelf_filterAllOn hent.2.1 _) (noDegT_filterAllOn hent.2.1 (h.ndt kv hkv) _),
       docsAlive_upOn hdaY hvY hs.2,
-      snd3_upOn hb hiY (noSelf_filterAllOn hent.2.1 _) (noDegT_filterAllOn hent.2.1 (h.ndt kv hkv) _) hcsY hT hvY
-        hdaY hs.1 hdm hU sY (comp_filter (hcomp kv hkv)) hs.2, hdm⟩
+      snd3_mono (snd3_upOn hb hiY (noSelf_filterAllOn hent.2.1 _) (noDegT_filterAllOn hent.2.1 (h.ndt kv hkv) _)
+        hcsY hT hvY hdaY hs.1 hdm hU sY (comp_filter (hcomp kv hkv)) hs.2) (fun a ha => ha.1), hdm⟩
   have ent : ∀ E ∈ advanceM .on φ line, SInvB E.2 ∧ NoDegT E.2 ∧ DocsAlive E.2 ∧
       Snd3 φ (SolE φ (T + 1) E.1) E.2 ∧ E.1 ∈ mapNodes φ T := by
     intro E hE
