@@ -23,6 +23,8 @@ todos los pasos (`PhantomFree P0 P N σ`, con N = T en el filtro y N = T + 1 en 
 cerrada por la regla hecha de nodos, parejas y tríos de ramas de P0 (los nodos del paso σ, solo los que anclan en P) y
 se cuentan sus elementos que no son de ninguna rama de P: los fantasmas. Los elementos de ramas de P forman una
 estructura cerrada y nunca caen, así que solo se itera sobre los sospechosos (de P0 y no de P).
+  lector, casos_lector  con `--reader`: fallos de la condición de un paso y casos de la lectura (Lean `HRead`,
+            con las variables fijadas en orden)
   casos_f   casos en los que se calculó la estructura
   fantasmas nodos + parejas + tríos fantasma (0 = `PhantomFree` se cumple en esos casos)
 """
@@ -125,7 +127,7 @@ def check(path):
         sels.append(s); pids.append(p); first.append(f)
     A = range(len(sels))
     cases = outside = hyps = fails = 0
-    by_op = {"filtro": 0, "UP": 0}
+    by_op = {"filtro": 0, "UP": 0, "lector": 0}
     example = None
 
     def helly(P0, P, T, sigma, tag):
@@ -292,8 +294,27 @@ def check(path):
                     P0 = [a for a in base if all(sels[a][rs] == ri for (rs, ri) in reqs)]
                     P = [a for a in A if first[a] >= T + 1 and sels[a][T] == di and sels[a][T - 1] == ki]
                     both(P0, P, T, T + 1, T, "UP")
+    # la lectura (Lean `HRead`, ForbidOnRead.lean): sobre las soluciones completas, fijar las variables en orden,
+    # una más cada vez, para toda lista de valores ya fijados que tenga alguna solución
+    rd_cases = 0
+    if READER:
+        full = [a for a in A if first[a] >= C]
+
+        def read(P0, v):
+            nonlocal rd_cases
+            if v == n or not P0:
+                return
+            sigma = 2 * v + 1
+            for b in (0, 1):
+                P = [a for a in P0 if sels[a][sigma] == b]
+                if P:
+                    rd_cases += 1
+                    both(P0, P, C, C, sigma, "lector")
+                    read(P, v + 1)
+
+        read(full, 0)
     name = path.split("/")[-1]
-    print(f"{name}\tvars={n}\tclausulas={len(clauses)}\tcasos={cases}\tfuera={outside}\thipotesis={hyps}\tfallos={fails}\tfiltro={by_op['filtro']}\tUP={by_op['UP']}\tcasos_f={ph_cases}\tfantasmas={ph_total}")
+    print(f"{name}\tvars={n}\tclausulas={len(clauses)}\tcasos={cases}\tfuera={outside}\thipotesis={hyps}\tfallos={fails}\tfiltro={by_op['filtro']}\tUP={by_op['UP']}\tlector={by_op['lector']}\tcasos_lector={rd_cases}\tcasos_f={ph_cases}\tfantasmas={ph_total}")
     if example is not None:
         print("   primer fallo (operación, T, σ, nodo de σ, tres nodos (paso, ventana)):", example)
     return fails
@@ -302,6 +323,8 @@ def check(path):
 PHANTOM_ALL = "--phantom-all" in sys.argv
 # control del propio script: sin el ancla la estructura entera de P0 es cerrada y todo sospechoso sobrevive
 NO_ANCHOR = "--no-anchor" in sys.argv
+# además, la hipótesis de la lectura: fijar las variables en orden sobre las soluciones completas
+READER = "--reader" in sys.argv
 
 if __name__ == "__main__":
     total = sum(check(p) for p in sys.argv[1:] if not p.startswith("--"))

@@ -194,13 +194,13 @@ theorem snd3_joinOn {P : Assign → Prop} {A B : GPathB} (hA : Snd3 φ P A) (hB 
 
 /-- **El filtro de un requisito conserva `Snd3`**, bajo `Helly4` en el paso del requisito. Las parejas no la piden:
 su testigo bueno da un triángulo sin prohibir de la entrada. -/
-theorem snd3_filter {E : GPathB} {T : Int} {k : NodeId} {reqs : List NodeId} (hE : SInvB E) (hns : NoSelf E)
+theorem snd3_filter {E : GPathB} {T : Int} {P0 : Assign → Prop} {reqs : List NodeId} (hE : SInvB E) (hns : NoSelf E)
     (hndt : NoDegT E) (hcs : E.current_step = T) (hvE : E.isValid = true) (hlen : reqs.length ≤ 1)
     (hrange : ∀ r ∈ reqs, 1 ≤ r.step ∧ r.step < T)
-    (hH : ∀ r ∈ reqs, PhantomFree φ (SolE φ T k) (fun a => SolE φ T k a ∧ selOfAssign φ a r.step = r) T r.step)
-    (hs : Snd3 φ (SolE φ T k) E) (hc : ∀ a, SolE φ T k a → CT E (pidOfAssign φ a))
+    (hH : ∀ r ∈ reqs, PhantomFree φ P0 (fun a => P0 a ∧ selOfAssign φ a r.step = r) T r.step)
+    (hs : Snd3 φ P0 E) (hc : ∀ a, P0 a → CT E (pidOfAssign φ a))
     (hvY : (E.filterAllOn reqs).isValid = true) :
-    Snd3 φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqs, selOfAssign φ a r.step = r) (E.filterAllOn reqs) := by
+    Snd3 φ (fun a => P0 a ∧ ∀ r ∈ reqs, selOfAssign φ a r.step = r) (E.filterAllOn reqs) := by
   have hsh := (shrinks_filterAllOn E reqs).1
   match reqs, hlen, hrange, hH, hvY, hsh with
   | [], _, _, _, _, hsh =>
@@ -217,7 +217,7 @@ theorem snd3_filter {E : GPathB} {T : Int} {k : NodeId} {reqs : List NodeId} (hE
     cases hd : ([r].foldl filterRequire E).dirty
     · -- el filtro no mata a nadie: toda rama de la entrada cumple el requisito
       have hd' : (E.filterRequire r).dirty = false := hd
-      have agr : ∀ a, SolE φ T k a → selOfAssign φ a r.step = r := by
+      have agr : ∀ a, P0 a → selOfAssign φ a r.step = r := by
         intro a hS
         have hD := hc a hS
         have hal := hD.1.alive r.step (by omega) (by rw [hcs]; exact hr2)

@@ -131,3 +131,4 @@ import AbsSatBingo.Model.ForbidOnNoPin
 import AbsSatBingo.Model.ForbidOnExact
 import AbsSatBingo.Model.ForbidOnMaj
 import AbsSatBingo.Model.ForbidOnHelly
+import AbsSatBingo.Model.ForbidOnRead
