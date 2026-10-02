@@ -173,9 +173,9 @@ nodos, aristas y triángulos sin prohibir, no solo los de cima. Grupos: remitent
 | `v5_c20_i2` | UNSAT | 454 | 0 de 24 946 | 0 de 519 030 | 0 de 6 669 801 | 0 |
 | `v6_c26_i1` | UNSAT | 560 | 0 de 41 065 | 0 de 1 153 551 | 0 de 19 884 687 | 0 |
 | `v6_c26_i5` | SAT | 699 | 0 de 67 864 | 0 de 2 436 991 | 0 de 53 436 414 | 0 |
-| `set011221_2004_i3_v7_c27` | en curso | 630 | 0 de 65 852 | 0 de 2 581 103 | 0 de 59 629 762 | 0 |
-| `v7_c30_i2` | en curso | 460 | 0 de 38 803 | 0 de 1 248 023 | 0 de 22 593 390 | 0 |
-| **total** | | **3 741** | de 291 914 | de 9 227 637 | de 181 557 669 | |
+| `set011221_2004_i3_v7_c27` | SAT | 719 | 0 de 79 491 | 0 de 3 382 112 | 0 de 86 853 495 | 0 |
+| `v7_c30_i2` | SAT | 828 | 0 de 99 335 | 0 de 4 641 463 | 0 de 131 758 318 | 0 |
+| **total** | | **4 198** | de 366 085 | de 13 422 086 | de 317 946 330 | |
 
 En los remitentes filtrados, además: los triángulos de cima con un nodo en el paso del requisito (no piden nada), los
 tetraedros de `PinTetra` y cuántos no están en ninguna camarilla.
@@ -188,16 +188,13 @@ tetraedros de `PinTetra` y cuántos no están en ninguna camarilla.
 | `v5_c20_i2` | 191 | 205 707 (0) | 12 774 | 194 713 | 0 |
 | `v6_c26_i1` | 235 | 487 695 (0) | sin medir | sin medir | sin medir |
 | `v6_c26_i5` | 290 | 1 000 448 (0) | sin medir | sin medir | sin medir |
-| `set011221_2004_i3_v7_c27` | 260 | 1 150 866 (0) | 45 835 | 1 200 774 | 0 |
-| `v7_c30_i2` | 190 | 571 548 (0) | 31 550 | 605 131 | 0 |
+| `set011221_2004_i3_v7_c27` | 300 | 1 525 379 (0) | 53 366 | 1 569 069 | 0 |
+| `v7_c30_i2` | 343 | 2 013 963 (0) | 64 807 | 2 076 429 | 0 |
 
 `set011221_2004_i3_v7_c27` es la instancia donde cayeron `PrevCut`, `CrossCut`, `StarTriAt` y `Star4At`.
 
-**Las dos filas `v7` son parciales**: las tandas con el grupo de remitentes filtrados seguían corriendo al cerrar este
-informe (cifras del volcado parcial). De `set011221_2004_i3_v7_c27` sí hay una tanda anterior **completa**, sin ese
-grupo: 419 estados (298 llegadas, 120 uniones revisadas, el final), 0 de 30 684 nodos, 0 de 1 277 194 aristas y 0 de
-32 735 511 triángulos fuera en las llegadas; 0 de 20 908 070 triángulos en las uniones. En las dos `v6` los tetraedros
-no se midieron (la columna se añadió después de lanzarlas).
+Las dos `v7` están completas (se actualizaron al terminar las tandas, tras el primer commit de este informe). En las
+dos `v6` los tetraedros no se midieron: la columna se añadió después de lanzarlas.
 
 **Espejo con Lean.** La camarilla de la sonda pide vecindad dos a dos y ningún trío prohibido; la de Lean (`CT`) pide
 además los enlaces padre–hijo. Con `EXACT_LINKS=1` la sonda los exige también: en `clause_mix`, `clause_mix_sep` y
@@ -206,13 +203,13 @@ además los enlaces padre–hijo. Con `EXACT_LINKS=1` la sonda los exige tambié
 ## 8. Lo que no se sabe
 
 * **Si `PinTetra` es cierto en general.** Ninguna de las hipótesis anteriores sobrevivió a `v7`; esta sí, en lo
-  medido, pero son ocho instancias, dos de ellas con la tanda sin terminar.
+  medido, pero son ocho instancias.
 * **Instancias de paridad.** No se ha medido ninguna con esta sonda. Son la familia donde las reglas de nivel fijo
   fallan en la literatura. `tseitin_petersen_H` está en el corpus (más de 20 minutos solo la máquina). Es una búsqueda
   de contraejemplo: pendiente de permiso.
 * **`v8`.** Sin medir.
 * **Estados con muchas camarillas.** La enumeración lleva un tope (50 000 por estado); en lo medido no se alcanzó
-  (máximo 128).
+  (máximo 512, en `clause_mix_sep`).
 
 ## 9. Lo que es falso o no sirve (para no volver)
 
