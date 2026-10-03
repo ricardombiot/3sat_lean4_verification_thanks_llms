@@ -25,9 +25,9 @@ todas las ramas de `P` leen igual.
 * `v = s2` (`phantomFree_chain4_s2`): «lee `s1` y `s3`» (testigo de `σ`); «solo `s1`» (testigo de `s3`, con las dos
   caras por el nodo que lee `s1`); «solo `s3`» (al revés); «nada» (dos testigos).
 
-Abierto: `v` dentro de un bloque (en `A`, `M`, `N` o `C`). Ahí la variable fijada no separa, las fuentes de testigos
-distintos no se pegan, y un triángulo que no lee ningún separador pide una sola cara para tres variables de los
-lados (`Faces.pick3` dice qué ventana lee cada una).
+`v` dentro de un bloque (en `A`, `M`, `N` o `C`): ahí la variable fijada no separa y con los testigos de los
+separadores un triángulo que no lee ninguno pide una sola cara para tres variables. Lo cierra el testigo de la
+ventana de la cláusula `{s1} ∪ M ∪ {s2}` (`ForbidOnChain4W`).
 -/
 
 namespace AbsSatBingo.Model

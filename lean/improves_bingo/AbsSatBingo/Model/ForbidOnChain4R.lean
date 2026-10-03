@@ -6,8 +6,8 @@ import AbsSatBingo.Model.ForbidOnChain4L
 
 `probe_hard4_read.jl` en `chain4_cross`: en 1 037 estados de lectura (todas las de un paso y 300 aleatorias de hasta
 cuatro), ningún atasco y ningún triángulo fuera de camarilla; los triángulos del caso abierto (`v` dentro de un
-bloque) aparecen (17 480) y todos se salvan. La prueba para **cualquier** orden de lectura sigue abierta. Aquí se
-demuestra para un lector que fija los separadores de la cadena antes que las variables de dentro:
+bloque) aparecen (17 480) y todos se salvan. Aquí se demuestra para un lector que fija los separadores de la cadena
+antes que las variables de dentro (con cualquier orden: `ForbidOnChain4W`):
 
 * **`phantomFree_pinnedSeps`**: si todas las ramas de `P0` leen igual `s1`, `s2`, `s3`, los bloques ya no se ven y
   basta parchear el interior del bloque de `v` (`helly4_of_patch`), sin descenso.
