@@ -1,0 +1,2 @@
+instance	truth	n_seps	det_ok	det_stuck	rnd_n	rnd_stuck	rnd_sat	ex_states	ex_cap	ex_t	ex_t_out	ex_e_out	ex_n_out	ex_t_out_sep	ex_t_out_int	secs
+chain6_cross.cnf	true	5	1	0	40	0	40	0	0	0	0	0	0	0	0	1439.0

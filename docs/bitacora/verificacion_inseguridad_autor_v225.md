@@ -6,8 +6,7 @@ borrador en Lean con los enunciados que habría que demostrar. En una frase: **s
 compartidas por varias cláusulas (los separadores), lo que queda por leer se descompone en piezas que no se ven, y la
 parte difícil de la demostración se reduce a un solo lema, sobre los separadores.**
 
-> **Estado**: medidas de `chain4_cross` y `chain5_cross` completas; `chain6_cross`, parcial (sin camarillas: estados
-> demasiado grandes). Tras escribir el borrador se demostraron T1 y T3 (§8).
+> **Estado**: medidas completas (en `chain6_cross` sin juzgar camarillas: estados demasiado grandes). Tras escribir el borrador se demostraron T1 y T3 (§8).
 
 ## 0. Resumen
 
@@ -214,7 +213,7 @@ lecturas con elección al azar en cada paso; en algunas, los estados leídos juz
 |---|---|---|---|---|
 | `chain4_cross` | 3 | solución | 40 / 0 / 40 | 18 / **0** / 0 |
 | `chain5_cross` | 4 | solución | 40 / 0 / 40 | 44 / **0** / 0 |
-| `chain6_cross` | 5 | solución | 24 / 0 / 24 (parcial) | — (estados demasiado grandes para enumerar camarillas) |
+| `chain6_cross` | 5 | solución | 40 / 0 / 40 | — (estados demasiado grandes para enumerar camarillas) |
 
 En `chain5_cross` el lector por separadores **no tiene triángulos fantasma** donde el lector en cualquier orden tenía 36
 en 470 estados: la ventaja 3 de §2 (recuperar la exactitud) se confirma en la máquina.
