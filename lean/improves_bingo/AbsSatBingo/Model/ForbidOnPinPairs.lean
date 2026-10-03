@@ -38,7 +38,7 @@ open Driver Machine MachineOn
 /-- **`PinPairs φ P0 N`**: sin parejas fantasma con varios colores fijados. -/
 def PinPairs (φ : Cnf) (P0 : Assign → Prop) (N : Int) : Prop :=
   ∀ (Rp : List NodeId) (R : PathNodeId → PathNodeId → Prop) (Tf : Trios), PhStruct φ P0 N R Tf →
-    (∀ r ∈ Rp, ∀ s, R s s → s.id.step = r.step → s.id = r) →
+    (∀ r ∈ Rp, 1 ≤ r.step ∧ r.step < N) → (∀ r ∈ Rp, ∀ s, R s s → s.id.step = r.step → s.id = r) →
     ∀ y w, R y w → ∃ a, Pinned φ P0 Rp a ∧ pidOfAssign φ a y.id.step = y ∧ pidOfAssign φ a w.id.step = w
 
 /-- **El invariante de un estado leído**, respecto del estado final `g0`. -/
@@ -51,6 +51,7 @@ structure RInvP (φ : Cnf) (T : Int) (P0 : Assign → Prop) (g0 : GPathB) (R : L
   snd   : Snd φ (Pinned φ P0 R) g
   comp  : ∀ a, Pinned φ P0 R a → CT g (pidOfAssign φ a)
   pins  : ∀ r ∈ R, ∀ s ∈ g.alive, s.id.step = r.step → s.id = r
+  rng   : ∀ r ∈ R, 1 ≤ r.step ∧ r.step < T
   adj0  : ∀ x y, g.Adj x y → g0.Adj x y
   tf0   : ∀ x u w, g.Adj x u → TF g0 x u w → TF g x u w
 
@@ -154,13 +155,21 @@ theorem read_stepP {T : Int} {P0 : Assign → Prop} {g0 : GPathB} (hg0 : Snd3 φ
         rcases List.mem_append.mp hr with h' | h'
         · exact pinsOld r h' s hs.1.1 hss
         · rw [List.mem_singleton] at h'; subst h'; exact pinned s hs.1.1 hss
-      refine ⟨fun x w hxw => hPP (R ++ [q.id]) _ _ hS pinsAll x w (hR hxw), fun s hs hss => pinned s hs hss⟩
+      have rngAll : ∀ r ∈ R ++ [q.id], 1 ≤ r.step ∧ r.step < T := by
+        intro r hr
+        rcases List.mem_append.mp hr with h' | h'
+        · exact h.rng r h'
+        · rw [List.mem_singleton] at h'; subst h'; exact ⟨hq1, hqT⟩
+      refine ⟨fun x w hxw => hPP (R ++ [q.id]) _ _ hS rngAll pinsAll x w (hR hxw), fun s hs hss => pinned s hs hss⟩
   refine ⟨sInvB_filterAllOn h.inv _, noSelf_filterAllOn h.ns _, noDegT_filterAllOn h.ns h.ndt _,
     (step_filterAllOn g _).trans h.step, hvY, key.1, fun b hb => comp_filter h.comp b ⟨((hpq b).mpr hb).1, one ((hpq b).mpr hb).2⟩,
-    fun r hr s hs hss => ?_, adj', tf'⟩
-  rcases List.mem_append.mp hr with h' | h'
-  · exact pinsOld r h' s hs hss
-  · rw [List.mem_singleton] at h'; subst h'; exact key.2 s hs hss
+    fun r hr s hs hss => ?_, fun r hr => ?_, adj', tf'⟩
+  · rcases List.mem_append.mp hr with h' | h'
+    · exact pinsOld r h' s hs hss
+    · rw [List.mem_singleton] at h'; subst h'; exact key.2 s hs hss
+  · rcases List.mem_append.mp hr with h' | h'
+    · exact h.rng r h'
+    · rw [List.mem_singleton] at h'; subst h'; exact ⟨hq1, hqT⟩
 
 /-- **Toda lectura conserva el invariante.** -/
 theorem reading_invP {T : Int} {P0 : Assign → Prop} {g0 : GPathB} (hg0 : Snd3 φ P0 g0) (hPP : PinPairs φ P0 T)
@@ -173,6 +182,46 @@ theorem reading_invP {T : Int} {P0 : Assign → Prop} {g0 : GPathB} (hg0 : Snd3 
     have := ih (R0 ++ [q.id]) (read_stepP hg0 hPP h hq hq1)
     rw [List.append_assoc] at this
     exact this
+
+/-- **`PinPairs` es más débil que la exactitud del lector**: la hipótesis del lector (`HRead`) la da, fijando los colores
+uno a uno (con los objetos de la estructura en ramas de los colores anteriores, el ancla del color siguiente es la de
+`PhantomFree`). -/
+theorem pinPairs_of_hRead {T : Int} {P0 : Assign → Prop} (hH : HRead φ T P0) : PinPairs φ P0 T := by
+  -- con los colores fijados, parejas y triángulos son de ramas que los eligen todos
+  suffices key : ∀ (Rp : List NodeId) (R : PathNodeId → PathNodeId → Prop) (Tf : Trios), PhStruct φ P0 T R Tf →
+      (∀ r ∈ Rp, 1 ≤ r.step ∧ r.step < T) → (∀ r ∈ Rp, ∀ s, R s s → s.id.step = r.step → s.id = r) →
+      PhStruct φ (Pinned φ P0 Rp) T R Tf by
+    intro Rp R Tf hS hr hp y w hyw
+    exact (key Rp R Tf hS hr hp).b2 y w hyw
+  intro Rp
+  induction Rp with
+  | nil =>
+    intro R Tf hS _ _
+    exact ⟨hS.refl, hS.symm, hS.sw23, hS.sw12, hS.steps, hS.pair, hS.trio,
+      fun y w h => (hS.b2 y w h).elim fun a ⟨ha, h1, h2⟩ => ⟨a, ⟨ha, fun r hr => absurd hr List.not_mem_nil⟩, h1, h2⟩,
+      fun x u w a b c d e f g => (hS.b3 x u w a b c d e f g).elim fun a' ⟨ha, h1, h2, h3⟩ =>
+        ⟨a', ⟨ha, fun r hr => absurd hr List.not_mem_nil⟩, h1, h2, h3⟩⟩
+  | cons r rest ih =>
+    intro R Tf hS hr hp
+    have hS' := ih R Tf hS (fun x hx => hr x (List.mem_cons_of_mem _ hx)) (fun x hx => hp x (List.mem_cons_of_mem _ hx))
+    obtain ⟨hr1, hrT⟩ := hr r (List.mem_cons_self ..)
+    have iff : ∀ a, (Pinned φ P0 rest a ∧ selOfAssign φ a r.step = r) ↔ Pinned φ P0 (r :: rest) a := by
+      intro a
+      refine ⟨fun ⟨⟨h0, h1⟩, h2⟩ => ⟨h0, fun x hx => ?_⟩, fun ⟨h0, h1⟩ => ⟨⟨h0, fun x hx => h1 x (List.mem_cons_of_mem _ hx)⟩,
+        h1 r (List.mem_cons_self ..)⟩⟩
+      rcases List.mem_cons.mp hx with e | e
+      · subst e; exact h2
+      · exact h1 x e
+    obtain ⟨c2, c3⟩ := hH rest r (fun x hx => hr x (List.mem_cons_of_mem _ hx)) hr1 hrT R Tf hS'.refl hS'.symm hS'.sw23
+      hS'.sw12 hS'.steps hS'.pair hS'.trio hS'.b2 hS'.b3
+      (fun a s ha hs hss hpa => ⟨ha, by
+        have := congrArg PathNodeId.id hpa
+        rw [pid_id] at this
+        rw [this]; exact hp r (List.mem_cons_self ..) s hs hss⟩)
+    exact ⟨hS.refl, hS.symm, hS.sw23, hS.sw12, hS.steps, hS.pair, hS.trio,
+      fun y w h => (c2 y w h).elim fun a ⟨ha, h1, h2⟩ => ⟨a, (iff a).mp ha, h1, h2⟩,
+      fun x u w a b c d e f g => (c3 x u w a b c d e f g).elim fun a' ⟨ha, h1, h2, h3⟩ =>
+        ⟨a', (iff a').mp ha, h1, h2, h3⟩⟩
 
 end GPathB
 
@@ -199,7 +248,8 @@ theorem reader_on_pinPairs (hbd : Bounded φ) (HA : ∀ T : Int, 1 ≤ T → Pha
   have h0 : RInvP φ (stepCount φ) (SolE φ (stepCount φ) kv.1) kv.2 [] kv.2 :=
     ⟨hl.inv kv hkv', hent.2.1, hl.ndt kv hkv', hent.1.step, hent.1.valid,
       snd_mono hs3.1 (fun a ha => ⟨ha, fun r hr => absurd hr List.not_mem_nil⟩),
-      fun a ha => hcomp kv hkv' a ha.1, fun r hr => absurd hr List.not_mem_nil, fun _ _ h => h, fun _ _ _ _ h => h⟩
+      fun a ha => hcomp kv hkv' a ha.1, fun r hr => absurd hr List.not_mem_nil, fun r hr => absurd hr List.not_mem_nil,
+      fun _ _ h => h, fun _ _ _ _ h => h⟩
   have hfin := reading_invP hs3 (HP kv.1) hr [] h0
   rw [List.nil_append] at hfin
   refine ⟨hfin.valid, ?_⟩
