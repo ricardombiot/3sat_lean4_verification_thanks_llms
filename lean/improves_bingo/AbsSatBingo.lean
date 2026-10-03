@@ -146,3 +146,4 @@ import AbsSatBingo.Model.ForbidOnChain4R
 import AbsSatBingo.Model.ForbidOnChain4W
 import AbsSatBingo.Model.ForbidOnChain4X
 import AbsSatBingo.Model.ForbidOnPrefix
+import AbsSatBingo.Model.ForbidOnEdge
