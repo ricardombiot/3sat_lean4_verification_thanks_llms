@@ -6,7 +6,7 @@ borrador en Lean con los enunciados que habría que demostrar. En una frase: **s
 compartidas por varias cláusulas (los separadores), lo que queda por leer se descompone en piezas que no se ven, y la
 parte difícil de la demostración se reduce a un solo lema, sobre los separadores.**
 
-> **Estado**: medidas completas (en `chain6_cross` sin juzgar camarillas: estados demasiado grandes). Tras escribir el borrador se demostraron T1 y T3 (§8) y T2 en `chain5_cross` (§9).
+> **Estado**: medidas completas (en `chain6_cross` sin juzgar camarillas: estados demasiado grandes). Tras escribir el borrador se demostraron T1 y T3 (§8), T2 en `chain5_cross` (§9) y sus líneas (§10): **`chain5_cross` queda demostrada sin hipótesis**.
 
 ## 0. Resumen
 
@@ -222,7 +222,7 @@ en 470 estados: la ventaja 3 de §2 (recuperar la exactitud) se confirma en la m
 
 1. ~~T1 en Lean~~ y ~~T3~~: hechos (§8).
 2. ~~T2 para `chain5_cross`~~: hecho (§9).
-3. Las líneas de `chain5_cross`: prefijos (`phantomAt_of_prefix`) más la última cláusula.
+3. ~~Las líneas de `chain5_cross`~~: hecho (§10).
 4. Si se adopta, llevar `PathSepReader` a `src/` y cambiar a quien llama; la tabla de sincronía Julia/Lean de
    `docs/plans/lean_bingo.md` tendría una fila «ReaderSep».
 
@@ -258,3 +258,18 @@ en 470 estados: la ventaja 3 de §2 (recuperar la exactitud) se confirma en la m
 * **`sepPinFree_chain5Cross`**: T2 en `chain5_cross` con los dos lemas en las dos orientaciones (`x5`, `x6` leyendo la
   cadena al revés). **`reader_sep_chain5Cross`**: el lector por separadores no se atasca en `chain5_cross`, con las
   líneas como única hipótesis (la máquina las cumple: 0 fuera en todos los estados).
+
+## 10. Las líneas de `chain5_cross` (`ForbidOnChain5.lean`, `ForbidOnChain5L.lean`)
+
+* Las líneas de las cuatro primeras cláusulas solo ven su prefijo (`phantomAt_of_prefix`), que es una cadena más
+  corta: `c5p4` es `chain4_cross` con dos variables más que no aparecen (`Chain4L2`), `c5p3` una cadena de tres
+  (`Chain3`), `c5p2` y `c5p1` con separador (`Sep2`).
+* La última cláusula `(¬x8 ∨ x9 ∨ x10)`: `x8` es `s4` (`phantomFree_chain5_s4`); `x9` está en una sola cláusula y no
+  es su tercer literal (`OnceNotLast`); `x10` en el filtro aún no se exige (`FreeBelow`).
+* El caso que faltaba, el UP en el paso de `x10` (`phantomFree_up_lastC`): las ramas de antes ya eligen `x9` (por el
+  nodo `k`) y `x10` (por el requisito de `d`). O todas cumplen la cláusula y no hay nada que hacer, o una no la cumple,
+  y entonces toda rama de después tiene cierto el literal de `x8`: todas leen igual `s4`, y vale el lema del bloque
+  final generalizado (`phantomFree_chain5_end`, que pide «las ramas de `P` leen igual `s4`» en lugar de «`σ` lee `s4`»).
+* **`machineExact_chain5Cross`**, **`spineVerdictOn_iff_chain5Cross`**, **`reader_sep_chain5Cross_full`**: la máquina
+  es exacta en `chain5_cross`, su veredicto es correcto y el lector por separadores no se atasca, **sin ninguna
+  hipótesis**.

@@ -216,7 +216,7 @@ theorem glue5_P0 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone) 
 theorem glue5_P (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone) {v : Nat} (hv : stepVar φ σ = some v)
     (h0 : P0 a0) (q0 : P0 d0) (q1 : P0 d1) (q2 : P0 d2) (q3 : P0 d3) (q4 : P0 d4) (e1 : d0 s1 = d1 s1)
     (e2 : d1 s2 = d2 s2) (e3 : d2 s3 = d3 s3) (e4 : d3 s4 = d4 s4)
-    (hpos : (v = s4 ∧ P d3 ∧ P d4) ∨ (v = s3 ∧ P d2 ∧ P d3)) : P (glue5 s1 s2 s3 s4 zone d0 d1 d2 d3 d4 a0) := by
+    (hpos : (v = s4 ∧ P d3 ∧ P d4) ∨ (v = s3 ∧ P d2 ∧ P d3) ∨ (zone v = 4 ∧ P d4)) : P (glue5 s1 s2 s3 s4 zone d0 d1 d2 d3 d4 a0) := by
   refine p_of_sources hl (glue5_P0 hl D h0 q0 q1 q2 q3 q4 e1 e2 e3 e4) (fun h => by rw [hv] at h; cases h)
     (fun z hz => ?_)
   rw [hv] at hz; cases hz
@@ -227,7 +227,7 @@ theorem glue5_P (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone) {
     · rw [e]; exact a
     · rw [e]; exact b
     · rw [e]; exact c
-  rcases hpos with ⟨rfl, p3, p4⟩ | ⟨rfl, p2, p3⟩
+  rcases hpos with ⟨rfl, p3, p4⟩ | ⟨rfl, p2, p3⟩ | ⟨hz, p4⟩
   · refine ⟨⟨d3, p3, g5_3 D (Or.inr rfl)⟩, fun cl hcl hcv => ?_⟩
     rcases D.cl cl hcl with hi | hi | hi | hi | hi | hi
     · exact absurd rfl (tv hcv hi).2.2.2.2
@@ -263,6 +263,26 @@ theorem glue5_P (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone) {
     · rcases tv hcv hi with h | h
       · exact absurd h D.n34
       · rw [D.z3] at h; omega
+  · refine ⟨⟨d4, p4, g5_4 D hz⟩, fun cl hcl hcv => ?_⟩
+    rcases D.cl cl hcl with hi | hi | hi | hi | hi | hi
+    · have := (tv hcv hi).1; omega
+    · rcases tv hcv hi with h | h
+      · omega
+      · rw [h, D.z1] at hz; omega
+    · rcases tv hcv hi with h | h | h
+      · rw [h, D.z1] at hz; omega
+      · omega
+      · rw [h, D.z2] at hz; omega
+    · rcases tv hcv hi with h | h | h
+      · rw [h, D.z2] at hz; omega
+      · omega
+      · rw [h, D.z3] at hz; omega
+    · rcases tv hcv hi with h | h | h
+      · rw [h, D.z3] at hz; omega
+      · omega
+      · rw [h, D.z4] at hz; omega
+    · obtain ⟨i1, i2, i3⟩ := hi
+      exact ⟨d4, p4, g5B4 D e4 i1, g5B4 D e4 i2, g5B4 D e4 i3⟩
 
 /-- La rama de cinco fuentes pasa por las ventanas de `a0` si cada fuente coincide con `a0` en su parte. -/
 theorem glue5_pid {i j l k : Int} (hk : k = i ∨ k = j ∨ k = l)
@@ -305,7 +325,7 @@ theorem glue5_tri (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone)
     (hx0 : pidOfAssign φ a0 x.id.step = x) (hu0 : pidOfAssign φ a0 u.id.step = u)
     (hw0 : pidOfAssign φ a0 w.id.step = w) (q0 : P0 d0) (q1 : P0 d1) (q2 : P0 d2) (q3 : P0 d3) (q4 : P0 d4)
     (e1 : d0 s1 = d1 s1) (e2 : d1 s2 = d2 s2) (e3 : d2 s3 = d3 s3) (e4 : d3 s4 = d4 s4)
-    (hpos : (v = s4 ∧ P d3 ∧ P d4) ∨ (v = s3 ∧ P d2 ∧ P d3))
+    (hpos : (v = s4 ∧ P d3 ∧ P d4) ∨ (v = s3 ∧ P d2 ∧ P d3) ∨ (zone v = 4 ∧ P d4))
     (a0' : Agr φ x.id.step u.id.step w.id.step (fun z => zone z = 0 ∨ z = s1) d0 a0)
     (a1 : Agr φ x.id.step u.id.step w.id.step (fun z => zone z = 1 ∨ z = s2) d1 a0)
     (a2 : Agr φ x.id.step u.id.step w.id.step (fun z => zone z = 2 ∨ z = s3) d2 a0)
@@ -353,11 +373,28 @@ section CaseS4
 
 variable {s1 s2 s3 s4 : Nat} {zone : Nat → Nat}
 
-/-- **Cinco bloques, `v = s4`**, con las ventanas `W1` (lee `s1`, `s2`) y `W2` (lee `s2`, `s3`). -/
-theorem phantomFree_chain5_s4 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone)
-    (hv : stepVar φ σ = some s4) {k1 k2 : Int} (hk1 : 0 ≤ k1 ∧ k1 < Nn ∧ ReadsAt φ k1 s1 ∧ ReadsAt φ k1 s2)
+/-- La variable `z` que todas las ramas de `P` leen igual se lee como en `a0` en cuanto la lee una ventana, si las dos
+primeras caras son de `P`. -/
+theorem vfixG {z : Nat} (hag : ∀ a b, P a → P b → a z = b z) {Q : Assign → Prop} {a0 c1 c2 c3 : Assign}
+    {i j l : Int} (F : Faces φ Q a0 c1 c2 c3 i j l) (q1 : P c1) (q2 : P c2) {d : Assign} (qd : P d)
+    (h : InW φ i j l z) : d z = a0 z := by
+  rcases F.inw h with h | h
+  · exact (hag _ _ qd q1).trans h
+  · exact (hag _ _ qd q2).trans h
+
+/-- **Cinco bloques, el bloque final**: la variable fijada `v` es `s4` o está en `Z4`, y todas las ramas de `P` leen
+igual `s4` (si `v = s4`, por el par local; si no, se pide). Con las ventanas `W1` (lee `s1`, `s2`) y `W2` (lee `s2`,
+`s3`). -/
+theorem phantomFree_chain5_end (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone) {v : Nat}
+    (hv : stepVar φ σ = some v) (hend : v = s4 ∨ zone v = 4) (hS4 : ∀ a b, P a → P b → a s4 = b s4) {k1 k2 : Int} (hk1 : 0 ≤ k1 ∧ k1 < Nn ∧ ReadsAt φ k1 s1 ∧ ReadsAt φ k1 s2)
     (hk2 : 0 ≤ k2 ∧ k2 < Nn ∧ ReadsAt φ k2 s2 ∧ ReadsAt φ k2 s3) (hσ0 : 0 ≤ σ) (hσN : σ < Nn)
     (hN : midFusion φ < Nn) : PhantomFree φ P0 P Nn σ := by
+  have hpo : ∀ {d2 d3 d4 : Assign}, P d3 → P d4 → (v = s4 ∧ P d3 ∧ P d4) ∨ (v = s3 ∧ P d2 ∧ P d3) ∨
+      (zone v = 4 ∧ P d4) := by
+    intro d2 d3 d4 q3 q4
+    rcases hend with h | h
+    · exact Or.inl ⟨h, q3, q4⟩
+    · exact Or.inr (Or.inr ⟨h, q4⟩)
   have rng : ∀ {s : Nat}, s < φ.nVars → 0 ≤ varStep s ∧ varStep s < Nn := by
     intro s hs
     have h1 : 0 ≤ varStep s := by simp only [varStep]; omega
@@ -375,8 +412,8 @@ theorem phantomFree_chain5_s4 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
     obtain ⟨d4, q4, ag4⟩ := F.pick D.card4
     obtain ⟨d3, q3, ag3⟩ := F.pick (no3_or D.card3 (le1_eq s3))
     exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 hP0 hP0 (hl.sub _ q3) (hl.sub _ q4) rfl rfl
-      (ag3 s3 (Or.inr rfl) h3).symm (hl.sameVar hv q3 q4) (Or.inl ⟨rfl, q3, q4⟩) agr_refl' agr_refl' agr_refl'
-      (agr_or (agr_mono ag3 (fun z h => Or.inl h)) (vfix4 hl hv F F.q1 F.q2 q3)) ag4
+      (ag3 s3 (Or.inr rfl) h3).symm (hS4 _ _ q3 q4) (hpo q3 q4) agr_refl' agr_refl' agr_refl'
+      (agr_or (agr_mono ag3 (fun z h => Or.inl h)) (vfixG hS4 F F.q1 F.q2 q3)) ag4
   by_cases h2 : InW φ x.id.step u.id.step w.id.step s2
   · -- el testigo del paso de `s3`
     obtain ⟨l0, lN⟩ := rng D.s3v
@@ -386,9 +423,9 @@ theorem phantomFree_chain5_s4 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
     obtain ⟨d3, ⟨q3, s3e⟩, ag3⟩ := F.pick (no3_of_le1 D.card3)
     obtain ⟨d2, ⟨q2, s2e⟩, ag2⟩ := F.pick (no3_or D.card2 (le1_eq s2))
     exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 hP0 (hl.sub _ q2) (hl.sub _ q3) (hl.sub _ q4) rfl
-      (ag2 s2 (Or.inr rfl) h2).symm (s2e.trans s3e.symm) (hl.sameVar hv q3 q4) (Or.inl ⟨rfl, q3, q4⟩) agr_refl'
+      (ag2 s2 (Or.inr rfl) h2).symm (s2e.trans s3e.symm) (hS4 _ _ q3 q4) (hpo q3 q4) agr_refl'
       agr_refl' (agr_or (agr_mono ag2 (fun z h => Or.inl h)) (fun iw => absurd iw h3))
-      (agr_or ag3 (vfix4 hl hv F F.q1.1 F.q2.1 q3)) ag4
+      (agr_or ag3 (vfixG hS4 F F.q1.1 F.q2.1 q3)) ag4
   by_cases h1 : InW φ x.id.step u.id.step w.id.step s1
   · -- el testigo de la ventana `W2`
     obtain ⟨k0, kN, kr2, kr3⟩ := hk2
@@ -399,9 +436,9 @@ theorem phantomFree_chain5_s4 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
     obtain ⟨d3, ⟨q3, p3⟩, ag3⟩ := F.pick (no3_of_le1 D.card3)
     obtain ⟨d4, ⟨q4, _⟩, ag4⟩ := F.pick D.card4
     exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 (hl.sub _ q1) (hl.sub _ q2) (hl.sub _ q3) (hl.sub _ q4)
-      (ag1 s1 (Or.inr rfl) h1).symm (agree_at p1 p2 kr2) (agree_at p2 p3 kr3) (hl.sameVar hv q3 q4)
-      (Or.inl ⟨rfl, q3, q4⟩) agr_refl' (agr_or (agr_mono ag1 (fun z h => Or.inl h)) (fun iw => absurd iw h2))
-      (agr_or ag2 (fun iw => absurd iw h3)) (agr_or ag3 (vfix4 hl hv F F.q1.1 F.q2.1 q3)) ag4
+      (ag1 s1 (Or.inr rfl) h1).symm (agree_at p1 p2 kr2) (agree_at p2 p3 kr3) (hS4 _ _ q3 q4)
+      (hpo q3 q4) agr_refl' (agr_or (agr_mono ag1 (fun z h => Or.inl h)) (fun iw => absurd iw h2))
+      (agr_or ag2 (fun iw => absurd iw h3)) (agr_or ag3 (vfixG hS4 F F.q1.1 F.q2.1 q3)) ag4
   · -- nada: el testigo de la ventana `W1`
     obtain ⟨k0, kN, kr1, kr2⟩ := hk1
     obtain ⟨c1, c2, c3, F⟩ := faces_Pw hS t hx0 hu0 hw0 k0 kN kr2 h2
@@ -411,10 +448,18 @@ theorem phantomFree_chain5_s4 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
     obtain ⟨d2, ⟨q2, p2⟩, ag2⟩ := F.pick (no3_or D.card2 D.card3)
     obtain ⟨d4, ⟨q4, _⟩, ag4⟩ := F.pick D.card4
     exact glue5_tri hl D hv hP0 hx0 hu0 hw0 (hl.sub _ q0) (hl.sub _ q1) (hl.sub _ q2) (hl.sub _ q2) (hl.sub _ q4)
-      (agree_at p0 p1 kr1) (agree_at p1 p2 kr2) rfl (hl.sameVar hv q2 q4) (Or.inl ⟨rfl, q2, q4⟩)
+      (agree_at p0 p1 kr1) (agree_at p1 p2 kr2) rfl (hS4 _ _ q2 q4) (hpo q2 q4)
       (agr_or ag0 (fun iw => absurd iw h1)) (agr_or ag1 (fun iw => absurd iw h2))
       (agr_or (agr_mono ag2 (fun z h => Or.inl h)) (fun iw => absurd iw h3))
-      (agr_or (agr_mono ag2 (fun z h => Or.inr h)) (vfix4 hl hv F F.q1.1 F.q2.1 q2)) ag4
+      (agr_or (agr_mono ag2 (fun z h => Or.inr h)) (vfixG hS4 F F.q1.1 F.q2.1 q2)) ag4
+
+
+/-- **Cinco bloques, `v = s4`**, con las ventanas `W1` (lee `s1`, `s2`) y `W2` (lee `s2`, `s3`). -/
+theorem phantomFree_chain5_s4 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone)
+    (hv : stepVar φ σ = some s4) {k1 k2 : Int} (hk1 : 0 ≤ k1 ∧ k1 < Nn ∧ ReadsAt φ k1 s1 ∧ ReadsAt φ k1 s2)
+    (hk2 : 0 ≤ k2 ∧ k2 < Nn ∧ ReadsAt φ k2 s2 ∧ ReadsAt φ k2 s3) (hσ0 : 0 ≤ σ) (hσN : σ < Nn)
+    (hN : midFusion φ < Nn) : PhantomFree φ P0 P Nn σ :=
+  phantomFree_chain5_end hl D hv (Or.inl rfl) (fun _ _ ha hb => hl.sameVar hv ha hb) hk1 hk2 hσ0 hσN hN
 
 end CaseS4
 
@@ -459,7 +504,7 @@ theorem c5s3_four (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone)
     obtain ⟨d2, e2P, ⟨_, p2⟩, ag2, _⟩ := pick12 F q1 q2 D.card2
     obtain ⟨d3, e3P, _, ag3, e3x⟩ := pick12 F q1 q2 D.card3
     exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 r1 (hl.sub _ e2P) (hl.sub _ e3P) hP0 (ag1 s1 (Or.inr rfl) h1).symm
-      (agree_at p1 p2 kr2) (hl.sameVar hv e2P e3P) (var_of_reads e3x hx) (Or.inr ⟨rfl, e2P, e3P⟩) agr_refl'
+      (agree_at p1 p2 kr2) (hl.sameVar hv e2P e3P) (var_of_reads e3x hx) (Or.inr (Or.inl ⟨rfl, e2P, e3P⟩)) agr_refl'
       (agr_or (agr_mono ag1 (fun z h => Or.inl h)) (fun iw => absurd iw hno2))
       (agr_or ag2 (vfix4 hl hv F q1 q2 e2P)) (agr_or ag3 (fun _ => var_of_reads e3x hx)) agr_refl'
   · -- la ventana `W1`
@@ -470,7 +515,7 @@ theorem c5s3_four (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2 s3 s4 zone)
     obtain ⟨d2, e2P, ⟨_, p2⟩, ag2, _⟩ := pick12 F q1 q2 D.card2
     obtain ⟨d3, e3P, _, ag3, e3x⟩ := pick12 F q1 q2 D.card3
     exact glue5_tri hl D hv hP0 hx0 hu0 hw0 r0 r1 (hl.sub _ e2P) (hl.sub _ e3P) hP0 (agree_at p0 p1 kr1)
-      (agree_at p1 p2 kr2) (hl.sameVar hv e2P e3P) (var_of_reads e3x hx) (Or.inr ⟨rfl, e2P, e3P⟩)
+      (agree_at p1 p2 kr2) (hl.sameVar hv e2P e3P) (var_of_reads e3x hx) (Or.inr (Or.inl ⟨rfl, e2P, e3P⟩))
       (agr_or ag0 (fun iw => absurd iw h1)) (agr_or ag1 (fun iw => absurd iw hno2))
       (agr_or ag2 (vfix4 hl hv F q1 q2 e2P)) (agr_or ag3 (fun _ => var_of_reads e3x hx)) agr_refl'
 
@@ -493,7 +538,7 @@ theorem phantomFree_chain5_s3 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
       obtain ⟨d2, q2, ag2⟩ := F.pick (no3_or D.card2 (le1_eq s2))
       obtain ⟨d3, q3, ag3⟩ := F.pick (no3_or D.card3 (le1_eq s4))
       exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 hP0 (hl.sub _ q2) (hl.sub _ q3) hP0 rfl
-        (ag2 s2 (Or.inr rfl) h2).symm (hl.sameVar hv q2 q3) (ag3 s4 (Or.inr rfl) h4) (Or.inr ⟨rfl, q2, q3⟩)
+        (ag2 s2 (Or.inr rfl) h2).symm (hl.sameVar hv q2 q3) (ag3 s4 (Or.inr rfl) h4) (Or.inr (Or.inl ⟨rfl, q2, q3⟩))
         agr_refl' agr_refl' (agr_or (agr_mono ag2 (fun z h => Or.inl h)) (vfix4 hl hv F F.q1 F.q2 q2)) ag3 agr_refl'
     · -- se lee `s4` y no `s2`: el nodo que lee `s4` al primer sitio
       refine of_reads_first hS (H := fun x u w => ¬ InW φ x.id.step u.id.step w.id.step s2)
@@ -514,7 +559,7 @@ theorem phantomFree_chain5_s3 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
     · -- la izquierda, de `a0` y una cara de `W3` que coincide con `a0` en `s2`
       obtain ⟨d2, ⟨q2, _⟩, ag2⟩ := G.pick (no3_or D.card2 (le1_eq s2))
       exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 hP0 (hl.sub _ q2) (hl.sub _ q3) (hl.sub _ q4) rfl
-        (ag2 s2 (Or.inr rfl) h2).symm (hl.sameVar hv q2 q3) (agree_at p3 p4 kr4) (Or.inr ⟨rfl, q2, q3⟩) agr_refl'
+        (ag2 s2 (Or.inr rfl) h2).symm (hl.sameVar hv q2 q3) (agree_at p3 p4 kr4) (Or.inr (Or.inl ⟨rfl, q2, q3⟩)) agr_refl'
         agr_refl' (agr_or (agr_mono ag2 (fun z h => Or.inl h)) (vfix4 hl hv G G.q1.1 G.q2.1 q2))
         (agr_or ag3 (fun iw => absurd iw h4)) ag4
     · -- la izquierda: la ventana `W2` (si se lee `s1`) o `W1`; sus caras leen `s2`
@@ -530,7 +575,7 @@ theorem phantomFree_chain5_s3 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
         obtain ⟨d2, ⟨q2, p2⟩, ag2⟩ := F.pick (no3_of_le1 D.card2)
         exact glue5_tri hl D hv hP0 hx0 hu0 hw0 hP0 (hl.sub _ q1) (hl.sub _ q2) (hl.sub _ q3) (hl.sub _ q4)
           (ag1 s1 (Or.inr rfl) h1).symm (agree_at p1 p2 kr2) (hl.sameVar hv q2 q3) (agree_at p3 p4 kr4)
-          (Or.inr ⟨rfl, q2, q3⟩) agr_refl' (agr_or (agr_mono ag1 (fun z h => Or.inl h)) (fun iw => absurd iw h2))
+          (Or.inr (Or.inl ⟨rfl, q2, q3⟩)) agr_refl' (agr_or (agr_mono ag1 (fun z h => Or.inl h)) (fun iw => absurd iw h2))
           (agr_or ag2 (vfix4 hl hv F F.q1.1 F.q2.1 q2)) (agr_or ag3 (fun iw => absurd iw h4)) ag4
       · obtain ⟨k10, k1N, kr1, kr2⟩ := hk1
         obtain ⟨c1, c2, c3, F⟩ := faces_Pw hS t hx0 hu0 hw0 k10 k1N kr2 h2 hPl
@@ -539,7 +584,7 @@ theorem phantomFree_chain5_s3 (hl : LocPair φ P0 P σ) (D : Chain5Data φ s1 s2
         obtain ⟨d2, ⟨q2, p2⟩, ag2⟩ := F.pick (no3_of_le1 D.card2)
         exact glue5_tri hl D hv hP0 hx0 hu0 hw0 (hl.sub _ q0) (hl.sub _ q1) (hl.sub _ q2) (hl.sub _ q3)
           (hl.sub _ q4) (agree_at p0 p1 kr1) (agree_at p1 p2 kr2) (hl.sameVar hv q2 q3) (agree_at p3 p4 kr4)
-          (Or.inr ⟨rfl, q2, q3⟩) (agr_or ag0 (fun iw => absurd iw h1)) (agr_or ag1 (fun iw => absurd iw h2))
+          (Or.inr (Or.inl ⟨rfl, q2, q3⟩)) (agr_or ag0 (fun iw => absurd iw h1)) (agr_or ag1 (fun iw => absurd iw h2))
           (agr_or ag2 (vfix4 hl hv F F.q1.1 F.q2.1 q2)) (agr_or ag3 (fun iw => absurd iw h4)) ag4
 
 end CaseS3
@@ -739,5 +784,113 @@ theorem reader_sep_chain5Cross (HA : ∀ T : Int, 1 ≤ T → PhantomAtW chain5C
   reader_sep_on bounded_chain5Cross HA sepCover_chain5Cross sepPinFree_chain5Cross hkv hr hsf
 
 end MachineOn
+
+end AbsSatBingo.Model
+
+-- ============================================================
+-- La línea del tercer literal de la última cláusula
+-- ============================================================
+
+namespace AbsSatBingo.Model
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.Cnf
+open AbsSatBin.GraphMap.CnfMapBin
+open AbsSatBin.GraphMap.CnfSelBin
+
+variable {φ : Cnf}
+
+namespace GPathB
+
+open Driver Machine MachineOn
+
+/-- Con las ramas de `P0` dentro de `P`, sin familias fantasma. -/
+theorem phantomFree_of_sub {P0 P : Assign → Prop} {N σ : Int} (h : ∀ a, P0 a → P a) : PhantomFree φ P0 P N σ := by
+  intro R Tf _ _ _ _ _ _ _ hb2 hb3 _
+  refine ⟨fun y w hyw => ?_, fun x u w a b c d e f g => ?_⟩
+  · obtain ⟨a, ha, h1, h2⟩ := hb2 y w hyw
+    exact ⟨a, h a ha, h1, h2⟩
+  · obtain ⟨a', ha, h1, h2, h3⟩ := hb3 x u w a b c d e f g
+    exact ⟨a', h a' ha, h1, h2, h3⟩
+
+/-- **El UP en el tercer paso de la última cláusula**, cuando su primer literal lee `s4` y su tercero es de `Z4`. Las
+ramas de antes ya eligen el segundo literal (por `k`) y el tercero (por el requisito de `d`). O todas cumplen la
+cláusula y no hay nada que hacer, o hay una que no la cumple, y entonces toda rama de después tiene cierto el literal
+de `s4`: todas leen igual `s4`, y vale el lema del bloque final. -/
+theorem phantomFree_up_lastC (hb : Bounded φ) {s1 s2 s3 s4 : Nat} {zone : Nat → Nat}
+    (D : Chain5Data φ s1 s2 s3 s4 zone) {T : Int} {k d : NodeId} {j : Nat} {c : Clause} (hjlt : j < φ.clauses.length)
+    (hj : φ.clauses[j]? = some c) (hT : T = clauseStep φ j 2) (hdT : d.step = T) (h1 : c.l1.v = s4)
+    (hz3 : zone c.l3.v = 4) {k1 k2 : Int} (hk1 : 0 ≤ k1 ∧ k1 < T + 1 ∧ ReadsAt φ k1 s1 ∧ ReadsAt φ k1 s2)
+    (hk2 : 0 ≤ k2 ∧ k2 < T + 1 ∧ ReadsAt φ k2 s2 ∧ ReadsAt φ k2 s3) :
+    PhantomFree φ (fun a => SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r)
+      (fun a => SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) (T + 1) T := by
+  have hl := locPair_up hb T k d
+  have hv : stepVar φ T = some c.l3.v := by rw [hT]; exact stepVar_clause hj 2 (by omega)
+  have hN : midFusion φ < T + 1 := by rw [hT]; simp only [clauseStep, midFusion]; omega
+  have hT0 : 0 ≤ T := by rw [hT]; simp only [clauseStep]; omega
+  by_cases hall : ∀ a, (SolE φ T k a ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a r.step = r) →
+      (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k)
+  · exact phantomFree_of_sub hall
+  -- una rama de antes que no cumple la cláusula
+  obtain ⟨a0, h0, n0⟩ : ∃ a0, (SolE φ T k a0 ∧ ∀ r ∈ reqOf φ d, selOfAssign φ a0 r.step = r) ∧
+      ¬ (SolE φ (T + 1) d a0 ∧ selOfAssign φ a0 (T - 1) = k) := by
+    apply Classical.byContradiction
+    intro hno
+    exact hall (fun a ha => Classical.byContradiction fun hn => hno ⟨a, ha, hn⟩)
+  have hT1 : T - 1 = clauseStep φ j 1 := by rw [hT]; simp only [clauseStep]; omega
+  have sel1 : ∀ a, selOfAssign φ a (T - 1) = ⟨T - 1, bit (litVal a c.l2)⟩ := by
+    intro a; rw [hT1]; exact selOfAssign_clause φ a j 1 c (by omega) hjlt hj
+  have sel2 : ∀ a, selOfAssign φ a T = ⟨T, bit (litVal a c.l3)⟩ := by
+    intro a; rw [hT]; exact selOfAssign_clause φ a j 2 c (by omega) hjlt hj
+  have hreq : reqOf φ d = [{ step := c.l3.binStep, index := d.index }] :=
+    reqOf_clause φ d j 2 c (by omega) hjlt hj (hdT.trans hT)
+  have hl3 : c.l3.v < φ.nVars := (hb c (List.mem_of_getElem? hj)).2.2
+  -- en `a0`, el tercer literal da el índice de `d`
+  have a0l3 : bit (litVal a0 c.l3) = d.index := by
+    have := h0.2 _ (by rw [hreq]; exact List.mem_singleton_self _)
+    rw [selOfAssign_lit φ a0 c.l3 hl3] at this
+    exact congrArg NodeId.index this
+  -- `a0` no está en `P`: su ventana en `T` está prohibida
+  have pr0 : isProhibited φ (pidOfAssign φ a0 T) = true := by
+    cases hp : isProhibited φ (pidOfAssign φ a0 T) with
+    | true => rfl
+    | false =>
+      exfalso
+      apply n0
+      refine ⟨⟨validUpTo_succ h0.1.1 hp, ?_⟩, h0.1.2⟩
+      rw [Int.add_sub_cancel, sel2]
+      exact nodeId_ext hdT.symm a0l3
+  obtain ⟨j', c', hj', e', m1, m2, m3⟩ := prohibited_clause pr0
+  have hjj : j' = j := by rw [hT] at e'; simp only [clauseStep] at e'; omega
+  subst hjj
+  rw [hj] at hj'
+  cases hj'
+  -- toda rama de `P` tiene cierto el literal de `s4`
+  have lit1 : ∀ b, (SolE φ (T + 1) d b ∧ selOfAssign φ b (T - 1) = k) → litVal b c.l1 = true := by
+    intro b hb'
+    have e2 : litVal b c.l2 = false := by
+      have := (sel1 b).symm.trans (hb'.2.trans (h0.1.2.symm.trans (sel1 a0)))
+      have := bit_inj (congrArg NodeId.index this)
+      rw [this]; exact m2
+    have e3 : litVal b c.l3 = false := by
+      have hs : selOfAssign φ b T = d := by have := hb'.1.2; rwa [Int.add_sub_cancel] at this
+      rw [sel2] at hs
+      have := bit_inj ((congrArg NodeId.index hs).trans a0l3.symm)
+      rw [this]; exact m3
+    cases hl1 : litVal b c.l1 with
+    | true => rfl
+    | false =>
+      exfalso
+      have := prohibited_of_false (a := b) hj hl1 e2 e3
+      rw [← hT, hb'.1.1 T (by omega)] at this
+      cases this
+  have hS4 : ∀ a b, (SolE φ (T + 1) d a ∧ selOfAssign φ a (T - 1) = k) →
+      (SolE φ (T + 1) d b ∧ selOfAssign φ b (T - 1) = k) → a s4 = b s4 := by
+    intro a b ha hb'
+    rw [← h1]
+    exact litVal_inj ((lit1 a ha).trans (lit1 b hb').symm)
+  exact phantomFree_chain5_end hl D hv (Or.inr hz3) hS4 hk1 hk2 hT0 (by omega) hN
+
+end GPathB
 
 end AbsSatBingo.Model
