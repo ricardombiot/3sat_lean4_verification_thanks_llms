@@ -222,9 +222,7 @@ en 470 estados: la ventaja 3 de §2 (recuperar la exactitud) se confirma en la m
 ## 7. Plan
 
 1. ~~T1 en Lean~~ y ~~T3~~: hechos (§8).
-2. T2 para `chain5_cross`: los lemas de separador de cinco bloques (`v = s4` y `v = s3`, y al revés `s1`, `s2`); valen
-   para cualquier familia fijada, así que cubren T2 con cualquier lectura previa. El análisis a mano dice que bastan
-   las cuentas de cardinal con testigos de ventana (`v = s4`: cuatro rangos; `v = s3`: dos lados independientes).
+2. ~~T2 para `chain5_cross`~~: hecho (§9).
 3. Las líneas de `chain5_cross`: prefijos (`phantomAt_of_prefix`) más la última cláusula.
 4. Si se adopta, llevar `PathSepReader` a `src/` y cambiar a quien llama; la tabla de sincronía Julia/Lean de
    `docs/plans/lean_bingo.md` tendría una fila «ReaderSep».
@@ -248,3 +246,16 @@ en 470 estados: la ventaja 3 de §2 (recuperar la exactitud) se confirma en la m
 | `julia/improves_bingo/test_3sat/probe_reader_sep.jl` | la sonda de §6 |
 | `julia/improves_bingo/test_3sat/output_probes/hard4/sep_chain*.tsv` | sus resultados |
 | (borrador de Lean en §5) | aún no está en el proyecto |
+
+## 9. T2 en cinco bloques (`Model/ForbidOnChain5.lean`)
+
+* `Chain5Data`: los bloques por una función de zona (interiores `0 … 4`, separadores `5`), así la disjunción entre
+  interiores es automática. `glue5`, una fuente por bloque.
+* **`phantomFree_chain5_s4`**: rango por el primer separador leído de `s3, s2, s1`; testigos de `σ`, del paso de `s3`,
+  de la ventana `W2` (lee `s2`, `s3`) y de la ventana `W1` (lee `s1`, `s2`). Solo cuentas de cardinal.
+* **`phantomFree_chain5_s3`**: los dos lados se pegan en `v`. Rango primero por la derecha (`s4` leído o no) y después
+  por la izquierda (`s2`, `s1`, nada); la derecha sale de la ventana `W3`, la izquierda de `W2` o `W1`, y si se lee
+  `s4`, de las dos caras por el nodo que lo lee (`c5s3_four`).
+* **`sepPinFree_chain5Cross`**: T2 en `chain5_cross` con los dos lemas en las dos orientaciones (`x5`, `x6` leyendo la
+  cadena al revés). **`reader_sep_chain5Cross`**: el lector por separadores no se atasca en `chain5_cross`, con las
+  líneas como única hipótesis (la máquina las cumple: 0 fuera en todos los estados).
