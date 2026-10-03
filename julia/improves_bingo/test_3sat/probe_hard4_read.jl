@@ -1,22 +1,19 @@
-# El caso abierto de cuatro bloques (3-oct-2026, rama reader-stuck; Lean ForbidOnChain4.lean).
+# El caso abierto de cuatro bloques en el lector (3-oct-2026, rama reader-stuck; Lean ForbidOnChain4L.lean, `HRead`).
 #
 #   PROBE_MAP=bin PROBE_DIRS=../../lean/improves_bingo/scripts/cnf PROBE_ONLY=chain4_cross.cnf HARD4_CHAIN=chain4_cross \
-#     test_3sat/run_capped.sh 3500 6000 julia --heap-size-hint=3G --project=. test_3sat/probe_hard4.jl <salida.tsv>
+#     test_3sat/run_capped.sh 3500 6000 julia --heap-size-hint=3G --project=. test_3sat/probe_hard4_read.jl <salida.tsv>
 #
-# Con FORBID = :on. Bloques `A ∪ {s1}`, `{s1} ∪ M ∪ {s2}`, `{s2} ∪ N ∪ {s3}`, `{s3} ∪ C` (HARD4_CHAIN elige los datos).
-# Con la variable fijada `v` dentro de un bloque, la prueba de Lean se atasca en un triángulo que no lee ningún
-# separador y en el que, para cada separador, algún lado (sin `v`) tiene una variable leída solo por la ventana de
-# cada uno de los tres nodos (`fails`): entonces ninguna cara de un testigo cubre ese lado. Esto es una condición
-# necesaria del atasco (que las caras discrepen de verdad depende de sus ramas), medida en los estados de la máquina:
-#   <g>_states      estados juzgados (g = flt: tras el filtro del UP, σ = paso del requisito; arr: llegada, σ = cima;
-#                   jrev: unión revisada; fin: estado final)
-#   <g>_t           triángulos sin prohibir de nodos vivos
-#   <g>_nosep       los que no leen ningún separador
-#   <g>_hard_sigma  los difíciles para la variable de σ (solo flt y arr, si es interior); `_T<n>`: en la línea n
-#                   (el estado tiene los pasos 0 … n - 1; las familias exigen las ventanas por debajo de n)
-#   <g>_hard_any    los difíciles para alguna variable interior
-#   <g>_hard_<v>    los difíciles para la variable interior v
-
+# Con FORBID = :on. Desde cada estado final (revisado), lecturas como Lean `Reading`: fijar un nodo vivo (paso ≥ 1) y
+# revisar, repetido. Todas las lecturas de un paso, y READ_N lecturas aleatorias de hasta READ_LEN pasos (semilla
+# READ_SEED). En cada estado leído, con σ = paso del último nodo fijado (la estructura de `HRead`):
+#   rd_states / rd_invalid   estados leídos / leídos que quedaron inválidos (el lector se atasca)
+#   rd_cap                   estados con más de EXACT_CAP camarillas (sin juzgar)
+#   rd_t / rd_t_out          triángulos sin prohibir / fuera de toda camarilla del estado
+#   rd_nosep                 los que no leen ningún separador
+#   rd_hard_sigma            los difíciles para la variable de σ (si es interior), como en probe_hard4.jl
+#   rd_hard_sigma_out        de ellos, fuera de toda camarilla
+#   rd_hard_sigma_<v>        por variable fijada
+using Random
 const OUT = abspath(ARGS[1])
 include(joinpath(@__DIR__, "..", "src/main.jl"))
 include(joinpath(@__DIR__, "probes_lib.jl"))
@@ -84,48 +81,75 @@ function hard_for(v, P)
     all(j -> fails(P, setdiff(SIDES[j][1], [v])) || fails(P, setdiff(SIDES[j][2], [v])), 1:3)
 end
 
-function judge(g, pre; sigmas = Int[])
-    g.is_valid || return
+
+const CAP = parse(Int, get(ENV, "EXACT_CAP", "50000"))
+const READ_N = parse(Int, get(ENV, "READ_N", "300"))
+const READ_LEN = parse(Int, get(ENV, "READ_LEN", "4"))
+const READ_SEED = parse(Int, get(ENV, "READ_SEED", "1"))
+
+# Los triángulos de las camarillas del estado (cadenas de vivos de la cima al paso 0, vecinos dos a dos, sin tríos
+# muertos), o `nothing` si pasan del tope.
+function clique_trios(g, top, alive)
+    og = g.og
+    T = Set{NTuple{3, PathNodeId}}()
+    cliq = Ref(0); chain = PathNodeId[]
+    ok(p) = all(w -> PG.has_edge(og, w, p), chain) &&
+            !any(PG.dead_trio(og, chain[i], chain[j], p) for i in eachindex(chain) for j in (i + 1):length(chain))
+    function dfs(x, s)
+        cliq[] > CAP && return
+        push!(chain, x)
+        if s == 0
+            cliq[] += 1
+            L = length(chain)
+            for i in 1:L, j in (i + 1):L, k in (j + 1):L
+                push!(T, (chain[k], chain[j], chain[i]))
+            end
+        else
+            foreach(p -> dfs(p, s - 1), [p for p in alive[s - 1] if ok(p)])
+        end
+        pop!(chain)
+    end
+    foreach(t -> dfs(t, top), alive[top])
+    return cliq[] > CAP ? nothing : T
+end
+
+function judge_read(g, σ)
+    bump(:rd_states)
+    if !g.is_valid
+        bump(:rd_invalid); return
+    end
     og = g.og
     top = Int(g.current_step) - 1
-    top >= 2 || return
     alive = Dict(s => collect(get(og.alive, Step(s), SetPathNodesId())) for s in 0:top)
-    bump(Symbol(pre, "_states"))
-    svars = [step_var(σ) for σ in sigmas]
-    svars = [z for z in svars if z in INTERIOR]
+    T = clique_trios(g, top, alive)
+    if T === nothing
+        bump(:rd_cap); return
+    end
+    sv = step_var(σ)
+    vint = sv in INTERIOR
     for sa in 0:top, a in alive[sa]
         for sb in (sa + 1):top, b in PG.neighbors(og, a, Step(sb))
             PG.is_alive(og, b) || continue
             for sr in (sb + 1):top, r in PG.neighbors(og, a, Step(sr))
                 (PG.is_alive(og, r) && PG.has_edge(og, b, r)) || continue
                 PG.dead_trio(og, a, b, r) && continue
-                bump(Symbol(pre, "_t"))
+                bump(:rd_t)
+                inT = (a, b, r) in T
+                inT || bump(:rd_t_out)
                 Wa, Wb, Wr = win(sa), win(sb), win(sr)
                 any(s -> s in Wa || s in Wb || s in Wr, SEPS) && continue
-                bump(Symbol(pre, "_nosep"))
+                bump(:rd_nosep)
+                vint || continue
                 P = (setdiff(Wa, Wb, Wr), setdiff(Wb, Wa, Wr), setdiff(Wr, Wa, Wb))
-                if any(v -> hard_for(v, P), svars)
-                    bump(Symbol(pre, "_hard_sigma"))
-                    bump(Symbol(pre, "_hard_sigma_T", top + 1))
+                if hard_for(sv, P)
+                    bump(:rd_hard_sigma); bump(Symbol(:rd_hard_sigma_, sv))
+                    inT || bump(:rd_hard_sigma_out)
                 end
-                hv = [v for v in INTERIOR if hard_for(v, P)]
-                isempty(hv) || bump(Symbol(pre, "_hard_any"))
-                foreach(v -> bump(Symbol(pre, "_hard_", v)), hv)
             end
         end
     end
     dump_partial()
 end
-
-Core.eval(GraphPath, quote
-    function do_up_filtering!(gpath :: GPath, requires :: SetNodesId, map_id_node :: NodeId, title :: String,
-                              prohibited :: Set{PathNodeId} = Set{PathNodeId}())
-        gpath.map_parent_id === nothing || PathOwnersGraph.stamp!(gpath.og, gpath.map_parent_id)
-        filter!(gpath, requires)
-        $(judge)(gpath, "flt"; sigmas = [Int(r.step) for r in requires])
-        do_up!(gpath, map_id_node, title, prohibited)
-    end
-end)
 
 function reviewed(g)
     h = deepcopy(g)
@@ -134,11 +158,39 @@ function reviewed(g)
     return h
 end
 
+# Fijar un nodo y revisar (Lean `filterAllOn [q.id]`).
+function pin(g, q)
+    h = deepcopy(g)
+    h.review_owners = true
+    GraphPath.filter!(h, SetNodesId([q.id]))
+    return h
+end
+
+alive_nodes(g) = [q for s in 1:(Int(g.current_step) - 1) for q in get(g.og.alive, Step(s), SetPathNodesId())]
+
+function read_all(g0)
+    for q in alive_nodes(g0)
+        judge_read(pin(g0, q), Int(q.id.step))
+    end
+    rng = MersenneTwister(READ_SEED)
+    for _ in 1:READ_N
+        g = g0
+        for _ in 1:rand(rng, 2:READ_LEN)
+            g.is_valid || break
+            qs = alive_nodes(g)
+            isempty(qs) && break
+            q = qs[rand(rng, 1:length(qs))]
+            g = pin(g, q)
+            judge_read(g, Int(q.id.step))
+        end
+    end
+end
+
 function main()
     _, loader, _ = ProbeLib.map_of_env()
-    groups = ("flt", "arr", "jrev", "fin")
-    fields = vcat(["states", "t", "nosep", "hard_sigma", "hard_any"], ["hard_$v" for v in INTERIOR])
-    cols = [Symbol(g, "_", f) for g in groups for f in fields]
+    fields = vcat(["states", "invalid", "cap", "t", "t_out", "nosep", "hard_sigma", "hard_sigma_out"],
+                  ["hard_sigma_$v" for v in INTERIOR])
+    cols = [Symbol("rd_", f) for f in fields]
     header = "instance\ttruth\t" * join(string.(cols), "\t") * "\tsecs"
     ProbeLib.run_instances(OUT, header; files = ProbeLib.corpus()) do path, _
         ex = ProbeLib.exhaustive(path)
@@ -148,15 +200,12 @@ function main()
         PG.FORBID[] = :on
         machine = SatMachine.new(loader(path))
         t = @elapsed begin
-            Probes.with(:up_done => g -> judge(g, "arr"; sigmas = [Int(g.current_step) - 1]),
-                        :join_post => g -> judge(reviewed(g), "jrev")) do
-                redirect_stdout(devnull) do
-                    SatMachine.run!(machine)
-                end
+            redirect_stdout(devnull) do
+                SatMachine.run!(machine)
             end
             if SatMachine.have_solution(machine)
                 for g in SatMachine.get_gpath_solutions(machine)
-                    judge(reviewed(g), "fin")
+                    read_all(reviewed(g))
                 end
             end
         end
