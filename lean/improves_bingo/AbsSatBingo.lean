@@ -140,3 +140,4 @@ import AbsSatBingo.Model.ForbidOnSep
 import AbsSatBingo.Model.ForbidOnLocal
 import AbsSatBingo.Model.ForbidOnChain
 import AbsSatBingo.Model.ForbidOnDescent
+import AbsSatBingo.Model.ForbidOnChain4
