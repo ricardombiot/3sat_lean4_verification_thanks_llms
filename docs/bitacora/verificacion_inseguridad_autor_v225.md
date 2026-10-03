@@ -6,7 +6,7 @@ borrador en Lean con los enunciados que habría que demostrar. En una frase: **s
 compartidas por varias cláusulas (los separadores), lo que queda por leer se descompone en piezas que no se ven, y la
 parte difícil de la demostración se reduce a un solo lema, sobre los separadores.**
 
-> **Estado**: medidas completas (en `chain6_cross` sin juzgar camarillas: estados demasiado grandes). Tras escribir el borrador se demostraron T1 y T3 (§8).
+> **Estado**: medidas completas (en `chain6_cross` sin juzgar camarillas: estados demasiado grandes). Tras escribir el borrador se demostraron T1 y T3 (§8) y T2 en `chain5_cross` (§9).
 
 ## 0. Resumen
 
