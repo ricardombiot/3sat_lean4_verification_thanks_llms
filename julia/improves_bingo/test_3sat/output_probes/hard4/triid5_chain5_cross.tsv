@@ -1,0 +1,2 @@
+instance	truth	rd_states	rd_invalid	rd_cap	rd_n	rd_n_out	rd_e	rd_e_out	rd_t	rd_t_out	rd_triid_fail	rd_nosep	rd_dbl	rd_dbl_out	secs
+chain5_cross.cnf	true	260	0	0	37475	0	2133496	0	63898134	32	0	2828484	3712	32	1600.7
