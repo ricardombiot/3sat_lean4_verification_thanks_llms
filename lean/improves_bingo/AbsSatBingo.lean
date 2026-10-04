@@ -160,3 +160,5 @@ import AbsSatBingo.Model.ForbidOnChain6BI
 import AbsSatBingo.Model.ForbidOnChainOps
 import AbsSatBingo.Model.ForbidOnChain6BC
 import AbsSatBingo.Model.ForbidOnChain6BR
+import AbsSatBingo.Model.ForbidOnChain7B
+import AbsSatBingo.Model.ForbidOnChain7BC
