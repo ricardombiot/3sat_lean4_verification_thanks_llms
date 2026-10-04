@@ -1,0 +1,9 @@
+c la misma cadena con las variables numeradas en el orden de la cadena:
+c p=1 q=2 s1=3 r=4 s2=5 r2=6 s3=7 r3=8 s4=9 r4=10 s5=11 y=12 v=13
+p cnf 13 6
+1 2 3 0
+-3 4 5 0
+-5 6 7 0
+-7 8 9 0
+-9 10 11 0
+-11 12 13 0

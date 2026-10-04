@@ -1,0 +1,4 @@
+instance	truth	lc_dead	lc_open	bases	born_cut	late	born_edge	born_dead	born_open	first_all	cats	secs
+clause_mix.cnf	true	3892	0	354	294	60	82	212	60	d=2:20 d=6:12 d=7:12 d=8:8 d=9:8 || s=0:54 s=1:54 s=2:46 s=3:32 s=4:36 s=5:36 s=6:36 s=9:60	E:hastop=717/0 E:nostar=760/0 E:f2=2415/0 A:hastop=491/0 A:f2=1930/0 A:f3=354/0	7.3
+clause_mix_sep.cnf	true	17592	184	1934	1262	672	352	910	672	d=2:112 d=6:120 d=7:120 d=8:160 d=9:160 || s=0:246 s=1:246 s=2:190 s=3:130 s=4:162 s=5:162 s=6:126 s=9:672	E:hastop=2297/0 E:nostar=3024/0 E:f2=12271/184 A:hastop=1421/0 A:f2=10316/184 A:f3=1934/0	33.5
+v5_c20_i2.cnf	false	3032	0	192	160	32	48	112	32	d=10:4 d=11:4 d=12:4 d=13:4 d=3:4 d=4:4 d=5:4 d=6:4 || s=0:48 s=3:12 s=7:12 s=8:12 s=9:12 s=14:24 s=15:24 s=16:16 s=19:32	E:hastop=271/0 E:nostar=1134/0 E:f2=1435/0 E:f3=192/0 A:hastop=80/0 A:f2=492/0 A:f3=192/0	38.5

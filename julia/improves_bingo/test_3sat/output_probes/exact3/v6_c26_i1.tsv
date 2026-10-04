@@ -1,0 +1,2 @@
+instance	truth	arr_states	arr_cap	arr_cliq	arr_dead	arr_n	arr_n_out	arr_e	arr_e_out	arr_t	arr_t_out	jrev_states	jrev_cap	jrev_cliq	jrev_dead	jrev_n	jrev_n_out	jrev_e	jrev_e_out	jrev_t	jrev_t_out	fin_states	fin_cap	fin_cliq	fin_dead	fin_n	fin_n_out	fin_e	fin_e_out	fin_t	fin_t_out	secs
+v6_c26_i1.cnf	false	232	0	32	0	15731	0	433727	0	7505032	0	93	0	64	0	9205	0	278320	0	4797814	0	0	0	0	0	0	0	0	0	0	0	163.5

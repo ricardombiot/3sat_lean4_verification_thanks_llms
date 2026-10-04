@@ -1,0 +1,2 @@
+instance	truth	rnd_full	rnd_stuck	rnd_sat	asc_full	asc_stuck	asc_sat	secs
+chain5_cross.cnf	true	20	0	20	20	0	20	885.5

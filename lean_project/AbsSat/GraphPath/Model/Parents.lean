@@ -100,6 +100,15 @@ theorem PN_cleanInvalidGo (ids : List PathNodeId) :
 theorem PN_cleanInvalid (g : GPathM) (h : PN g) : PN (cleanInvalid g) :=
   PN_cleanInvalidGo _ g h
 
+/-- The mirror keeps every node, with its id and its parents. -/
+theorem PN_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : PN g) :
+    PN (mirrorDrop g x rem) := by
+  intro n' hn' p hp
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  rw [← hEq, mirrorMap_parents] at hp
+  obtain ⟨m, hm, hmid⟩ := h n hn p hp
+  exact ⟨mirrorMap x rem m, List.mem_map_of_mem hm, by rw [mirrorMap_id]; exact hmid⟩
+
 theorem PN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
     (h : PN g) : PN (reviewNode g nb id) := by
   simp only [reviewNode]
@@ -110,7 +119,8 @@ theorem PN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : G
     · have h₁ : PN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         PN_updateAt g id _ (fun _ => rfl) (fun _ => rfl) h
-      have h₂ := PN_unlinkIncompatible _ id h₁
+      have h₂ := PN_unlinkIncompatible _ id
+        (PN_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
       split
       · exact h₂
       · exact PN_removeNode _ id h₂
@@ -140,9 +150,26 @@ theorem PN_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (PN_reviewLine nb k g h)
     · exact h
 
+theorem PN_cleanInvalid₂ (g : GPathM) (h : PN g) : PN (cleanInvalid₂ g) := by
+  have hp := purgeFuel_inv PN (fun g id h => PN_removeNode g id h) (g.nodes.length + 1) g h
+  intro n' hn' p hpar
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact GownersNodes.hasNode_cutAll _ p (hp n hn p (List.mem_filter.mp hpar).1)
+
+theorem PN_pairSweep (g : GPathM) (h : PN g) : PN (pairSweep g) := by
+  intro n' hn' p hpar
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hid⟩ := h n hn p hpar
+  exact ⟨pairMap g m, List.mem_map_of_mem hm, hid⟩
+
+theorem PN_cleanPair (g : GPathM) (h : PN g) : PN (cleanPair g) :=
+  cleanPair_inv PN g (PN_cleanInvalid₂ g h) (fun x _ hx => PN_cleanInvalid₂ _ (PN_pairSweep x hx))
+
 theorem PN_reviewPass (g : GPathM) (h : PN g) : PN (reviewPass g) := by
   simp only [reviewPass]
-  exact PN_reviewSteps _ _ _ (PN_reviewSteps _ _ _ (PN_cleanInvalid g h))
+  exact PN_reviewSteps _ _ _ (PN_reviewSteps _ _ _ (PN_cleanPair g h))
 
 theorem PN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), PN g → PN (reviewFuel fuel g) := by
   intro fuel
@@ -190,15 +217,15 @@ theorem PN_addNode (g : GPathM) (d : NodeId) (title : String) (h : PN g) :
     obtain ⟨m, hm, hmid⟩ := h n hn p hp
     exact ⟨upMap g d m, List.mem_append_left _ (List.mem_map_of_mem hm),
       (upMap_id g d m).trans hmid⟩
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hpar : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-    rw [hpar] at hp
-    unfold newParents at hp
-    split at hp
-    · obtain ⟨m, hm, hmid⟩ := mem_nodes_of_mem_line g (g.current_step - 1) p hp
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_parents] at hp
+    have hp' : p ∈ newParents g := rowParents_subset g d pid p hp
+    unfold newParents at hp'
+    split at hp'
+    · obtain ⟨m, hm, hmid⟩ := mem_nodes_of_mem_line g (g.current_step - 1) p hp'
       exact ⟨upMap g d m, List.mem_append_left _ (List.mem_map_of_mem hm),
         (upMap_id g d m).trans hmid⟩
-    · exact absurd hp List.not_mem_nil
+    · exact absurd hp' List.not_mem_nil
 
 theorem hasNode_join_left (g₁ g₂ : GPathM) (p : PathNodeId) (h : HasNode g₁ p) :
     HasNode (join g₁ g₂) p := by
@@ -297,18 +324,19 @@ theorem PBelow_addNode (g : GPathM) (d : NodeId) (title : String)
     rw [← hEq, upMap_parents] at hp
     rw [← hEq, upMap_id]
     exact h n hn p hp
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hpar : (addOwner (newPid g d) (upNode g d title)).parents = newParents g := rfl
-    rw [hpar] at hp
-    unfold newParents at hp
-    split at hp
-    · have hstep := mem_line_step g (g.current_step - 1) p hp
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_parents] at hp
+    have hp' : p ∈ newParents g := rowParents_subset g d pid p hp
+    unfold newParents at hp'
+    split at hp'
+    · have hstep := mem_line_step g (g.current_step - 1) p hp'
+      rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
       show p.id.step = d.step - 1
       rw [hstep, hd]
-    · exact absurd hp List.not_mem_nil
+    · exact absurd hp' List.not_mem_nil
 
 theorem NotRoot_addNode (g : GPathM) (d : NodeId) (title : String)
-    (hd : d.step = g.current_step) (hmok : MachineOk g) (h : NotRoot g) :
+    (hd : d.step = g.current_step) (_hmok : MachineOk g) (h : NotRoot g) :
     NotRoot (addNode g d title) := by
   intro n' hn' hpos
   rw [addNode_nodes] at hn'
@@ -316,12 +344,11 @@ theorem NotRoot_addNode (g : GPathM) (d : NodeId) (title : String)
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     rw [← hEq, upMap_id] at hpos ⊢
     exact h n hn hpos
-  · rcases List.mem_singleton.mp hmem with rfl
-    show (newPid g d).parent_id ≠ none
-    show g.map_parent ≠ none
-    refine hmok.2.2 ?_
-    rw [← hd]
-    exact hpos
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id] at hpos ⊢
+    refine parent_id_ne_none_of_mem_newRowIds g d pid ?_ hpid
+    rw [mapId_of_mem_newRowIds g d pid hpid] at hpos
+    omega
 
 theorem PBelow_join (g₁ g₂ : GPathM) (h₁ : PBelow g₁) (h₂ : PBelow g₂) :
     PBelow (join g₁ g₂) := by

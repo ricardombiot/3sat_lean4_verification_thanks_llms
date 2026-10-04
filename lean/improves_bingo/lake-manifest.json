@@ -1,0 +1,13 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "«abs-sat-bin»",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../improves_bin",
+   "configFile": "lakefile.toml"}],
+ "name": "«abs-sat-bingo»",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

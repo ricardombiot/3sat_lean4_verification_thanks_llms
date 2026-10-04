@@ -1,0 +1,5 @@
+c tiny instance for visual inspection of the final gpath
+p cnf 3 3
+1 2 3 0
+-1 -2 3 0
+1 -2 -3 0

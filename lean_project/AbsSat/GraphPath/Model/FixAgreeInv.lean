@@ -130,11 +130,33 @@ structure UpCtx (F : GPathM) (d : NodeId) : Prop where
   valid : isValid F = true
   back : ∀ x, ∀ r ∈ reqOfCnf φ x, r.step < x.step
   nonneg : ∀ x, ∀ r ∈ reqOfCnf φ x, 0 ≤ r.step
+  /-- The top line carries `map_parent` — what makes every row identifier record
+  it in its second component. -/
+  tl : ParentId.TL F
+  pos : 0 < F.current_step
 
 section Up
 
 variable {φ} {F : GPathM} {d : NodeId} (ctx : UpCtx φ F d)
 include ctx
+
+/-- **A row identifier fixes exactly what the old single new node fixed**: its own
+map node's values and `map_parent`'s, because the window's second component *is*
+`map_parent` on the top line (`ParentId.TL`). -/
+theorem fixes_row {z : PathNodeId} (hz : z ∈ newRowIds F d) :
+    fixes φ z = fixesMap φ d ++
+      (match F.map_parent with | some p => fixesMap φ p | none => []) := by
+  obtain ⟨r, hr, rfl⟩ := exists_shift_of_mem_newRowIds F d z ctx.pos hz
+  have hrmp : F.map_parent = some r.id := by
+    unfold newParents at hr
+    rw [if_pos ctx.pos] at hr
+    obtain ⟨nr, hnr, hnrid⟩ := List.mem_map.mp hr
+    have := ctx.tl nr (List.mem_filter.mp hnr).1 (eq_of_beq (List.mem_filter.mp hnr).2)
+    rw [hnrid] at this
+    exact this.symm
+  show fixesMap φ d ++ (match (some r.id : Option NodeId) with
+      | some p => fixesMap φ p | none => []) = _
+  rw [hrmp]
 
 /-- A node agrees with every pinned literal: the global owner at the pin's step is the pin. -/
 theorem agree_pinned (R : List NodeId)
@@ -189,12 +211,10 @@ theorem fixes_var_le {n : PNodeM} (hn : n ∈ F.nodes) (vv : Int × Int)
       omega
 
 /-- **Every node of the filtered state agrees with every value the new node fixes.** -/
-theorem new_consistent {n : PNodeM} (hn : n ∈ F.nodes) :
-    Consistent (fixes φ n.id) (fixes φ (newPid F d)) := by
+theorem new_consistent {n : PNodeM} (hn : n ∈ F.nodes) {z : PathNodeId}
+    (hz : z ∈ newRowIds F d) : Consistent (fixes φ n.id) (fixes φ z) := by
   intro vv hvv ww hww hsame
-  have hfix : fixes φ (newPid F d) =
-      fixesMap φ d ++ (match F.map_parent with | some p => fixesMap φ p | none => []) := rfl
-  rw [hfix] at hww
+  rw [fixes_row ctx hz] at hww
   rcases List.mem_append.mp hww with hw | hw
   · rcases fixesMap_cases φ d ww hw with ⟨r, hr, hvr⟩ | ⟨_, _, _, hwd⟩
     · exact (agree_pinned ctx (reqOfCnf φ d) ctx.pin
@@ -223,12 +243,11 @@ theorem new_consistent {n : PNodeM} (hn : n ∈ F.nodes) :
 
 /-- A value the new node fixes is fixed by some node of the filtered state, unless it is the new
 node's own value as a value node. -/
-theorem witness (ww : Int × Int) (hw : ww ∈ fixes φ (newPid F d)) :
+theorem witness {z : PathNodeId} (hz : z ∈ newRowIds F d)
+    (ww : Int × Int) (hw : ww ∈ fixes φ z) :
     (∃ x ∈ F.nodes, ww ∈ fixes φ x.id) ∨
       (0 ≤ d.step ∧ d.step < litBlock φ ∧ d.step % 2 = 0 ∧ ww = (d.step / 2, d.index)) := by
-  have hfix : fixes φ (newPid F d) =
-      fixesMap φ d ++ (match F.map_parent with | some p => fixesMap φ p | none => []) := rfl
-  rw [hfix] at hw
+  rw [fixes_row ctx hz] at hw
   -- a pinned literal names a node of the filtered state
   have hlit : ∀ (R : List NodeId), (∀ q ∈ F.gowners, ∀ r ∈ R, q.id.step = r.step → q.id = r) →
       (∀ r ∈ R, 0 ≤ r.step ∧ r.step < F.current_step) →
@@ -274,32 +293,31 @@ theorem witness (ww : Int × Int) (hw : ww ∈ fixes φ (newPid F d)) :
         rw [varVal_even φ p h0 hlt hev, hwp]
 
 /-- The new node's own fixed values agree with each other. -/
-theorem self_consistent : Consistent (fixes φ (newPid F d)) (fixes φ (newPid F d)) := by
+theorem self_consistent {z z' : PathNodeId} (hz : z ∈ newRowIds F d)
+    (hz' : z' ∈ newRowIds F d) : Consistent (fixes φ z) (fixes φ z') := by
   intro vv hvv ww hww hsame
-  rcases witness ctx vv hvv with ⟨x, hx, hvx⟩ | ⟨_, _, _, hvd⟩
-  · exact new_consistent ctx hx vv hvx ww hww hsame
-  · rcases witness ctx ww hww with ⟨x, hx, hwx⟩ | ⟨_, _, _, hwd⟩
-    · exact (new_consistent ctx hx ww hwx vv hvv hsame.symm).symm
+  rcases witness ctx hz vv hvv with ⟨x, hx, hvx⟩ | ⟨_, _, _, hvd⟩
+  · exact new_consistent ctx hx hz' vv hvx ww hww hsame
+  · rcases witness ctx hz' ww hww with ⟨x, hx, hwx⟩ | ⟨_, _, _, hwd⟩
+    · exact (new_consistent ctx hx hz ww hwx vv hvv hsame.symm).symm
     · rw [hvd, hwd]
 
 /-- **`addNode` keeps `FixAgree`.** -/
 theorem FixAgree_addNode (title : String) (h : FixAgree φ F) : FixAgree φ (addNode F d title) := by
   intro n' hn' q hq
-  rcases mem_addNode_nodes hn' with ⟨n, hn, rfl⟩ | rfl
+  rcases mem_addNode_nodes hn' with ⟨n, hn, rfl⟩ | ⟨pid, hpid, rfl⟩
   · rw [upMap_owners] at hq
     rw [upMap_id]
     rcases List.mem_append.mp hq with hq | hq
     · exact h n hn q hq
-    · rw [List.mem_singleton.mp hq]
-      exact new_consistent ctx hn
-  · have hq' : q ∈ F.gowners ++ [newPid F d] := hq
-    show Consistent (fixes φ (newPid F d)) (fixes φ q)
-    rcases List.mem_append.mp hq' with hq | hq
+    · exact new_consistent ctx hn (gainedOwners_subset F d n q hq)
+  · rw [rowNode_id]
+    rw [rowNode_owners] at hq
+    rcases rowOwners_mem_gowners_or_self F d pid q hq with hq | rfl
     · obtain ⟨x, hx, hxid⟩ := ctx.gn q hq
       rw [← hxid]
-      exact consistent_symm (new_consistent ctx hx)
-    · rw [List.mem_singleton.mp hq]
-      exact self_consistent ctx
+      exact consistent_symm (new_consistent ctx hx hpid)
+    · exact self_consistent ctx hpid hpid
 
 end Up
 
@@ -330,16 +348,22 @@ theorem FixAgree_initSeed (hwf : WF φ) (d : NodeId) (title : String) (hd : d.st
   have hseed : initSeed d title = addNode empty d title := rfl
   intro n hn q hq
   rw [hseed] at hn
-  rcases mem_addNode_nodes hn with ⟨m, hm, _⟩ | rfl
+  rcases mem_addNode_nodes hn with ⟨m, hm, _⟩ | ⟨pid, hpid, rfl⟩
   · exact absurd hm List.not_mem_nil
-  · have hq' : q ∈ empty.gowners ++ [newPid empty d] := hq
-    have hqz : q = newPid empty d := by
-      rcases List.mem_append.mp hq' with h | h
+  · have hrow : newRowIds empty d = [{ id := d, parent_id := none, gparent_id := none }] :=
+      newRowIds_of_zero empty d (by show ¬ (0:Int) < 0; omega)
+    rw [hrow] at hpid
+    rcases List.mem_singleton.mp hpid with rfl
+    rw [rowNode_owners] at hq
+    have hqz : q = { id := d, parent_id := none, gparent_id := none } := by
+      rcases rowOwners_mem_gowners_or_self empty d _ q hq with h | h
       · exact absurd h List.not_mem_nil
-      · exact List.mem_singleton.mp h
-    rw [hqz]
-    show Consistent (fixes φ (newPid empty d)) (fixes φ (newPid empty d))
-    have hfix : fixes φ (newPid empty d) = fixesMap φ d ++ [] := rfl
+      · exact h
+    rw [rowNode_id, hqz]
+    show Consistent (fixes φ { id := d, parent_id := none, gparent_id := none })
+      (fixes φ { id := d, parent_id := none, gparent_id := none })
+    have hfix : fixes φ ({ id := d, parent_id := none, gparent_id := none } : PathNodeId)
+        = fixesMap φ d ++ [] := rfl
     rw [hfix, List.append_nil]
     -- at step 0 a map node fixes at most its own value
     have hone : ∀ ww ∈ fixesMap φ d, ww = (d.step / 2, d.index) := by
@@ -419,7 +443,9 @@ theorem FixAgree_reachable (hwf : WF φ) (g : GPathM) (hr : Reachable (reqOfCnf 
         ps := fun n hn p hp => hpiF.ps n hn p hp
         valid := hv
         back := hback
-        nonneg := hnonneg }
+        nonneg := hnonneg
+        tl := ParentId.TL_of_pruned hpr (ParentId.TL_reachable (reqOfCnf φ) g hrg)
+        pos := by rw [hpr.step_eq]; exact NodeInvariant.pos_reachable (reqOfCnf φ) g hrg }
       exact FixAgree_addNode ctx title (FixAgree_of_pruned φ hpr ih)
     · exact FixAgree_of_pruned φ hpr ih
   | join g₁ g₂ _ _ _ ih₁ ih₂ => exact FixAgree_join φ g₁ g₂ ih₁ ih₂

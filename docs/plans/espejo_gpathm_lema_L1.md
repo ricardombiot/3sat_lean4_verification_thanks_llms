@@ -10,6 +10,33 @@ demostrar) la denotación que usarán L2–L8.
 
 ## Registro de ejecución
 
+**2026-09-16 (cl) — una sola prueba de conservación para tres filtros.**
+
+`ConservationCore.lean` (nuevo): `ShapeOk` y sus lemas, **`chainSound_up_of_prunedP`**, `SelParent`, `stepCount_pos` y
+los lemas del filtro débil. `ConservationFilter.lean`: la invariante genérica lleva ahora el padre de cada nodo de la
+cadena (`mapParent_alongF`), y el filtro débil resulta ser `Fsac 0` como el mismo término (**`run_eq`**).
+`ConservationPins.lean`: la poda pasa a ser la instancia `Fpin` (`prunes_Fpin`, `keepsBranch_Fpin`, `run_eqP`) y sus
+seis resultados se transportan. Tamaños: Improves 601 → 205, Pins 921 → 480, núcleo 273. Mismos enunciados públicos,
+mismas guardas de axiomas, build de 156 módulos. Pendiente: el camino 1 (completitud de la regla por clases) y su
+estudio de alcance previo.
+
+Informe: `verificacion_inseguridad_autor_v110.md`.
+
+---
+
+**2026-09-16 (ck) — Horn decidido, la profundidad refutada y la regla condicionada.**
+
+`HornDecision.lean`: **`horn_decides`** (φ bien formada y Horn: la máquina acierta), `pureRun_nil_of_conflict` (cualquier
+φ). `SacClosure.lean`: `Compat`, `DeadFor`, **`not_chainS_of_sacDead`**, `sacDead_of_unsupported`. `SacFilter.lean`:
+`filterAC`, **`ChainSound_filterAC`** (sin hipótesis lateral), `sacDead_of_removed`. `ConservationFilter.lean`: la
+conservación para un filtro arbitrario, e instancia condicionada: **`pureRunSac_full_state`**, `pureRunSac_ne_nil`.
+Medido en `altchain_m1..m7`: profundidad ≈ log₂(k+2) (no acotada), pasadas de la regla ⌈k/2⌉+1. Todo en
+`[propext, Quot.sound]`, build de 155 módulos.
+
+Informe: `verificacion_inseguridad_autor_v109.md`.
+
+---
+
 **2026-09-15 (cj) — la máquina decide las fórmulas Horn.**
 
 Plan en cinco piezas. `FixAgreeInv.lean`: **`FixAgree_reachable`**. `Cnf/UnitProp.lean`: `Forced`, `Conflict`,

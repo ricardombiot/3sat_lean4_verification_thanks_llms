@@ -15,7 +15,7 @@ end
 
    # include("./graph_map/test_graph_map_vars.jl")
    # include("./graph_map/test_graph_map_gates.jl")
-   #include("./graph_map/test_graph_map_import.jl")
+   include("./graph_map/test_graph_map_import.jl")
 end
 
 

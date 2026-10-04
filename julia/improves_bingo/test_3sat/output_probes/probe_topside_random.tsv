@@ -1,0 +1,7 @@
+instance	truth	joins	runs	tops	top_none	chains	none	both	n_invalid	n_node	n_edge	n_link	n_trio	dead	side_dead	cap	ram	secs
+clause_mix.cnf	true	34	262	559	0	0	0	0	0	0	0	0	0	0	0	0	0	27.4
+clause_mix_sep.cnf	true	40	323	726	0	0	0	0	0	0	0	0	0	0	0	0	0	148.2
+xor3.cnf	true	28	173	262	0	0	0	0	0	0	0	0	0	0	0	0	0	1.2
+v4_c12_i1.cnf	true	57	372	632	0	0	0	0	0	0	0	0	0	0	0	0	0	36.4
+v5_c20_i2.cnf	false	74	522	969	0	0	0	0	0	0	0	0	0	0	0	0	0	110.0
+v5_c20_i3.cnf	true	85	598	1074	0	0	0	0	0	0	0	0	0	0	0	0	0	345.1

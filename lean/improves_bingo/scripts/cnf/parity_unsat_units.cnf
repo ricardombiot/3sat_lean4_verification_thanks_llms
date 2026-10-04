@@ -1,0 +1,14 @@
+c paridad de cuatro variables alejadas (1, 3, 5, 7) con auxiliar 9, y variables de relleno entre ellas
+p cnf 9 12
+-1 -3 -9 0
+-1 3 9 0
+1 -3 9 0
+1 3 -9 0
+-9 -5 -7 0
+-9 5 7 0
+9 -5 7 0
+9 5 -7 0
+1 1 1 0
+3 3 3 0
+5 5 5 0
+-7 -7 -7 0

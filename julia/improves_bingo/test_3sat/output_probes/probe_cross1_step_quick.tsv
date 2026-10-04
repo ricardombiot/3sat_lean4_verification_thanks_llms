@@ -1,0 +1,5 @@
+instance	truth	np	free	noAc	removed	nocommon	kfree	common	ih	inh	inh_all	inh_top	two_sub	pstar	pstar_sub	l2_noentry	l2	l2_removed	l2_nocommon	l2_kfree	l2_common	l2_free	l2_sub	l2_one	secs
+clause_mix.cnf	true	318	318	0	308	0	0	10	10	10	10	0	10	10	10	0	10	10	0	0	0	0	0	0	0.9
+clause_mix_sep.cnf	true	882	882	0	858	0	0	24	24	24	24	0	24	24	24	0	24	24	0	0	0	0	0	0	0.4
+rand3sat_v8_c10.cnf	true	2935	2935	0	2667	81	81	187	187	187	179	0	149	187	187	0	187	149	0	0	38	38	38	38	2.3
+v5_c20_i1.cnf	true	349	349	0	327	18	18	4	4	4	0	0	4	4	4	0	4	4	0	0	0	0	0	0	1.0

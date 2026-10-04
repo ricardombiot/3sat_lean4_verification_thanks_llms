@@ -1,0 +1,6 @@
+instance	truth	joins	tetra	open	both_senders	same_sender	clases	secs
+v5_c20_i1.cnf	true	82	548	0	548	0	lo|sender|node:sender=438 P:Doo+o--=220 P:-o-+oDo=196 P:ooo=84 hi|sender|node:sender=80 P:--o+ooD=48 lo|sender|edge:sender=30	71.3
+v5_c20_i4.cnf	true	80	96	0	96	0	lo|sender|node:sender=72 P:Doo+o--=48 P:--o+ooD=48 hi|sender|node:sender=24	102.3
+v5_c20_i5.cnf	true	72	0	0	0	0		65.4
+v6_c26_i1.cnf	false	93	471	0	471	72	lo|sender|node:sender=264 P:Doo+o--=212 P:--o+ooD=208 lo|sender|edge:sender=72 lo|sender|dead:sender=72 hi|sender|node:sender=63 P:-o-+oDo=51	150.2
+v6_c26_i2.cnf	true	89	513	0	513	96	lo|sender|node:sender=362 P:ooo=208 P:Doo+o--=189 P:-o-+oDo=100 lo|sender|dead:sender=64 hi|sender|node:sender=55 lo|sender|node:up=32 P:--o+ooD=16	149.2

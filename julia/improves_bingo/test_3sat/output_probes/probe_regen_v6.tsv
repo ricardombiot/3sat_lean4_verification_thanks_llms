@@ -1,0 +1,2 @@
+instance	truth	jrev_states	jrev_cap	jrev_cliq	jrev_n	jrev_n1	jrev_e	jrev_e1	jrev_t	jrev_t1	jrev_t_max	jrev_m_tri	jrev_m_ok	jrev_m_node	jrev_m_edge	fin_states	fin_cap	fin_cliq	fin_n	fin_n1	fin_e	fin_e1	fin_t	fin_t1	fin_t_max	fin_m_tri	fin_m_ok	fin_m_node	fin_m_edge	secs
+v6_c26_i5.cnf	true	118	0	1521	15548	4761	607026	353795	13454811	10510331	32	420013	358195	16463	45355	1	0	4	242	151	14148	11617	472608	429593	4	0	0	0	0	416.1

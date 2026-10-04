@@ -1,0 +1,5 @@
+instance	truth	joins	x_tetra	x_cut	x_open	x_tetra_low	x_open_low	tf	k_invalid	k_top	k_node	k_tedge	k_bedge	k_base_join	k_base_rule	k_face_join	k_face_rule	k_alive	o_node	o_edge	o_dead	tf_low	k_invalid_low	k_top_low	k_node_low	k_tedge_low	k_bedge_low	k_base_join_low	k_base_rule_low	k_face_join_low	k_face_rule_low	k_alive_low	q_tetra	q_cells	q_fail	q_fail_tetra	ram	secs
+clause_mix.cnf	true	34	378	378	0	324	0	378	0	0	0	0	0	378	0	0	0	0	234	32	112	324	0	0	0	0	0	324	0	0	0	0	23700	347400	0	0	0	9.6
+clause_mix_sep.cnf	true	40	2214	2214	0	1968	0	2214	0	0	0	0	0	2214	0	0	0	0	1062	144	1008	1968	0	0	0	0	0	1968	0	0	0	0	26850	505200	0	0	0	32.7
+v5_c20_i2.cnf	false	74	192	192	0	144	0	576	384	0	0	0	0	192	0	0	0	0	192	0	0	432	288	0	0	0	0	144	0	0	0	0	33600	784800	0	0	0	31.4
+v5_c20_i3.cnf	true	85	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	38550	1126050	0	0	0	109.7

@@ -21,6 +21,18 @@ What is not proved is `JoinCovered` for the joins the driver performs. Its conte
 **mixed** chains: partial chains of the join that are chains of neither side, because their
 ownership facts come from different incoming states. On `SatMachinePure` (seed 1001) they are
 36 of 267,630 partial chains of joins, and every one above step 0 extends.
+
+The obligation is narrowed here, without semantics and without `Classical`:
+
+* `chain_on_one_side` — a chain of the join has **all** its picks in `g₁`, or all in `g₂`
+  (the `Bool` form of `no_chain_across_sides`).
+* `SideCovered` — the residue, one side at a time: a chain of the join whose picks all lie in
+  `gs` is a chain of `gs`, or it extends.
+* `joinCovered_of_sideCovered` — **the bridge**: the two `SideCovered` obligations give
+  `JoinCovered`.
+
+So a mixed chain cannot mix *nodes*; only owner entries, links and global owners, and only at
+nodes both states share, where `mergeNode` unions them. That is the remaining open content.
 -/
 
 namespace AbsSat.GraphPath.Model.JoinDescent
@@ -180,5 +192,82 @@ theorem descendOn (g : GPathM) (h : DescendAll g) (m : Nat) :
 /-- info: 'AbsSat.GraphPath.Model.JoinDescent.descendOn' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms descendOn
+
+-- ============================================================
+-- Separating the sides: what is really left of `JoinCovered`
+-- ============================================================
+
+/-- A `List.all` that fails exhibits a failing element. `Extendable` proves the same
+statement; this line of work deliberately does not rest on that module. -/
+private theorem exists_false_of_all_false' {α : Type} (p : α → Bool) :
+    ∀ l : List α, l.all p = false → ∃ a ∈ l, p a = false
+  | [], h => by simp at h
+  | a :: rest, h => by
+    cases hp : p a with
+    | false => exact ⟨a, List.mem_cons_self, hp⟩
+    | true =>
+      have hrest : rest.all p = false := by
+        simp only [List.all_cons, hp, Bool.true_and] at h
+        exact h
+      obtain ⟨b, hb, hpb⟩ := exists_false_of_all_false' p rest hrest
+      exact ⟨b, List.mem_cons_of_mem a hb, hpb⟩
+
+/-- **A chain of the join lives on one side.** Either every pick is a node of `g₁`, or every
+pick is a node of `g₂`. `no_chain_across_sides` rules out the two exclusive cases coexisting;
+the case split is made on `intRange lo hi` as a `Bool`, so nothing classical enters. -/
+theorem chain_on_one_side (g₁ g₂ : GPathM) (hon : OwnersAreNodes g₁)
+    {sel : Int → PathNodeId} {lo hi : Int} (hs : SoundOn (join g₁ g₂) sel lo hi)
+    (hlo : 0 ≤ lo) (hhi : hi < g₁.current_step) :
+    (∀ k, lo ≤ k → k ≤ hi → (g₁.node? (sel k)).isSome = true) ∨
+      (∀ k, lo ≤ k → k ≤ hi → (g₂.node? (sel k)).isSome = true) := by
+  cases hall : (intRange lo hi).all (fun k => (g₁.node? (sel k)).isSome) with
+  | true => exact Or.inl (fun k h1 h2 => List.all_eq_true.mp hall k (mem_intRange h1 h2))
+  | false =>
+    refine Or.inr (fun k h1 h2 => ?_)
+    obtain ⟨w, hw, hfw⟩ := exists_false_of_all_false' _ _ hall
+    have hfw' : (g₁.node? (sel w)).isSome = false := hfw
+    have hnone1 : g₁.node? (sel w) = none := by
+      cases hn : g₁.node? (sel w) with
+      | none => rfl
+      | some n => rw [hn] at hfw'; exact Bool.noConfusion hfw'
+    cases hn2 : g₂.node? (sel k) with
+    | some _ => rfl
+    | none =>
+      exact False.elim (no_chain_across_sides g₁ g₂ hon hs hlo hhi
+        (mem_intRange_lower hw) (mem_intRange_upper hw) h1 h2 hn2 hnone1)
+
+/-- **The residue of `JoinCovered`, one side at a time.** A chain of the join whose picks are
+all nodes of `gs` is already a chain of `gs`, or it extends. What this adds over `JoinCovered`
+is the hypothesis `inside`: the picks are known to live in a single side, so the only thing
+still at stake is whether the chain borrows an owner entry, a link or a global owner that only
+the *other* side supplies — at a node the two states share. -/
+def SideCovered (gj gs : GPathM) : Prop :=
+  ∀ sel lo hi, 0 < lo → lo ≤ hi → hi < gj.current_step →
+    SoundOn gj sel lo hi →
+    (∀ k, lo ≤ k → k ≤ hi → (gs.node? (sel k)).isSome = true) →
+    SoundOn gs sel lo hi ∨ ∃ c, SoundOn gj (upd sel (lo - 1) c) (lo - 1) hi
+
+/-- **The bridge**: `JoinCovered` follows from the two one-sided obligations. -/
+theorem joinCovered_of_sideCovered (g₁ g₂ : GPathM) (hon : OwnersAreNodes g₁)
+    (h₁ : SideCovered (join g₁ g₂) g₁) (h₂ : SideCovered (join g₁ g₂) g₂) :
+    JoinCovered g₁ g₂ := by
+  intro sel lo hi hlo hlohi hhi hs
+  have hstep : (join g₁ g₂).current_step = g₁.current_step := (grown_join_left g₁ g₂).step_eq
+  have hhi1 : hi < g₁.current_step := by rw [← hstep]; exact hhi
+  rcases chain_on_one_side g₁ g₂ hon hs (by omega) hhi1 with hin1 | hin2
+  · rcases h₁ sel lo hi hlo hlohi hhi hs hin1 with hsound | hext
+    · exact Or.inl hsound
+    · exact Or.inr (Or.inr hext)
+  · rcases h₂ sel lo hi hlo hlohi hhi hs hin2 with hsound | hext
+    · exact Or.inr (Or.inl hsound)
+    · exact Or.inr (Or.inr hext)
+
+/-- info: 'AbsSat.GraphPath.Model.JoinDescent.chain_on_one_side' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms chain_on_one_side
+
+/-- info: 'AbsSat.GraphPath.Model.JoinDescent.joinCovered_of_sideCovered' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms joinCovered_of_sideCovered
 
 end AbsSat.GraphPath.Model.JoinDescent

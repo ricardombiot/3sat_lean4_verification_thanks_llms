@@ -1,0 +1,1478 @@
+-- lean/improves_bin/AbsSatBin/GraphPath/Model/Sons.lean
+import AbsSatBin.GraphPath.Model.Ownership
+
+/-!
+**Two more of `ChainSound`'s conditions: `son_link` and `root_shape`.**
+
+`ChainSound` is `IsChain ∧ PairwiseOwned` plus three bookkeeping fields.
+v27 proved `IsChain`; v28 showed `PairwiseOwned` is the irreducible one. This
+module closes two of the three remaining fields, in the idiom of
+`GownersNodes.lean` and `Parents.lean`.
+
+* `son_link` — `sel (k+1)` is a *son* of `sel k`. `IsChain` already gives the
+  parent link; what is needed is that the two link tables mirror each other,
+  which is `SMP` below.
+* `root_shape` — the step-0 node is a root and nothing above it is. The second
+  half is `Parents.NotRoot`, proved in v27; the first is `RootAtZero`, its
+  mirror, proved here.
+
+Both are structural invariants of the machine, and both go through. The third
+field, `self_owned`, does **not** — see the note at the end.
+-/
+
+namespace AbsSatBin.GraphPath.Model.Sons
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.GraphPath.Model
+open AbsSatBin.GraphPath.Model.GPathM
+
+-- ============================================================
+-- The son table mirrors the parent table
+-- ============================================================
+
+/-- If `p` is a parent of `n`, then `n` is a son of `p`. -/
+def SMP (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ p ∈ n.parents, ∀ m ∈ h.nodes, m.id = p → n.id ∈ m.sons
+
+theorem SMP_filterRequire (g : GPathM) (req : NodeId) (h : SMP g) :
+    SMP (filterRequire g req) := h
+
+theorem SMP_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hid : ∀ n, (f n).id = n.id) (hpar : ∀ n, (f n).parents = n.parents)
+    (hson : ∀ n, (f n).sons = n.sons) (h : SMP g) : SMP (updateAt g id f) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  have hnp : n'.parents = n.parents := by
+    rw [← hEq]; cases n.id == id with | true => exact hpar n | false => rfl
+  have hni : n'.id = n.id := by
+    rw [← hEq]; cases n.id == id with | true => exact hid n | false => rfl
+  have hms : m'.sons = m.sons := by
+    rw [← hmEq]; cases m.id == id with | true => exact hson m | false => rfl
+  have hmi : m'.id = m.id := by
+    rw [← hmEq]; cases m.id == id with | true => exact hid m | false => rfl
+  rw [hni, hms]
+  exact h n hn p (by rw [← hnp]; exact hp) m hm (by rw [← hmi]; exact hmid)
+
+theorem SMP_removeNode (g : GPathM) (id : PathNodeId) (h : SMP g) :
+    SMP (removeNode g id) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  have hnf := List.mem_filter.mp hn
+  have hmf := List.mem_filter.mp hm
+  have hnp : n'.parents = n.parents.filter (fun q => q != id) := by rw [← hEq]
+  have hni : n'.id = n.id := by rw [← hEq]
+  have hms : m'.sons = m.sons.filter (fun s => s != id) := by rw [← hmEq]
+  have hmi : m'.id = m.id := by rw [← hmEq]
+  rw [hnp] at hp
+  have hp' := List.mem_filter.mp hp
+  have hson := h n hnf.1 p hp'.1 m hmf.1 (by rw [← hmi]; exact hmid)
+  rw [hni, hms]
+  exact List.mem_filter.mpr ⟨hson, by rw [← hni] at hnf ⊢; exact hnf.2⟩
+
+/-- **The unlink keeps the two link tables mirroring each other.** It removes an
+edge only when the target's owners reject it, and then it removes it from both
+sides — which is exactly what `SMP` needs. -/
+theorem SMP_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : SMP g) :
+    SMP (unlinkIncompatible g id) := by
+  cases hn : g.node? id with
+  | none => simpa [GPathM.unlinkIncompatible, hn] using h
+  | some n₀ =>
+    intro n' hn' p hp m' hm' hmid
+    have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n₀ id) := by
+      simp only [GPathM.unlinkIncompatible, hn]
+    rw [hshape] at hn' hm'
+    obtain ⟨n, hnmem, hnEq⟩ := List.mem_map.mp hn'
+    obtain ⟨m, hmmem, hmEq⟩ := List.mem_map.mp hm'
+    have hnid : n'.id = n.id := by rw [← hnEq]; exact unlinkMap_id n₀ id n
+    have hmidn : m'.id = m.id := by rw [← hmEq]; exact unlinkMap_id n₀ id m
+    have hmp : m.id = p := by rw [← hmidn]; exact hmid
+    -- `p` is a parent of `n` whatever branch `n` took
+    have hpn : p ∈ n.parents := by
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      split at hp
+      · exact (List.mem_filter.mp hp).1
+      · split at hp
+        · exact hp
+        · exact (List.mem_filter.mp hp).1
+    have hsons : n.id ∈ m.sons := h n hnmem p hpn m hmmem hmp
+    -- if the target is `m`, the target's owners keep `n`
+    have hkey : (m.id == id) = true → (n₀.owners.contains n.id) = true := by
+      intro hc
+      have hpid : p = id := by rw [← hmp]; exact eq_of_beq hc
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      split at hp
+      · next hcn =>
+        have := (List.mem_filter.mp hp).2
+        rw [hpid, ← eq_of_beq hcn] at this
+        exact this
+      · next hcn =>
+        split at hp
+        · next hcn2 => exact hcn2
+        · exact absurd (bne_iff_ne.mp (List.mem_filter.mp hp).2) (by rw [hpid]; exact fun h => h rfl)
+    have hkey2 : ¬ ((n₀.owners.contains m.id) = true) → n.id ≠ id := by
+      intro hc heq
+      apply hc
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      rw [if_pos (show (n.id == id) = true from beq_iff_eq.mpr heq)] at hp
+      have := (List.mem_filter.mp hp).2
+      rw [hmp]; exact this
+    rw [hnid, ← hmEq]
+    unfold GPathM.unlinkMap
+    split
+    · next hc => exact List.mem_filter.mpr ⟨hsons, hkey hc⟩
+    · next hc =>
+      split
+      · exact hsons
+      · next hc2 => exact List.mem_filter.mpr ⟨hsons, bne_iff_ne.mpr (hkey2 hc2)⟩
+
+theorem SMP_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, SMP g → SMP (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ : SMP (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
+        SMP_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := SMP_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (SMP_removeNode _ id h₂)
+
+theorem SMP_cleanInvalid (g : GPathM) (h : SMP g) : SMP (cleanInvalid g) :=
+  SMP_cleanInvalidGo _ g h
+
+/-- The mirror touches tables only. -/
+theorem SMP_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : SMP g) :
+    SMP (mirrorDrop g x rem) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  rw [← hEq, mirrorMap_parents] at hp
+  rw [← hmEq, mirrorMap_id] at hmid
+  rw [← hEq, ← hmEq, mirrorMap_id, mirrorMap_sons]
+  exact h n hn p hp m hm hmid
+
+theorem SMP_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
+    (h : SMP g) : SMP (reviewNode g nb id) := by
+  simp only [reviewNode]
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h₁ : SMP (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
+        SMP_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := SMP_unlinkIncompatible _ id (SMP_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
+      split
+      · exact h₂
+      · exact SMP_removeNode _ id h₂
+    · exact SMP_removeNode g id h
+
+private theorem SMP_foldl {β : Type} (f : GPathM → β → GPathM)
+    (hf : ∀ g b, SMP g → SMP (f g b)) :
+    ∀ (l : List β) (g : GPathM), SMP g → SMP (l.foldl f g) := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b bs ih => intro g h; simp only [List.foldl_cons]; exact ih _ (hf g b h)
+
+theorem SMP_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM)
+    (h : SMP g) : SMP (reviewLine g nb k) :=
+  SMP_foldl (fun g id => reviewNode g nb id) (fun g id => SMP_reviewNode nb id g) _ g h
+
+theorem SMP_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, SMP g → SMP (reviewSteps g nb ks) := by
+  induction ks with
+  | nil => intro g h; exact h
+  | cons k ks ih =>
+    intro g h
+    simp only [reviewSteps]
+    split
+    · exact ih _ (SMP_reviewLine nb k g h)
+    · exact h
+
+/-- The cut keeps a link exactly when both ends admit each other, read through `node?` on both
+sides: the test is symmetric, so the mirror survives. -/
+theorem SMP_cutAll (g : GPathM) (h : SMP g) : SMP (cutAll g) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true] at hp
+  obtain ⟨hpn, h1, h2⟩ := hp
+  have hmid' : m.id = p := hmid
+  subst hmid'
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true]
+  exact ⟨h n hn m.id hpn m hm rfl, h2, h1⟩
+
+theorem SMP_cleanInvalid₂ (g : GPathM) (h : SMP g) : SMP (cleanInvalid₂ g) :=
+  SMP_cutAll _ (purgeFuel_inv SMP (fun g id h => SMP_removeNode g id h) _ g h)
+
+theorem SMP_pairSweep (g : GPathM) (h : SMP g) : SMP (pairSweep g) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  exact h n hn p hp m hm hmid
+
+theorem SMP_cleanPair (g : GPathM) (h : SMP g) : SMP (cleanPair g) :=
+  cleanPair_inv SMP g (SMP_cleanInvalid₂ g h) (fun x _ hx => SMP_cleanInvalid₂ _ (SMP_pairSweep x hx))
+
+theorem SMP_reviewPass (g : GPathM) (h : SMP g) : SMP (reviewPass g) := by
+  simp only [reviewPass]
+  exact SMP_reviewSteps _ _ _ (SMP_reviewSteps _ _ _ (SMP_cleanPair g h))
+
+theorem SMP_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SMP g → SMP (reviewFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuel]
+    split
+    · split
+      · exact ih _ (SMP_reviewPass g h)
+      · exact SMP_reviewPass g h
+    · exact h
+
+theorem SMP_review (g : GPathM) (h : SMP g) : SMP (review g) := SMP_reviewFuel _ g h
+
+theorem SMP_filterAll (g : GPathM) (reqs : List NodeId) (h : SMP g) :
+    SMP (filterAll g reqs) :=
+  SMP_review _ (SMP_foldl filterRequire (fun g r => SMP_filterRequire g r) reqs g h)
+
+-- ============================================================
+-- `PMS`: the son table mirrors the parent table, the other way
+-- ============================================================
+
+/-- If `s` is a son of `n`, then `n` is a parent of `s`. The converse of `SMP`,
+and the one the machine never needed until now: `Threaded.hop_up` and
+`Survive.Closed.son` both turn a son link round. -/
+def PMS (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ s ∈ n.sons, ∀ m ∈ h.nodes, m.id = s → n.id ∈ m.parents
+
+theorem PMS_filterRequire (g : GPathM) (req : NodeId) (h : PMS g) :
+    PMS (filterRequire g req) := h
+
+theorem PMS_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hid : ∀ n, (f n).id = n.id) (hpar : ∀ n, (f n).sons = n.sons)
+    (hson : ∀ n, (f n).parents = n.parents) (h : PMS g) : PMS (updateAt g id f) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  have hnp : n'.sons = n.sons := by
+    rw [← hEq]; cases n.id == id with | true => exact hpar n | false => rfl
+  have hni : n'.id = n.id := by
+    rw [← hEq]; cases n.id == id with | true => exact hid n | false => rfl
+  have hms : m'.parents = m.parents := by
+    rw [← hmEq]; cases m.id == id with | true => exact hson m | false => rfl
+  have hmi : m'.id = m.id := by
+    rw [← hmEq]; cases m.id == id with | true => exact hid m | false => rfl
+  rw [hni, hms]
+  exact h n hn p (by rw [← hnp]; exact hp) m hm (by rw [← hmi]; exact hmid)
+
+theorem PMS_removeNode (g : GPathM) (id : PathNodeId) (h : PMS g) :
+    PMS (removeNode g id) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  have hnf := List.mem_filter.mp hn
+  have hmf := List.mem_filter.mp hm
+  have hnp : n'.sons = n.sons.filter (fun q => q != id) := by rw [← hEq]
+  have hni : n'.id = n.id := by rw [← hEq]
+  have hms : m'.parents = m.parents.filter (fun s => s != id) := by rw [← hmEq]
+  have hmi : m'.id = m.id := by rw [← hmEq]
+  rw [hnp] at hp
+  have hp' := List.mem_filter.mp hp
+  have hson := h n hnf.1 p hp'.1 m hmf.1 (by rw [← hmi]; exact hmid)
+  rw [hni, hms]
+  exact List.mem_filter.mpr ⟨hson, by rw [← hni] at hnf ⊢; exact hnf.2⟩
+
+/-- **The unlink keeps the two link tables mirroring each other.** It removes an
+edge only when the target's owners reject it, and then it removes it from both
+sides — which is exactly what `PMS` needs. -/
+theorem PMS_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : PMS g) :
+    PMS (unlinkIncompatible g id) := by
+  cases hn : g.node? id with
+  | none => simpa [GPathM.unlinkIncompatible, hn] using h
+  | some n₀ =>
+    intro n' hn' p hp m' hm' hmid
+    have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n₀ id) := by
+      simp only [GPathM.unlinkIncompatible, hn]
+    rw [hshape] at hn' hm'
+    obtain ⟨n, hnmem, hnEq⟩ := List.mem_map.mp hn'
+    obtain ⟨m, hmmem, hmEq⟩ := List.mem_map.mp hm'
+    have hnid : n'.id = n.id := by rw [← hnEq]; exact unlinkMap_id n₀ id n
+    have hmidn : m'.id = m.id := by rw [← hmEq]; exact unlinkMap_id n₀ id m
+    have hmp : m.id = p := by rw [← hmidn]; exact hmid
+    -- `p` is a parent of `n` whatever branch `n` took
+    have hpn : p ∈ n.sons := by
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      split at hp
+      · exact (List.mem_filter.mp hp).1
+      · split at hp
+        · exact hp
+        · exact (List.mem_filter.mp hp).1
+    have hparents : n.id ∈ m.parents := h n hnmem p hpn m hmmem hmp
+    -- if the target is `m`, the target's owners keep `n`
+    have hkey : (m.id == id) = true → (n₀.owners.contains n.id) = true := by
+      intro hc
+      have hpid : p = id := by rw [← hmp]; exact eq_of_beq hc
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      split at hp
+      · next hcn =>
+        have := (List.mem_filter.mp hp).2
+        rw [hpid, ← eq_of_beq hcn] at this
+        exact this
+      · next hcn =>
+        split at hp
+        · next hcn2 => exact hcn2
+        · exact absurd (bne_iff_ne.mp (List.mem_filter.mp hp).2) (by rw [hpid]; exact fun h => h rfl)
+    have hkey2 : ¬ ((n₀.owners.contains m.id) = true) → n.id ≠ id := by
+      intro hc heq
+      apply hc
+      rw [← hnEq] at hp
+      unfold GPathM.unlinkMap at hp
+      rw [if_pos (show (n.id == id) = true from beq_iff_eq.mpr heq)] at hp
+      have := (List.mem_filter.mp hp).2
+      rw [hmp]; exact this
+    rw [hnid, ← hmEq]
+    unfold GPathM.unlinkMap
+    split
+    · next hc => exact List.mem_filter.mpr ⟨hparents, hkey hc⟩
+    · next hc =>
+      split
+      · exact hparents
+      · next hc2 => exact List.mem_filter.mpr ⟨hparents, bne_iff_ne.mpr (hkey2 hc2)⟩
+
+theorem PMS_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, PMS g → PMS (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ : PMS (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners g.gowners })) :=
+        PMS_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := PMS_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (PMS_removeNode _ id h₂)
+
+theorem PMS_cleanInvalid (g : GPathM) (h : PMS g) : PMS (cleanInvalid g) :=
+  PMS_cleanInvalidGo _ g h
+
+theorem PMS_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : PMS g) :
+    PMS (mirrorDrop g x rem) := by
+  intro n' hn' p hp m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  rw [← hEq, mirrorMap_sons] at hp
+  rw [← hmEq, mirrorMap_id] at hmid
+  rw [← hEq, ← hmEq, mirrorMap_id, mirrorMap_parents]
+  exact h n hn p hp m hm hmid
+
+theorem PMS_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
+    (h : PMS g) : PMS (reviewNode g nb id) := by
+  simp only [reviewNode]
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h₁ : PMS (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
+        PMS_updateAt g id _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := PMS_unlinkIncompatible _ id (PMS_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
+      split
+      · exact h₂
+      · exact PMS_removeNode _ id h₂
+    · exact PMS_removeNode g id h
+
+private theorem PMS_foldl {β : Type} (f : GPathM → β → GPathM)
+    (hf : ∀ g b, PMS g → PMS (f g b)) :
+    ∀ (l : List β) (g : GPathM), PMS g → PMS (l.foldl f g) := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b bs ih => intro g h; simp only [List.foldl_cons]; exact ih _ (hf g b h)
+
+theorem PMS_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM)
+    (h : PMS g) : PMS (reviewLine g nb k) :=
+  PMS_foldl (fun g id => reviewNode g nb id) (fun g id => PMS_reviewNode nb id g) _ g h
+
+theorem PMS_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, PMS g → PMS (reviewSteps g nb ks) := by
+  induction ks with
+  | nil => intro g h; exact h
+  | cons k ks ih =>
+    intro g h
+    simp only [reviewSteps]
+    split
+    · exact ih _ (PMS_reviewLine nb k g h)
+    · exact h
+
+theorem PMS_cutAll (g : GPathM) (h : PMS g) : PMS (cutAll g) := by
+  intro n' hn' s hs m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true] at hs
+  obtain ⟨hsn, h1, h2⟩ := hs
+  have hmid' : m.id = s := hmid
+  subst hmid'
+  simp only [cutNode, List.mem_filter, Bool.and_eq_true]
+  exact ⟨h n hn m.id hsn m hm rfl, h2, h1⟩
+
+theorem PMS_cleanInvalid₂ (g : GPathM) (h : PMS g) : PMS (cleanInvalid₂ g) :=
+  PMS_cutAll _ (purgeFuel_inv PMS (fun g id h => PMS_removeNode g id h) _ g h)
+
+theorem PMS_pairSweep (g : GPathM) (h : PMS g) : PMS (pairSweep g) := by
+  intro n' hn' s hs m' hm' hmid
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hm'
+  subst hmEq
+  exact h n hn s hs m hm hmid
+
+theorem PMS_cleanPair (g : GPathM) (h : PMS g) : PMS (cleanPair g) :=
+  cleanPair_inv PMS g (PMS_cleanInvalid₂ g h) (fun x _ hx => PMS_cleanInvalid₂ _ (PMS_pairSweep x hx))
+
+theorem PMS_reviewPass (g : GPathM) (h : PMS g) : PMS (reviewPass g) := by
+  simp only [reviewPass]
+  exact PMS_reviewSteps _ _ _ (PMS_reviewSteps _ _ _ (PMS_cleanPair g h))
+
+theorem PMS_reviewFuel : ∀ (fuel : Nat) (g : GPathM), PMS g → PMS (reviewFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuel]
+    split
+    · split
+      · exact ih _ (PMS_reviewPass g h)
+      · exact PMS_reviewPass g h
+    · exact h
+
+theorem PMS_review (g : GPathM) (h : PMS g) : PMS (review g) := PMS_reviewFuel _ g h
+
+theorem PMS_filterAll (g : GPathM) (reqs : List NodeId) (h : PMS g) :
+    PMS (filterAll g reqs) :=
+  PMS_review _ (PMS_foldl filterRequire (fun g r => PMS_filterRequire g r) reqs g h)
+
+-- ============================================================
+-- `addNode`, `join`, `initSeed`
+-- ============================================================
+
+theorem SMP_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hpb : Parents.PBelow g) (h : SMP g) : SMP (addNode g d title forb) := by
+  intro n' hn' p hp m' hm' hmid
+  rw [addNode_nodes] at hn' hm'
+  rcases List.mem_append.mp hm' with hmm | hmm
+  · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
+    have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d forb m
+    have hsub : ∀ x ∈ m.sons, x ∈ m'.sons := by
+      rw [← hmEq, upMap_sons]
+      intro x hx; exact List.mem_append_left _ hx
+    rcases List.mem_append.mp hn' with hnn | hnn
+    · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
+      have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d forb n
+      have hnp : n'.parents = n.parents := by rw [← hEq]; exact upMap_parents g d forb n
+      rw [hnp] at hp
+      rw [hni]
+      exact hsub _ (h n hn p hp m hm (by rw [← hmi]; exact hmid))
+    · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb n').mp hnn
+      rw [rowNode_parents] at hp
+      rw [rowNode_id]
+      have hmsons : m'.sons = m.sons ++ gainedSons g d forb m := by rw [← hmEq]; exact upMap_sons g d forb m
+      rw [hmsons]
+      refine List.mem_append_right _ (List.mem_filter.mpr ⟨hpid, ?_⟩)
+      rw [hmi] at hmid
+      rw [hmid]
+      exact List.elem_eq_true_of_mem hp
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb m').mp hmm
+    exfalso
+    have hpstep : p.id.step < g.current_step := by
+      rcases List.mem_append.mp hn' with hnn | hnn
+      · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
+        have hnp : n'.parents = n.parents := by rw [← hEq]; exact upMap_parents g d forb n
+        rw [hnp] at hp
+        have h1 := hpb n hn p hp
+        have h2 := hbelow n hn
+        omega
+      · obtain ⟨pid', hpid', rfl⟩ := (mem_newRow_iff g d title forb n').mp hnn
+        rw [rowNode_parents] at hp
+        have hp' : p ∈ newParents g := rowParents_subset g d pid' p hp
+        unfold newParents at hp'
+        split at hp'
+        · have hstep := Parents.mem_line_step g (g.current_step - 1) p hp'
+          omega
+        · exact absurd hp' List.not_mem_nil
+    have hps : p.id.step = d.step := by
+      rw [← hmid, rowNode_id, mapId_of_mem_newRowIds g d forb pid hpid]
+    omega
+
+theorem SMP_up (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hpb : Parents.PBelow g) (h : SMP g) : SMP (up g d title forb) := by
+  simp only [GPathM.up]
+  split
+  · split
+    · exact SMP_review _ (SMP_addNode g d title forb hd hbelow hpb h)
+    · exact SMP_addNode g d title forb hd hbelow hpb h
+  · exact h
+
+theorem SMP_initSeed (d : NodeId) (title : String) : SMP (GPathM.initSeed d title) := by
+  intro n hn p hp
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  exact absurd hp List.not_mem_nil
+
+theorem SMP_join (g₁ g₂ : GPathM) (hp₁ : Parents.PN g₁) (hp₂ : Parents.PN g₂)
+    (h₁ : SMP g₁) (h₂ : SMP g₂) : SMP (join g₁ g₂) := by
+  intro n' hn' p hp m' hm' hmid
+  rw [GownersNodes.join_nodes] at hn' hm'
+  -- what `n'` is, and where `p` comes from
+  have key : ∀ (x : PathNodeId), x = n'.id →
+      (∃ n ∈ g₁.nodes, n.id = x ∧ p ∈ n.parents) ∨ (∃ q ∈ g₂.nodes, q.id = x ∧ p ∈ q.parents) := by
+    intro x hx
+    rcases List.mem_append.mp hn' with hnn | hnn
+    · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
+      have hni : n'.id = n.id := by rw [← hEq]; cases g₂.node? n.id with
+        | some q => rfl
+        | none => rfl
+      cases hg : g₂.node? n.id with
+      | none =>
+        have : n'.parents = n.parents := by rw [← hEq, hg]
+        rw [this] at hp
+        exact Or.inl ⟨n, hn, by rw [hx, hni], hp⟩
+      | some q =>
+        have hpar : n'.parents =
+            n.parents ++ q.parents.filter (fun r => !n.parents.contains r) := by
+          rw [← hEq, hg]; rfl
+        rw [hpar, List.mem_append] at hp
+        have hqid : q.id = n.id := node?_id_eq g₂ n.id q hg
+        rcases hp with hp | hp
+        · exact Or.inl ⟨n, hn, by rw [hx, hni], hp⟩
+        · exact Or.inr ⟨q, List.mem_of_find?_eq_some hg, by rw [hx, hni, hqid],
+            (List.mem_filter.mp hp).1⟩
+    · exact Or.inr ⟨n', (List.mem_filter.mp hnn).1, hx.symm, hp⟩
+  rcases List.mem_append.mp hm' with hmm | hmm
+  · -- `m'` is the join's copy of a `g₁` node
+    obtain ⟨m₀, hm₀, hmEq⟩ := List.mem_map.mp hmm
+    have hm₀id : m₀.id = p := by
+      rw [← hmid, ← hmEq]; cases g₂.node? m₀.id with | some q => rfl | none => rfl
+    rcases key n'.id rfl with ⟨n, hn, hnid, hnp⟩ | ⟨q, hq, hqid, hqp⟩
+    · have hson := h₁ n hn p hnp m₀ hm₀ hm₀id
+      rw [← hnid]
+      rw [← hmEq]
+      cases hg : g₂.node? m₀.id with
+      | none => exact hson
+      | some q' => exact List.mem_append_left _ hson
+    · obtain ⟨q', hq'⟩ := Option.isSome_iff_exists.mp
+        ((GownersNodes.hasNode_iff g₂ p).mp (hp₂ q hq p hqp))
+      have hq'mem : q' ∈ g₂.nodes := List.mem_of_find?_eq_some hq'
+      have hq'id : q'.id = p := node?_id_eq g₂ p q' hq'
+      have hson := h₂ q hq p hqp q' hq'mem hq'id
+      rw [← hqid, ← hmEq]
+      have hg : g₂.node? m₀.id = some q' := by rw [hm₀id]; exact hq'
+      rw [hg]
+      show q.id ∈ (mergeNode m₀ q').sons
+      have hsons : (mergeNode m₀ q').sons =
+          m₀.sons ++ q'.sons.filter (fun s => !m₀.sons.contains s) := rfl
+      rw [hsons]
+      cases hc : m₀.sons.contains q.id with
+      | true => exact List.mem_append_left _ (List.elem_iff.mp hc)
+      | false =>
+        refine List.mem_append_right _ (List.mem_filter.mpr ⟨hson, ?_⟩)
+        rw [hc]; rfl
+  · -- `m'` is a node only `g₂` has
+    have hm'mem : m' ∈ g₂.nodes := (List.mem_filter.mp hmm).1
+    rcases key n'.id rfl with ⟨n, hn, hnid, hnp⟩ | ⟨q, hq, hqid, hqp⟩
+    · exfalso
+      obtain ⟨p', hp'⟩ := Option.isSome_iff_exists.mp
+        ((GownersNodes.hasNode_iff g₁ p).mp (hp₁ n hn p hnp))
+      have hnone := (List.mem_filter.mp hmm).2
+      rw [hmid, hp'] at hnone
+      exact absurd hnone (by simp)
+    · rw [← hqid]
+      exact h₂ q hq p hqp m' hm'mem hmid
+
+-- ============================================================
+-- `SAbove`: the son table's mirror of `Parents.PBelow`
+-- ============================================================
+
+/-!
+`Parents.PBelow` — every parent sits one step below — comes free from `Pruned`,
+because `Pruned` carries a `parents ⊆` clause. Its mirror does **not**: there
+is no sons clause in `Pruned`, so "every son sits one step above" needs the
+same per-operation induction `SMP` needed.
+
+v41 named this as the one thing missing from `Threaded.hop_up`, and therefore
+from the full threading theorem. Here it is.
+
+The work is lighter than `SMP`'s because `SAbove` is *local* — it relates a
+node to its own sons — so every pruning operation is covered by one lemma:
+sons only shrink and ids never change (`SonsSub`). Only `addNode` says
+anything new, and what it says is the whole content: the son it hands out is
+the node one step up.
+-/
+
+/-- Every son of a node sits exactly one step above it. -/
+def SAbove (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ s ∈ n.sons, s.id.step = n.id.id.step + 1  -- idx: adjacent rows (one gpath row per map step, bin map too)
+
+/-- What every pruning operation does to the son table: ids fixed, sons only
+shrink. This is the clause `Pruned` is missing. -/
+def SonsSub (g g' : GPathM) : Prop :=
+  ∀ n' ∈ g'.nodes, ∃ n ∈ g.nodes, n'.id = n.id ∧ ∀ s ∈ n'.sons, s ∈ n.sons
+
+theorem SAbove_of_SonsSub {g g' : GPathM} (hs : SonsSub g g') (h : SAbove g) : SAbove g' := by
+  intro n' hn' s hs'
+  obtain ⟨n, hn, hid, hsub⟩ := hs n' hn'
+  rw [hid]
+  exact h n hn s (hsub s hs')
+
+theorem SonsSub_refl (g : GPathM) : SonsSub g g := fun n hn => ⟨n, hn, rfl, fun _ h => h⟩
+
+theorem SonsSub_trans {a b c : GPathM} (h1 : SonsSub a b) (h2 : SonsSub b c) : SonsSub a c := by
+  intro n hn
+  obtain ⟨m, hm, hid, hsub⟩ := h2 n hn
+  obtain ⟨k, hk, hid2, hsub2⟩ := h1 m hm
+  exact ⟨k, hk, hid.trans hid2, fun s hs => hsub2 s (hsub s hs)⟩
+
+theorem SonsSub_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hid : ∀ n, (f n).id = n.id) (hson : ∀ n, ∀ s ∈ (f n).sons, s ∈ n.sons) :
+    SonsSub g (updateAt g id f) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  refine ⟨n, hn, ?_, ?_⟩
+  · rw [← hEq]; cases n.id == id with | true => exact hid n | false => rfl
+  · rw [← hEq]
+    cases n.id == id with
+    | true => exact hson n
+    | false => intro s hs; exact hs
+
+theorem SonsSub_removeNode (g : GPathM) (id : PathNodeId) :
+    SonsSub g (removeNode g id) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  refine ⟨n, (List.mem_filter.mp hn).1, by rw [← hEq], ?_⟩
+  rw [← hEq]
+  intro s hs
+  exact (List.mem_filter.mp hs).1
+
+theorem SonsSub_unlinkIncompatible (g : GPathM) (id : PathNodeId) :
+    SonsSub g (unlinkIncompatible g id) := by
+  cases hn : g.node? id with
+  | none => simpa [GPathM.unlinkIncompatible, hn] using SonsSub_refl g
+  | some n₀ =>
+    intro n' hn'
+    have hshape : (unlinkIncompatible g id).nodes = g.nodes.map (unlinkMap n₀ id) := by
+      simp only [GPathM.unlinkIncompatible, hn]
+    rw [hshape] at hn'
+    obtain ⟨n, hnmem, hnEq⟩ := List.mem_map.mp hn'
+    refine ⟨n, hnmem, by rw [← hnEq]; exact unlinkMap_id n₀ id n, ?_⟩
+    rw [← hnEq]
+    unfold GPathM.unlinkMap
+    split
+    · intro s hs; exact (List.mem_filter.mp hs).1
+    · split
+      · intro s hs; exact hs
+      · intro s hs; exact (List.mem_filter.mp hs).1
+
+theorem SAbove_filterRequire (g : GPathM) (req : NodeId) (h : SAbove g) :
+    SAbove (filterRequire g req) := h
+
+theorem SAbove_owners_updateAt (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (h : SAbove g) :
+    SAbove (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) :=
+  SAbove_of_SonsSub (SonsSub_updateAt g id _ (fun _ => rfl) (fun _ _ hs => hs)) h
+
+theorem SAbove_removeNode (g : GPathM) (id : PathNodeId) (h : SAbove g) :
+    SAbove (removeNode g id) :=
+  SAbove_of_SonsSub (SonsSub_removeNode g id) h
+
+theorem SAbove_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : SAbove g) :
+    SAbove (unlinkIncompatible g id) :=
+  SAbove_of_SonsSub (SonsSub_unlinkIncompatible g id) h
+
+theorem SAbove_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, SAbove g → SAbove (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ := SAbove_owners_updateAt g id g.gowners h
+      have h₂ := SAbove_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (SAbove_removeNode _ id h₂)
+
+theorem SAbove_cleanInvalid (g : GPathM) (h : SAbove g) : SAbove (cleanInvalid g) :=
+  SAbove_cleanInvalidGo _ g h
+
+theorem SonsSub_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) :
+    SonsSub g (mirrorDrop g x rem) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  refine ⟨n, hn, by rw [← hEq, mirrorMap_id], ?_⟩
+  rw [← hEq, mirrorMap_sons]
+  intro s hs; exact hs
+
+theorem SAbove_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : SAbove g) :
+    SAbove (mirrorDrop g x rem) :=
+  SAbove_of_SonsSub (SonsSub_mirrorDrop g x rem) h
+
+theorem SAbove_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
+    (h : SAbove g) : SAbove (reviewNode g nb id) := by
+  simp only [reviewNode]
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h₁ := SAbove_owners_updateAt g id (unionOwnersOf g (nb d)) h
+      have h₂ := SAbove_unlinkIncompatible _ id (SAbove_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
+      split
+      · exact h₂
+      · exact SAbove_removeNode _ id h₂
+    · exact SAbove_removeNode g id h
+
+private theorem SAbove_foldl {β : Type} (f : GPathM → β → GPathM)
+    (hf : ∀ g b, SAbove g → SAbove (f g b)) :
+    ∀ (l : List β) (g : GPathM), SAbove g → SAbove (l.foldl f g) := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b bs ih => intro g h; simp only [List.foldl_cons]; exact ih _ (hf g b h)
+
+theorem SAbove_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM)
+    (h : SAbove g) : SAbove (reviewLine g nb k) :=
+  SAbove_foldl (fun g id => reviewNode g nb id) (fun g id => SAbove_reviewNode nb id g) _ g h
+
+theorem SAbove_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, SAbove g → SAbove (reviewSteps g nb ks) := by
+  induction ks with
+  | nil => intro g h; exact h
+  | cons k ks ih =>
+    intro g h
+    simp only [reviewSteps]
+    split
+    · exact ih _ (SAbove_reviewLine nb k g h)
+    · exact h
+
+theorem SonsSub_cutAll (g : GPathM) : SonsSub g (cutAll g) := by
+  intro n' hn'
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact ⟨n, hn, rfl, fun s hs => (List.mem_filter.mp hs).1⟩
+
+theorem SAbove_cleanInvalid₂ (g : GPathM) (h : SAbove g) : SAbove (cleanInvalid₂ g) :=
+  SAbove_of_SonsSub (SonsSub_cutAll _)
+    (purgeFuel_inv SAbove (fun g id h => SAbove_removeNode g id h) _ g h)
+
+theorem SAbove_pairSweep (g : GPathM) (h : SAbove g) : SAbove (pairSweep g) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact h n hn s hs
+
+theorem SAbove_cleanPair (g : GPathM) (h : SAbove g) : SAbove (cleanPair g) :=
+  cleanPair_inv SAbove g (SAbove_cleanInvalid₂ g h)
+    (fun x _ hx => SAbove_cleanInvalid₂ _ (SAbove_pairSweep x hx))
+
+theorem SAbove_reviewPass (g : GPathM) (h : SAbove g) : SAbove (reviewPass g) := by
+  simp only [reviewPass]
+  exact SAbove_reviewSteps _ _ _ (SAbove_reviewSteps _ _ _ (SAbove_cleanPair g h))
+
+theorem SAbove_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SAbove g → SAbove (reviewFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuel]
+    split
+    · split
+      · exact ih _ (SAbove_reviewPass g h)
+      · exact SAbove_reviewPass g h
+    · exact h
+
+theorem SAbove_review (g : GPathM) (h : SAbove g) : SAbove (review g) := SAbove_reviewFuel _ g h
+
+theorem SAbove_filterAll (g : GPathM) (reqs : List NodeId) (h : SAbove g) :
+    SAbove (filterAll g reqs) :=
+  SAbove_review _ (SAbove_foldl filterRequire (fun g r => SAbove_filterRequire g r) reqs g h)
+
+/-- **The only operation with anything to say.** `addNode` hands the new node
+out as a son to exactly the line one step below it — that is `upSons`' guard —
+so the son it creates sits one step above its new parent. -/
+theorem SAbove_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (hd : d.step = g.current_step) (h : SAbove g) : SAbove (addNode g d title forb) := by
+  intro n' hn' s hs
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d forb n
+    rw [hni]
+    rw [← hEq, upMap_sons] at hs
+    rcases List.mem_append.mp hs with h1 | h1
+    · exact h n hn s h1
+    · have hrow : s ∈ newRowIds g d forb := gainedSons_subset g d forb n s h1
+      have hline : n.id ∈ newParents g :=
+        rowParents_subset g d s n.id (List.elem_iff.mp (List.mem_filter.mp h1).2)
+      unfold newParents at hline
+      split at hline
+      · have hstep := Parents.mem_line_step g (g.current_step - 1) n.id hline
+        rw [mapId_of_mem_newRowIds g d forb s hrow]
+        show d.step = n.id.id.step + 1  -- idx: adjacent rows (one gpath row per map step, bin map too)
+        rw [hstep, hd]; omega
+      · exact absurd hline List.not_mem_nil
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb n').mp hmem
+    rw [rowNode_sons] at hs
+    exact absurd hs List.not_mem_nil
+
+theorem SAbove_up (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (hd : d.step = g.current_step)
+    (h : SAbove g) : SAbove (up g d title forb) := by
+  simp only [GPathM.up]
+  split
+  · split
+    · exact SAbove_review _ (SAbove_addNode g d title forb hd h)
+    · exact SAbove_addNode g d title forb hd h
+  · exact h
+
+theorem SAbove_initSeed (d : NodeId) (title : String) : SAbove (GPathM.initSeed d title) := by
+  intro n hn s hs
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  exact absurd hs List.not_mem_nil
+
+theorem SAbove_join (g₁ g₂ : GPathM) (h₁ : SAbove g₁) (h₂ : SAbove g₂) :
+    SAbove (join g₁ g₂) := by
+  intro n' hn' s hs
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    cases hg : g₂.node? n.id with
+    | none => rw [← hEq, hg] at hs ⊢; exact h₁ n hn s hs
+    | some m =>
+      rw [← hEq, hg] at hs ⊢
+      have hson : (mergeNode n m).sons =
+          n.sons ++ m.sons.filter (fun x => !n.sons.contains x) := rfl
+      rw [hson, List.mem_append] at hs
+      have hmid : m.id = n.id := node?_id_eq g₂ n.id m hg
+      show s.id.step = (mergeNode n m).id.id.step + 1  -- idx: adjacent rows (one gpath row per map step, bin map too)
+      have hidm : (mergeNode n m).id = n.id := rfl
+      rw [hidm]
+      rcases hs with hs | hs
+      · exact h₁ n hn s hs
+      · have := h₂ m (List.mem_of_find?_eq_some hg) s (List.mem_filter.mp hs).1
+        rw [hmid] at this; exact this
+  · exact h₂ n' (List.mem_filter.mp hmem).1 s hs
+
+-- ============================================================
+-- `SN`: sons are nodes — the mirror of `Parents.PN`
+-- ============================================================
+
+def SN (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ s ∈ n.sons, GownersNodes.HasNode h s
+
+theorem SN_updateAt (g : GPathM) (id : PathNodeId) (f : PNodeM → PNodeM)
+    (hid : ∀ n, (f n).id = n.id) (hson : ∀ n, (f n).sons = n.sons) (h : SN g) :
+    SN (updateAt g id f) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  have hson' : n'.sons = n.sons := by
+    rw [← hEq]; cases n.id == id with | true => exact hson n | false => rfl
+  rw [hson'] at hs
+  obtain ⟨m, hm, hmid⟩ := h n hn s hs
+  refine ⟨(match m.id == id with | true => f m | false => m), List.mem_map_of_mem hm, ?_⟩
+  cases m.id == id with
+  | true => exact (hid m).trans hmid
+  | false => exact hmid
+
+theorem SN_removeNode (g : GPathM) (id : PathNodeId) (h : SN g) : SN (removeNode g id) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  have hnmem := List.mem_filter.mp hn
+  have hson : n'.sons = n.sons.filter (fun q => q != id) := by rw [← hEq]
+  rw [hson] at hs
+  have hs' := List.mem_filter.mp hs
+  obtain ⟨m, hm, hmid⟩ := h n hnmem.1 s hs'.1
+  have hmne : m.id ≠ id := by rw [hmid]; exact bne_iff_ne.mp hs'.2
+  exact ⟨_, List.mem_map_of_mem (List.mem_filter.mpr ⟨hm, bne_iff_ne.mpr hmne⟩), hmid⟩
+
+theorem SN_filterRequire (g : GPathM) (req : NodeId) (h : SN g) : SN (filterRequire g req) := h
+
+theorem SN_unlinkIncompatible (g : GPathM) (id : PathNodeId) (h : SN g) :
+    SN (unlinkIncompatible g id) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, _, hsub⟩ := SonsSub_unlinkIncompatible g id n' hn'
+  obtain ⟨m, hm, hmid⟩ := h n hn s (hsub s hs)
+  show ∃ x ∈ (unlinkIncompatible g id).nodes, x.id = s
+  unfold GPathM.unlinkIncompatible
+  split
+  · exact ⟨m, hm, hmid⟩
+  · next n₀ _ =>
+    exact ⟨unlinkMap n₀ id m, List.mem_map_of_mem hm, by rw [unlinkMap_id]; exact hmid⟩
+
+theorem SN_cleanInvalidGo (ids : List PathNodeId) :
+    ∀ g : GPathM, SN g → SN (cleanInvalidGo g ids) := by
+  induction ids with
+  | nil => intro g h; exact h
+  | cons id rest ih =>
+    intro g h
+    simp only [cleanInvalidGo]
+    split
+    · exact ih g h
+    · next d _ =>
+      have h₁ := SN_updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners g.gowners })
+        (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := SN_unlinkIncompatible _ id h₁
+      split
+      · exact ih _ h₂
+      · exact ih _ (SN_removeNode _ id h₂)
+
+theorem SN_cleanInvalid (g : GPathM) (h : SN g) : SN (cleanInvalid g) := SN_cleanInvalidGo _ g h
+
+theorem SN_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : SN g) :
+    SN (mirrorDrop g x rem) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  rw [← hEq, mirrorMap_sons] at hs
+  obtain ⟨m, hm, hmid⟩ := h n hn s hs
+  exact ⟨mirrorMap x rem m, List.mem_map_of_mem hm, by rw [mirrorMap_id]; exact hmid⟩
+
+theorem SN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
+    (h : SN g) : SN (reviewNode g nb id) := by
+  simp only [reviewNode]
+  split
+  · exact h
+  · next d _ =>
+    split
+    · have h₁ := SN_updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })
+        (fun _ => rfl) (fun _ => rfl) h
+      have h₂ := SN_unlinkIncompatible _ id (SN_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
+      split
+      · exact h₂
+      · exact SN_removeNode _ id h₂
+    · exact SN_removeNode g id h
+
+private theorem SN_foldl {β : Type} (f : GPathM → β → GPathM)
+    (hf : ∀ g b, SN g → SN (f g b)) :
+    ∀ (l : List β) (g : GPathM), SN g → SN (l.foldl f g) := by
+  intro l
+  induction l with
+  | nil => intro g h; exact h
+  | cons b bs ih => intro g h; simp only [List.foldl_cons]; exact ih _ (hf g b h)
+
+theorem SN_reviewLine (nb : PNodeM → List PathNodeId) (k : Int) (g : GPathM) (h : SN g) :
+    SN (reviewLine g nb k) :=
+  SN_foldl (fun g id => reviewNode g nb id) (fun g id => SN_reviewNode nb id g) _ g h
+
+theorem SN_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
+    ∀ g : GPathM, SN g → SN (reviewSteps g nb ks) := by
+  induction ks with
+  | nil => intro g h; exact h
+  | cons k ks ih =>
+    intro g h
+    simp only [reviewSteps]
+    split
+    · exact ih _ (SN_reviewLine nb k g h)
+    · exact h
+
+theorem SN_cleanInvalid₂ (g : GPathM) (h : SN g) : SN (cleanInvalid₂ g) := by
+  have hp := purgeFuel_inv SN (fun g id h => SN_removeNode g id h) (g.nodes.length + 1) g h
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  exact GownersNodes.hasNode_cutAll _ s (hp n hn s (List.mem_filter.mp hs).1)
+
+theorem SN_pairSweep (g : GPathM) (h : SN g) : SN (pairSweep g) := by
+  intro n' hn' s hs
+  obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hn'
+  subst hEq
+  obtain ⟨m, hm, hid⟩ := h n hn s hs
+  exact ⟨pairMap g m, List.mem_map_of_mem hm, hid⟩
+
+theorem SN_cleanPair (g : GPathM) (h : SN g) : SN (cleanPair g) :=
+  cleanPair_inv SN g (SN_cleanInvalid₂ g h) (fun x _ hx => SN_cleanInvalid₂ _ (SN_pairSweep x hx))
+
+theorem SN_reviewPass (g : GPathM) (h : SN g) : SN (reviewPass g) := by
+  simp only [reviewPass]
+  exact SN_reviewSteps _ _ _ (SN_reviewSteps _ _ _ (SN_cleanPair g h))
+
+theorem SN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), SN g → SN (reviewFuel fuel g) := by
+  intro fuel
+  induction fuel with
+  | zero => intro g h; exact h
+  | succ f ih =>
+    intro g h
+    simp only [reviewFuel]
+    split
+    · split
+      · exact ih _ (SN_reviewPass g h)
+      · exact SN_reviewPass g h
+    · exact h
+
+theorem SN_review (g : GPathM) (h : SN g) : SN (review g) := SN_reviewFuel _ g h
+
+theorem SN_filterAll (g : GPathM) (reqs : List NodeId) (h : SN g) : SN (filterAll g reqs) :=
+  SN_review _ (SN_foldl filterRequire (fun g r => SN_filterRequire g r) reqs g h)
+
+theorem SN_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (h : SN g) :
+    SN (addNode g d title forb) := by
+  intro n' hn' s hs
+  rw [addNode_nodes] at hn'
+  show ∃ m ∈ (addNode g d title forb).nodes, m.id = s
+  rw [addNode_nodes]
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_sons] at hs
+    rcases List.mem_append.mp hs with h1 | h1
+    · obtain ⟨m, hm, hmid⟩ := h n hn s h1
+      exact ⟨upMap g d forb m, List.mem_append_left _ (List.mem_map_of_mem hm),
+        (upMap_id g d forb m).trans hmid⟩
+    · exact ⟨rowNode g d title s,
+        List.mem_append_right _ (List.mem_map_of_mem (gainedSons_subset g d forb n s h1)), rfl⟩
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb n').mp hmem
+    rw [rowNode_sons] at hs
+    exact absurd hs List.not_mem_nil
+
+theorem SN_up (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (h : SN g) : SN (up g d title forb) := by
+  simp only [GPathM.up]
+  split
+  · split
+    · exact SN_review _ (SN_addNode g d title forb h)
+    · exact SN_addNode g d title forb h
+  · exact h
+
+theorem SN_initSeed (d : NodeId) (title : String) : SN (GPathM.initSeed d title) := by
+  intro n hn s hs
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  exact absurd hs List.not_mem_nil
+
+theorem SN_join (g₁ g₂ : GPathM) (h₁ : SN g₁) (h₂ : SN g₂) : SN (join g₁ g₂) := by
+  intro n' hn' s hs
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    cases hg : g₂.node? n.id with
+    | none =>
+      rw [← hEq, hg] at hs
+      exact Parents.hasNode_join_left g₁ g₂ s (h₁ n hn s hs)
+    | some m =>
+      rw [← hEq, hg] at hs
+      have hson : (mergeNode n m).sons =
+          n.sons ++ m.sons.filter (fun q => !n.sons.contains q) := rfl
+      rw [hson, List.mem_append] at hs
+      rcases hs with hs | hs
+      · exact Parents.hasNode_join_left g₁ g₂ s (h₁ n hn s hs)
+      · exact Parents.hasNode_join_right g₁ g₂ s
+          (h₂ m (List.mem_of_find?_eq_some hg) s (List.mem_filter.mp hs).1)
+  · exact Parents.hasNode_join_right g₁ g₂ s (h₂ n' (List.mem_filter.mp hmem).1 s hs)
+
+theorem PMS_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hsn : SN g) (h : PMS g) : PMS (addNode g d title forb) := by
+  intro n' hn' s hs m' hm' hmid
+  rw [addNode_nodes] at hn' hm'
+  rcases List.mem_append.mp hn' with hnn | hnn
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
+    have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d forb n
+    rw [← hEq, upMap_sons] at hs
+    have hnew : ∀ x ∈ g.nodes, ∀ r ∈ newRowIds g d forb, x.id ≠ r := by
+      intro x hx r hr he
+      have := hbelow x hx
+      rw [he, mapId_of_mem_newRowIds g d forb r hr] at this
+      omega
+    rcases List.mem_append.mp hs with h1 | h1
+    · -- an old son: `m'` must be the old node carrying it
+      have hsold : ∀ r ∈ newRowIds g d forb, s ≠ r := by
+        obtain ⟨x, hx, hxid⟩ := hsn n hn s h1
+        intro r hr he; exact hnew x hx r hr (hxid.trans he)
+      rcases List.mem_append.mp hm' with hmm | hmm
+      · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
+        have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d forb m
+        have hmp : m'.parents = m.parents := by rw [← hmEq]; exact upMap_parents g d forb m
+        rw [hni, hmp]
+        exact h n hn s h1 m hm (by rw [← hmi]; exact hmid)
+      · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb m').mp hmm
+        rw [rowNode_id] at hmid
+        exact absurd hmid.symm (hsold pid hpid)
+    · -- a son of the new row: `m'` is that row node, and `n` is one of its parents
+      have hsrow : s ∈ newRowIds g d forb := gainedSons_subset g d forb n s h1
+      rcases List.mem_append.mp hm' with hmm | hmm
+      · obtain ⟨m, hm, hmEq⟩ := List.mem_map.mp hmm
+        have hmi : m'.id = m.id := by rw [← hmEq]; exact upMap_id g d forb m
+        exact absurd (by rw [← hmi]; exact hmid) (hnew m hm s hsrow)
+      · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb m').mp hmm
+        rw [rowNode_id] at hmid
+        subst hmid
+        rw [hni, rowNode_parents]
+        exact List.elem_iff.mp (List.mem_filter.mp h1).2
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb n').mp hnn
+    rw [rowNode_sons] at hs
+    exact absurd hs List.not_mem_nil
+
+theorem PMS_up (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool) (hd : d.step = g.current_step)
+    (hbelow : ∀ n ∈ g.nodes, n.id.id.step < g.current_step)
+    (hsn : SN g) (h : PMS g) : PMS (up g d title forb) := by
+  simp only [GPathM.up]
+  split
+  · split
+    · exact PMS_review _ (PMS_addNode g d title forb hd hbelow hsn h)
+    · exact PMS_addNode g d title forb hd hbelow hsn h
+  · exact h
+
+theorem PMS_initSeed (d : NodeId) (title : String) : PMS (GPathM.initSeed d title) := by
+  intro n hn p hp
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  exact absurd hp List.not_mem_nil
+
+theorem PMS_join (g₁ g₂ : GPathM) (hp₁ : SN g₁) (hp₂ : SN g₂)
+    (h₁ : PMS g₁) (h₂ : PMS g₂) : PMS (join g₁ g₂) := by
+  intro n' hn' p hp m' hm' hmid
+  rw [GownersNodes.join_nodes] at hn' hm'
+  -- what `n'` is, and where `p` comes from
+  have key : ∀ (x : PathNodeId), x = n'.id →
+      (∃ n ∈ g₁.nodes, n.id = x ∧ p ∈ n.sons) ∨ (∃ q ∈ g₂.nodes, q.id = x ∧ p ∈ q.sons) := by
+    intro x hx
+    rcases List.mem_append.mp hn' with hnn | hnn
+    · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hnn
+      have hni : n'.id = n.id := by rw [← hEq]; cases g₂.node? n.id with
+        | some q => rfl
+        | none => rfl
+      cases hg : g₂.node? n.id with
+      | none =>
+        have : n'.sons = n.sons := by rw [← hEq, hg]
+        rw [this] at hp
+        exact Or.inl ⟨n, hn, by rw [hx, hni], hp⟩
+      | some q =>
+        have hpar : n'.sons =
+            n.sons ++ q.sons.filter (fun r => !n.sons.contains r) := by
+          rw [← hEq, hg]; rfl
+        rw [hpar, List.mem_append] at hp
+        have hqid : q.id = n.id := node?_id_eq g₂ n.id q hg
+        rcases hp with hp | hp
+        · exact Or.inl ⟨n, hn, by rw [hx, hni], hp⟩
+        · exact Or.inr ⟨q, List.mem_of_find?_eq_some hg, by rw [hx, hni, hqid],
+            (List.mem_filter.mp hp).1⟩
+    · exact Or.inr ⟨n', (List.mem_filter.mp hnn).1, hx.symm, hp⟩
+  rcases List.mem_append.mp hm' with hmm | hmm
+  · -- `m'` is the join's copy of a `g₁` node
+    obtain ⟨m₀, hm₀, hmEq⟩ := List.mem_map.mp hmm
+    have hm₀id : m₀.id = p := by
+      rw [← hmid, ← hmEq]; cases g₂.node? m₀.id with | some q => rfl | none => rfl
+    rcases key n'.id rfl with ⟨n, hn, hnid, hnp⟩ | ⟨q, hq, hqid, hqp⟩
+    · have hson := h₁ n hn p hnp m₀ hm₀ hm₀id
+      rw [← hnid]
+      rw [← hmEq]
+      cases hg : g₂.node? m₀.id with
+      | none => exact hson
+      | some q' => exact List.mem_append_left _ hson
+    · obtain ⟨q', hq'⟩ := Option.isSome_iff_exists.mp
+        ((GownersNodes.hasNode_iff g₂ p).mp (hp₂ q hq p hqp))
+      have hq'mem : q' ∈ g₂.nodes := List.mem_of_find?_eq_some hq'
+      have hq'id : q'.id = p := node?_id_eq g₂ p q' hq'
+      have hson := h₂ q hq p hqp q' hq'mem hq'id
+      rw [← hqid, ← hmEq]
+      have hg : g₂.node? m₀.id = some q' := by rw [hm₀id]; exact hq'
+      rw [hg]
+      show q.id ∈ (mergeNode m₀ q').parents
+      have hparents : (mergeNode m₀ q').parents =
+          m₀.parents ++ q'.parents.filter (fun s => !m₀.parents.contains s) := rfl
+      rw [hparents]
+      cases hc : m₀.parents.contains q.id with
+      | true => exact List.mem_append_left _ (List.elem_iff.mp hc)
+      | false =>
+        refine List.mem_append_right _ (List.mem_filter.mpr ⟨hson, ?_⟩)
+        rw [hc]; rfl
+  · -- `m'` is a node only `g₂` has
+    have hm'mem : m' ∈ g₂.nodes := (List.mem_filter.mp hmm).1
+    rcases key n'.id rfl with ⟨n, hn, hnid, hnp⟩ | ⟨q, hq, hqid, hqp⟩
+    · exfalso
+      obtain ⟨p', hp'⟩ := Option.isSome_iff_exists.mp
+        ((GownersNodes.hasNode_iff g₁ p).mp (hp₁ n hn p hnp))
+      have hnone := (List.mem_filter.mp hmm).2
+      rw [hmid, hp'] at hnone
+      exact absurd hnone (by simp)
+    · rw [← hqid]
+      exact h₂ q hq p hqp m' hm'mem hmid
+
+-- ============================================================
+-- `root_shape`: the mirror of `Parents.NotRoot`
+-- ============================================================
+
+/-- A node at step 0 *is* a root. The other half of `ChainSound.root_shape`. -/
+def RootAtZero (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, n.id.id.step = 0 → n.id.parent_id = none
+
+theorem RootAtZero_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : RootAtZero g) :
+    RootAtZero g' := by
+  intro n' hn' hz
+  obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'
+  rw [hid] at hz ⊢
+  exact h n hn hz
+
+theorem RootAtZero_addNode (g : GPathM) (d : NodeId) (title : String) (forb : PathNodeId → Bool)
+    (hd : d.step = g.current_step) (_hmok : MachineOk g) (h : RootAtZero g) :
+    RootAtZero (addNode g d title forb) := by
+  intro n' hn' hz
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_id] at hz ⊢
+    exact h n hn hz
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title forb n').mp hmem
+    rw [rowNode_id] at hz ⊢
+    by_cases hpos : 0 < g.current_step
+    · exfalso
+      rw [mapId_of_mem_newRowIds g d forb pid hpid] at hz
+      omega
+    · rw [eq_root_of_mem_newRowIds_zero g d forb hpos pid hpid]
+
+theorem RootAtZero_join (g₁ g₂ : GPathM) (h₁ : RootAtZero g₁) (h₂ : RootAtZero g₂) :
+    RootAtZero (join g₁ g₂) := by
+  intro n' hn' hz
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    have hni : n'.id = n.id := by
+      rw [← hEq]; cases g₂.node? n.id with | some q => rfl | none => rfl
+    rw [hni] at hz ⊢
+    exact h₁ n hn hz
+  · exact h₂ n' (List.mem_filter.mp hmem).1 hz
+
+theorem RootAtZero_initSeed (d : NodeId) (title : String) :
+    RootAtZero (GPathM.initSeed d title) := by
+  intro n hn _
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  rfl
+
+-- ============================================================
+-- Both, over the machine
+-- ============================================================
+
+variable (reqOf : NodeId → List NodeId) (forb : PathNodeId → Bool)
+
+theorem SMP_reachable (g : GPathM) (h : Reachable reqOf forb g) : SMP g := by
+  induction h with
+  | seed d title _ _ => exact SMP_initSeed d title
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    refine SMP_up _ d title forb (by rw [hpr.step_eq]; exact hstep) ?_ ?_
+      (SMP_filterAll g (reqOf d) ih)
+    · exact Certifies.nodes_below_of_pruned hpr (steps_below_current reqOf forb hr)
+    · exact (Parents.Shape_of_pruned_pn hpr
+        (Parents.PN_filterAll g (reqOf d) (Parents.Shape_reachable reqOf forb g hr).pn)
+        (Parents.Shape_reachable reqOf forb g hr)).pbelow
+  | join g₁ g₂ _ hr₁ hr₂ ih₁ ih₂ =>
+    exact SMP_join g₁ g₂ (Parents.Shape_reachable reqOf forb g₁ hr₁).pn
+      (Parents.Shape_reachable reqOf forb g₂ hr₂).pn ih₁ ih₂
+
+theorem SMP_reachable_filterAll (g : GPathM) (reqs : List NodeId)
+    (h : Reachable reqOf forb g) : SMP (filterAll g reqs) :=
+  SMP_filterAll g reqs (SMP_reachable reqOf forb g h)
+
+/-- **Sons are nodes, in every state the machine builds.** -/
+theorem SN_reachable (g : GPathM) (h : Reachable reqOf forb g) : SN g := by
+  induction h with
+  | seed d title _ _ => exact SN_initSeed d title
+  | up g d title _ _ _ _ ih => exact SN_up _ d title forb (SN_filterAll g (reqOf d) ih)
+  | join g₁ g₂ _ _ _ ih₁ ih₂ => exact SN_join g₁ g₂ ih₁ ih₂
+
+/-- **And the son table mirrors the parent table both ways.** The direction
+`SMP` never had. -/
+theorem PMS_reachable (g : GPathM) (h : Reachable reqOf forb g) : PMS g := by
+  induction h with
+  | seed d title _ _ => exact PMS_initSeed d title
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    refine PMS_up _ d title forb (by rw [hpr.step_eq]; exact hstep) ?_ ?_
+      (PMS_filterAll g (reqOf d) ih)
+    · exact Certifies.nodes_below_of_pruned hpr (steps_below_current reqOf forb hr)
+    · exact SN_filterAll g (reqOf d) (SN_reachable reqOf forb g hr)
+  | join g₁ g₂ _ hr₁ hr₂ ih₁ ih₂ =>
+    exact PMS_join g₁ g₂ (SN_reachable reqOf forb g₁ hr₁) (SN_reachable reqOf forb g₂ hr₂) ih₁ ih₂
+
+theorem SN_reachable_filterAll (g : GPathM) (reqs : List NodeId) (h : Reachable reqOf forb g) :
+    SN (filterAll g reqs) := SN_filterAll g reqs (SN_reachable reqOf forb g h)
+
+theorem PMS_reachable_filterAll (g : GPathM) (reqs : List NodeId) (h : Reachable reqOf forb g) :
+    PMS (filterAll g reqs) := PMS_filterAll g reqs (PMS_reachable reqOf forb g h)
+
+/-- info: 'AbsSatBin.GraphPath.Model.Sons.PMS_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms PMS_reachable
+
+theorem RootAtZero_reachable (g : GPathM) (h : Reachable reqOf forb g) : RootAtZero g := by
+  induction h with
+  | seed d title _ _ => exact RootAtZero_initSeed d title
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    show RootAtZero (up (filterAll g (reqOf d)) d title forb)
+    simp only [GPathM.up]
+    split
+    · split
+      · exact RootAtZero_of_pruned (pruned_review _) (RootAtZero_addNode _ d title forb (by rw [hpr.step_eq]; exact hstep)
+            (MachineOk_of_pruned hpr (Certifies.MachineOk_reachable reqOf forb g hr))
+            (RootAtZero_of_pruned hpr ih))
+      · exact RootAtZero_addNode _ d title forb (by rw [hpr.step_eq]; exact hstep)
+            (MachineOk_of_pruned hpr (Certifies.MachineOk_reachable reqOf forb g hr))
+            (RootAtZero_of_pruned hpr ih)
+    · exact RootAtZero_of_pruned hpr ih
+  | join g₁ g₂ _ _ _ ih₁ ih₂ => exact RootAtZero_join g₁ g₂ ih₁ ih₂
+
+theorem RootAtZero_reachable_filterAll (g : GPathM) (reqs : List NodeId)
+    (h : Reachable reqOf forb g) : RootAtZero (filterAll g reqs) :=
+  RootAtZero_of_pruned (pruned_filterAll g reqs) (RootAtZero_reachable reqOf forb g h)
+
+/-- **Every son sits one step above, in every state the machine builds.** -/
+theorem SAbove_reachable (g : GPathM) (h : Reachable reqOf forb g) : SAbove g := by
+  induction h with
+  | seed d title _ _ => exact SAbove_initSeed d title
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    exact SAbove_up _ d title forb (by rw [hpr.step_eq]; exact hstep)
+      (SAbove_filterAll g (reqOf d) ih)
+  | join g₁ g₂ _ _ _ ih₁ ih₂ => exact SAbove_join g₁ g₂ ih₁ ih₂
+
+theorem SAbove_reachable_filterAll (g : GPathM) (reqs : List NodeId)
+    (h : Reachable reqOf forb g) : SAbove (filterAll g reqs) :=
+  SAbove_filterAll g reqs (SAbove_reachable reqOf forb g h)
+
+/-- info: 'AbsSatBin.GraphPath.Model.Sons.SAbove_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms SAbove_reachable
+
+-- ============================================================
+-- The two `ChainSound` fields
+-- ============================================================
+
+/-- **`son_link`.** `IsChain` gives the parent link; `SMP` turns it round. -/
+theorem son_link_of_SMP (h : GPathM) (hsmp : SMP h) (sel : Int → PathNodeId)
+    (hchain : IsChain h sel) :
+    ∀ k, 0 ≤ k → k + 1 < h.current_step → sel (k + 1) ∈ sonsOf h (sel k) := by
+  intro k hlo hhi
+  have hlink := hchain.2 k hlo hhi
+  cases hn : h.node? (sel (k + 1)) with
+  | none => rw [hn] at hlink; exact absurd hlink List.not_mem_nil
+  | some n =>
+    rw [hn] at hlink
+    obtain ⟨hsome, _⟩ := hchain.1 k hlo (by omega)
+    obtain ⟨m, hm⟩ := Option.isSome_iff_exists.mp hsome
+    have hnid : n.id = sel (k + 1) := node?_id_eq h _ n hn
+    have hmid : m.id = sel k := node?_id_eq h _ m hm
+    simp only [sonsOf, hm]
+    rw [← hnid]
+    exact hsmp n (List.mem_of_find?_eq_some hn) (sel k) hlink m
+      (List.mem_of_find?_eq_some hm) hmid
+
+/-- **`root_shape`.** `RootAtZero` below, `Parents.NotRoot` above. -/
+theorem root_shape_of (h : GPathM) (hrz : RootAtZero h) (hnr : Parents.NotRoot h)
+    (sel : Int → PathNodeId) (hchain : IsChain h sel) (hpos : 0 < h.current_step) :
+    (sel 0).parent_id = none ∧
+      ∀ k, 0 < k → k < h.current_step → (sel k).parent_id ≠ none := by
+  constructor
+  · obtain ⟨hsome, hstep⟩ := hchain.1 0 (Int.le_refl _) hpos
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+    have hnid : n.id = sel 0 := node?_id_eq h _ n hn
+    rw [← hnid]
+    exact hrz n (List.mem_of_find?_eq_some hn) (by rw [hnid]; exact hstep)
+  · intro k hk0 hk
+    obtain ⟨hsome, hstep⟩ := hchain.1 k (by omega) hk
+    obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
+    have hnid : n.id = sel k := node?_id_eq h _ n hn
+    rw [← hnid]
+    exact hnr n (List.mem_of_find?_eq_some hn) (by rw [hnid, hstep]; exact hk0)
+
+-- ============================================================
+-- `self_owned`: why it is not like the other two
+-- ============================================================
+
+/-!
+`SMP` and `RootAtZero` went through because both are preserved by every
+operation *unconditionally*: they talk about `parents`, `sons` and `id`, and
+the review passes never touch those except by removing a node together with
+its links.
+
+`Ownership.SelfOwned` is different. It talks about `owners`, which the review
+passes prune, and the pruning is exactly where it can fail:
+
+* under `cleanInvalid`, `n.owners` is intersected with `gowners`, and `n.id`
+  survives that only if `n.id ∈ gowners` — i.e. only given
+  `Ownership.NodesAreGowners`, which the campaign supports (0 violations over
+  259,187 nodes) but which is not proved;
+* under `reviewNode`, `n.owners` is intersected with the union over `n`'s
+  neighbours' owners, and `n.id` survives only if **some neighbour owns `n`**.
+
+That second condition is `ParentOwns` below — and `ParentOwns` is in turn
+preserved only given `SelfOwned` (a parent keeps `n` in its owners because the
+union over *its* neighbours contains `n`, which needs `n` to own itself). The
+two are **mutually recursive**, so neither can be proved alone: they need a
+simultaneous induction over the machine, carrying `NodesAreGowners` as well.
+
+That is a genuinely bigger piece of work than the other two — **and it turned
+out not to be necessary**. `SelfOwn.lean` closes `self_owned` by a different
+route: `OOS`, the invariant that a node's owners at its *own* step contain
+nothing but itself. `OOS` only ever shrinks, so no preservation argument has to
+fight the coherence pass, and self-ownership then follows from `isValidNode` at
+the fixpoint rather than being carried as an invariant. `ParentOwns` below is
+kept as the record of the route that does not work.
+-/
+
+/-- A parent owns its child. Mutually recursive with `Ownership.SelfOwned`
+under the coherence pass — and, as `SelfOwn.lean` shows, not needed: kept as
+the record of the route that does not work. -/
+def ParentOwns (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ p ∈ n.parents, ∀ m ∈ h.nodes, m.id = p → n.id ∈ m.owners
+
+/-- `SelfOwned` survives the operations that do not prune owners. -/
+theorem SelfOwned_filterRequire (g : GPathM) (req : NodeId)
+    (h : Ownership.SelfOwned g) : Ownership.SelfOwned (filterRequire g req) := h
+
+/-- info: 'AbsSatBin.GraphPath.Model.Sons.SMP_reachable' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms SMP_reachable
+
+/-- info: 'AbsSatBin.GraphPath.Model.Sons.son_link_of_SMP' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms son_link_of_SMP
+
+/-- info: 'AbsSatBin.GraphPath.Model.Sons.root_shape_of' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms root_shape_of
+
+end AbsSatBin.GraphPath.Model.Sons

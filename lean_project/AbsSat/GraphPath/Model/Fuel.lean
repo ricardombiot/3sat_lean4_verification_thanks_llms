@@ -185,6 +185,20 @@ theorem measure_cleanInvalidGo_le (ids : List PathNodeId) :
 theorem measure_cleanInvalid_le (g : GPathM) : measure (cleanInvalid g) ≤ measure g :=
   measure_cleanInvalidGo_le _ g
 
+theorem weight_mirrorMap_le (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM) :
+    PNodeM.weight (mirrorMap x rem m) ≤ PNodeM.weight m := by
+  unfold GPathM.mirrorMap; split
+  · simp only [PNodeM.weight]
+    have := List.length_filter_le (· != x) m.owners
+    omega
+  · exact Nat.le_refl _
+
+theorem measure_mirrorDrop_le (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) :
+    measure (mirrorDrop g x rem) ≤ measure g := by
+  simp only [measure, mirrorDrop]
+  rw [List.map_map]
+  exact Nat.add_le_add_left (sum_map_le _ _ _ (fun m _ => weight_mirrorMap_le x rem m)) _
+
 theorem measure_reviewNode_le (nb : PNodeM → List PathNodeId) (id : PathNodeId)
     (g : GPathM) : measure (reviewNode g nb id) ≤ measure g := by
   simp only [reviewNode]
@@ -197,7 +211,8 @@ theorem measure_reviewNode_le (nb : PNodeM → List PathNodeId) (id : PathNodeId
             (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) ≤
             measure g :=
         measure_updateAt_le g id _ (weight_intersect_le _)
-      have h₂ := Nat.le_trans (measure_unlinkIncompatible_le _ id) h₁
+      have h₂ := Nat.le_trans (measure_unlinkIncompatible_le _ id)
+        (Nat.le_trans (measure_mirrorDrop_le _ id (cutRemoved d (unionOwnersOf g (nb d)))) h₁)
       split
       · exact h₂
       · exact Nat.le_trans (measure_removeNode_le _ id) h₂
@@ -236,11 +251,119 @@ theorem measure_reviewParents_le (g : GPathM) : measure (reviewParents g) ≤ me
 theorem measure_reviewSons_le (g : GPathM) : measure (reviewSons g) ≤ measure g :=
   measure_reviewSteps_le _ _ g
 
+theorem purgeRound_eq (g : GPathM) : purgeRound g = (g.nodes.map (·.id)).foldl purgeStep g := rfl
+
+theorem weight_cutNode_le (gow : List PathNodeId) (g : GPathM) (n : PNodeM) :
+    PNodeM.weight (cutNode gow g n) ≤ PNodeM.weight n := by
+  simp only [PNodeM.weight, cutNode]
+  have h1 : (cutOwners gow n).length ≤ n.owners.length := List.length_filter_le _ _
+  have h2 := List.length_filter_le
+    (fun p => admits gow g n.id p && admits gow g p n.id) n.parents
+  have h3 := List.length_filter_le
+    (fun s => admits gow g n.id s && admits gow g s n.id) n.sons
+  omega
+
+private theorem sum_map_le' {α : Type} (l : List α) (f h : α → Nat)
+    (hle : ∀ a ∈ l, f a ≤ h a) : (l.map f).sum ≤ (l.map h).sum := by
+  induction l with
+  | nil => exact Nat.le_refl _
+  | cons a as ih =>
+    simp only [List.map_cons, List.sum_cons]
+    exact Nat.add_le_add (hle a List.mem_cons_self)
+      (ih (fun x hx => hle x (List.mem_cons_of_mem _ hx)))
+
+theorem measure_cutAll_le (g : GPathM) : GPathM.measure (cutAll g) ≤ GPathM.measure g := by
+  simp only [GPathM.measure, cutAll]
+  rw [List.map_map]
+  exact Nat.add_le_add_left
+    (sum_map_le' g.nodes _ _ (fun n _ => weight_cutNode_le g.gowners g n)) _
+
+theorem measure_purgeStep_le (g : GPathM) (id : PathNodeId) :
+    measure (purgeStep g id) ≤ measure g := by
+  unfold purgeStep
+  split
+  · exact Nat.le_refl _
+  · split
+    · exact Nat.le_refl _
+    · exact measure_removeNode_le g id
+
+theorem measure_foldl_purgeStep_le :
+    ∀ (ids : List PathNodeId) (g : GPathM), measure (ids.foldl purgeStep g) ≤ measure g := by
+  intro ids
+  induction ids with
+  | nil => intro g; exact Nat.le_refl _
+  | cons id rest ih =>
+    intro g
+    simp only [List.foldl_cons]
+    exact Nat.le_trans (ih _) (measure_purgeStep_le g id)
+
+theorem measure_purgeRound_le (g : GPathM) : measure (purgeRound g) ≤ measure g := by
+  rw [purgeRound_eq]; exact measure_foldl_purgeStep_le _ g
+
+theorem measure_purgeFuel_le : ∀ (fuel : Nat) (g : GPathM), measure (purgeFuel fuel g) ≤ measure g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Nat.le_refl _
+  | succ n ih =>
+    intro g
+    simp only [purgeFuel]
+    split
+    · split
+      · exact Nat.le_trans (ih _) (measure_purgeRound_le g)
+      · exact measure_purgeRound_le g
+    · exact Nat.le_refl _
+
+theorem measure_cleanInvalid₂_le (g : GPathM) : measure (cleanInvalid₂ g) ≤ measure g :=
+  Nat.le_trans (measure_cutAll_le _) (measure_purgeFuel_le _ g)
+
+theorem measure_pairSweep_le (g : GPathM) : measure (pairSweep g) ≤ measure g := by
+  simp only [GPathM.measure, pairSweep]
+  rw [List.map_map]
+  refine Nat.add_le_add_left (sum_map_le' g.nodes _ _ (fun n _ => ?_)) _
+  simp only [Function.comp, PNodeM.weight]
+  have := List.length_filter_le (fun w => !pairBad g n w) n.owners
+  omega
+
+theorem measure_pairFuel_le : ∀ (fuel : Nat) (g : GPathM), measure (pairFuel fuel g) ≤ measure g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g; exact Nat.le_refl _
+  | succ n ih =>
+    intro g
+    simp only [pairFuel]
+    split
+    · split
+      · exact Nat.le_trans (ih _) (Nat.le_trans (measure_cleanInvalid₂_le _) (measure_pairSweep_le g))
+      · exact Nat.le_refl _
+    · exact Nat.le_refl _
+
+theorem measure_cleanPair_le (g : GPathM) : measure (cleanPair g) ≤ measure g :=
+  Nat.le_trans (measure_pairFuel_le _ _) (measure_cleanInvalid₂_le g)
+
+/-- A measure-preserving pair loop did nothing: a round that continues lowers the measure. -/
+theorem pairFuel_eq_self : ∀ (fuel : Nat) (g : GPathM), measure (pairFuel fuel g) = measure g →
+    pairFuel fuel g = g := by
+  intro fuel
+  cases fuel with
+  | zero => intro g _; rfl
+  | succ n =>
+    intro g h
+    have hle := Nat.le_trans (measure_pairFuel_le n (cleanInvalid₂ (pairSweep g)))
+      (measure_cleanInvalid₂_le (pairSweep g))
+    by_cases hv : isValid g = true
+    · by_cases hlt : measure (pairSweep g) < measure g
+      · have he : pairFuel (n + 1) g = pairFuel n (cleanInvalid₂ (pairSweep g)) := by
+          simp only [pairFuel, hv, if_true, hlt]
+        rw [he] at h
+        exact absurd h (by omega)
+      · simp only [pairFuel, hv, if_true, hlt, if_false]
+    · simp only [pairFuel, hv, Bool.false_eq_true, if_false]
+
 /-- **F2.a** — one review pass never increases the measure. -/
 theorem measure_reviewPass_le (g : GPathM) : measure (reviewPass g) ≤ measure g := by
   simp only [reviewPass]
   exact Nat.le_trans (measure_reviewSons_le _)
-    (Nat.le_trans (measure_reviewParents_le _) (measure_cleanInvalid_le g))
+    (Nat.le_trans (measure_reviewParents_le _) (measure_cleanPair_le g))
 
 -- ============================================================
 -- F2.b — fuel sufficiency
@@ -646,6 +769,100 @@ theorem cleanInvalid_eq_self (g : GPathM) (h : measure (cleanInvalid g) = measur
 -- F2.c, step 2: the coherence passes at the fixpoint
 -- ============================================================
 
+private theorem mirrorMap_eq_self_of_weight (x : PathNodeId) (rem : List PathNodeId) (m : PNodeM)
+    (h : PNodeM.weight (mirrorMap x rem m) = PNodeM.weight m) : mirrorMap x rem m = m := by
+  unfold GPathM.mirrorMap at h ⊢
+  split at h
+  · next hc =>
+    rw [if_pos hc]
+    have hlen : (m.owners.filter (· != x)).length = m.owners.length := by
+      simp only [PNodeM.weight] at h
+      omega
+    rw [filter_eq_self_of_length _ _ hlen]
+  · next hc => rw [if_neg hc]
+
+/-- At the fixpoint the mirror is the identity: it only filters tables. -/
+theorem mirrorDrop_eq_self (g : GPathM) (x : PathNodeId) (rem : List PathNodeId)
+    (h : measure (mirrorDrop g x rem) = measure g) : mirrorDrop g x rem = g := by
+  have hsum : (g.nodes.map (PNodeM.weight ∘ mirrorMap x rem)).sum
+      = (g.nodes.map PNodeM.weight).sum := by
+    simp only [measure, mirrorDrop] at h
+    rw [List.map_map] at h
+    omega
+  have hpt := sum_map_eq_pointwise g.nodes (PNodeM.weight ∘ mirrorMap x rem) PNodeM.weight
+    (fun m _ => weight_mirrorMap_le x rem m) hsum
+  have hmap : g.nodes.map (mirrorMap x rem) = g.nodes :=
+    map_eq_self_of _ _ (fun m hm => mirrorMap_eq_self_of_weight x rem m (hpt m hm))
+  simp only [mirrorDrop, hmap]
+
+/-- The tail of `reviewNode` (review simétrico): intersect the node's owners against `b`, mirror
+what it lost, unlink, then drop the node if that left it invalid. -/
+def intersectMirrorOrDrop (g : GPathM) (id : PathNodeId) (b : List PathNodeId) (d : PNodeM) : GPathM :=
+  if isValidNode
+      (unlinkIncompatible (mirrorDrop
+        (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+        (cutRemoved d b)) id)
+      (relink (intersectOwners d.owners b) d) then
+    unlinkIncompatible (mirrorDrop
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id
+  else
+    removeNode (unlinkIncompatible (mirrorDrop
+      (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id) id
+
+theorem intersectMirrorOrDrop_eq_self (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : measure (intersectMirrorOrDrop g id b d) = measure g) :
+    intersectMirrorOrDrop g id b d = g := by
+  have hle_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      ≤ PNodeM.weight n := weight_intersect_le b
+  have hid_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      = PNodeM.weight n → { n with owners := intersectOwners n.owners b } = n :=
+    fun n => intersect_eq_self_of_weight b n
+  have hupd_le : measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
+    measure_updateAt_le g id _ hle_f
+  have hmir_le := measure_mirrorDrop_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)
+  have hunl_le := measure_unlinkIncompatible_le
+    (mirrorDrop (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id
+  obtain ⟨n, hn, hn_id⟩ :
+      ∃ n ∈ (unlinkIncompatible (mirrorDrop (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)) id).nodes,
+        n.id = id := by
+    obtain ⟨n, hn, hn_id⟩ :=
+      exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+        (fun _ => rfl) d hd_mem
+    have hid' : n.id = id := by rw [hn_id]; exact hd_id
+    have hn2 : mirrorMap id (cutRemoved d b) n ∈ (mirrorDrop (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)).nodes :=
+      List.mem_map_of_mem hn
+    have hid2 : (mirrorMap id (cutRemoved d b) n).id = id := by rw [mirrorMap_id]; exact hid'
+    unfold GPathM.unlinkIncompatible
+    split
+    · exact ⟨_, hn2, hid2⟩
+    · next n₀ _ =>
+      exact ⟨unlinkMap n₀ id _, List.mem_map_of_mem hn2, by rw [unlinkMap_id]; exact hid2⟩
+  have hlt := measure_removeNode_lt _ id n hn hn_id
+  unfold intersectMirrorOrDrop at h ⊢
+  split at h
+  · next hv =>
+    rw [if_pos hv]
+    have h1 : measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = measure g := by omega
+    have h2 : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ hle_f hid_f h1
+    rw [h2] at h hmir_le hunl_le ⊢
+    have h3 : measure (mirrorDrop g id (cutRemoved d b)) = measure g := by omega
+    rw [mirrorDrop_eq_self g id _ h3] at h ⊢
+    exact unlinkIncompatible_eq_self g id h
+  · next hv =>
+    rw [if_neg hv]
+    exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt
+      (Nat.le_trans hunl_le (Nat.le_trans hmir_le hupd_le))))
+
 theorem reviewNode_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId)
     (h : measure (reviewNode g nb id) = measure g) : reviewNode g nb id = g := by
   cases hnode : g.node? id with
@@ -654,14 +871,14 @@ theorem reviewNode_eq_self (g : GPathM) (nb : PNodeM → List PathNodeId) (id : 
     have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hnode
     have hd_id : d.id = id := node?_id_eq g id d hnode
     have hshape : reviewNode g nb id =
-        if isValidNode g d then intersectOrDrop g id (unionOwnersOf g (nb d)) d
+        if isValidNode g d then intersectMirrorOrDrop g id (unionOwnersOf g (nb d)) d
         else removeNode g id := by
-      simp [reviewNode, hnode, intersectOrDrop]
+      simp [reviewNode, hnode, intersectMirrorOrDrop]
     rw [hshape] at h ⊢
     split at h
     · next hvalid =>
       rw [if_pos hvalid]
-      exact intersectOrDrop_eq_self g id _ d hd_mem hd_id h
+      exact intersectMirrorOrDrop_eq_self g id _ d hd_mem hd_id h
     · next hvalid =>
       -- the node was already invalid, so it is dropped: strictly smaller
       rw [if_neg hvalid]
@@ -719,6 +936,211 @@ theorem reviewSons_eq_self (g : GPathM) (h : measure (reviewSons g) = measure g)
 -- F2.c — the pass is the identity at the fixpoint
 -- ============================================================
 
+private theorem sum_map_le_pt {α : Type} (l : List α) (f h : α → Nat)
+    (hle : ∀ a ∈ l, f a ≤ h a) : (l.map f).sum ≤ (l.map h).sum := sum_map_le' l f h hle
+
+private theorem sum_map_eq_pt {α : Type} (l : List α) (f h : α → Nat)
+    (hle : ∀ a ∈ l, f a ≤ h a) (hsum : (l.map f).sum = (l.map h).sum) :
+    ∀ a ∈ l, f a = h a := by
+  induction l with
+  | nil => intro a ha; exact absurd ha List.not_mem_nil
+  | cons a as ih =>
+    simp only [List.map_cons, List.sum_cons] at hsum
+    have hhead : f a ≤ h a := hle a List.mem_cons_self
+    have htail : ∀ x ∈ as, f x ≤ h x := fun x hx => hle x (List.mem_cons_of_mem _ hx)
+    have hsums := sum_map_le_pt as f h htail
+    have hfa : f a = h a := by omega
+    have htails : (as.map f).sum = (as.map h).sum := by omega
+    intro x hx
+    rcases List.mem_cons.mp hx with e | hx'
+    · rw [e]; exact hfa
+    · exact ih htail htails x hx'
+
+private theorem map_eq_self_pt {α : Type} (l : List α) (f : α → α)
+    (h : ∀ a ∈ l, f a = a) : l.map f = l := by
+  induction l with
+  | nil => rfl
+  | cons a as ih =>
+    simp only [List.map_cons]
+    rw [h a List.mem_cons_self, ih (fun x hx => h x (List.mem_cons_of_mem _ hx))]
+
+private theorem filter_eq_self_len {α : Type} (l : List α) (p : α → Bool)
+    (h : (l.filter p).length = l.length) : l.filter p = l :=
+  List.filter_eq_self.mpr (List.length_filter_eq_length_iff.mp h)
+
+/-- A cut that keeps the weight keeps the node. -/
+theorem cutNode_eq_self_of_weight (gow : List PathNodeId) (g : GPathM) (n : PNodeM)
+    (h : PNodeM.weight (cutNode gow g n) = PNodeM.weight n) : cutNode gow g n = n := by
+  simp only [PNodeM.weight, cutNode] at h
+  have h1 : (cutOwners gow n).length ≤ n.owners.length := List.length_filter_le _ _
+  have h2 := List.length_filter_le
+    (fun p => admits gow g n.id p && admits gow g p n.id) n.parents
+  have h3 := List.length_filter_le
+    (fun s => admits gow g n.id s && admits gow g s n.id) n.sons
+  have ho : (cutOwners gow n).length = n.owners.length := by omega
+  have hp : (n.parents.filter (fun p => admits gow g n.id p && admits gow g p n.id)).length
+      = n.parents.length := by omega
+  have hs : (n.sons.filter (fun s => admits gow g n.id s && admits gow g s n.id)).length
+      = n.sons.length := by omega
+  have ho' : cutOwners gow n = n.owners := filter_eq_self_len _ _ ho
+  simp only [cutNode]
+  rw [filter_eq_self_len _ _ hp, filter_eq_self_len _ _ hs, ho']
+
+theorem cutAll_eq_self (g : GPathM) (h : GPathM.measure (cutAll g) = GPathM.measure g) :
+    cutAll g = g := by
+  simp only [GPathM.measure, cutAll] at h
+  rw [List.map_map] at h
+  have hsum := Nat.add_left_cancel h
+  have hpt := sum_map_eq_pt g.nodes _ PNodeM.weight
+    (fun n _ => weight_cutNode_le g.gowners g n) hsum
+  have hmap : g.nodes.map (cutNode g.gowners g) = g.nodes :=
+    map_eq_self_pt _ _ (fun n hn => cutNode_eq_self_of_weight _ _ n (hpt n hn))
+  simp only [cutAll, hmap]
+
+/-- **A measure-preserving pair rule removed nothing.** -/
+theorem pairSweep_eq_self (g : GPathM) (h : GPathM.measure (pairSweep g) = GPathM.measure g) :
+    pairSweep g = g := by
+  simp only [GPathM.measure, pairSweep] at h
+  rw [List.map_map] at h
+  have hsum := Nat.add_left_cancel h
+  have hle : ∀ n ∈ g.nodes, (PNodeM.weight ∘ pairMap g) n ≤ PNodeM.weight n := by
+    intro n _
+    simp only [Function.comp, PNodeM.weight, pairMap]
+    have := List.length_filter_le (fun w => !pairBad g n w) n.owners
+    omega
+  have hpt := sum_map_eq_pt g.nodes _ PNodeM.weight hle hsum
+  have hmap : g.nodes.map (pairMap g) = g.nodes := by
+    refine map_eq_self_pt _ _ (fun n hn => ?_)
+    have hw := hpt n hn
+    simp only [Function.comp, PNodeM.weight, pairMap] at hw
+    have hf : n.owners.filter (fun w => !pairBad g n w) = n.owners :=
+      List.filter_eq_self.mpr (List.length_filter_eq_length_iff.mp (by omega))
+    simp only [pairMap, hf]
+  show { g with nodes := g.nodes.map (pairMap g) } = g
+  rw [hmap]
+
+theorem purgeStep_eq_self (g : GPathM) (id : PathNodeId)
+    (h : GPathM.measure (purgeStep g id) = GPathM.measure g) : purgeStep g id = g := by
+  unfold purgeStep at h ⊢
+  split at h
+  · rfl
+  · next n hn =>
+    split at h
+    · next hv => simp only [hv, if_true]
+    · next hv =>
+      have hlt := GPathM.measure_removeNode_lt g id n (List.mem_of_find?_eq_some hn)
+        (node?_id_eq g id n hn)
+      exact absurd h (Nat.ne_of_lt hlt)
+
+theorem purgeRound_eq_self (g : GPathM)
+    (h : GPathM.measure (purgeRound g) = GPathM.measure g) : purgeRound g = g := by
+  rw [purgeRound_eq] at h ⊢
+  generalize g.nodes.map (·.id) = ids at h ⊢
+  induction ids generalizing g with
+  | nil => rfl
+  | cons id rest ih =>
+    simp only [List.foldl_cons] at h ⊢
+    have h₁ := measure_purgeStep_le g id
+    have h₂ := measure_foldl_purgeStep_le rest (purgeStep g id)
+    have hstep : GPathM.measure (purgeStep g id) = GPathM.measure g := by omega
+    rw [purgeStep_eq_self g id hstep] at h ⊢
+    exact ih g h
+
+theorem purgeFuel_eq_self : ∀ (fuel : Nat) (g : GPathM),
+    GPathM.measure (purgeFuel fuel g) = GPathM.measure g → purgeFuel fuel g = g := by
+  intro fuel
+  induction fuel with
+  | zero => intro g _; rfl
+  | succ k ih =>
+    intro g h
+    simp only [purgeFuel] at h ⊢
+    split at h
+    · next hv =>
+      rw [if_pos hv]
+      split at h
+      · next hshr =>
+        rw [if_pos hshr]
+        have h₁ := measure_purgeFuel_le k (purgeRound g)
+        have h₂ := measure_purgeRound_le g
+        have hr : GPathM.measure (purgeRound g) = GPathM.measure g := by omega
+        rw [purgeRound_eq_self g hr] at h ⊢
+        exact ih g h
+      · next hshr =>
+        rw [if_neg hshr]
+        exact purgeRound_eq_self g h
+    · next hv => rw [if_neg hv]
+
+/-- **At the fixpoint `cleanInvalid₂` changes nothing**: if the measure does not drop, the graph is
+the same. What `Fuel` needs for the fixpoint of `review₂`. -/
+theorem cleanInvalid₂_eq_self (g : GPathM)
+    (h : GPathM.measure (cleanInvalid₂ g) = GPathM.measure g) : cleanInvalid₂ g = g := by
+  unfold cleanInvalid₂ at h ⊢
+  have h₁ := measure_cutAll_le (purgeFuel (g.nodes.length + 1) g)
+  have h₂ := measure_purgeFuel_le (g.nodes.length + 1) g
+  have hp : GPathM.measure (purgeFuel (g.nodes.length + 1) g) = GPathM.measure g := by omega
+  rw [purgeFuel_eq_self _ g hp] at h ⊢
+  exact cutAll_eq_self g h
+
+/-- A measure-preserving clean with pairs is the identity, and so is its plain clean. -/
+theorem cleanPair_eq_self (g : GPathM) (h : measure (cleanPair g) = measure g) :
+    cleanInvalid₂ g = g ∧ cleanPair g = g := by
+  have h₁ := measure_cleanInvalid₂_le g
+  have h₂ := measure_pairFuel_le (measure (cleanInvalid₂ g) + 1) (cleanInvalid₂ g)
+  simp only [cleanPair] at h ⊢
+  have hc : cleanInvalid₂ g = g := cleanInvalid₂_eq_self g (by omega)
+  refine ⟨hc, ?_⟩
+  rw [hc] at h ⊢
+  exact pairFuel_eq_self _ g h
+
+/-- A purge pass that left the graph alone left it alone at every step. -/
+theorem foldl_purgeStep_fixed :
+    ∀ (ids : List PathNodeId) (g : GPathM), ids.foldl purgeStep g = g →
+      ∀ id ∈ ids, purgeStep g id = g := by
+  intro ids
+  induction ids with
+  | nil => intro _ _ id h; exact absurd h List.not_mem_nil
+  | cons x rest ih =>
+    intro g h id hid
+    simp only [List.foldl_cons] at h
+    have h₁ := measure_purgeStep_le g x
+    have h₂ := measure_foldl_purgeStep_le rest (purgeStep g x)
+    rw [h] at h₂
+    have hx : purgeStep g x = g := purgeStep_eq_self g x (by omega)
+    rw [hx] at h
+    rcases List.mem_cons.mp hid with e | e
+    · rw [e]; exact hx
+    · exact ih g h id e
+
+/-- A property preserved by `removeNode` is preserved by the whole purge. -/
+theorem purgeFuel_inv (P : GPathM → Prop) (hP : ∀ g id, P g → P (removeNode g id)) :
+    ∀ (fuel : Nat) (g : GPathM), P g → P (purgeFuel fuel g) := by
+  have hstep : ∀ g id, P g → P (purgeStep g id) := by
+    intro g id hg
+    unfold purgeStep
+    split
+    · exact hg
+    · split
+      · exact hg
+      · exact hP g id hg
+  have hround : ∀ g, P g → P (purgeRound g) := by
+    intro g hg
+    rw [purgeRound_eq]
+    generalize g.nodes.map (·.id) = ids
+    induction ids generalizing g with
+    | nil => exact hg
+    | cons id rest ih => exact ih _ (hstep g id hg)
+  intro fuel
+  induction fuel with
+  | zero => intro g hg; exact hg
+  | succ n ih =>
+    intro g hg
+    simp only [purgeFuel]
+    split
+    · split
+      · exact ih _ (hround g hg)
+      · exact hround g hg
+    · exact hg
+
 /-- A measure-preserving review pass changed nothing at all. This is the
 "equal-length filter is the identity" thread pulled through every
 sub-operation: each one only ever filters, so preserving the measure forces
@@ -726,12 +1148,12 @@ every filter to have kept its whole input and every `removeNode` branch to be
 unreachable. -/
 theorem reviewPass_eq_self (g : GPathM) (h : measure (reviewPass g) = measure g) :
     reviewPass g = g := by
-  have h₁ := measure_cleanInvalid_le g
-  have h₂ := measure_reviewParents_le (cleanInvalid g)
-  have h₃ := measure_reviewSons_le (reviewParents (cleanInvalid g))
+  have h₁ := measure_cleanPair_le g
+  have h₂ := measure_reviewParents_le (cleanPair g)
+  have h₃ := measure_reviewSons_le (reviewParents (cleanPair g))
   simp only [reviewPass] at h ⊢
-  have hclean : measure (cleanInvalid g) = measure g := by omega
-  rw [cleanInvalid_eq_self g hclean] at h ⊢
+  have hclean : measure (cleanPair g) = measure g := by omega
+  rw [(cleanPair_eq_self g hclean).2] at h ⊢
   have h₂' := measure_reviewParents_le g
   have h₃' := measure_reviewSons_le (reviewParents g)
   have hpar : measure (reviewParents g) = measure g := by omega
@@ -945,6 +1367,64 @@ theorem cleanStep_owners_fixed (g : GPathM) (id : PathNodeId) (d : PNodeM)
     updateAt_pointwise g id _ hupd d hd_mem hd_id
   exact congrArg PNodeM.owners hfix
 
+/-- The valid branch of the mirrored tail, at the fixpoint: the update, the mirror and the unlink
+were all the identity. -/
+theorem intersectMirrorOrDrop_valid_branch (g : GPathM) (id : PathNodeId) (b : List PathNodeId)
+    (d : PNodeM) (hd_mem : d ∈ g.nodes) (hd_id : d.id = id)
+    (h : measure (intersectMirrorOrDrop g id b d) = measure g) :
+    updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g ∧
+      mirrorDrop g id (cutRemoved d b) = g ∧
+      unlinkIncompatible g id = g ∧
+      isValidNode g (relink (intersectOwners d.owners b) d) = true := by
+  have hle_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      ≤ PNodeM.weight n := weight_intersect_le b
+  have hid_f : ∀ n, PNodeM.weight { n with owners := intersectOwners n.owners b }
+      = PNodeM.weight n → { n with owners := intersectOwners n.owners b } = n :=
+    fun n => intersect_eq_self_of_weight b n
+  have hupd_le : measure (updateAt g id
+      (fun n => { n with owners := intersectOwners n.owners b })) ≤ measure g :=
+    measure_updateAt_le g id _ hle_f
+  have hmir_le := measure_mirrorDrop_le
+    (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)
+  have hunl_le := measure_unlinkIncompatible_le
+    (mirrorDrop (updateAt g id (fun n => { n with owners := intersectOwners n.owners b })) id
+      (cutRemoved d b)) id
+  unfold intersectMirrorOrDrop at h
+  split at h
+  · next hv =>
+    have h1 : measure (updateAt g id
+        (fun n => { n with owners := intersectOwners n.owners b })) = measure g := by omega
+    have hupd : updateAt g id (fun n => { n with owners := intersectOwners n.owners b }) = g :=
+      updateAt_eq_self g id _ hle_f hid_f h1
+    rw [hupd] at h hmir_le hunl_le hv
+    have h3 : measure (mirrorDrop g id (cutRemoved d b)) = measure g := by omega
+    have hmir : mirrorDrop g id (cutRemoved d b) = g := mirrorDrop_eq_self g id _ h3
+    rw [hmir] at h hv
+    have hunl : unlinkIncompatible g id = g := unlinkIncompatible_eq_self g id h
+    rw [hunl] at hv
+    exact ⟨hupd, hmir, hunl, hv⟩
+  · next hv =>
+    obtain ⟨n, hn, hn_id⟩ :
+        ∃ n ∈ (unlinkIncompatible (mirrorDrop (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)) id).nodes,
+          n.id = id := by
+      obtain ⟨n, hn, hn_id⟩ :=
+        exists_mem_updateAt g id (fun n => { n with owners := intersectOwners n.owners b })
+          (fun _ => rfl) d hd_mem
+      have hid' : n.id = id := by rw [hn_id]; exact hd_id
+      have hn2 : mirrorMap id (cutRemoved d b) n ∈ (mirrorDrop (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners b })) id (cutRemoved d b)).nodes :=
+        List.mem_map_of_mem hn
+      have hid2 : (mirrorMap id (cutRemoved d b) n).id = id := by rw [mirrorMap_id]; exact hid'
+      unfold GPathM.unlinkIncompatible
+      split
+      · exact ⟨_, hn2, hid2⟩
+      · next n₀ _ =>
+        exact ⟨unlinkMap n₀ id _, List.mem_map_of_mem hn2, by rw [unlinkMap_id]; exact hid2⟩
+    have hlt := measure_removeNode_lt _ id n hn hn_id
+    exact absurd h (Nat.ne_of_lt (Nat.lt_of_lt_of_le hlt
+      (Nat.le_trans hunl_le (Nat.le_trans hmir_le hupd_le))))
+
 /-- At the fixpoint, a node reached by a coherence pass had its owners already
 consistent with the union of its neighbours' owners: the intersection against
 that union was the identity. -/
@@ -955,14 +1435,14 @@ theorem reviewNode_owners_fixed (g : GPathM) (nb : PNodeM → List PathNodeId)
   have hd_mem : d ∈ g.nodes := List.mem_of_find?_eq_some hd
   have hd_id : d.id = id := node?_id_eq g id d hd
   have hshape : reviewNode g nb id =
-      if isValidNode g d then intersectOrDrop g id (unionOwnersOf g (nb d)) d
+      if isValidNode g d then intersectMirrorOrDrop g id (unionOwnersOf g (nb d)) d
       else removeNode g id := by
-    simp [reviewNode, hd, intersectOrDrop]
+    simp [reviewNode, hd, intersectMirrorOrDrop]
   rw [hshape] at h
   split at h
   · next hv =>
     obtain ⟨hupd, _⟩ :=
-      intersectOrDrop_valid_branch g id (unionOwnersOf g (nb d)) d hd_mem hd_id h
+      intersectMirrorOrDrop_valid_branch g id (unionOwnersOf g (nb d)) d hd_mem hd_id h
     have hfix : { d with owners := intersectOwners d.owners (unionOwnersOf g (nb d)) } = d :=
       updateAt_pointwise g id _ hupd d hd_mem hd_id
     exact congrArg PNodeM.owners hfix
@@ -972,13 +1452,14 @@ theorem reviewNode_owners_fixed (g : GPathM) (nb : PNodeM → List PathNodeId)
 
 /-- The three stages of a fixpoint pass are each the identity. -/
 theorem reviewPass_stages_eq_self (g : GPathM) (h : measure (reviewPass g) = measure g) :
-    cleanInvalid g = g ∧ reviewParents g = g ∧ reviewSons g = g := by
-  have h₁ := measure_cleanInvalid_le g
-  have h₂ := measure_reviewParents_le (cleanInvalid g)
-  have h₃ := measure_reviewSons_le (reviewParents (cleanInvalid g))
+    cleanInvalid₂ g = g ∧ reviewParents g = g ∧ reviewSons g = g := by
+  have h₁ := measure_cleanPair_le g
+  have h₂ := measure_reviewParents_le (cleanPair g)
+  have h₃ := measure_reviewSons_le (reviewParents (cleanPair g))
   simp only [reviewPass] at h
-  have hclean : cleanInvalid g = g := cleanInvalid_eq_self g (by omega)
-  rw [hclean] at h h₂ h₃
+  have hcp := cleanPair_eq_self g (by omega)
+  have hclean : cleanInvalid₂ g = g := hcp.1
+  rw [hcp.2] at h h₂ h₃
   have h₃' := measure_reviewSons_le (reviewParents g)
   have hpar : reviewParents g = g := reviewParents_eq_self g (by omega)
   rw [hpar] at h
@@ -988,20 +1469,73 @@ theorem reviewPass_stages_eq_self (g : GPathM) (h : measure (reviewPass g) = mea
 -- F2.c, per-node form (the plan's §4 postcondition)
 -- ============================================================
 
-/-- The `cleanInvalid` step for any node `review` still exposes was itself the
-identity — the shared first half of the per-node results below. -/
-theorem review_cleanStep_fixed (g : GPathM) (h : isValid (review g) = true)
+/-- A list a map leaves unchanged is fixed pointwise. -/
+theorem map_fixed_pointwise {α : Type} (f : α → α) :
+    ∀ (l : List α), l.map f = l → ∀ a ∈ l, f a = a := by
+  intro l
+  induction l with
+  | nil => intro _ a ha; exact absurd ha List.not_mem_nil
+  | cons x xs ih =>
+    intro h a ha
+    simp only [List.map_cons, List.cons.injEq] at h
+    rcases List.mem_cons.mp ha with e | e
+    · rw [e]; exact h.1
+    · exact ih h.2 a e
+
+/-- **At a fixpoint of `cleanInvalid₂`, every node passes the purge test and is its own cut.** A
+valid graph the clean leaves alone had a purge round that removed nothing, so every node's cut was
+valid, and a cut that changed nothing, so every node is its cut. -/
+theorem cleanInvalid₂_fixed_node (G : GPathM) (hv : isValid G = true) (hfix : cleanInvalid₂ G = G)
+    (id : PathNodeId) (d : PNodeM) (hd : G.node? id = some d) :
+    isValidNode G d = true ∧ cutNode G.gowners G d = d := by
+  have hd_mem : d ∈ G.nodes := List.mem_of_find?_eq_some hd
+  have hd_id : d.id = id := node?_id_eq G id d hd
+  -- the purge left `G` alone
+  have hm := congrArg measure hfix
+  unfold cleanInvalid₂ at hm hfix
+  have h₁ := measure_cutAll_le (purgeFuel (G.nodes.length + 1) G)
+  have h₂ := measure_purgeFuel_le (G.nodes.length + 1) G
+  have hp : measure (purgeFuel (G.nodes.length + 1) G) = measure G := by omega
+  have hpf : purgeFuel (G.nodes.length + 1) G = G := purgeFuel_eq_self _ G hp
+  rw [hpf] at hfix
+  -- the round inside it removed nothing
+  have hround : measure (purgeRound G) = measure G := by
+    have hge : measure (purgeFuel (G.nodes.length + 1) G) ≤ measure (purgeRound G) := by
+      simp only [purgeFuel, hv, if_true]
+      split
+      · exact measure_purgeFuel_le _ _
+      · exact Nat.le_refl _
+    have := measure_purgeRound_le G
+    omega
+  have hr : purgeRound G = G := purgeRound_eq_self G hround
+  -- so the step at `id` kept `G`: the cut of `d` is valid
+  have hstep : purgeStep G id = G := by
+    have hmem : id ∈ G.nodes.map (·.id) := by
+      have := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hd_mem
+      rwa [hd_id] at this
+    exact foldl_purgeStep_fixed _ G (by rw [show (G.nodes.map (·.id)).foldl purgeStep G = G from hr])
+      id hmem
+  -- and the cut changed nothing
+  have hcut : cutNode G.gowners G d = d :=
+    map_fixed_pointwise (cutNode G.gowners G) G.nodes (congrArg GPathM.nodes hfix) d hd_mem
+  refine ⟨?_, hcut⟩
+  cases hvd : isValidNode G (cutNode G.gowners G d) with
+  | true => rw [← hcut]; exact hvd
+  | false =>
+    have hrm : purgeStep G id = removeNode G id := by
+      unfold purgeStep; rw [hd]; simp only [hvd]; rfl
+    have hlt := measure_removeNode_lt G id d hd_mem hd_id
+    rw [← hrm, hstep] at hlt
+    exact absurd hlt (Nat.lt_irrefl _)
+
+/-- The clean for any node `review` still exposes changes nothing: the node is valid and is its own
+cut — the shared first half of the per-node results below. -/
+theorem review_cut_fixed (g : GPathM) (h : isValid (review g) = true)
     (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
-    cleanStep (review g) id = review g := by
+    isValidNode (review g) d = true ∧ cutNode (review g).gowners (review g) d = d := by
   have hfix : reviewPass (review g) = review g := reviewPass_review g h
   obtain ⟨hclean, _, _⟩ := reviewPass_stages_eq_self (review g) (by rw [hfix])
-  have hd_mem : d ∈ (review g).nodes := List.mem_of_find?_eq_some hd
-  have hd_id : d.id = id := node?_id_eq _ id d hd
-  have hid_mem : id ∈ (review g).nodes.map (·.id) := by
-    have hmem := List.mem_map_of_mem (f := fun n : PNodeM => n.id) hd_mem
-    rwa [hd_id] at hmem
-  have hgo : cleanInvalidGo (review g) ((review g).nodes.map (·.id)) = review g := hclean
-  exact cleanInvalidGo_steps_eq_self _ (review g) (by rw [hgo]) id hid_mem
+  exact cleanInvalid₂_fixed_node (review g) h hclean id d hd
 
 /-- **F2.c (per-node), part 1** — after `review`, every node the machine can
 still look up passes `is_valid_node`.
@@ -1013,7 +1547,7 @@ in `GPathM` (and in the executable) goes through `node?`. -/
 theorem review_node_valid (g : GPathM) (h : isValid (review g) = true)
     (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
     isValidNode (review g) d = true :=
-  cleanStep_node_valid (review g) id d hd (by rw [review_cleanStep_fixed g h id d hd])
+  (review_cut_fixed g h id d hd).1
 
 /-- **F2.c (per-node), part 3** — after `review`, a node's owners are already
 contained in the *global* owners, in `intersectOwners`' sense. Together with
@@ -1023,7 +1557,7 @@ contained in the *global* owners, in `intersectOwners`' sense. Together with
 theorem review_owners_within_gowners (g : GPathM) (h : isValid (review g) = true)
     (id : PathNodeId) (d : PNodeM) (hd : (review g).node? id = some d) :
     intersectOwners d.owners (review g).gowners = d.owners :=
-  cleanStep_owners_fixed (review g) id d hd (by rw [review_cleanStep_fixed g h id d hd])
+  congrArg PNodeM.owners (review_cut_fixed g h id d hd).2
 
 /-- **F2.c (per-node), part 2a** — after `review`, a node's owners are already
 coherent with the union of its *parents'* owners: intersecting against that

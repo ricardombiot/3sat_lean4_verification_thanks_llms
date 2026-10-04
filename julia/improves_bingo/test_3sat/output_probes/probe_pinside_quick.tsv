@@ -1,0 +1,3 @@
+instance	truth	joins	runs	chains	none	both	n_invalid	n_node	n_edge	n_link	n_trio	dead	side_dead	cap	ram	secs
+clause_mix.cnf	true	34	123	22101	0	0	0	0	0	0	0	0	0	0	0	19.7
+rand3sat_v8_c10.cnf	true	74	279	186162	0	0	0	0	0	0	0	0	0	0	0	607.3

@@ -1,0 +1,9 @@
+instance	truth	joins	ge_t	ge_f	eg_t	eg_f	secs
+clause_mix.cnf	true	34	284	0	322	4	3.9
+clause_mix_sep.cnf	true	40	804	0	744	16	8.8
+rand3sat_v8_c10.cnf	true	74	2326	0	4066	0	71.3
+v5_c20_i1.cnf	true	82	330	0	297	0	16.2
+v5_c20_i4.cnf	true	80	706	0	180	0	24.3
+v6_c26_i3.cnf	true	107	1586	0	1463	0	86.0
+v6_c26_i5.cnf	true	118	2136	0	1999	0	139.9
+set011221_1951_i0_v5_c20.cnf	true	89	226	0	270	0	32.6

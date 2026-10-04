@@ -1,0 +1,6 @@
+c x1 xor x2 xor x3 = 1: tras fijar x1 y x2, x3 queda forzada
+p cnf 3 4
+1 2 3 0
+1 -2 -3 0
+-1 2 -3 0
+-1 -2 3 0

@@ -105,6 +105,12 @@ theorem ids_cleanInvalidGo (g : GPathM) :
 theorem ids_cleanInvalid (g : GPathM) : (Ids (cleanInvalid g)).Sublist (Ids g) :=
   ids_cleanInvalidGo g _
 
+theorem ids_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) :
+    Ids (mirrorDrop g x rem) = Ids g := by
+  unfold mirrorDrop Ids
+  simp only [List.map_map]
+  exact List.map_congr_left (fun m _ => mirrorMap_id x rem m)
+
 theorem ids_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : PathNodeId) :
     (Ids (reviewNode g nb id)).Sublist (Ids g) := by
   unfold reviewNode
@@ -113,12 +119,14 @@ theorem ids_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId) (id : Path
   | some d =>
     simp only
     split
-    · have hup : Ids (updateAt g id
-          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) }))
-          = Ids g := ids_updateAt g id _ (fun _ => rfl)
-      have hunl := ids_unlinkIncompatible
-        (updateAt g id
+    · have hup : Ids (mirrorDrop (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) id
+          (cutRemoved d (unionOwnersOf g (nb d))))
+          = Ids g := by rw [ids_mirrorDrop]; exact ids_updateAt g id _ (fun _ => rfl)
+      have hunl := ids_unlinkIncompatible
+        (mirrorDrop (updateAt g id
+          (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) id
+          (cutRemoved d (unionOwnersOf g (nb d)))) id
       split
       · rw [hunl, hup]; exact List.Sublist.refl _
       · exact List.Sublist.trans (ids_removeNode _ id)
@@ -150,9 +158,26 @@ theorem ids_reviewSteps (g : GPathM) (nb : PNodeM → List PathNodeId) :
     · exact List.Sublist.trans (ih _) (ids_reviewLine g nb k)
     · exact List.Sublist.refl _
 
+theorem ids_cleanInvalid₂ (g : GPathM) : (Ids (cleanInvalid₂ g)).Sublist (Ids g) := by
+  have hp : (Ids (purgeFuel (g.nodes.length + 1) g)).Sublist (Ids g) :=
+    purgeFuel_inv (fun g' => (Ids g').Sublist (Ids g))
+      (fun g' id h => List.Sublist.trans (ids_removeNode g' id) h) _ g (List.Sublist.refl _)
+  unfold cleanInvalid₂ cutAll
+  rw [ids_map (purgeFuel (g.nodes.length + 1) g)
+    (cutNode (purgeFuel (g.nodes.length + 1) g).gowners (purgeFuel (g.nodes.length + 1) g))
+    (fun _ => rfl)]
+  exact hp
+
+theorem ids_pairSweep (g : GPathM) : Ids (pairSweep g) = Ids g :=
+  ids_map g (pairMap g) (fun _ => rfl)
+
+theorem ids_cleanPair (g : GPathM) : (Ids (cleanPair g)).Sublist (Ids g) :=
+  cleanPair_inv (fun x => (Ids x).Sublist (Ids g)) g (ids_cleanInvalid₂ g)
+    (fun x _ hx => List.Sublist.trans (ids_cleanInvalid₂ _) (by rw [ids_pairSweep]; exact hx))
+
 theorem ids_reviewPass (g : GPathM) : (Ids (reviewPass g)).Sublist (Ids g) :=
   List.Sublist.trans (ids_reviewSteps _ _ _)
-    (List.Sublist.trans (ids_reviewSteps _ _ _) (ids_cleanInvalid g))
+    (List.Sublist.trans (ids_reviewSteps _ _ _) (ids_cleanPair g))
 
 theorem ids_reviewFuel : ∀ (fuel : Nat) (g : GPathM),
     (Ids (reviewFuel fuel g)).Sublist (Ids g) := by

@@ -1,0 +1,5 @@
+instance	truth	np	noAc	removed	absent	one_grp	one_free	split	secs
+clause_mix.cnf	true	402	0	386	16	10	10	6	0.6
+clause_mix_sep.cnf	true	1066	0	1020	46	40	40	6	0.4
+rand3sat_v8_c10.cnf	true	4560	0	4086	474	278	278	196	2.0
+v5_c20_i1.cnf	true	885	0	534	351	22	22	329	1.1

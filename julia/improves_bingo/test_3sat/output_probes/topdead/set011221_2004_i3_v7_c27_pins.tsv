@@ -1,0 +1,2 @@
+instance	truth	joins	runs	tops	top_dead	bases	b_deadU	rev	revP	rev_tops	e_cells	e_fail	e_failT	tt_cells	tt_fail	tt_failT	tb_cells	tb_fail	tb_failT	sf_faces	sf_fail	pin_try	pin_empty	pin_dup	pin_invalid	p_runs	p_tops	p_top_dead	p_bases	p_rev	p_revP	p_rev_tops	p_tt_cells	p_tt_fail	p_tb_cells	p_tb_fail	p_sf_faces	p_sf_fail	ram	secs
+set011221_2004_i3_v7_c27.cnf	true	120	141	396	0	12851	12827	24	24	1	286104	0	0	279188	0	0	6021756	0	792	1090016	0	480	0	2	457	21	38	0	0	0	0	0	0	0	0	0	64426	0	0	1464.2

@@ -47,7 +47,9 @@ private theorem initSeed_nodes (d : NodeId) (title : String) :
     (GPathM.initSeed d title).nodes =
       [PNodeM.mk { id := d, parent_id := none } title [] [] [{ id := d, parent_id := none }]] := by
   unfold GPathM.initSeed GPathM.up GPathM.addNode
-  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry]
+  simp [GPathM.isValid, GPathM.empty, GPathM.intRange, GPathM.hasStepEntry,
+    GPathM.newRow, GPathM.newRowIds, GPathM.rowNode, GPathM.rowParents, GPathM.rowOwners,
+    GPathM.newParents, GPathM.unionOwnersOf]
 
 private theorem initSeed_current (d : NodeId) (title : String) :
     (GPathM.initSeed d title).current_step = 1 := by
@@ -169,24 +171,20 @@ theorem filterAll_cleans_gowner (g : GPathM) (reqs : List NodeId) (req : NodeId)
 -- addNode membership decomposition
 -- ============================================================
 
+/-- **Membership in the extended state, decomposed.** Either the node is an old
+one, whose owners grew by the row ids that own it, or it is a node of the new
+row, whose owners are `rowOwners`. -/
 private theorem mem_addNode {g : GPathM} {d : NodeId} {title : String} {n' : PNodeM}
     (hn' : n' ∈ (GPathM.addNode g d title).nodes) :
-    (∃ n ∈ g.nodes, n'.id = n.id ∧ n'.owners = n.owners ++ [⟨d, g.map_parent⟩]) ∨
-    (n'.id = ⟨d, g.map_parent⟩ ∧ n'.owners = g.gowners ++ [⟨d, g.map_parent⟩]) := by
-  simp only [GPathM.addNode] at hn'
-  rcases List.mem_map.mp hn' with ⟨m, hm, hEq⟩
-  subst hEq
-  rcases List.mem_append.mp hm with hold | hnew
-  · rcases List.mem_map.mp hold with ⟨n, hn, hEq2⟩
-    subst hEq2
-    refine Or.inl ⟨n, hn, ?_, ?_⟩
-    · dsimp only
-      split <;> split <;> rfl
-    · dsimp only
-      split <;> split <;> rfl
-  · have hm' := List.mem_singleton.mp hnew
-    subst hm'
-    exact Or.inr ⟨rfl, rfl⟩
+    (∃ n ∈ g.nodes, n'.id = n.id ∧ n'.owners = n.owners ++ GPathM.gainedOwners g d n) ∨
+    (∃ pid ∈ GPathM.newRowIds g d, n'.id = pid ∧ n'.owners = GPathM.rowOwners g d pid) := by
+  rw [GPathM.addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hold | hnew
+  · rcases List.mem_map.mp hold with ⟨n, hn, hEq⟩
+    subst hEq
+    exact Or.inl ⟨n, hn, rfl, rfl⟩
+  · obtain ⟨pid, hpid, rfl⟩ := (GPathM.mem_newRow_iff g d title n').mp hnew
+    exact Or.inr ⟨pid, hpid, rfl, rfl⟩
 
 -- ============================================================
 -- join membership decomposition
@@ -247,7 +245,7 @@ private theorem structure_addNode {g' : GPathM} (h : NodeStructure reqOf g')
     NodeStructure reqOf (GPathM.addNode g' d title) := by
   intro n' hn'
   have hcs : (GPathM.addNode g' d title).current_step = g'.current_step + 1 := rfl
-  rcases mem_addNode hn' with ⟨n, hn, hid, _⟩ | ⟨hid, _⟩
+  rcases mem_addNode hn' with ⟨n, hn, hid, _⟩ | ⟨pid, hpid, hid, _⟩
   · obtain ⟨h1, h2⟩ := h n hn
     have hids : n'.id.id.step = n.id.id.step := by rw [hid]
     constructor
@@ -256,7 +254,8 @@ private theorem structure_addNode {g' : GPathM} (h : NodeStructure reqOf g')
       have hreq' : req ∈ reqOf n.id.id := by rw [← hid]; exact hreq
       have := h2 req hreq'
       omega
-  · have hids : n'.id.id = d := by rw [hid]
+  · have hids : n'.id.id = d := by
+      rw [hid]; exact GPathM.mapId_of_mem_newRowIds g' d pid hpid
     constructor
     · rw [hcs, hids]; omega
     · intro req hreq
@@ -348,30 +347,32 @@ private theorem addNode_ReqFiltered {g : GPathM} (h_reach : Reachable reqOf g)
     ReqFiltered reqOf (GPathM.addNode (GPathM.filterAll g (reqOf d)) d title) := by
   intro n' hn' req hreq q hq hstepq
   have hpr : Pruned g (GPathM.filterAll g (reqOf d)) := pruned_filterAll g (reqOf d)
-  rcases mem_addNode hn' with ⟨m, hm, hid, hown⟩ | ⟨hid, hown⟩
+  rcases mem_addNode hn' with ⟨m, hm, hid, hown⟩ | ⟨pid, hpid, hid, hown⟩
   · -- Old node: its owners either predate the UP (invariant transfers) or
-    -- are the fresh pid, whose step is beyond every old requirement.
+    -- are row ids, whose step is beyond every old requirement.
     have hreqm : req ∈ reqOf m.id.id := by rw [← hid]; exact hreq
     rw [hown] at hq
     rcases List.mem_append.mp hq with hq | hq
     · exact hRF m hm req hreqm q hq hstepq
-    · have hq' := List.mem_singleton.mp hq
-      exfalso
+    · exfalso
+      have hq' : q.id = d :=
+        GPathM.mapId_of_mem_newRowIds _ d q (GPathM.gainedOwners_subset _ d m q hq)
       obtain ⟨n₀, hn₀, hid₀, _, _⟩ := hpr.nodes_derived m hm
       have hreq₀ : req ∈ reqOf n₀.id.id := by rw [← hid₀]; exact hreqm
       obtain ⟨h2, hback⟩ := reachable_structure reqOf h_reach n₀ hn₀
       have h1 : req.step < n₀.id.id.step := hback req hreq₀
       have h3 : q.id.step = d.step := by rw [hq']
       omega
-  · -- New node: its inherited owners were cleaned by filterAll, and its own
-    -- pid sits at d.step, strictly beyond its backward requirements.
-    have hids : n'.id.id = d := by rw [hid]
+  · -- Row node: what it inherits was cleaned by `filterAll` (it is still a
+    -- global owner), and itself sits at `d.step`, beyond its requirements.
+    have hids : n'.id.id = d := by
+      rw [hid]; exact GPathM.mapId_of_mem_newRowIds _ d pid hpid
     rw [hids] at hreq
     rw [hown] at hq
-    rcases List.mem_append.mp hq with hq | hq
-    · exact filterAll_cleans_gowner g (reqOf d) req q hreq hq hstepq
-    · have hq' := List.mem_singleton.mp hq
-      exfalso
+    rcases GPathM.rowOwners_mem_gowners_or_self _ d pid q hq with hg | rfl
+    · exact filterAll_cleans_gowner g (reqOf d) req q hreq hg hstepq
+    · exfalso
+      have hq' : q.id = d := GPathM.mapId_of_mem_newRowIds _ d q hpid
       have h1 : req.step < d.step := hreqs_back req hreq
       have h3 : q.id.step = d.step := by rw [hq']
       omega

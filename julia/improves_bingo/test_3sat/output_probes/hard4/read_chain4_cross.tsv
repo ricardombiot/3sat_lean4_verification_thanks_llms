@@ -1,0 +1,2 @@
+instance	truth	rd_states	rd_invalid	rd_cap	rd_t	rd_t_out	rd_nosep	rd_hard_sigma	rd_hard_sigma_out	rd_hard_sigma_1	rd_hard_sigma_3	rd_hard_sigma_5	rd_hard_sigma_2	rd_hard_sigma_4	rd_hard_sigma_9	secs
+chain4_cross.cnf	true	1037	0	0	88889356	0	5119922	17480	0	0	7732	0	0	9748	0	1390.4

@@ -49,48 +49,6 @@ namespace AbsSat.GraphPath.Model
 open AbsSat.Utils.Alias
 open GPathM
 
-private def unionStep (g : GPathM) (acc : List PathNodeId) (pid : PathNodeId) : List PathNodeId :=
-  match g.node? pid with
-  | some p => acc ++ p.owners
-  | none => acc
-
-private theorem unionOwnersOf_eq (g : GPathM) (ids : List PathNodeId) :
-    unionOwnersOf g ids = ids.foldl (unionStep g) [] := rfl
-
-private theorem mem_unionFold_acc (g : GPathM) (ids : List PathNodeId) :
-    ∀ (acc : List PathNodeId) (q : PathNodeId), q ∈ acc → q ∈ ids.foldl (unionStep g) acc := by
-  induction ids with
-  | nil => intro acc q hq; exact hq
-  | cons id rest ih =>
-    intro acc q hq
-    simp only [List.foldl_cons]
-    refine ih _ q ?_
-    simp only [unionStep]
-    cases g.node? id
-    · exact hq
-    · exact List.mem_append_left _ hq
-
-private theorem mem_unionFold (g : GPathM) (ids : List PathNodeId) :
-    ∀ (acc : List PathNodeId) (pid : PathNodeId) (p : PNodeM) (q : PathNodeId),
-      pid ∈ ids → g.node? pid = some p → q ∈ p.owners →
-      q ∈ ids.foldl (unionStep g) acc := by
-  induction ids with
-  | nil => intro _ _ _ _ hpid; exact absurd hpid List.not_mem_nil
-  | cons id rest ih =>
-    intro acc pid p q hpid hp hq
-    simp only [List.foldl_cons]
-    rcases List.mem_cons.mp hpid with rfl | hrest
-    · refine mem_unionFold_acc g rest _ q ?_
-      simp only [unionStep, hp]
-      exact List.mem_append_right _ hq
-    · exact ih _ pid p q hrest hp hq
-
-/-- An owner of any *existing* neighbour is in the neighbours' union. -/
-theorem mem_unionOwnersOf (g : GPathM) (ids : List PathNodeId) (pid : PathNodeId)
-    (p : PNodeM) (q : PathNodeId) (hpid : pid ∈ ids) (hp : g.node? pid = some p)
-    (hq : q ∈ p.owners) : q ∈ unionOwnersOf g ids :=
-  mem_unionFold g ids [] pid p q hpid hp hq
-
 /-- **The coherence analogue of the `gowners` argument.** If some chain node
 `sel w` is among the neighbours, then *every* chain node is in the
 neighbours' owners union — by pairwise ownership when `i ≠ w`, and by
@@ -138,17 +96,29 @@ theorem ChainSound_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId)
       exact chain_mem_unionOwnersOf g sel h (nb d) w hw hw' hwm i hi hi'
     have hup : ChainSound (updateAt g id (uniMap (unionOwnersOf g (nb d)))) sel :=
       ChainSound_updateAt_gen g id _ sel h hB
+    have hR : ∀ j, 0 ≤ j → j < g.current_step → sel j = id →
+        ∀ i, 0 ≤ i → i < g.current_step →
+          (cutRemoved d (unionOwnersOf g (nb d))).contains (sel i) = false :=
+      fun j hj hj' hsel i hi hi' => not_mem_cutRemoved d _ (sel i)
+        (fun hq => mem_intersectOwners_of_mem _ _ _ hq (hB j hj hj' hsel i hi hi'))
+    have hmir : ChainSound (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+        (cutRemoved d (unionOwnersOf g (nb d)))) sel :=
+      ChainSound_mirrorDrop _ id _ sel hup hR
     have hunl : ChainSound
-        (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id) sel :=
-      ChainSound_unlinkIncompatible _ id sel hup
+        (unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+          (cutRemoved d (unionOwnersOf g (nb d)))) id) sel :=
+      ChainSound_unlinkIncompatible _ id sel hmir
     have hshape : reviewNode g nb id =
         if isValidNode g d then
           (if isValidNode
-                (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id)
+                (unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+                  (cutRemoved d (unionOwnersOf g (nb d)))) id)
                 (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d)
-            then unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+            then unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+                  (cutRemoved d (unionOwnersOf g (nb d)))) id
             else removeNode
-              (unlinkIncompatible (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id) id)
+              (unlinkIncompatible (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+                (cutRemoved d (unionOwnersOf g (nb d)))) id) id)
         else removeNode g id := by
       simp only [reviewNode, hid]
       rfl
@@ -164,11 +134,22 @@ theorem ChainSound_reviewNode (g : GPathM) (nb : PNodeM → List PathNodeId)
             = some (uniMap (unionOwnersOf g (nb d)) d) := by
           rw [updateAt_node? g id _ (uniMap_id _) id d hid]
           rw [show (d.id == id) = true from beq_iff_eq.mpr hd_id]
-        have hnode : (unlinkIncompatible
-              (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id).node? (sel k)
+        have hnotin : (cutRemoved d (unionOwnersOf g (nb d))).contains
+            (uniMap (unionOwnersOf g (nb d)) d).id = false := by
+          show (cutRemoved d (unionOwnersOf g (nb d))).contains d.id = false
+          rw [hd_id, ← hk]
+          have hhi' : k < g.current_step := by rw [unlinkIncompatible_current] at hhi; exact hhi
+          exact hR k hlo hhi' hk k hlo hhi'
+        have hnode1 : (mirrorDrop (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+              (cutRemoved d (unionOwnersOf g (nb d)))).node? id
+            = some (uniMap (unionOwnersOf g (nb d)) d) := by
+          rw [mirrorDrop_node? _ id _ id _ hnode0, mirrorMap_of_not _ _ _ hnotin]
+        have hnode : (unlinkIncompatible (mirrorDrop
+              (updateAt g id (uniMap (unionOwnersOf g (nb d)))) id
+              (cutRemoved d (unionOwnersOf g (nb d)))) id).node? (sel k)
             = some (relink (intersectOwners d.owners (unionOwnersOf g (nb d))) d) := by
           rw [hk]
-          rw [unlinkIncompatible_node? _ id _ hnode0 id _ hnode0]
+          rw [unlinkIncompatible_node? _ id _ hnode1 id _ hnode1]
           show some (unlinkMap (uniMap (unionOwnersOf g (nb d)) d) id
             (uniMap (unionOwnersOf g (nb d)) d)) = _
           unfold GPathM.unlinkMap
@@ -325,7 +306,7 @@ theorem ChainSound_reviewPass (g : GPathM) (sel : Int → PathNodeId)
     (h : ChainSound g sel) : ChainSound (reviewPass g) sel := by
   simp only [reviewPass]
   exact ChainSound_reviewSons _ sel
-    (ChainSound_reviewParents _ sel (ChainSound_cleanInvalid g sel h))
+    (ChainSound_reviewParents _ sel (ChainSound_cleanPair g sel h))
 
 private theorem ChainSound_reviewFuel :
     ∀ (fuel : Nat) (g : GPathM) (sel : Int → PathNodeId), ChainSound g sel →

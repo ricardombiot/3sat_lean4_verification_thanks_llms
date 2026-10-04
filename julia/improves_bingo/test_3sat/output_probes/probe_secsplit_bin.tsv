@@ -1,0 +1,9 @@
+instance	truth	joins	tests	fails	t1	f1	t2	f2	t3	f3	dead	secs
+basic_v3_c1.cnf	true	10	541	0	98	0	375	0	68	0	177	2.8
+bin_v3_c2.cnf	true	16	1140	0	188	0	828	0	124	0	420	0.6
+complete_v3.cnf	true	16	1147	0	188	0	828	0	131	0	413	0.7
+rand3sat_v4_c20.cnf	true	72	29041	0	2252	0	26205	0	584	0	15919	235.9
+rand3sat_v8_c10.cnf	true	74	94103	0	3532	0	89441	0	1130	0	8369	3143.5
+simple3sat_v3_c2.cnf	true	18	2168	0	264	0	1702	0	202	0	396	1.8
+v4_c12_i1.cnf	true	57	18498	0	1524	0	16453	0	521	0	7686	76.2
+v4_c12_i2.cnf	true	52	16639	0	1396	0	14769	0	474	0	8225	47.4

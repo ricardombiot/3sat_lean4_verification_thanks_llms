@@ -88,8 +88,8 @@ is the open problem. What it does give is the map-side obligation phase L7
 owed, discharged. -/
 theorem reqSatisfying_of_sat (φ : Cnf) (hwf : WF φ) (a : Assign) (hsat : Sat a φ)
     (g : GPathM) (hcs : g.current_step = stepCount φ) :
-    MapChain.ReqSatisfying (reqOfCnf φ) g (fun k => ⟨selOfAssign φ a k, none⟩)
-      ∧ ChainOnMap φ g (fun k => ⟨selOfAssign φ a k, none⟩) := by
+    MapChain.ReqSatisfying (reqOfCnf φ) g (fun k => ⟨selOfAssign φ a k, none, none⟩)
+      ∧ ChainOnMap φ g (fun k => ⟨selOfAssign φ a k, none, none⟩) := by
   constructor
   · intro k hk0 hk req hreq _ _
     exact reqSat_selOfAssign φ hwf a k req hreq
@@ -99,7 +99,7 @@ theorem reqSatisfying_of_sat (φ : Cnf) (hwf : WF φ) (a : Assign) (hsat : Sat a
 /-- **The two directions agree.** Decoding the selection an assignment names
 gives that assignment back, on every variable the formula has. -/
 theorem decode_selOfAssign (φ : Cnf) (a : Assign) (v : Nat) (hv : v < φ.nVars) :
-    decode (fun k => ⟨selOfAssign φ a k, none⟩) v = a v := by
+    decode (fun k => ⟨selOfAssign φ a k, none, none⟩) v = a v := by
   have hsel : (selOfAssign φ a (2 * (v : Int))).index = bit (a v) := by
     have h := selOfAssign_var φ a v hv
     simp only [varStep] at h

@@ -1,0 +1,3 @@
+instance	truth	joins	runs	chains	none	both	n_invalid	n_node	n_edge	n_link	n_trio	dead	side_dead	cap	ram	secs
+v5_c20_i2.cnf	false	74	81	12420	0	0	0	0	0	0	0	0	0	0	0	43.4
+v6_c26_i1.cnf	false	93	109	26147	0	0	0	0	0	0	0	0	0	0	0	170.3

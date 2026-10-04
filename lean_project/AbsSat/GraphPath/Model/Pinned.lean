@@ -58,6 +58,9 @@ structure Ctx (h : GPathM) : Prop where
   shape   : Parents.Shape h
   rootz   : Sons.RootAtZero h
   pmp     : ParentId.PMP h
+  /-- The window's second level: the grandparent the id declares is the parent
+  of every parent. Holds by construction of the row `UP`. -/
+  gpmp    : ParentId.GPMP h
   nodeval : ∀ pid n, h.node? pid = some n → isValidNode h n = true
   ownGow  : ∀ pid n, h.node? pid = some n → ∀ q ∈ n.owners,
               0 ≤ q.id.step → q.id.step < h.current_step → q ∈ h.gowners
@@ -123,35 +126,81 @@ theorem pid_unique (h : GPathM) (ctx : Ctx h) (hfp : FullyPinned h) (k : Int)
     (p' : PathNodeId) (n' : PNodeM) (hn' : h.node? p' = some n') (hps' : p'.id.step = k) :
     p = p' := by
   have hid : p.id = p'.id := mapId_eq h ctx k (hfp k hlo hhi) hlo hhi p n hn hps p' n' hn' hps'
-  refine ParentId.pathNodeId_ext hid ?_
   have hmem : n ∈ h.nodes := List.mem_of_find?_eq_some hn
   have hmem' : n' ∈ h.nodes := List.mem_of_find?_eq_some hn'
   have hnid : n.id = p := node?_id_eq h p n hn
   have hnid' : n'.id = p' := node?_id_eq h p' n' hn'
   by_cases hz : k = 0
-  · have e1 : p.parent_id = none := by
+  · -- a root: both components are `none`
+    have e1 : p.parent_id = none := by
       have := ctx.rootz n hmem (by rw [hnid, hps]; exact hz)
       rwa [hnid] at this
     have e2 : p'.parent_id = none := by
       have := ctx.rootz n' hmem' (by rw [hnid', hps']; exact hz)
       rwa [hnid'] at this
-    rw [e1, e2]
-  · have hkpos : 0 < k := by omega
+    have g1 : p.gparent_id = none := by
+      have := ctx.gpmp.2 n hmem (by rw [hnid]; exact e1)
+      rwa [hnid] at this
+    have g2 : p'.gparent_id = none := by
+      have := ctx.gpmp.2 n' hmem' (by rw [hnid']; exact e2)
+      rwa [hnid'] at this
+    exact ParentId.pathNodeId_ext hid (by rw [e1, e2]) (by rw [g1, g2])
+  · -- above the root: the parent pins `parent_id`, and *its* parent pins
+    -- `gparent_id` — which is what `GPMP` says the identifier already records
+    have hkpos : 0 < k := by omega
     have hroot : p.parent_id ≠ none := by
       have := ctx.shape.notroot n hmem (by rw [hnid, hps]; exact hkpos)
       rwa [hnid] at this
     have hroot' : p'.parent_id ≠ none := by
       have := ctx.shape.notroot n' hmem' (by rw [hnid', hps']; exact hkpos)
       rwa [hnid'] at this
-    obtain ⟨pp, _, pn, hpn, hstep, heq⟩ := some_parent h ctx p n hn hroot
-    obtain ⟨pp', _, pn', hpn', hstep', heq'⟩ := some_parent h ctx p' n' hn' hroot'
+    obtain ⟨pp, hppmem, pn, hpn, hstep, heq⟩ := some_parent h ctx p n hn hroot
+    obtain ⟨pp', hppmem', pn', hpn', hstep', heq'⟩ := some_parent h ctx p' n' hn' hroot'
     have hb1 : pp.id.step = k - 1 := by rw [hstep, hps]
     have hb2 : pp'.id.step = k - 1 := by rw [hstep', hps']
     have hlo1 : (0 : Int) ≤ k - 1 := by omega
     have hhi1 : k - 1 < h.current_step := by omega
-    have : pp.id = pp'.id :=
+    have hppid : pp.id = pp'.id :=
       mapId_eq h ctx (k - 1) (hfp (k - 1) hlo1 hhi1) hlo1 hhi1 pp pn hpn hb1 pp' pn' hpn' hb2
-    rw [← heq, ← heq', this]
+    -- the third component: `GPMP` reads it off the parents, and the parents
+    -- agree because step `k-1` is pinned too
+    have hgp : p.gparent_id = pp.parent_id := by
+      have := ctx.gpmp.1 n hmem pp hppmem
+      rwa [hnid] at this
+    have hgp' : p'.gparent_id = pp'.parent_id := by
+      have := ctx.gpmp.1 n' hmem' pp' hppmem'
+      rwa [hnid'] at this
+    -- the parents agree on *their* parent, because step `k-2` is pinned too
+    have hpar_eq : pp.parent_id = pp'.parent_id := by
+      by_cases hz1 : k - 1 = 0
+      · have e1 : pp.parent_id = none := by
+          have := ctx.rootz pn (List.mem_of_find?_eq_some hpn)
+            (by rw [node?_id_eq h pp pn hpn, hb1]; exact hz1)
+          rwa [node?_id_eq h pp pn hpn] at this
+        have e2 : pp'.parent_id = none := by
+          have := ctx.rootz pn' (List.mem_of_find?_eq_some hpn')
+            (by rw [node?_id_eq h pp' pn' hpn', hb2]; exact hz1)
+          rwa [node?_id_eq h pp' pn' hpn'] at this
+        rw [e1, e2]
+      · have hr1 : pp.parent_id ≠ none := by
+          have := ctx.shape.notroot pn (List.mem_of_find?_eq_some hpn)
+            (by rw [node?_id_eq h pp pn hpn, hb1]; omega)
+          rwa [node?_id_eq h pp pn hpn] at this
+        have hr2 : pp'.parent_id ≠ none := by
+          have := ctx.shape.notroot pn' (List.mem_of_find?_eq_some hpn')
+            (by rw [node?_id_eq h pp' pn' hpn', hb2]; omega)
+          rwa [node?_id_eq h pp' pn' hpn'] at this
+        obtain ⟨q, _, qn, hqn, hqstep, hqeq⟩ := some_parent h ctx pp pn hpn hr1
+        obtain ⟨q', _, qn', hqn', hqstep', hqeq'⟩ := some_parent h ctx pp' pn' hpn' hr2
+        have hc1 : q.id.step = k - 2 := by rw [hqstep, hb1]; omega
+        have hc2 : q'.id.step = k - 2 := by rw [hqstep', hb2]; omega
+        have hlo2 : (0 : Int) ≤ k - 2 := by omega
+        have hhi2 : k - 2 < h.current_step := by omega
+        have : q.id = q'.id :=
+          mapId_eq h ctx (k - 2) (hfp (k - 2) hlo2 hhi2) hlo2 hhi2 q qn hqn hc1 q' qn' hqn' hc2
+        rw [← hqeq, ← hqeq', this]
+    exact ParentId.pathNodeId_ext hid (by rw [← heq, ← heq', hppid])
+      (by rw [hgp, hgp', hpar_eq])
 
 -- ============================================================
 -- `PairwiseOwned`
@@ -261,6 +310,7 @@ theorem ctx_filterAll (g : GPathM) (reqs : List NodeId) (hreach : Reachable reqO
   shape := Parents.Shape_filterAll reqOf g reqs hreach
   rootz := Sons.RootAtZero_reachable_filterAll reqOf g reqs hreach
   pmp := ParentId.PMP_filterAll reqOf g reqs hreach
+  gpmp := ParentId.GPMP_filterAll reqOf g reqs hreach
   nodeval := fun pid n hn => review_node_valid _ hv pid n hn
   ownGow := fun pid n hn q hq hlo hhi =>
     Candidates.owner_mem_gowners _ hv pid n hn q hq hlo hhi

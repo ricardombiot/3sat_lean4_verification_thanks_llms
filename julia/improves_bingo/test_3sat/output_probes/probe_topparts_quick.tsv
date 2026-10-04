@@ -1,0 +1,5 @@
+instance	truth	joins	runs	tops	keep_fail	pins	top_other	node_out	edge_out	tris	tri_fail	tri_fail_p	ram	secs
+clause_mix.cnf	true	34	123	283	0	207	0	0	0	1067532	0	0	0	26.5
+clause_mix_sep.cnf	true	40	148	358	0	258	0	0	0	4640783	0	0	0	125.8
+v4_c12_i1.cnf	true	57	184	349	0	273	0	0	0	1124685	0	0	0	31.5
+v5_c20_i2.cnf	false	74	237	493	0	370	0	0	0	3117921	0	0	0	97.7

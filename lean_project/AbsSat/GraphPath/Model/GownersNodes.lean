@@ -146,6 +146,13 @@ theorem GN_cleanInvalidGo (ids : List PathNodeId) :
 theorem GN_cleanInvalid (g : GPathM) (h : GN g) : GN (cleanInvalid g) :=
   GN_cleanInvalidGo _ g h
 
+/-- The mirror keeps every node, with its id, and the global owners. -/
+theorem GN_mirrorDrop (g : GPathM) (x : PathNodeId) (rem : List PathNodeId) (h : GN g) :
+    GN (mirrorDrop g x rem) := by
+  intro q hq
+  obtain ⟨m, hm, hmid⟩ := h q hq
+  exact ⟨mirrorMap x rem m, List.mem_map_of_mem hm, by rw [mirrorMap_id]; exact hmid⟩
+
 theorem GN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
     (h : GN g) : GN (reviewNode g nb id) := by
   simp only [reviewNode]
@@ -156,7 +163,8 @@ theorem GN_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : G
     · have h₁ : GN (updateAt g id
           (fun n => { n with owners := intersectOwners n.owners (unionOwnersOf g (nb d)) })) :=
         GN_updateAt g id _ (fun _ => rfl) h
-      have h₂ := GN_unlinkIncompatible _ id h₁
+      have h₂ := GN_unlinkIncompatible _ id
+        (GN_mirrorDrop _ id (cutRemoved d (unionOwnersOf g (nb d))) h₁)
       split
       · exact h₂
       · exact GN_removeNode _ id h₂
@@ -177,9 +185,27 @@ theorem GN_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
     · exact ih _ (GN_reviewLine nb k g h)
     · exact h
 
+theorem hasNode_cutAll (g : GPathM) (q : PathNodeId) (h : HasNode g q) : HasNode (cutAll g) q := by
+  obtain ⟨n, hn, hid⟩ := h
+  exact ⟨cutNode g.gowners g n, List.mem_map_of_mem hn, hid⟩
+
+theorem GN_cleanInvalid₂ (g : GPathM) (h : GN g) : GN (cleanInvalid₂ g) := by
+  have hp := purgeFuel_inv GN (fun g id h => GN_removeNode g id h) (g.nodes.length + 1) g h
+  intro q hq
+  exact hasNode_cutAll _ q (hp q hq)
+
+theorem GN_pairSweep (g : GPathM) (h : GN g) : GN (pairSweep g) := by
+  intro q hq
+  obtain ⟨n, hn, hid⟩ := h q hq
+  exact ⟨pairMap g n, List.mem_map_of_mem hn, hid⟩
+
+theorem GN_cleanPair (g : GPathM) (h : GN g) : GN (cleanPair g) :=
+  cleanPair_inv GN g (GN_cleanInvalid₂ g h)
+    (fun x _ hx => GN_cleanInvalid₂ _ (GN_pairSweep x hx))
+
 theorem GN_reviewPass (g : GPathM) (h : GN g) : GN (reviewPass g) := by
   simp only [reviewPass]
-  exact GN_reviewSteps _ _ _ (GN_reviewSteps _ _ _ (GN_cleanInvalid g h))
+  exact GN_reviewSteps _ _ _ (GN_reviewSteps _ _ _ (GN_cleanPair g h))
 
 theorem GN_reviewFuel : ∀ (fuel : Nat) (g : GPathM), GN g → GN (reviewFuel fuel g) := by
   intro fuel
@@ -214,9 +240,8 @@ theorem GN_addNode (g : GPathM) (d : NodeId) (title : String) (h : GN g) :
   · obtain ⟨n, hn, hid⟩ := h q hq
     exact ⟨upMap g d n, List.mem_append_left _ (List.mem_map_of_mem hn),
       (upMap_id g d n).trans hid⟩
-  · rcases List.mem_singleton.mp hq with rfl
-    exact ⟨addOwner (newPid g d) (upNode g d title),
-      List.mem_append_right _ List.mem_cons_self, rfl⟩
+  · exact ⟨rowNode g d title q,
+      List.mem_append_right _ (List.mem_map_of_mem hq), rfl⟩
 
 theorem GN_up (g : GPathM) (d : NodeId) (title : String) (h : GN g) :
     GN (up g d title) := by

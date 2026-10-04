@@ -1,0 +1,6 @@
+instance	truth	old_dead	rule_new	cats	secs
+clause_mix.cnf	true	2284	0	top:f2=285/0 top:f3=54/0 low:f2=1645/0 low:f3=300/0	7.1
+clause_mix_sep.cnf	true	12250	0	top:f2=1171/0 top:f3=246/0 low:f2=9145/0 low:f3=1688/0	33.6
+v5_c20_i1.cnf	true	1298	0	top:f2=78/0 top:f3=116/0 low:f2=520/0 low:f3=584/0	77.9
+v5_c20_i2.cnf	false	828	0	top:f2=32/0 top:f3=48/0 low:f2=604/0 low:f3=144/0	38.9
+v5_c20_i4.cnf	true	1696	0	top:f2=188/0 top:f3=24/0 low:f2=1412/0 low:f3=72/0	120.0

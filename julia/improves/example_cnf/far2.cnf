@@ -1,0 +1,19 @@
+c far2 - incompatible owners from v100 report
+c
+c Structure: correlated non-adjacent clauses that create Helly-type configurations
+c where each pair of pins can be satisfied separately, but all three together cannot
+c be satisfied on the same node (forcing multi-round R closure)
+c
+c Variables:
+c   A: clauses -1 -2 3 (first implication chain)
+c   Filler: clauses 7 8 5 (filler variables)
+c   B: clauses -3 -4 6 (second implication chain, non-adjacent to A)
+c   Filler: clauses -7 8 5
+c   D: clauses 1 2 4 (third implication chain)
+c
+p cnf 8 5
+-1 -2 3 0
+7 8 5 0
+-3 -4 6 0
+-7 8 5 0
+1 2 4 0

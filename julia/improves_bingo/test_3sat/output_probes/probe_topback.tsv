@@ -1,0 +1,5 @@
+instance	truth	entries	tf	tf_fail	tfs	tfs_fail	te	te_fail	tes	tes_fail	secs
+clause_mix.cnf	true	47	4931	866	2348	50	717	277	426	0	4.0
+clause_mix_sep.cnf	true	59	8059	942	4418	84	2297	1087	1132	0	17.3
+v5_c20_i1.cnf	true	126	16037	3723	2933	213	480	279	128	2	40.0
+v5_c20_i2.cnf	false	115	13862	3429	3253	181	271	130	128	0	20.2

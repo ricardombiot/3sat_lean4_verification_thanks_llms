@@ -119,28 +119,30 @@ theorem OwnedCompatible_addNode (hback : ∀ x, ∀ r ∈ reqOf x, r.step < x.st
   rcases List.mem_append.mp hn' with hmem | hmem
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
-    have hno : n'.owners = n.owners ++ [newPid g d] := by rw [← hEq]; exact upMap_owners g d n
+    have hno : n'.owners = n.owners ++ gainedOwners g d n := by
+      rw [← hEq]; exact upMap_owners g d n
     rw [hno, List.mem_append] at hq
     rw [hni] at hstep ⊢
     rcases hq with hq | hq
     · exact h n hn q hq req hreq hstep
-    · rcases List.mem_singleton.mp hq with rfl
+    · rw [mapId_of_mem_newRowIds g d q (gainedOwners_subset g d n q hq)] at hreq
       exact hpure n hn req hreq hstep
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hno : (addOwner (newPid g d) (upNode g d title)).owners = g.gowners ++ [newPid g d] := rfl
-    have hid : (addOwner (newPid g d) (upNode g d title)).id.id.step = d.step := rfl
-    rw [hno, List.mem_append] at hq
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    have hid : (rowNode g d title pid).id.id.step = d.step := by
+      rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
+    rw [rowNode_owners] at hq
     exfalso
-    rcases hq with hq | hq
-    · obtain ⟨m, hm, hmid⟩ := hgn q hq
+    rcases (mem_rowOwners_iff g d pid q).mp hq with ⟨_, hgow⟩ | hqp
+    · obtain ⟨m, hm, hmid⟩ := hgn q hgow
       have h1 := hbelow m hm
       have h2 := hback q.id req hreq
       rw [hmid] at h1
       rw [hid, hd] at hstep
       omega
-    · rcases List.mem_singleton.mp hq with rfl
-      have h2 := hback d req hreq
+    · have h2 := hback q.id req hreq
+      have hqd : q.id = d := by rw [hqp]; exact mapId_of_mem_newRowIds g d pid hpid
       rw [hid] at hstep
+      rw [hqd] at h2
       omega
 
 theorem OwnedCompatible_join (g₁ g₂ : GPathM) (h₁ : OwnedCompatible reqOf g₁)

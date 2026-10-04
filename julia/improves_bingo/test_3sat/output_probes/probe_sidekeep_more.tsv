@@ -1,0 +1,7 @@
+instance	truth	r_noside	r_sk_t	r_sk_f	r_skt_f	r_ske_f	k_noside	k_sk_t	k_sk_f	k_skt_f	k_ske_f	secs
+clause_mix.cnf	true	0	336	0	0	0	0	102	0	0	0	2.9
+clause_mix_sep.cnf	true	0	383	0	0	0	0	114	0	0	0	2.5
+rand3sat_v8_c10.cnf	true	0	415	0	0	0	0	242	0	0	0	9.6
+v5_c20_i1.cnf	true	0	278	0	0	0	0	208	0	0	0	4.0
+v6_c26_i1.cnf	false	0	338	0	0	0	0	264	0	0	0	6.9
+v7_c30_i1.cnf	false	0	393	0	0	0	0	306	0	0	0	13.2

@@ -82,30 +82,27 @@ module PathDocumentOwners
         end
     end
 
+
+    # corrección de Opus 19-Sept-2026
     function union!(owners_a :: PathDocOwners, owners_b :: PathDocOwners)
-        max_step = owners_a.max_step
-
-        if max_step < owners_b.max_step
-            max_step = owners_b.max_step
-        end
-
-        #! [for] $ O(S) $
+        max_step = max(owners_a.max_step, owners_b.max_step)
         for step in 0:max_step
-            both_have_it = have(owners_a, step) && have(owners_b, step)
-            if both_have_it
-                set_owners_line_a = get(owners_a, step)
-                set_owners_line_b = get(owners_b, step)
-
-                #! [fixed] $ O(S*7*7) $
-                Base.union!(set_owners_line_a, set_owners_line_b)
-            else
-                if have(owners_b, step)
-                    set_owners_line_b = get(owners_b, step)
+            #! [for] $ O(S) $
+            if have(owners_b, step)
+                if have(owners_a, step)
+                    #! [fixed] $ O(S*7*7) $
+                    Base.union!(get(owners_a, step), get(owners_b, step))
+                else
                     #! [fixed] $ O(S*7) $
-                    push_derive!(owners_a, step, set_owners_line_b)
+                    push_derive!(owners_a, step, get(owners_b, step))
+                end
+
+                if !isempty(get(owners_a, step))
+                    delete!(owners_a.empty_steps, step)   # el paso vuelve a tener dueños
                 end
             end
         end
+        owners_a.max_step = max_step
     end
 
     function intersect!(owners_a :: PathDocOwners, owners_b :: PathDocOwners)

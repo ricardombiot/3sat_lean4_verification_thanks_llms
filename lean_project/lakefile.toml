@@ -96,3 +96,36 @@ root = "PureSatMachineMain"
 [[lean_exe]]
 name = "diff-pure-msat"
 root = "DiffPureMsatMain"
+
+[[lean_exe]]
+name = "improves-diff"
+root = "ImprovesDiffMain"
+
+[[lean_exe]]
+name = "order-search"
+root = "OrderSearchMain"
+
+[[lean_exe]]
+name = "frontier-derive"
+root = "FrontierDeriveMain"
+
+# Measurement probes. Keep them here, in the repo — see Probes/.
+[[lean_exe]]
+name = "join-borrow"
+root = "Probes.JoinBorrow"
+
+[[lean_exe]]
+name = "helly"
+root = "Probes.Helly"
+
+[[lean_exe]]
+name = "row-degree"
+root = "Probes.RowDegree"
+
+[[lean_exe]]
+name = "exec-diff"
+root = "Probes.ExecDiff"
+
+[[lean_exe]]
+name = "model-slow"
+root = "Probes.ModelSlow"

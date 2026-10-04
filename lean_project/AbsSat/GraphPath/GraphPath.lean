@@ -167,7 +167,9 @@ def remove_if_invalid_node! (gpath : GPath) (path_node : PDocNode) : IO Bool := 
   else
     pure false
 
-def clean_invalid_nodes! (gpath : GPath) : IO Unit := do
+/-- The previous, sequential `clean_invalid_nodes!`: node by node, each table cut against the
+global owners of that moment. Kept for the record; the review uses the two-phase one below. -/
+def clean_invalid_nodes_sequential! (gpath : GPath) : IO Unit := do
   AbsSat.Db.Path.Cols.PathColLines.filter! gpath.table_lines (fun map_node => do
     let owners ← gpath.owners.get
     let updated_owners := AbsSat.Db.Path.Docs.PathDocOwners.intersect map_node.owners owners
@@ -177,6 +179,82 @@ def clean_invalid_nodes! (gpath : GPath) : IO Unit := do
 
     remove_if_invalid_node! gpath map_node
   )
+
+/-- `m`, cut against `gow`, still owns `x` (the model's `admits`). A missing node admits nothing. -/
+def admits! (gpath : GPath) (gow : PDocOwners) (m x : PathNodeId) : IO Bool := do
+  match ← getNode gpath.table_lines m with
+  | some nm => pure (AbsSat.Db.Path.Docs.PathDocOwners.isOwner
+      (AbsSat.Db.Path.Docs.PathDocOwners.intersect nm.owners gow) x)
+  | none => pure false
+
+/-- A node cut against `gow` (the model's `cutNode`): owners intersected, and only the links both
+ends admit. Pure with respect to the collection: nothing is written. -/
+def cut_node! (gpath : GPath) (gow : PDocOwners) (n : PDocNode) : IO PDocNode := do
+  let mut node := putOwners n (AbsSat.Db.Path.Docs.PathDocOwners.intersect n.owners gow)
+  for p in n.parents do
+    let ok := (← admits! gpath gow n.id p) && (← admits! gpath gow p n.id)
+    if !ok then node := removeParent node p
+  for s in n.sons do
+    let ok := (← admits! gpath gow n.id s) && (← admits! gpath gow s n.id)
+    if !ok then node := removeSon node s
+  pure node
+
+/--
+**`clean_invalid_nodes!` in two phases** (report v181 §6; Julia `CLEAN_MODE = :two_phase`, the
+model's `cleanInvalid₂`).
+
+1. Purge, to a fixpoint: remove every node whose cut against the *current* global owners would be
+   invalid, without touching any table; repeat while something is removed.
+2. One cut: every surviving node against the *final* global owners, links kept only when both ends
+   admit them.
+-/
+partial def purge_rounds! (gpath : GPath) : IO Unit := do
+  let valid ← gpath.is_valid.get
+  let lines_valid ← gpath.table_lines.is_valid.get
+  if valid && lines_valid then
+    let changed ← IO.mkRef false
+    AbsSat.Db.Path.Cols.PathColLines.filter! gpath.table_lines (fun path_node => do
+      let gow ← gpath.owners.get
+      let cut ← cut_node! gpath gow path_node
+      if ← is_valid_node gpath cut then
+        pure false
+      else
+        remove_node_owner! gpath path_node.id
+        clean_links! gpath path_node
+        gpath.review_owners.set true
+        changed.set true
+        pure true)
+    if ← changed.get then purge_rounds! gpath
+
+def clean_invalid_nodes! (gpath : GPath) : IO Unit := do
+  purge_rounds! gpath
+  let gow ← gpath.owners.get
+  -- read every node first, cut them all against the same state, then write
+  let nodes ← IO.mkRef ([] : List PDocNode)
+  forEach gpath.table_lines (fun n => nodes.modify (n :: ·))
+  let mut cuts : List PDocNode := []
+  for n in ← nodes.get do
+    cuts := (← cut_node! gpath gow n) :: cuts
+  for n in cuts do
+    pushNode! gpath.table_lines n
+
+/-- All the ids of an owners table. -/
+def owner_ids (o : PDocOwners) : List PathNodeId :=
+  o.table.fold (fun acc _ set => acc ++ set.toList) []
+
+/--
+**The mirror** (review simétrico; Julia `mirror_remove!`, `SYM_MODE = :on`; the model's
+`mirrorDrop`). `x` lost the owners `removed`: each one that is still a node loses `x`.
+-/
+def mirror_remove! (gpath : GPath) (x : PathNodeId) (removed : List PathNodeId) : IO Unit := do
+  for w in removed do
+    if w != x then
+      match ← getNode gpath.table_lines w with
+      | some nw =>
+        if AbsSat.Db.Path.Docs.PathDocOwners.isOwner nw.owners x then
+          pushNode! gpath.table_lines (removeOwner nw x)
+          gpath.review_owners.set true
+      | none => pure ()
 
 /--
 Union the owners tables of every node named by `ids` (looked up in the
@@ -216,6 +294,10 @@ def review_owners_line! (gpath : GPath) (neighbors : PDocNode → Std.HashSet Pa
           let updated_owners := AbsSat.Db.Path.Docs.PathDocOwners.intersect path_node.owners owners_union
           let updated_node := putOwners path_node updated_owners
           pushNode! gpath.table_lines updated_node
+          -- the mirror: every owner the cut removed loses this node
+          let removed := (owner_ids path_node.owners).filter
+            (fun q => !AbsSat.Db.Path.Docs.PathDocOwners.isOwner updated_owners q)
+          mirror_remove! gpath path_node.id removed
           let updated_node ← unlink_incompatible! gpath updated_node
           remove_if_invalid_node! gpath updated_node
         | none =>

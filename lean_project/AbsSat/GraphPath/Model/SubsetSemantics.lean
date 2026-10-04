@@ -147,13 +147,10 @@ theorem MachineOk_reachable (reqOf : NodeId → List NodeId) (g : GPathM)
   | join g₁ g₂ _ _ _ ih₁ _ => exact Certifies.MachineOk_join g₁ g₂ ih₁
 
 theorem mem_upSons_sons_cases (g : GPathM) (d : NodeId) (n : PNodeM) (q : PathNodeId)
-    (hq : q ∈ (upSons g d n).sons) : q ∈ n.sons ∨ q = newPid g d := by
-  simp only [upSons] at hq
-  split at hq
-  · rcases List.mem_append.mp hq with h | h
-    · exact Or.inl h
-    · exact Or.inr (List.mem_singleton.mp h)
-  · exact Or.inl hq
+    (hq : q ∈ (upSons g d n).sons) : q ∈ n.sons ∨ q ∈ newRowIds g d := by
+  rcases List.mem_append.mp hq with h | h
+  · exact Or.inl h
+  · exact Or.inr (gainedSons_subset g d n q h)
 
 /-- A sound chain of the extended state, read below the new step, is a sound chain of
 the state before `addNode`. -/
@@ -162,18 +159,17 @@ theorem ChainSound_of_addNode (g : GPathM) (d : NodeId) (title : String)
     (h : ChainSound (addNode g d title) sel) : ChainSound g sel := by
   obtain ⟨hchainA, hownedA, hgowA⟩ := h.chain
   have hchain := IsChain_of_addNode g d title hd sel hchainA
-  have hne : ∀ k, 0 ≤ k → k < g.current_step → sel k ≠ newPid g d := by
-    intro k h0 hk heq
+  have hne : ∀ k, 0 ≤ k → k < g.current_step → sel k ∉ newRowIds g d := by
+    intro k h0 hk hmem
     have hstep := (hchain.1 k h0 hk).2
-    rw [heq] at hstep
-    simp only [newPid] at hstep
+    rw [mapId_of_mem_newRowIds g d _ hmem, hd] at hstep
     omega
   refine ⟨⟨hchain, PairwiseOwned_of_addNode g d title hd sel hchainA hownedA, ?_⟩, ?_, ?_, ?_⟩
   · intro k h0 hk
-    have hm : sel k ∈ g.gowners ++ [newPid g d] := hgowA k h0 (by rw [addNode_current]; omega)
+    have hm : sel k ∈ g.gowners ++ newRowIds g d := hgowA k h0 (by rw [addNode_current]; omega)
     rcases List.mem_append.mp hm with h1 | h1
     · exact h1
-    · exact absurd (List.mem_singleton.mp h1) (hne k h0 hk)
+    · exact absurd h1 (hne k h0 hk)
   · intro k h0 hk
     have hso := h.self_owned k h0 (by rw [addNode_current]; omega)
     have hstep := (hchainA.1 k h0 (by rw [addNode_current]; omega)).2
@@ -188,7 +184,7 @@ theorem ChainSound_of_addNode (g : GPathM) (d : NodeId) (title : String)
       rw [hEq, upMap_owners] at hso
       rcases List.mem_append.mp hso with h1 | h1
       · exact h1
-      · exact absurd (List.mem_singleton.mp h1) (hne k h0 hk)
+      · exact absurd (gainedOwners_subset g d n _ h1) (hne k h0 hk)
   · intro k h0 hk
     have hsl := h.son_link k h0 (by rw [addNode_current]; omega)
     have hstep := (hchainA.1 k h0 (by rw [addNode_current]; omega)).2
@@ -217,8 +213,7 @@ theorem denotS_addNode (g : GPathM) (d : NodeId) (title : String)
   · rintro ⟨sel, hs, rfl⟩
     obtain ⟨hchainA, _, _⟩ := hs.chain
     refine ⟨pathOf sel g, ?_, sel, ChainSound_of_addNode g d title hd sel hs, rfl⟩
-    rw [pathOf_addNode g d title hmok.1 sel, chain_top_is_new g d title hmok.1 hbelow sel hchainA]
-      <;> rfl
+    rw [pathOf_addNode g d title hmok.1 sel, chain_top_mapId g d title hmok.1 hbelow sel hchainA]
   · rintro ⟨p', rfl, sel, hs, rfl⟩
     refine ⟨extend g d sel, ChainSound_addNode g d title hd hbelow hmok sel hs, ?_⟩
     have hpath : pathOf (extend g d sel) g = pathOf sel g := by
@@ -227,7 +222,7 @@ theorem denotS_addNode (g : GPathM) (d : NodeId) (title : String)
       intro k hk
       have hk1 := mem_intRange_upper (List.mem_reverse.mp hk)
       rw [extend_below g d sel k (by omega)]
-    rw [pathOf_addNode g d title hmok.1, extend_top, hpath] <;> rfl
+    rw [pathOf_addNode g d title hmok.1, extend_top, hpath, extendPid_mapId]
 
 /-- **`upFiltering` is filter-then-extend, exactly.** For a reachable state whose filter
 is valid, the subset after `upFiltering` is `d` prepended to every path of the old

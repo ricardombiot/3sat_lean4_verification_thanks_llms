@@ -1,0 +1,105 @@
+digraph G {
+     compound=true 
+subgraph cluster_line_0 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k0_1 [label=<1=1<BR /> ID: k0.1 <BR />Requires: [] <BR />>]k0_0 [label=<1=0<BR /> ID: k0.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 0 " 
+ }
+subgraph cluster_line_1 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k1_1 [label=<!1=1<BR /> ID: k1.1 <BR />Requires: [k0.0,] <BR />>]k1_0 [label=<!1=0<BR /> ID: k1.0 <BR />Requires: [k0.1,] <BR />>]
+     fontsize="12" 
+     label = "Line 1 " 
+ }
+subgraph cluster_line_2 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k2_1 [label=<2=1<BR /> ID: k2.1 <BR />Requires: [] <BR />>]k2_0 [label=<2=0<BR /> ID: k2.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 2 " 
+ }
+subgraph cluster_line_3 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k3_0 [label=<!2=0<BR /> ID: k3.0 <BR />Requires: [k2.1,] <BR />>]k3_1 [label=<!2=1<BR /> ID: k3.1 <BR />Requires: [k2.0,] <BR />>]
+     fontsize="12" 
+     label = "Line 3 " 
+ }
+subgraph cluster_line_4 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k4_0 [label=<3=0<BR /> ID: k4.0 <BR />Requires: [] <BR />>]k4_1 [label=<3=1<BR /> ID: k4.1 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 4 " 
+ }
+subgraph cluster_line_5 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k5_0 [label=<!3=0<BR /> ID: k5.0 <BR />Requires: [k4.1,] <BR />>]k5_1 [label=<!3=1<BR /> ID: k5.1 <BR />Requires: [k4.0,] <BR />>]
+     fontsize="12" 
+     label = "Line 5 " 
+ }
+subgraph cluster_line_6 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k6_0 [label=<FusionNode<BR /> ID: k6.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 6 " 
+ }
+subgraph cluster_line_7 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k7_1 [label=<or0=001<BR /> ID: k7.1 <BR />Requires: [k4.1,k2.0,k0.0,] <BR />>]k7_4 [label=<or0=100<BR /> ID: k7.4 <BR />Requires: [k4.0,k2.0,k0.1,] <BR />>]k7_3 [label=<or0=011<BR /> ID: k7.3 <BR />Requires: [k2.1,k4.1,k0.0,] <BR />>]k7_7 [label=<or0=111<BR /> ID: k7.7 <BR />Requires: [k2.1,k4.1,k0.1,] <BR />>]k7_6 [label=<or0=110<BR /> ID: k7.6 <BR />Requires: [k4.0,k2.1,k0.1,] <BR />>]k7_5 [label=<or0=101<BR /> ID: k7.5 <BR />Requires: [k4.1,k2.0,k0.1,] <BR />>]k7_2 [label=<or0=010<BR /> ID: k7.2 <BR />Requires: [k4.0,k2.1,k0.0,] <BR />>]
+     fontsize="12" 
+     label = "Line 7 " 
+ }
+subgraph cluster_line_8 {
+ style=filled;
+ color=lightgrey; 
+     node [style=filled,color=white]; 
+k8_0 [label=<FusionNode<BR /> ID: k8.0 <BR />Requires: [] <BR />>]
+     fontsize="12" 
+     label = "Line 8 " 
+ }
+k0_1 -> k1_0 
+k0_0 -> k1_1 
+k1_1 -> k2_1 
+k1_1 -> k2_0 
+k1_0 -> k2_1 
+k1_0 -> k2_0 
+k2_1 -> k3_0 
+k2_0 -> k3_1 
+k3_0 -> k4_0 
+k3_0 -> k4_1 
+k3_1 -> k4_0 
+k3_1 -> k4_1 
+k4_0 -> k5_1 
+k4_1 -> k5_0 
+k5_0 -> k6_0 
+k5_1 -> k6_0 
+k6_0 -> k7_1 
+k6_0 -> k7_4 
+k6_0 -> k7_3 
+k6_0 -> k7_7 
+k6_0 -> k7_6 
+k6_0 -> k7_5 
+k6_0 -> k7_2 
+k7_1 -> k8_0 
+k7_4 -> k8_0 
+k7_3 -> k8_0 
+k7_7 -> k8_0 
+k7_6 -> k8_0 
+k7_5 -> k8_0 
+k7_2 -> k8_0 
+}

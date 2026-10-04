@@ -157,11 +157,10 @@ theorem chainSound_along (hwf : WF φ) (hsat : Sat a φ) (hzero : (0 : Int) < st
       if he : k = g.current_step then
         have hextend : extend (filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step)))
             (selOfAssign φ a g.current_step) sel g.current_step
-            = newPid (filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step)))
-              (selOfAssign φ a g.current_step) := by
+            = extendPid (filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step)))
+              (selOfAssign φ a g.current_step) sel := by
           simp only [extend, if_pos hpr.step_eq.symm]
-        rw [he, hextend]
-        rfl
+        rw [he, hextend, extendPid_mapId]
       else
         rw [extend_below (filterAll g (reqOfCnf φ (selOfAssign φ a g.current_step)))
           (selOfAssign φ a g.current_step) sel k (by rw [hpr.step_eq]; omega)]

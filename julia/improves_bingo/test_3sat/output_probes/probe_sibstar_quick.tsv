@@ -1,0 +1,7 @@
+instance	truth	entries	multigroup	sib_two	whole_t	whole_inval	whole_lostnode	whole_lostedge	sib_t	sib_inval	sib_lostnode	sib_lostedge	sibr_t	sibr_inval	sibr_lostnode	sibr_lostedge	final_t	final_inval	final_lostnode	final_lostedge	secs
+clause_mix.cnf	true	49	33	44	126	0	0	0	126	0	0	0	126	0	0	0	4	0	0	0	1.1
+clause_mix_sep.cnf	true	61	39	50	150	0	0	0	150	0	0	0	141	0	0	0	4	0	0	0	1.9
+rand3sat_v8_c10.cnf	true	93	73	108	274	0	0	0	274	0	0	0	186	0	0	0	4	0	0	0	9.0
+v5_c20_i1.cnf	true	128	82	69	279	0	0	0	279	0	0	0	141	0	0	0	1	0	0	0	4.0
+v6_c26_i1.cnf	false	141	93	103	337	0	0	0	337	0	0	0	135	0	0	0	0	0	0	0	6.7
+v7_c30_i1.cnf	false	169	106	124	399	0	0	0	399	0	0	0	178	0	0	0	0	0	0	0	14.1

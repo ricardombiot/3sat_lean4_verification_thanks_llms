@@ -65,6 +65,10 @@ theorem Fabric_chains (g : GPathM) : Fabric.Fabric g (ChainS g) (ChainT g) where
   support := by
     rintro x ⟨sel, h, hx⟩ l hlo hhi
     exact ⟨sel l, ⟨sel, h, hx, ⟨l, hlo, hhi, rfl⟩⟩, (h.chain.1.1 l hlo hhi).2⟩
+  agg := by
+    rintro x v _ ⟨sel, h, hx, hv⟩ l hlo hhi
+    exact ⟨sel l, ⟨sel, h, hx, ⟨l, hlo, hhi, rfl⟩⟩, ⟨sel, h, hv, ⟨l, hlo, hhi, rfl⟩⟩,
+      (h.chain.1.1 l hlo hhi).2⟩
   up := by
     rintro x n hn _ hroot v ⟨sel, h, ⟨i, hi, hi', rfl⟩, hv⟩
     have hipos : 0 < i := by

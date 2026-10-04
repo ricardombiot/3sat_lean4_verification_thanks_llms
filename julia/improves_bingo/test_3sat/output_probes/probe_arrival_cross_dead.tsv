@@ -1,0 +1,3 @@
+instance	truth	arrivals	xc_np	xc_nf	xc_abs	xc_rem	xc_nf_abs	xc_nf_rem	xc_nf_onetop	xc_nf_onegrp	np	nf	secs
+clause_mix.cnf	true	84	1008	4	614	394	4	0	4	4	447	0	0.7
+clause_mix_sep.cnf	true	102	2614	16	1538	1076	16	0	16	16	1145	0	0.7

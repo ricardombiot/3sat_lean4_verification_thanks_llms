@@ -1,0 +1,6 @@
+instance	truth	r_t	r_eq	r_sub	r_other	r_noA	r_edges	r_edges_notA	r_allA	r_star_in_Apar	k_t	k_eq	k_sub	k_other	k_noA	k_edges	k_edges_notA	k_allA	k_star_in_Apar	secs
+clause_mix.cnf	true	93	72	21	0	0	18202	3	92	93	102	102	0	0	0	61213	0	102	102	2.5
+rand3sat_v8_c10.cnf	true	132	90	42	0	0	77054	46	130	132	242	242	0	0	0	599822	0	242	242	5.2
+v5_c20_i1.cnf	true	80	68	12	0	0	15404	0	80	80	208	208	0	0	0	190110	0	208	208	2.4
+v6_c26_i1.cnf	false	96	74	22	0	0	26102	0	96	96	264	264	0	0	0	328253	0	264	264	4.0
+v7_c30_i1.cnf	false	127	99	28	0	0	44320	0	127	127	306	306	0	0	0	641818	0	306	306	8.0

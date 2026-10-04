@@ -55,7 +55,8 @@ theorem SNN_addNode (g : GPathM) (d : NodeId) (title : String)
   rcases List.mem_append.mp hn' with hmem | hmem
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     rw [← hEq, upMap_id]; exact h n hn
-  · rcases List.mem_singleton.mp hmem with rfl
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid]
     show (0 : Int) ≤ d.step
     rw [hd]; exact hmok.1
 
@@ -163,18 +164,8 @@ theorem OOS_cleanInvalid (g : GPathM) (h : OOS g) : OOS (cleanInvalid g) :=
   OOS_cleanInvalidGo _ g h
 
 theorem OOS_reviewNode (nb : PNodeM → List PathNodeId) (id : PathNodeId) (g : GPathM)
-    (h : OOS g) : OOS (reviewNode g nb id) := by
-  simp only [reviewNode]
-  split
-  · exact h
-  · next d _ =>
-    split
-    · have h₁ := OOS_updateAt g id (unionOwnersOf g (nb d)) h
-      have h₂ := OOS_unlinkIncompatible _ id h₁
-      split
-      · exact h₂
-      · exact OOS_removeNode _ id h₂
-    · exact OOS_removeNode g id h
+    (h : OOS g) : OOS (reviewNode g nb id) :=
+  OOS_of_pruned (pruned_reviewNode nb id g) h
 
 private theorem OOS_foldl {β : Type} (f : GPathM → β → GPathM)
     (hf : ∀ g b, OOS g → OOS (f g b)) :
@@ -201,7 +192,7 @@ theorem OOS_reviewSteps (nb : PNodeM → List PathNodeId) (ks : List Int) :
 
 theorem OOS_reviewPass (g : GPathM) (h : OOS g) : OOS (reviewPass g) := by
   simp only [reviewPass]
-  exact OOS_reviewSteps _ _ _ (OOS_reviewSteps _ _ _ (OOS_cleanInvalid g h))
+  exact OOS_reviewSteps _ _ _ (OOS_reviewSteps _ _ _ (OOS_of_pruned (pruned_cleanPair g) h))
 
 theorem OOS_reviewFuel : ∀ (fuel : Nat) (g : GPathM), OOS g → OOS (reviewFuel fuel g) := by
   intro fuel
@@ -235,30 +226,29 @@ theorem OOS_addNode (g : GPathM) (d : NodeId) (title : String)
   rcases List.mem_append.mp hn' with hmem | hmem
   · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
     have hni : n'.id = n.id := by rw [← hEq]; exact upMap_id g d n
-    have hno : n'.owners = n.owners ++ [newPid g d] := by rw [← hEq]; exact upMap_owners g d n
+    have hno : n'.owners = n.owners ++ gainedOwners g d n := by
+      rw [← hEq]; exact upMap_owners g d n
     rw [hno, List.mem_append] at hq
     rw [hni] at hstep ⊢
     rcases hq with hq | hq
     · exact h n hn q hq hstep
-    · rcases List.mem_singleton.mp hq with rfl
-      exfalso
-      have h1 : (newPid g d).id.step = d.step := rfl
+    · exfalso
+      have h1 : q.id.step = d.step := by
+        rw [mapId_of_mem_newRowIds g d q (gainedOwners_subset g d n q hq)]
       have h2 := hbelow n hn
       rw [h1, hd] at hstep
       omega
-  · rcases List.mem_singleton.mp hmem with rfl
-    have hno : (addOwner (newPid g d) (upNode g d title)).owners = g.gowners ++ [newPid g d] :=
-      rfl
-    rw [hno, List.mem_append] at hq
-    rcases hq with hq | hq
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id] at hstep ⊢
+    rw [rowNode_owners] at hq
+    rcases (mem_rowOwners_iff g d pid q).mp hq with ⟨_, hgow⟩ | rfl
     · exfalso
-      obtain ⟨m, hm, hmid⟩ := hgn q hq
+      obtain ⟨m, hm, hmid⟩ := hgn q hgow
       have h2 := hbelow m hm
       rw [hmid] at h2
-      have h1 : (addOwner (newPid g d) (upNode g d title)).id.id.step = d.step := rfl
-      rw [h1, hd] at hstep
+      rw [mapId_of_mem_newRowIds g d pid hpid, hd] at hstep
       omega
-    · exact List.mem_singleton.mp hq
+    · rfl
 
 theorem OOS_join (g₁ g₂ : GPathM) (h₁ : OOS g₁) (h₂ : OOS g₂) : OOS (join g₁ g₂) := by
   intro n' hn' q hq hstep
@@ -291,6 +281,181 @@ theorem OOS_initSeed (d : NodeId) (title : String) : OOS (GPathM.initSeed d titl
   rw [initSeed_nodes] at hn
   rcases List.mem_singleton.mp hn with rfl
   exact List.mem_singleton.mp hq
+
+-- ============================================================
+-- `isValidNode` gives the two "there is one" fields
+-- ============================================================
+
+/-! Lifted out of `SymTriReview.lean` when that module was removed; they say
+nothing about any review, only how `isValidNode` reads. -/
+
+theorem have_parents_of_isValidNode (g : GPathM) (n : PNodeM) (h : isValidNode g n = true)
+    (hroot : n.id.parent_id.isNone = false) : n.parents ≠ [] := by
+  intro hnil
+  simp only [isValidNode, hroot, hnil] at h
+  split at h <;> simp_all
+
+theorem have_sons_of_isValidNode (g : GPathM) (n : PNodeM) (h : isValidNode g n = true)
+    (hlast : (n.id.id.step == g.current_step - 1) = false) : n.sons ≠ [] := by
+  intro hnil
+  simp only [isValidNode, hlast, hnil] at h
+  split at h <;> simp_all
+
+-- ============================================================
+-- `Below` — nodes sit at a step the state actually has
+-- ============================================================
+
+/-- Every node sits at a step the state actually has. Lifted out of
+`SymTriReview.lean` when that module — an abstract model of a triangle review
+the machine does not perform — was removed. -/
+def Below (g : GPathM) : Prop :=
+  ∀ n ∈ g.nodes, 0 ≤ n.id.id.step ∧ n.id.id.step < g.current_step
+
+theorem okJoin_step (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true) :
+    g₂.current_step = g₁.current_step := by
+  simp only [okJoin, Bool.and_eq_true, beq_iff_eq] at hok
+  exact hok.1.1.1.symm
+
+theorem Below_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : Below g) : Below g' := by
+  intro n' hn'
+  obtain ⟨n, hn, hid, _, _⟩ := hpr.nodes_derived n' hn'
+  rw [hid, hpr.step_eq]
+  exact h n hn
+
+theorem Below_filterRequire (g : GPathM) (req : NodeId) (h : Below g) :
+    Below (filterRequire g req) := h
+
+theorem Below_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (hmok : MachineOk g) (h : Below g) :
+    Below (addNode g d title) := by
+  intro n' hn'
+  rw [addNode_current]
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_id]
+    obtain ⟨h0, h1⟩ := h n hn
+    exact ⟨h0, by omega⟩
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_id, mapId_of_mem_newRowIds g d pid hpid, hd]
+    exact ⟨hmok.1, by omega⟩
+
+theorem Below_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : Below g₁) (h₂ : Below g₂) : Below (join g₁ g₂) := by
+  have hstep : g₁.current_step = g₂.current_step :=
+    eq_of_beq ((Bool.and_eq_true _ _).mp ((Bool.and_eq_true _ _).mp
+      ((Bool.and_eq_true _ _).mp hok).1).1).1
+  intro n' hn'
+  show 0 ≤ n'.id.id.step ∧ n'.id.id.step < g₁.current_step
+  simp only [GPathM.join, List.mem_append] at hn'
+  rcases hn' with hm | hm
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hm
+    have hid : n'.id = n.id := by
+      rw [← hEq]; cases g₂.node? n.id <;> rfl
+    rw [hid]; exact h₁ n hn
+  · have hb := h₂ _ (List.mem_filter.mp hm).1
+    rw [hstep]; exact hb
+
+-- ============================================================
+-- `OwnBelow` — owner entries live below the current step
+-- ============================================================
+
+/-- **Every owner entry sits strictly below `current_step`.** Trivial while the
+`UP` handed the new node `gowners` wholesale; with the row it is what rules out
+an *old* node's table already containing a fresh row identifier, which is the
+hypothesis `Reader.OwnSymmetric_addNode` needs to place the symmetric entry. -/
+def OwnBelow (h : GPathM) : Prop :=
+  ∀ n ∈ h.nodes, ∀ q ∈ n.owners, q.id.step < h.current_step
+
+theorem OwnBelow_of_pruned {g g' : GPathM} (hpr : Pruned g g') (h : OwnBelow g) :
+    OwnBelow g' := by
+  intro n' hn' q hq
+  obtain ⟨n, hn, _, hown, _⟩ := hpr.nodes_derived n' hn'
+  rw [hpr.step_eq]
+  exact h n hn q (hown q hq)
+
+theorem OwnBelow_filterRequire (g : GPathM) (req : NodeId) (h : OwnBelow g) :
+    OwnBelow (filterRequire g req) := h
+
+theorem OwnBelow_addNode (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (h : OwnBelow g) : OwnBelow (addNode g d title) := by
+  intro n' hn' q hq
+  rw [addNode_current]
+  rw [addNode_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    rw [← hEq, upMap_owners] at hq
+    rcases List.mem_append.mp hq with hq | hq
+    · have := h n hn q hq; omega
+    · rw [mapId_of_mem_newRowIds g d q (gainedOwners_subset g d n q hq), hd]; omega
+  · obtain ⟨pid, hpid, rfl⟩ := (mem_newRow_iff g d title n').mp hmem
+    rw [rowNode_owners] at hq
+    rcases (mem_rowOwners_iff g d pid q).mp hq with ⟨hinh, _⟩ | rfl
+    · obtain ⟨p, _, mp, hmp, hqmp⟩ := exists_owner_of_mem_unionOwnersOf g _ q hinh
+      have := h mp (List.mem_of_find?_eq_some hmp) q hqmp
+      omega
+    · rw [mapId_of_mem_newRowIds g d q hpid, hd]; omega
+
+theorem OwnBelow_up (g : GPathM) (d : NodeId) (title : String)
+    (hd : d.step = g.current_step) (h : OwnBelow g) : OwnBelow (up g d title) := by
+  simp only [GPathM.up]
+  split
+  · exact OwnBelow_addNode g d title hd h
+  · exact h
+
+theorem OwnBelow_join (g₁ g₂ : GPathM) (hok : okJoin g₁ g₂ = true)
+    (h₁ : OwnBelow g₁) (h₂ : OwnBelow g₂) : OwnBelow (join g₁ g₂) := by
+  have hstepeq : g₁.current_step = g₂.current_step :=
+    eq_of_beq ((Bool.and_eq_true _ _).mp ((Bool.and_eq_true _ _).mp
+      ((Bool.and_eq_true _ _).mp hok).1).1).1
+  intro n' hn' q hq
+  show q.id.step < g₁.current_step
+  rw [GownersNodes.join_nodes] at hn'
+  rcases List.mem_append.mp hn' with hmem | hmem
+  · obtain ⟨n, hn, hEq⟩ := List.mem_map.mp hmem
+    cases hg : g₂.node? n.id with
+    | none => rw [← hEq, hg] at hq; exact h₁ n hn q hq
+    | some m =>
+      rw [← hEq, hg] at hq
+      have hown : (mergeNode n m).owners =
+          n.owners ++ m.owners.filter (fun r => !n.owners.contains r) := rfl
+      rw [hown, List.mem_append] at hq
+      rcases hq with hq | hq
+      · exact h₁ n hn q hq
+      · rw [hstepeq]
+        exact h₂ m (List.mem_of_find?_eq_some hg) q (List.mem_filter.mp hq).1
+  · rw [hstepeq]
+    exact h₂ n' (List.mem_filter.mp hmem).1 q hq
+
+theorem OwnBelow_empty : OwnBelow empty := by
+  intro n hn; exact absurd hn List.not_mem_nil
+
+theorem OwnBelow_initSeed (d : NodeId) (title : String) (hstep : d.step = 0) :
+    OwnBelow (GPathM.initSeed d title) := by
+  intro n hn q hq
+  rw [initSeed_nodes] at hn
+  rcases List.mem_singleton.mp hn with rfl
+  rcases List.mem_singleton.mp hq with rfl
+  rw [initSeed_current]
+  show d.step < 1
+  omega
+
+theorem OwnBelow_filterAll (g : GPathM) (reqs : List NodeId) (h : OwnBelow g) :
+    OwnBelow (filterAll g reqs) :=
+  OwnBelow_of_pruned (pruned_filterAll g reqs) h
+
+theorem OwnBelow_reachable (g : GPathM) (h : Reachable reqOf g) : OwnBelow g := by
+  induction h with
+  | seed d title hstep _ => exact OwnBelow_initSeed d title hstep
+  | up g d title hstep _ _ hr ih =>
+    have hpr := pruned_filterAll g (reqOf d)
+    show OwnBelow (up (filterAll g (reqOf d)) d title)
+    simp only [GPathM.up]
+    split
+    · exact OwnBelow_addNode _ d title (by rw [hpr.step_eq]; exact hstep)
+        (OwnBelow_filterAll g (reqOf d) ih)
+    · exact OwnBelow_filterAll g (reqOf d) ih
+  | join g₁ g₂ hok _ _ ih₁ ih₂ => exact OwnBelow_join g₁ g₂ hok ih₁ ih₂
 
 theorem OOS_reachable (g : GPathM) (h : Reachable reqOf g) : OOS g := by
   induction h with

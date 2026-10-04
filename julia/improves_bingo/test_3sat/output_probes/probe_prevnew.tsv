@@ -1,0 +1,8 @@
+instance	truth	pc_bases	inherit	salv	birth	c_open	c_edge	res_open	inh_open	inh_notpar	fp_faces	fp_fail	birth_k	secs
+clause_mix.cnf	true	300	0	0	300	0	0	0	0	0	972	0	k=2:300	7.5
+clause_mix_sep.cnf	true	1688	0	0	1688	0	0	0	0	0	5904	0	k=2:1688	34.0
+v5_c20_i1.cnf	true	584	72	12	500	0	0	0	0	0	1764	0	k=2:500	78.9
+v5_c20_i2.cnf	false	144	0	0	144	0	0	0	0	0	432	0	k=2:144	39.3
+v5_c20_i4.cnf	true	72	0	0	72	0	0	0	0	0	216	0	k=2:72	121.8
+v6_c26_i1.cnf	false	520	0	0	520	0	0	0	0	0	1560	0	k=2:520	168.0
+v6_c26_i2.cnf	true	563	250	63	250	0	0	0	0	0	1785	0	k=2:250	177.4

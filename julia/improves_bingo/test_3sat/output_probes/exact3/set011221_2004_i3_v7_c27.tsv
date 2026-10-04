@@ -1,0 +1,2 @@
+instance	truth	arr_states	arr_cap	arr_cliq	arr_dead	arr_n	arr_n_out	arr_e	arr_e_out	arr_t	arr_t_out	jrev_states	jrev_cap	jrev_cliq	jrev_dead	jrev_n	jrev_n_out	jrev_e	jrev_e_out	jrev_t	jrev_t_out	fin_states	fin_cap	fin_cliq	fin_dead	fin_n	fin_n_out	fin_e	fin_e_out	fin_t	fin_t_out	secs
+set011221_2004_i3_v7_c27.cnf	true	298	0	64	0	30684	0	1277194	0	32735511	0	120	0	128	0	17372	0	801913	0	20908070	0	1	0	2	0	128	0	7228	0	254076	0	1087.8
