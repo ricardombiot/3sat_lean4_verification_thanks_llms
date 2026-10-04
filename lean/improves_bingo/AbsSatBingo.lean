@@ -168,3 +168,5 @@ import AbsSatBingo.Model.ForbidOnChainReads
 import AbsSatBingo.Model.ForbidOnChainAny
 import AbsSatBingo.Model.ForbidOnChainLocal
 import AbsSatBingo.Model.ForbidOnChainBisectN
+import AbsSatBingo.Model.ForbidOnChainOrd
+import AbsSatBingo.Model.ForbidOnChainOrdI

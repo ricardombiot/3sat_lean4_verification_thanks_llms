@@ -28,6 +28,20 @@ namespace GPathB
 
 variable {φ : Cnf} {P0 P : Assign → Prop} {Nn σ : Int} {R : PathNodeId → PathNodeId → Prop} {Tf : Trios}
 
+/-- **Lecturas locales a partir del bloque `m + 1`** (lo que pide un lado). -/
+def LocalReadsFrom (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (m : Nat) : Prop :=
+  ∀ (k : Int) (z p : Nat), m + 1 ≤ p → p + 1 < n → zone z = p → ReadsAt φ k z →
+    ReadsAt φ k (sv p) ∨ ReadsAt φ k (sv (p + 1))
+
+/-- **Lecturas locales lejos de `v`** (el separador `m`): en todos los bloques de en medio salvo los dos pegados a
+`v`. -/
+def LocalReadsAway (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (m : Nat) : Prop :=
+  ∀ (k : Int) (z p : Nat), (p + 2 ≤ m ∨ m + 1 ≤ p) → 1 ≤ p → p + 1 < n → zone z = p → ReadsAt φ k z →
+    ReadsAt φ k (sv p) ∨ ReadsAt φ k (sv (p + 1))
+
+theorem away_of_local {φ : Cnf} {n : Nat} {zone sv : Nat → Nat} (hL : LocalReads φ n zone sv) (m : Nat) :
+    LocalReadsAway φ n zone sv m := fun k z p _ h1 h2 hz hr => hL k z p h1 h2 hz hr
+
 /-- **Un lado de cualquier longitud con lecturas locales.** -/
 structure SideDataN (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (P0 : Assign → Prop) (Nn : Int) (m b : Nat) :
     Prop where
@@ -38,7 +52,7 @@ structure SideDataN (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (P0 : Assign �
   mb  : m < b
   bn  : b ≤ n
   fix : FixedEnd n zone P0 b
-  loc : LocalReads φ n zone sv
+  loc : LocalReadsFrom φ n zone sv m
 
 section SideN
 
@@ -195,12 +209,12 @@ section Two
 
 variable {n : Nat} {zone : Nat → Nat}
 
-/-- **Las lecturas locales, al revés.** -/
-theorem localReads_rev {sv : Nat → Nat} (hL : LocalReads φ n zone sv) :
-    LocalReads φ n (zoneRevN n zone) (fun k => sv (n - k)) := by
+/-- **Las lecturas locales, al revés**: las de la izquierda de `v` son las de la derecha del lado izquierdo. -/
+theorem localReads_rev {sv : Nat → Nat} {m : Nat} (hmn : m < n) (hL : LocalReadsAway φ n zone sv m) :
+    LocalReadsFrom φ n (zoneRevN n zone) (fun k => sv (n - k)) (n - m) := by
   intro k z p h1 h2 hz hr
   have hz' : zone z = n - 1 - p := (zoneRevN_blk (by omega)).mp hz
-  rcases hL k z (n - 1 - p) (by omega) (by omega) hz' hr with h | h
+  rcases hL k z (n - 1 - p) (Or.inl (by omega)) (by omega) (by omega) hz' hr with h | h
   · refine Or.inr ?_
     show ReadsAt φ k (sv (n - (p + 1)))
     rw [show n - (p + 1) = n - 1 - p by omega]; exact h
@@ -210,7 +224,7 @@ theorem localReads_rev {sv : Nat → Nat} (hL : LocalReads φ n zone sv) :
 
 /-- **El lado izquierdo**, de la cadena al revés. -/
 theorem sideDataN_left (D : ChainN φ n zone) {sv : Nat → Nat} (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
-    (hL : LocalReads φ n zone sv) {m a : Nat} (hmid : midFusion φ < Nn) (ham : a < m) (hmn : m < n)
+    {m a : Nat} (hL : LocalReadsAway φ n zone sv m) (hmid : midFusion φ < Nn) (ham : a < m) (hmn : m < n)
     (hfa : 1 ≤ a → ∀ c c', P0 c → P0 c' → ∀ z, zone z = n + a → c z = c' z) :
     SideDataN φ n (zoneRevN n zone) (fun k => sv (n - k)) P0 Nn (n - m) (n - a) where
   D := chainN_rev D
@@ -220,16 +234,17 @@ theorem sideDataN_left (D : ChainN φ n zone) {sv : Nat → Nat} (hsv : ∀ k, 1
   mb := by omega
   bn := by omega
   fix := fixedEnd_rev (by omega) hfa
-  loc := localReads_rev hL
+  loc := localReads_rev hmn hL
 
 /-- **Fijar `v` con los dos lados abiertos, de cualquier longitud**, con lecturas locales. -/
 theorem phantomFree_bisectN (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv : Nat → Nat}
-    (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k) (hL : LocalReads φ n zone sv)
-    {v : Nat} (hv : stepVar φ σ = some v) {m a b : Nat} (hmid : midFusion φ < Nn)
+    (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
+    {v : Nat} (hv : stepVar φ σ = some v) {m a b : Nat} (hL : LocalReadsAway φ n zone sv m) (hmid : midFusion φ < Nn)
     (hzv : zone v = n + m) (hm1 : 1 ≤ m) (ham : a < m) (hmb : m < b) (hbn : b ≤ n)
     (hfa : 1 ≤ a → ∀ c c', P0 c → P0 c' → ∀ z, zone z = n + a → c z = c' z)
     (hfb : FixedEnd n zone P0 b) (hσ0 : 0 ≤ σ) (hσN : σ < Nn) : PhantomFree φ P0 P Nn σ := by
-  have SR : SideDataN φ n zone sv P0 Nn m b := ⟨D, hsv, hmid, hm1, hmb, hbn, hfb, hL⟩
+  have SR : SideDataN φ n zone sv P0 Nn m b := ⟨D, hsv, hmid, hm1, hmb, hbn, hfb,
+    fun k z p h1 h2 hz hr => hL k z p (Or.inr h1) (by omega) h2 hz hr⟩
   have SL := sideDataN_left (P0 := P0) D hsv hL hmid ham (by omega) hfa
   refine phantomFree_of_descent hσ0 hσN
     (fun x u w => frN φ sv m b x.id.step u.id.step w.id.step +
@@ -313,7 +328,8 @@ theorem sepPinFree_of_local (D : ChainN φ n zone) (hsv : ∀ k, 1 ≤ k → k <
     obtain ⟨q1, qn⟩ := hord q (List.mem_of_getElem? hq)
     have hv : stepVar φ r.step = some (sv q) := by rw [hsq]; exact hrs
     have hmid : midFusion φ < stepCount φ := by unfold stepCount midFusion; omega
-    exact phantomFree_bisectN (locPair_read (φ := φ) (stepCount φ) k R0 r) D hsv hL hv hmid (hsv q q1 qn) q1
+    exact phantomFree_bisectN (locPair_read (φ := φ) (stepCount φ) k R0 r) D hsv hv (away_of_local hL q) hmid
+      (hsv q q1 qn) q1
       (a := 0) (b := n) (by omega) qn (Nat.le_refl _) (fun h => absurd h (by omega)) (fun h => absurd h (by omega))
       (by omega) hrT
 
