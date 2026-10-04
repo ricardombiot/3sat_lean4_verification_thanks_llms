@@ -104,7 +104,8 @@ theorem capFull (hl : LocPair φ P0 P σ) (hS : PhStruct φ P0 Nn R Tf) {x u w :
 structure SideData (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (P0 : Assign → Prop) (Nn : Int) (m b : Nat) : Prop where
   D   : ChainN φ n zone
   hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k
-  hw  : ∀ p, 1 ≤ p → p + 1 < n → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv p) ∧ ReadsAt φ lam (sv (p + 1))
+  hw  : m + 3 ≤ b → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv (m + 1)) ∧ ReadsAt φ lam (sv (m + 2))
+  mid : midFusion φ < Nn
   m1  : 1 ≤ m
   mb  : m < b
   bn  : b ≤ n
@@ -223,12 +224,17 @@ theorem side_window (S : SideData φ n zone sv P0 Nn m b) {i j l : Int} (hf : 2 
   have hL := S.len; have hb := S.bn
   generalize frS φ sv m b i j l = f at hf hle hun hrd
   by_cases h2 : f = 2
-  · subst h2
-    obtain ⟨lam, l0, lN, _, r2⟩ := S.hw m S.m1 (by omega)
-    refine ⟨lam, l0, lN, r2, fun C => side_right2 S.D S.m1 (by omega) S.bn S.fix h0 C (fun z hz => ?_)
+  · -- el testigo del paso de la variable `t_1`
+    subst h2
+    have hsv1 : sv (m + 1) < φ.nVars := S.D.sepv _ (by rw [S.hsv _ (by omega) (by omega)]; omega)
+      (by rw [S.hsv _ (by omega) (by omega)]; omega)
+    have r2 : ReadsAt φ (varStep (sv (m + 1))) (sv (m + 1)) := reads_self (stepVar_var hsv1)
+    have mid := S.mid
+    refine ⟨varStep (sv (m + 1)), by simp only [varStep]; omega, by simp only [varStep, midFusion] at mid ⊢; omega,
+      r2, fun C => side_right2 S.D S.m1 (by omega) S.bn S.fix h0 C (fun z hz => ?_)
       (fun z hz => hun 1 z (Nat.le_refl _) (by omega) hz) hrd⟩
     rw [S.eqsv (by omega) (by omega) hz]; exact r2
-  · obtain ⟨lam, l0, lN, r1, r2⟩ := S.hw (m + 1) (by omega) (by omega)
+  · obtain ⟨lam, l0, lN, r1, r2⟩ := S.hw (by omega)
     refine ⟨lam, l0, lN, r1, fun C => side_right3 S.D S.m1 (r := f) (by omega) (by omega) S.bn S.fix h0 C
       (fun z hz => ?_) (fun z hz => ?_) hun hrd⟩
     · rw [S.eqsv (by omega) (by omega) hz]; exact r1
@@ -301,18 +307,19 @@ variable {n : Nat} {zone : Nat → Nat}
 
 /-- **El lado izquierdo**, de la cadena al revés. -/
 theorem sideData_left (D : ChainN φ n zone) {sv : Nat → Nat} (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
-    (hw : ∀ p, 1 ≤ p → p + 1 < n → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv p) ∧ ReadsAt φ lam (sv (p + 1)))
-    {m a : Nat} (ham : a < m) (hmn : m < n)
+    {m a : Nat} (hw : a + 3 ≤ m → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv (m - 1)) ∧ ReadsAt φ lam (sv (m - 2)))
+    (hmid : midFusion φ < Nn) (ham : a < m) (hmn : m < n)
     (hfa : 1 ≤ a → ∀ c c', P0 c → P0 c' → ∀ z, zone z = n + a → c z = c' z)
     (hL : m - a ≤ 3 ∨ (1 ≤ a ∧ m - a ≤ 4)) :
     SideData φ n (zoneRevN n zone) (fun k => sv (n - k)) P0 Nn (n - m) (n - a) where
   D := chainN_rev D
   hsv := fun k h1 h2 => (zoneRevN_sep h1 h2).mpr (by rw [hsv (n - k) (by omega) (by omega)])
-  hw := fun p h1 h2 => by
-    obtain ⟨lam, l0, lN, r1, r2⟩ := hw (n - p - 1) (by omega) (by omega)
+  hw := fun h => by
+    obtain ⟨lam, l0, lN, r1, r2⟩ := hw (by omega)
     refine ⟨lam, l0, lN, ?_, ?_⟩
-    · rw [show n - p = n - p - 1 + 1 by omega]; exact r2
-    · rw [show n - (p + 1) = n - p - 1 by omega]; exact r1
+    · rw [show n - (n - m + 1) = m - 1 by omega]; exact r1
+    · rw [show n - (n - m + 2) = m - 2 by omega]; exact r2
+  mid := hmid
   m1 := by omega
   mb := by omega
   bn := by omega
@@ -325,13 +332,15 @@ theorem sideData_left (D : ChainN φ n zone) {sv : Nat → Nat} (hsv : ∀ k, 1 
 /-- **Fijar `v` con los dos lados abiertos.** -/
 theorem phantomFree_bisect (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv : Nat → Nat}
     (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
-    (hw : ∀ p, 1 ≤ p → p + 1 < n → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv p) ∧ ReadsAt φ lam (sv (p + 1)))
-    {v : Nat} (hv : stepVar φ σ = some v) {m a b : Nat} (hzv : zone v = n + m) (hm1 : 1 ≤ m) (ham : a < m)
+    {v : Nat} (hv : stepVar φ σ = some v) {m a b : Nat}
+    (hwR : m + 3 ≤ b → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv (m + 1)) ∧ ReadsAt φ lam (sv (m + 2)))
+    (hwL : a + 3 ≤ m → ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv (m - 1)) ∧ ReadsAt φ lam (sv (m - 2)))
+    (hmid : midFusion φ < Nn) (hzv : zone v = n + m) (hm1 : 1 ≤ m) (ham : a < m)
     (hmb : m < b) (hbn : b ≤ n) (hfa : 1 ≤ a → ∀ c c', P0 c → P0 c' → ∀ z, zone z = n + a → c z = c' z)
     (hfb : FixedEnd n zone P0 b) (hLL : m - a ≤ 3 ∨ (1 ≤ a ∧ m - a ≤ 4)) (hLR : b - m ≤ 3 ∨ (b < n ∧ b - m ≤ 4))
     (hσ0 : 0 ≤ σ) (hσN : σ < Nn) : PhantomFree φ P0 P Nn σ := by
-  have SR : SideData φ n zone sv P0 Nn m b := ⟨D, hsv, hw, hm1, hmb, hbn, hfb, hLR⟩
-  have SL := sideData_left (P0 := P0) D hsv hw ham (by omega) hfa hLL
+  have SR : SideData φ n zone sv P0 Nn m b := ⟨D, hsv, hwR, hmid, hm1, hmb, hbn, hfb, hLR⟩
+  have SL := sideData_left (P0 := P0) D hsv hwL hmid ham (by omega) hfa hLL
   refine phantomFree_of_descent hσ0 hσN
     (fun x u w => frS φ sv m b x.id.step u.id.step w.id.step +
       frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step)
@@ -425,7 +434,11 @@ theorem sepPinFree_of_bisect (D : ChainN φ n zone) {sv : Nat → Nat}
       · omega
       rw [D.sep1 c h1 h2 z (sv c) hz (hsv c h1 h2)]
       exact fixed_of_prefix hpre hi ho y y' qy qy'
-    refine phantomFree_bisect hl D hsv hw hv (hsv q q1 qn) q1 ha hb hbn
+    have hmid : midFusion φ < stepCount φ := by unfold stepCount midFusion; omega
+    refine phantomFree_bisect hl D hsv hv (fun h => hw (q + 1) (by omega) (by omega))
+      (fun h => by
+        obtain ⟨lam, l0, lN, r1, r2⟩ := hw (q - 2) (by omega) (by omega)
+        exact ⟨lam, l0, lN, by rw [show q - 1 = q - 2 + 1 by omega]; exact r2, r1⟩) hmid (hsv q q1 qn) q1 ha hb hbn
       (fun h1 => fixOf a hA h1 (by omega)) (fun h2 => fixOf b ?_ (by omega) h2) hLL hLR (by omega) hrT
     rcases hB with h | h
     · omega
