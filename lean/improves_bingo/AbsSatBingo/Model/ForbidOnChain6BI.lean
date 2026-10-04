@@ -270,8 +270,8 @@ theorem phantomAt_chain6B6 {T : Int} (hT0 : clauseStep chain6B 5 0 ≤ T) (hT2 :
       ⟨ch6, hsv, fun _ => ⟨clauseStep chain6B 4 2, by simp only [clauseStep]; omega,
         by rw [hTp] at hTN; simp only [clauseStep, prefixCnf, chain6B, chain6B1, chain6B2, chain6B3, chain6B4, chain6B5] at hTN ⊢; omega,
         readsAt_clause hj4 (clVar_l3 c6b4), readsAt_clause hj4 (clVar_l1 c6b4)⟩, hmid, by omega, by omega,
-        by omega, fun h => absurd h (by omega), Or.inl (by omega)⟩
-    refine phantomFree_inner hl S hv (by decide) (fun c c' qc qc' z hz => ?_) hσ0 hσN
+        by omega, fun h => absurd h (by omega), by omega⟩
+    refine phantomFree_inner hl S (Or.inl (by omega)) hv (by decide) (fun c c' qc qc' z hz => ?_) hσ0 hσN
     rw [zoneV_eq (k := 9) (y := 8) (by omega) (by decide) hz]
     exact hfix c c' qc qc' 8 hk
   · omega

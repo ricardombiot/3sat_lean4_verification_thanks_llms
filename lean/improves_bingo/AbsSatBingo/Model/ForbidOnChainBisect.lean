@@ -110,7 +110,7 @@ structure SideData (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (P0 : Assign →
   mb  : m < b
   bn  : b ≤ n
   fix : FixedEnd n zone P0 b
-  len : b - m ≤ 3 ∨ (b < n ∧ b - m ≤ 4)
+  len : b - m ≤ 4
 
 open Classical in
 /-- **El primer separador leído** del lado (la longitud del lado si no lee ninguno). -/
@@ -183,8 +183,7 @@ theorem SideData.eqsv (S : SideData φ n zone sv P0 Nn m b) {k z : Nat} (hk : 1 
     (hz : zone z = n + k) : z = sv k :=
   S.D.sep1 k hk hkn z (sv k) hz (S.hsv k hk hkn)
 
-theorem SideData.L4 (S : SideData φ n zone sv P0 Nn m b) : b - m ≤ 4 := by
-  rcases S.len with h | ⟨_, h⟩ <;> omega
+theorem SideData.L4 (S : SideData φ n zone sv P0 Nn m b) : b - m ≤ 4 := S.len
 
 /-- El bloque `m` y su separador `t_1`. -/
 theorem SideData.no3_res (S : SideData φ n zone sv P0 Nn m b) :
@@ -209,8 +208,8 @@ theorem side_res (S : SideData φ n zone sv P0 Nn m b) {i j l : Int} (hf : frS �
   rwa [hf] at this
 
 /-- **Un lado abierto, con las caras de su ventana**: la ventana, y las fuentes del lado para cualesquiera caras. -/
-theorem side_window (S : SideData φ n zone sv P0 Nn m b) {i j l : Int} (hf : 2 ≤ frS φ sv m b i j l) {a0 : Assign}
-    (h0 : P0 a0) : ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv (m + 1)) ∧
+theorem side_window (S : SideData φ n zone sv P0 Nn m b) {i j l : Int} (hf : 2 ≤ frS φ sv m b i j l)
+    (h4 : frS φ sv m b i j l = 4 → b < n) {a0 : Assign} (h0 : P0 a0) : ∃ lam, 0 ≤ lam ∧ lam < Nn ∧ ReadsAt φ lam (sv (m + 1)) ∧
       ∀ {Q : Assign → Prop}, SideCap φ P0 P Q i j l lam a0 → ∃ src, SideOut φ n zone P0 P i j l a0 m b src := by
   have hle := frS_le (φ := φ) (sv := sv) (m := m) (b := b) (i := i) (j := j) (l := l)
   have hun : ∀ k z, 1 ≤ k → k < frS φ sv m b i j l → zone z = n + (m + k) → ¬ InW φ i j l z := by
@@ -222,7 +221,7 @@ theorem side_window (S : SideData φ n zone sv P0 Nn m b) {i j l : Int} (hf : 2 
     have := S.bn
     rw [S.eqsv (by omega) (by omega) hz]; exact frS_rd (by omega)
   have hL := S.len; have hb := S.bn
-  generalize frS φ sv m b i j l = f at hf hle hun hrd
+  generalize frS φ sv m b i j l = f at hf hle hun hrd h4
   by_cases h2 : f = 2
   · -- el testigo del paso de la variable `t_1`
     subst h2
@@ -265,9 +264,9 @@ theorem open_cap (hl : LocPair φ P0 P σ) (hS : PhStruct φ P0 Nn R Tf) {x u w 
     (hw0 : pidOfAssign φ a0 w.id.step = w) {zA svA zB svB : Nat → Nat} {mA bA mB bB : Nat}
     (SA : SideData φ n zA svA P0 Nn mA bA) (SB : SideData φ n zB svB P0 Nn mB bB)
     (hf : 2 ≤ frS φ svA mA bA x.id.step u.id.step w.id.step)
-    (ih : ∀ x' u' w', Tri R Tf x' u' w' →
-      frS φ svA mA bA x'.id.step u'.id.step w'.id.step + frS φ svB mB bB x'.id.step u'.id.step w'.id.step <
-        frS φ svA mA bA x.id.step u.id.step w.id.step + frS φ svB mB bB x.id.step u.id.step w.id.step →
+    (h4 : frS φ svA mA bA x.id.step u.id.step w.id.step = 4 → bA < n)
+    (ih : ∀ x' u' w', Tri R Tf x' u' w' → frS φ svA mA bA x'.id.step u'.id.step w'.id.step ≤ 1 →
+      frS φ svB mB bB x'.id.step u'.id.step w'.id.step ≤ frS φ svB mB bB x.id.step u.id.step w.id.step →
       TriOf φ P x' u' w') :
     (∃ src, SideOut φ n zA P0 P x.id.step u.id.step w.id.step a0 mA bA src) ∧
     ∃ Q lam, SideCap φ P0 P Q x.id.step u.id.step w.id.step lam a0 ∧
@@ -276,7 +275,7 @@ theorem open_cap (hl : LocPair φ P0 P σ) (hS : PhStruct φ P0 Nn R Tf) {x u w 
             d (svB (mB + frS φ svB mB bB x.id.step u.id.step w.id.step)) =
               a0 (svB (mB + frS φ svB mB bB x.id.step u.id.step w.id.step))) ∨
         (frS φ svB mB bB x.id.step u.id.step w.id.step = bB - mB ∧ ∀ c, Q c → P c)) := by
-  obtain ⟨lam, l0, lN, lr, hsrc⟩ := side_window (P := P) SA hf h0
+  obtain ⟨lam, l0, lN, lr, hsrc⟩ := side_window (P := P) SA hf h4 h0
   have hno := frS_un (φ := φ) (sv := svA) SA.L4 (k := 1) (Nat.le_refl _) (i := x.id.step) (j := u.id.step)
     (l := w.id.step) (by omega)
   have hA1 : ∀ x' u' w' : PathNodeId, InW φ x'.id.step u'.id.step w'.id.step (svA (mA + 1)) →
@@ -286,15 +285,13 @@ theorem open_cap (hl : LocPair φ P0 P σ) (hS : PhStruct φ P0 Nn R Tf) {x u w 
   have hBle := frS_le (φ := φ) (sv := svB) (m := mB) (b := bB) (i := x.id.step) (j := u.id.step) (l := w.id.step)
   have hBpos := frS_pos (φ := φ) (sv := svB) (i := x.id.step) (j := u.id.step) (l := w.id.step) SB.mb
   by_cases hk : frS φ svB mB bB x.id.step u.id.step w.id.step < bB - mB
-  · obtain ⟨Q, C, pk⟩ := capKeep hl hS t hx0 hu0 hw0 l0 lN lr hno (frS_rd hk) (fun x' u' w' t' h1 h2 => ih x' u' w' t' (by
-      have a := hA1 x' u' w' h2
-      have b := frS_of (φ := φ) SB.L4 hBpos h1
-      omega))
+  · obtain ⟨Q, C, pk⟩ := capKeep hl hS t hx0 hu0 hw0 l0 lN lr hno (frS_rd hk) (fun x' u' w' t' h1 h2 =>
+      ih x' u' w' t' (hA1 x' u' w' h2) (frS_of (φ := φ) SB.L4 hBpos h1))
     exact ⟨hsrc C, Q, lam, C, Or.inl ⟨hk, pk⟩⟩
-  · obtain ⟨Q, C, hQ⟩ := capFull hl hS t hx0 hu0 hw0 l0 lN lr hno (fun x' u' w' t' h2 => ih x' u' w' t' (by
-      have a := hA1 x' u' w' h2
-      have b := frS_le (φ := φ) (sv := svB) (m := mB) (b := bB) (i := x'.id.step) (j := u'.id.step) (l := w'.id.step)
-      omega))
+  · obtain ⟨Q, C, hQ⟩ := capFull hl hS t hx0 hu0 hw0 l0 lN lr hno (fun x' u' w' t' h2 => ih x' u' w' t'
+      (hA1 x' u' w' h2) (by
+        have b := frS_le (φ := φ) (sv := svB) (m := mB) (b := bB) (i := x'.id.step) (j := u'.id.step) (l := w'.id.step)
+        omega))
     exact ⟨hsrc C, Q, lam, C, Or.inr ⟨by omega, hQ⟩⟩
 
 end Side
@@ -324,10 +321,7 @@ theorem sideData_left (D : ChainN φ n zone) {sv : Nat → Nat} (hsv : ∀ k, 1 
   mb := by omega
   bn := by omega
   fix := fixedEnd_rev (by omega) hfa
-  len := by
-    rcases hL with h | ⟨h1, h⟩
-    · exact Or.inl (by omega)
-    · exact Or.inr ⟨by omega, by omega⟩
+  len := by rcases hL with h | ⟨h1, h⟩ <;> omega
 
 /-- **Fijar `v` con los dos lados abiertos.** -/
 theorem phantomFree_bisect (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv : Nat → Nat}
@@ -339,7 +333,8 @@ theorem phantomFree_bisect (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv 
     (hmb : m < b) (hbn : b ≤ n) (hfa : 1 ≤ a → ∀ c c', P0 c → P0 c' → ∀ z, zone z = n + a → c z = c' z)
     (hfb : FixedEnd n zone P0 b) (hLL : m - a ≤ 3 ∨ (1 ≤ a ∧ m - a ≤ 4)) (hLR : b - m ≤ 3 ∨ (b < n ∧ b - m ≤ 4))
     (hσ0 : 0 ≤ σ) (hσN : σ < Nn) : PhantomFree φ P0 P Nn σ := by
-  have SR : SideData φ n zone sv P0 Nn m b := ⟨D, hsv, hwR, hmid, hm1, hmb, hbn, hfb, hLR⟩
+  have SR : SideData φ n zone sv P0 Nn m b := ⟨D, hsv, hwR, hmid, hm1, hmb, hbn, hfb, by
+    rcases hLR with h | ⟨_, h⟩ <;> omega⟩
   have SL := sideData_left (P0 := P0) D hsv hwL hmid ham (by omega) hfa hLL
   refine phantomFree_of_descent hσ0 hσN
     (fun x u w => frS φ sv m b x.id.step u.id.step w.id.step +
@@ -349,12 +344,23 @@ theorem phantomFree_bisect (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv 
   have hRp := frS_pos (φ := φ) (sv := sv) (i := x.id.step) (j := u.id.step) (l := w.id.step) hmb
   have hLp := frS_pos (φ := φ) (sv := fun k => sv (n - k)) (i := x.id.step) (j := u.id.step) (l := w.id.step)
     SL.mb
-  have ih' : ∀ x' u' w', Tri R Tf x' u' w' →
-      frS φ (fun k => sv (n - k)) (n - m) (n - a) x'.id.step u'.id.step w'.id.step +
-        frS φ sv m b x'.id.step u'.id.step w'.id.step <
-      frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step +
-        frS φ sv m b x.id.step u.id.step w.id.step → TriOf φ P x' u' w' :=
-    fun x' u' w' t' h => ih x' u' w' t' (by omega)
+  have hRle := frS_le (φ := φ) (sv := sv) (m := m) (b := b) (i := x.id.step) (j := u.id.step) (l := w.id.step)
+  have hLle := frS_le (φ := φ) (sv := fun k => sv (n - k)) (m := n - m) (b := n - a) (i := x.id.step)
+    (j := u.id.step) (l := w.id.step)
+  have h4R : frS φ sv m b x.id.step u.id.step w.id.step = 4 → b < n := fun h => by
+    rcases hLR with h' | ⟨h', _⟩ <;> omega
+  have h4L : frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step = 4 → n - a < n := fun h => by
+    rcases hLL with h' | ⟨h', _⟩ <;> omega
+  have ihR := fun (hR : 2 ≤ frS φ sv m b x.id.step u.id.step w.id.step) x' u' w' (t' : Tri R Tf x' u' w')
+      (ha' : frS φ sv m b x'.id.step u'.id.step w'.id.step ≤ 1)
+      (hc' : frS φ (fun k => sv (n - k)) (n - m) (n - a) x'.id.step u'.id.step w'.id.step ≤
+        frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step) =>
+    ih x' u' w' t' (by omega)
+  have ihL := fun (hL : 2 ≤ frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step) x' u' w'
+      (t' : Tri R Tf x' u' w')
+      (ha' : frS φ (fun k => sv (n - k)) (n - m) (n - a) x'.id.step u'.id.step w'.id.step ≤ 1)
+      (hc' : frS φ sv m b x'.id.step u'.id.step w'.id.step ≤ frS φ sv m b x.id.step u.id.step w.id.step) =>
+    ih x' u' w' t' (by omega)
   -- `v` como en `a0`, de una cara de `P`
   have pvC : ∀ {Q : Assign → Prop} {lam : Int}, SideCap φ P0 P Q x.id.step u.id.step w.id.step lam a0 →
       InW φ x.id.step u.id.step w.id.step v → ∃ c, P c ∧ c v = a0 v := by
@@ -366,15 +372,15 @@ theorem phantomFree_bisect (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv 
       (OR : SideOut φ n zone P0 P x.id.step u.id.step w.id.step a0 m b sR) hpv =>
     glue_sides_tri hl D hv hzv hm1 ham hmb hbn hfa hfb h0 hx0 hu0 hw0 OL OR hpv
   by_cases hR : 2 ≤ frS φ sv m b x.id.step u.id.step w.id.step
-  · obtain ⟨⟨sR, OR⟩, Q, lam, C, ex⟩ := open_cap hl hS t h0 hx0 hu0 hw0 SR SL hR ih
+  · obtain ⟨⟨sR, OR⟩, Q, lam, C, ex⟩ := open_cap hl hS t h0 hx0 hu0 hw0 SR SL hR h4R (ihR hR)
     by_cases hL : 2 ≤ frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step
-    · obtain ⟨⟨sL, OL⟩, _⟩ := open_cap hl hS t h0 hx0 hu0 hw0 SL SR hL ih'
+    · obtain ⟨⟨sL, OL⟩, _⟩ := open_cap hl hS t h0 hx0 hu0 hw0 SL SR hL h4L (ihL hL)
       exact glue OL OR (pvC C)
     · obtain ⟨d, qP, q0, ag⟩ := res_of_cap SL (by omega) C ex
       obtain ⟨sL, OL⟩ := side_res SL (by omega) h0 qP q0 ag
       exact glue OL OR (pvC C)
   · by_cases hL : 2 ≤ frS φ (fun k => sv (n - k)) (n - m) (n - a) x.id.step u.id.step w.id.step
-    · obtain ⟨⟨sL, OL⟩, Q, lam, C, ex⟩ := open_cap hl hS t h0 hx0 hu0 hw0 SL SR hL ih'
+    · obtain ⟨⟨sL, OL⟩, Q, lam, C, ex⟩ := open_cap hl hS t h0 hx0 hu0 hw0 SL SR hL h4L (ihL hL)
       obtain ⟨d, qP, q0, ag⟩ := res_of_cap SR (by omega) C ex
       obtain ⟨sR, OR⟩ := side_res SR (by omega) h0 qP q0 ag
       exact glue OL OR (pvC C)

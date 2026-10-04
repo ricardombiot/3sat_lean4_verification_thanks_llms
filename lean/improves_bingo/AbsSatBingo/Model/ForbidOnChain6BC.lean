@@ -171,8 +171,8 @@ theorem phantomAt_last6 (hb : Bounded φ) (C : Chain6BC φ zone sv) {T : Int} (h
         by rw [hTp] at hTN; simp only [clauseStep] at hTN ⊢; omega,
         by rw [show 3 + 1 = 4 from rfl, ← b4]; exact readsAt_clause h4 (Or.inr (Or.inr rfl)),
         readsAt_clause h4 b5⟩, hmid, by omega, by omega, by omega, fun h => absurd h (by omega),
-        Or.inl (by omega)⟩
-    exact phantomFree_inner hl S hv hz3
+        by omega⟩
+    exact phantomFree_inner hl S (Or.inl (by omega)) hv hz3
       (fun c c' qc qc' z hz => by rw [sepEq (by omega) (by omega) hz]; exact hfix c c' qc qc' _ hk) hσ0 hσN
   · omega
 

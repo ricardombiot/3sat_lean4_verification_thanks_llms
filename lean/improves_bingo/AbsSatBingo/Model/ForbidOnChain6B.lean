@@ -104,8 +104,8 @@ theorem glue_one_tri (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {v : Nat} 
   exact glueN_tri hl D hv ⟨m, hmn, Or.inl hzv⟩ h0 hx0 hu0 hw0 hs hJ hP ha
 
 /-- **`v` dentro del bloque `m`, con el separador `m` fijado**: un solo lado. -/
-theorem phantomFree_inner (hl : LocPair φ P0 P σ) (S : SideData φ n zone sv P0 Nn m b) {v : Nat}
-    (hv : stepVar φ σ = some v) (hzv : zone v = m)
+theorem phantomFree_inner (hl : LocPair φ P0 P σ) (S : SideData φ n zone sv P0 Nn m b)
+    (hlen : b - m ≤ 3 ∨ b < n) {v : Nat} (hv : stepVar φ σ = some v) (hzv : zone v = m)
     (hfa : ∀ c c', P0 c → P0 c' → ∀ z, zone z = n + m → c z = c' z) (hσ0 : 0 ≤ σ) (hσN : σ < Nn) :
     PhantomFree φ P0 P Nn σ := by
   refine phantomFree_of_descent hσ0 hσN (fun x u w => frS φ sv m b x.id.step u.id.step w.id.step)
@@ -113,7 +113,9 @@ theorem phantomFree_inner (hl : LocPair φ P0 P σ) (S : SideData φ n zone sv P
   obtain ⟨a0, h0, hx0, hu0, hw0⟩ := t.b3 hS
   have hpos := frS_pos (φ := φ) (sv := sv) (i := x.id.step) (j := u.id.step) (l := w.id.step) S.mb
   by_cases hf : 2 ≤ frS φ sv m b x.id.step u.id.step w.id.step
-  · obtain ⟨lam, l0, lN, lr, hsrc⟩ := side_window (P := P) S hf h0
+  · obtain ⟨lam, l0, lN, lr, hsrc⟩ := side_window (P := P) S hf (fun h => by
+      have := frS_le (φ := φ) (sv := sv) (m := m) (b := b) (i := x.id.step) (j := u.id.step) (l := w.id.step)
+      rcases hlen with h' | h' <;> omega) h0
     have hno := frS_un (φ := φ) (sv := sv) S.L4 (k := 1) (Nat.le_refl _) (i := x.id.step) (j := u.id.step)
       (l := w.id.step) (by omega)
     obtain ⟨Q, C, _⟩ := capFull hl hS t hx0 hu0 hw0 l0 lN lr hno (fun x' u' w' t' h' => ih x' u' w' t' (by
