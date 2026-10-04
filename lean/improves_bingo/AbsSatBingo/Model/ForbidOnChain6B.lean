@@ -198,6 +198,61 @@ theorem phantomAt_of_lineLocalF (hb : Bounded φ) {j0 : Nat} {c0 : Clause} (hj0 
       exact H p hp e hpv (locPair_up hb T k d) hv (fun _ => rfl) (fun a b ha hb' => fixK a b ha.1 hb'.1)
         (by omega) (by omega) (by omega)
 
+
+/-! ## Cadenas concretas: la zona como lista -/
+
+/-- La zona de una cadena concreta: el valor de cada variable en una lista (fuera de ella, fuera de la cadena). -/
+def zoneV (n : Nat) (vals : List Nat) (z : Nat) : Nat := vals.getD z (2 * n)
+
+theorem zoneV_ge {n : Nat} {vals : List Nat} {z : Nat} (h : vals.length ≤ z) : zoneV n vals z = 2 * n := by
+  simp [zoneV, List.getD, List.getElem?_eq_none h]
+
+theorem zoneV_small {n : Nat} {vals : List Nat} {z k : Nat} (hz : zoneV n vals z = k) (hk : k < 2 * n) :
+    z < vals.length :=
+  Nat.lt_of_not_le (fun h => by rw [zoneV_ge h] at hz; omega)
+
+instance decOutN (n : Nat) (zone : Nat → Nat) (z : Nat) : Decidable (OutN n zone z) :=
+  inferInstanceAs (Decidable (zone z = n ∨ 2 * n ≤ zone z))
+
+instance decBlkN (n : Nat) (zone : Nat → Nat) (j z : Nat) : Decidable (BlkN n zone j z) :=
+  inferInstanceAs (Decidable (zone z = j ∨ (1 ≤ j ∧ zone z = n + j) ∨ (j + 1 < n ∧ zone z = n + j + 1)))
+
+instance decClIn {B : Nat → Prop} [DecidablePred B] (c : Clause) : Decidable (ClIn B c) :=
+  inferInstanceAs (Decidable (B c.l1.v ∧ B c.l2.v ∧ B c.l3.v))
+
+/-- **Una cadena concreta**, con las condiciones acotadas a las variables de la lista (se comprueban con `decide`). -/
+theorem chainN_of_vals {n : Nat} {vals : List Nat} (two : 2 ≤ n) (hlen : vals.length ≤ φ.nVars)
+    (sep1 : ∀ i, i < n → 1 ≤ i → ∀ z, z < vals.length → ∀ z', z' < vals.length → zoneV n vals z = n + i →
+      zoneV n vals z' = n + i → z = z')
+    (card0 : ∀ z1, z1 < vals.length → ∀ z2, z2 < vals.length → ∀ z3, z3 < vals.length → zoneV n vals z1 = 0 →
+      zoneV n vals z2 = 0 → zoneV n vals z3 = 0 → z1 = z2 ∨ z1 = z3 ∨ z2 = z3)
+    (cardL : ∀ z1, z1 < vals.length → ∀ z2, z2 < vals.length → ∀ z3, z3 < vals.length → zoneV n vals z1 = n - 1 →
+      zoneV n vals z2 = n - 1 → zoneV n vals z3 = n - 1 → z1 = z2 ∨ z1 = z3 ∨ z2 = z3)
+    (cardM : ∀ j, j < n → 1 ≤ j → j + 1 < n → ∀ z, z < vals.length → ∀ z', z' < vals.length →
+      zoneV n vals z = j → zoneV n vals z' = j → z = z')
+    (cl : ∀ c ∈ φ.clauses, ClIn (OutN n (zoneV n vals)) c ∨ ∃ j, j < n ∧ ClIn (BlkN n (zoneV n vals) j) c) :
+    ChainN φ n (zoneV n vals) := by
+  refine ⟨two, fun z a b => by have := zoneV_small rfl b; omega, fun i h1 h2 z z' hz hz' => ?_,
+    fun y1 y2 y3 a b c d12 d13 d23 => ?_, fun y1 y2 y3 a b c d12 d13 d23 => ?_,
+    fun j h1 h2 z z' hz hz' => ?_, cl⟩
+  · exact sep1 i h2 h1 z (zoneV_small hz (by omega)) z' (zoneV_small hz' (by omega)) hz hz'
+  · rcases card0 y1 (zoneV_small a (by omega)) y2 (zoneV_small b (by omega)) y3 (zoneV_small c (by omega)) a b c
+      with e | e | e
+    · exact d12 e
+    · exact d13 e
+    · exact d23 e
+  · rcases cardL y1 (zoneV_small a (by omega)) y2 (zoneV_small b (by omega)) y3 (zoneV_small c (by omega)) a b c
+      with e | e | e
+    · exact d12 e
+    · exact d13 e
+    · exact d23 e
+  · exact cardM j (by omega) h1 h2 z (zoneV_small hz (by omega)) z' (zoneV_small hz' (by omega)) hz hz'
+
+/-- Una zona con un solo valor `k` en la lista: la variable de esa zona. -/
+theorem zoneV_eq {n : Nat} {vals : List Nat} {k y : Nat} (hk : k < 2 * n)
+    (h : ∀ z, z < vals.length → zoneV n vals z = k → z = y) {z : Nat} (hz : zoneV n vals z = k) : z = y :=
+  h z (zoneV_small hz hk) hz
+
 end GPathB
 
 end AbsSatBingo.Model
