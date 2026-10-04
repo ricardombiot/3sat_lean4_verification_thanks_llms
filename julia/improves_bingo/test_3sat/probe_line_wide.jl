@@ -7,13 +7,12 @@
 # en lo(z) … hi(z) (cortado en k); el corte j (entre j y j+1) es S_j = {z : lo z ≤ j < hi z}. Mapa binario de Lean del
 # prefijo: variable z en 2z+1, 2z+2; cláusula j, literal p, en 2n+2+3j+p; la ventana de s lee s, s-1, s-2.
 #
-# Para cada trío ordenado (i, j, l): e = el primer corte, de v hacia la izquierda (j = lo v - 1, lo v - 2, …), que el
-# trío lee entero (o -1: el principio). Se busca una base c0 (un corte j ≤ lo v - 1, la misma para todos los tríos de
-# la línea) con:
-#   * si e ≥ c0 (base): la región de v, las unidades e+1 … k, sin `Bad3` (caras de P: `faces_sigma`); la región de v
-#     se parte gratis en los cortes que son solo {v} (todas las caras de P coinciden en v);
-#   * si e < c0 (abierto): una ventana testigo que lee entero S_{c0} (sus subtriángulos lo leen y caen en la base), y
-#     las regiones c0+1 … k (la de v) y e+1 … c0 sin `Bad3` (caras de `capFull`, todas de P).
+# Se busca UNA ventana testigo λ para toda la línea, con X = lo que lee λ salvo v. Los cortes de pegado son los S_j con
+# S_j \ {v} ⊆ X: en ellos coinciden las caras (de `capFull` con λ si el trío no lee todo X; si lo lee, las de
+# `faces_sigma`, que coinciden con a0 en lo leído; en v coinciden todas las de P). Para cada trío ordenado (i, j, l):
+# e = el primer corte, de v hacia la izquierda, que el trío lee entero (la cola; 0 si ninguno); las piezas de las
+# unidades e+1 … k, partidas en los cortes de pegado, sin `Bad3` (sin contar v). Los subtriángulos de λ leen todo X:
+# un solo nivel de descenso.
 # Salida por instancia: líneas, líneas con base, y las primeras sin base.
 
 function read_cnf(path)
@@ -29,6 +28,8 @@ function read_cnf(path)
     end
     return nv, cls
 end
+
+const WIT = Ref(-1)
 
 function line_ok(nv, cls, k, v)
     pre = cls[1:k]                                   # unidades 1 … k (la k es la de la línea)
@@ -51,45 +52,42 @@ function line_ok(nv, cls, k, v)
     lv = lo[v + 1]
     vcuts = [j for j in lv:(k - 1) if S(j) == [v]]
     cuts = collect((lv - 1):-1:1)                     # de v hacia la izquierda
-    wit(c0) = any(issubset(S(c0), R[s + 1]) for s in 0:(N - 1))
-    cands = [c0 for c0 in [cuts; 0] if c0 == 0 || wit(c0)]
-    for c0 in cands
+    # un testigo λ para toda la línea: X = lo que lee λ salvo v; se pega en los cortes con S_j \ {v} ⊆ X
+    for lam in 0:(N - 1)
+        X = setdiff(R[lam + 1], Set([v]))
+        isempty(X) && continue
+        G = [j for j in 1:(k - 1) if issubset(setdiff(Set(S(j)), Set([v])), X)]
         ok = true
         for i in 0:(N - 1), jj in 0:(N - 1), l in 0:(N - 1)
             W = union(R[i + 1], R[jj + 1], R[l + 1])
             bad3(M) = any(z1 in R[l + 1] && z2 in R[jj + 1] && z3 in R[i + 1] && z1 != z2 && z1 != z3 && z2 != z3
                 for z1 in M, z2 in M, z3 in M)
-            reg(a, b) = setdiff(intersect(unitvars(a, b), W), Set([v]))        # `v`, de P: aparte (`hpv`)
-            # la región de v se parte en los cortes que son solo {v} (las caras de P coinciden en v)
-            function vbad(a)
-                bs = [a - 1; vcuts[vcuts .>= a]; k]
-                any(bad3(reg(bs[t] + 1, bs[t + 1])) for t in 1:(length(bs) - 1))
-            end
+            reg(a, b) = setdiff(intersect(unitvars(a, b), W), Set([v]))
             e = something(findfirst(j -> issubset(S(j), W), cuts), 0)
             e = e == 0 ? 0 : cuts[e]
-            if e >= c0
-                vbad(e + 1) && (ok = false; break)
-            else
-                (vbad(c0 + 1) || bad3(reg(e + 1, c0))) && (ok = false; break)
+            bs = [e; [j for j in G if j > e]; k]
+            if any(bad3(reg(bs[t] + 1, bs[t + 1])) for t in 1:(length(bs) - 1))
+                ok = false; break
             end
         end
-        ok && return true
+        ok && (WIT[] = lam; return true)
     end
     return false
 end
 
 function main(path)
     nv, cls = read_cnf(path)
-    lines = 0; good = 0; bad = Tuple[]
+    lines = 0; good = 0; bad = Tuple[]; wits = Tuple[]
     for k in eachindex(cls), v in unique(abs.(cls[k]) .- 1)
         lines += 1
         if line_ok(nv, cls, k, v)
-            good += 1
+            good += 1; push!(wits, (k, v, WIT[]))
         else
             length(bad) < 6 && push!(bad, (k, v))
         end
     end
     println(basename(path), "\tlíneas=", lines, "\tcon base=", good, "\tsin base (k, v)=", bad)
+    get(ENV, "SHOW_WIT", "0") == "1" && println("  testigos (k, v, λ): ", wits)
 end
 
 for p in ARGS
