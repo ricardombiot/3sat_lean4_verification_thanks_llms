@@ -1,0 +1,10 @@
+c chain4w3_order.cnf: cadena de 4 bloques, 3 de dentro por bloque, 0 extra, semilla 5, en orden
+p cnf 13 8
+1 2 3 0
+-3 4 5 0
+4 -5 -6 0
+-5 -6 -7 0
+7 8 -9 0
+8 -9 10 0
+-9 -10 -11 0
+11 -12 -13 0

@@ -1,0 +1,8 @@
+c chain4w2_order.cnf: cadena de 4 bloques, 2 de dentro por bloque, 0 extra, semilla 1, en orden
+p cnf 11 6
+1 -2 3 0
+3 4 -5 0
+-4 5 -6 0
+6 -7 -8 0
+-7 -8 9 0
+9 -10 11 0

@@ -1,0 +1,10 @@
+c chain5w2_cross.cnf: cadena de 5 bloques, 2 de dentro por bloque, 0 extra, semilla 7, numeración cruzada
+p cnf 14 8
+-9 -13 -14 0
+-4 -11 -10 0
+12 2 7 0
+2 7 -3 0
+5 -6 12 0
+-10 5 6 0
+8 1 9 0
+3 8 1 0

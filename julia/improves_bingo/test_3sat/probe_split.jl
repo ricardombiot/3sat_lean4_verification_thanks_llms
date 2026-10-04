@@ -1,4 +1,6 @@
 # Comprobación estática de `SideSplit` (4-oct-2026, rama reader-stuck; Lean `ForbidOnChainAny.lean`).
+# Los bloques son las cláusulas unidas por compartir dos variables o más: valen varias cláusulas y varias variables de
+# dentro por bloque (`anchura`: el máximo de variables de dentro de un bloque de en medio).
 #
 #   julia test_3sat/probe_split.jl a.cnf b.cnf …
 #
@@ -26,22 +28,30 @@ end
 function main(path)
     nv, cls = read_cnf(path)
     vars(c) = unique(abs.(c) .- 1)                      # desde 0
-    occ = Dict{Int, Vector{Int}}()
-    for (j, c) in enumerate(cls), v in vars(c)
-        push!(get!(() -> Int[], occ, v), j)
+    # los bloques: las cláusulas unidas por compartir dos variables o más (varias cláusulas y anchura por bloque)
+    par = collect(eachindex(cls))
+    find(x) = par[x] == x ? x : (par[x] = find(par[x]))
+    for j in eachindex(cls), j2 in (j + 1):length(cls)
+        length(intersect(vars(cls[j]), vars(cls[j2]))) >= 2 && (par[find(j)] = find(j2))
     end
-    seps = Set(v for (v, js) in occ if length(js) >= 2)
-    # el orden de la cadena: empezar por una cláusula con un solo separador
-    nseps(j) = count(v -> v in seps, vars(cls[j]))
-    start = findfirst(j -> nseps(j) == 1, eachindex(cls))
+    roots = unique(find.(eachindex(cls)))
+    bvars = [sort(unique(reduce(vcat, [vars(cls[j]) for j in eachindex(cls) if find(j) == r]))) for r in roots]
+    occ = Dict{Int, Vector{Int}}()
+    for (g, vs) in enumerate(bvars), v in vs
+        push!(get!(() -> Int[], occ, v), g)
+    end
+    seps = Set(v for (v, gs) in occ if length(gs) >= 2)
+    # el orden de la cadena: empezar por un bloque con un solo separador
+    nseps(g) = count(v -> v in seps, bvars[g])
+    start = findfirst(g -> nseps(g) == 1, eachindex(bvars))
     order = [start]; used = Set([start]); sepseq = Int[]
-    while length(order) < length(cls)
+    while length(order) < length(bvars)
         cur = order[end]; nxt = nothing
-        for v in vars(cls[cur])
+        for v in bvars[cur]
             v in seps || continue
-            for j in occ[v]
-                j in used && continue
-                nxt = (j, v)
+            for g in occ[v]
+                g in used && continue
+                nxt = (g, v)
             end
         end
         nxt === nothing && break
@@ -49,12 +59,13 @@ function main(path)
     end
     nb = length(order)
     zone = Dict{Int, Int}()                              # interior del bloque k: k; separador i: nb + i
-    for (k, j) in enumerate(order), v in vars(cls[j])
+    for (k, g) in enumerate(order), v in bvars[g]
         v in seps || (zone[v] = k - 1)
     end
     for (i, v) in enumerate(sepseq)
         zone[v] = nb + i
     end
+    width = maximum(count(v -> get(zone, v, -1) == k, keys(zone)) for k in 1:(nb - 2); init = 0)
     sv = Dict(i => v for (i, v) in enumerate(sepseq))
     # el mapa: paso → variable
     N = 2nv + 3length(cls) + 3
@@ -96,7 +107,7 @@ function main(path)
         end
         okside += good
     end
-    println(basename(path), "\tbloques=", nb, "\tlados=", sides, "\tcon corte=", okside, "\tejemplos sin corte=", bad)
+    println(basename(path), "\tbloques=", nb, "\tanchura=", width, "\tlados=", sides, "\tcon corte=", okside, "\tejemplos sin corte=", bad)
 end
 
 for p in ARGS
