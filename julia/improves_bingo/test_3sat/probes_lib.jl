@@ -6,6 +6,7 @@
 #
 #   PROBE_ONLY=a.cnf,b.cnf   solo esas instancias        PROBE_SKIP=x.cnf   se saltan
 #   PROBE_LIMIT=N            las N primeras del corpus   PROBE_MAP=bin|classic (para `loader()`)
+#   PROBE_DIRS=d1,d2         directorios de instancias añadidos al corpus
 module ProbeLib
     using Main.AbsSat.Alias: Step
     using Main.AbsSat.GraphMap
@@ -28,7 +29,8 @@ module ProbeLib
     function corpus(; skip = String[], dirs = DIRS)
         only = csv_env("PROBE_ONLY"); skips = union(csv_env("PROBE_SKIP"), Set(skip))
         files = String[]
-        for d in dirs
+        # PROBE_DIRS=dir1,dir2: directorios añadidos al corpus (absolutos o relativos a la raíz del proyecto Julia)
+        for d in [dirs; String.(split(get(ENV, "PROBE_DIRS", ""), ","; keepempty = false))]
             dir = joinpath(ROOT, d)
             isdir(dir) || continue
             for f in sort(readdir(dir))

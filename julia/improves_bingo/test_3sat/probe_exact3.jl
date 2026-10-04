@@ -25,6 +25,8 @@ const CAP = parse(Int, get(ENV, "EXACT_CAP", "50000"))
 # EXACT_LINKS=1: la camarilla además sigue los enlaces de documentos (cada nodo es padre del anterior), como Lean
 # `Carried.node`. Sin ella solo se pide vecindad dos a dos y ningún trío prohibido.
 const LINKS = get(ENV, "EXACT_LINKS", "0") == "1"
+# EXACT_GROUPS=flt,fin: solo se juzgan esos grupos (instancias grandes: flt es el estado de la hipótesis).
+const GROUPS = Set(split(get(ENV, "EXACT_GROUPS", "flt,arr,jrev,fin"), ","; keepempty = false))
 include(joinpath(@__DIR__, "..", "src/main.jl"))
 include(joinpath(@__DIR__, "probes_lib.jl"))
 using .AbsSat.Alias: Step, NodeId, SetNodesId, PathNodeId, SetPathNodesId
@@ -47,6 +49,7 @@ end
 
 function judge(g, pre; reqs = nothing)
     g.is_valid || return
+    string(pre) in GROUPS || return
     og = g.og
     top = Int(g.current_step) - 1
     top >= 2 || return
