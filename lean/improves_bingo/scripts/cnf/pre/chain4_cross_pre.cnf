@@ -1,0 +1,15 @@
+c chain4_cross.cnf renumerada en el orden de la cadena (test_3sat/preprocess_chain.jl)
+c map 1 1
+c map 2 6
+c map 3 2
+c map 4 8
+c map 5 4
+c map 6 3
+c map 7 5
+c map 8 7
+c map 9 9
+p cnf 9 4
+1 2 3 0
+-3 4 5 0
+-5 6 7 0
+-7 8 9 0
