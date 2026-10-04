@@ -41,6 +41,44 @@ structure ChainOrdN (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) : Prop where
   num : GPathB.NumLocal φ n zone sv
   lit : GPathB.LitLocal φ n zone sv
 
+/-- **Una cadena en orden con varias cláusulas por bloque.** `prs` da, en el orden de `φ`, cada cláusula con su bloque,
+y los bloques no bajan. -/
+structure ChainOrdM (φ : Cnf) (n : Nat) (zone sv : Nat → Nat) (prs : List (Nat × Clause)) : Prop where
+  D    : ChainN φ n zone
+  hsv  : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k
+  hprs : φ.clauses = prs.map Prod.snd
+  blk  : ∀ x ∈ prs, x.1 < n ∧ ClIn (BlkN n zone x.1) x.2
+  srt  : prs.Pairwise (fun x y => x.1 ≤ y.1)
+  num  : GPathB.NumLocal φ n zone sv
+  lit  : GPathB.LitLocal φ n zone sv
+
+/-- Los pares de una cadena con una cláusula por bloque. -/
+def prsN (φ : Cnf) (n : Nat) : List (Nat × Clause) :=
+  (List.range n).map (fun k => (k, φ.clauses.getD k ⟨⟨0, true⟩, ⟨0, true⟩, ⟨0, true⟩⟩))
+
+/-- **Una cláusula por bloque es un caso.** -/
+theorem ChainOrdN.toM {n : Nat} {zone sv : Nat → Nat} (C : ChainOrdN φ n zone sv) : ChainOrdM φ n zone sv (prsN φ n) := by
+  have get : ∀ k, k < n → φ.clauses[k]? = some (φ.clauses.getD k ⟨⟨0, true⟩, ⟨0, true⟩, ⟨0, true⟩⟩) := by
+    intro k hk
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (by rw [C.len]; exact hk)]
+    rfl
+  refine ⟨C.D, C.hsv, ?_, fun x hx => ?_, ?_, C.num, C.lit⟩
+  · apply List.ext_getElem?
+    intro i
+    unfold prsN
+    rw [List.map_map, List.getElem?_map]
+    by_cases hi : i < n
+    · have e : (List.range n)[i]? = some i := by rw [List.getElem?_eq_getElem (by simp [hi])]; simp
+      rw [e, get i hi]; rfl
+    · rw [List.getElem?_eq_none (by rw [C.len]; omega), List.getElem?_eq_none (by simp; omega)]
+      rfl
+  · unfold prsN at hx
+    obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hx
+    have hk' := List.mem_range.mp hk
+    exact ⟨hk', C.blk k _ (get k hk')⟩
+  · unfold prsN
+    exact List.pairwise_map.mpr (List.pairwise_lt_range.imp (fun h => Nat.le_of_lt h))
+
 namespace GPathB
 
 variable {P0 P : Assign → Prop} {Nn σ : Int}
@@ -171,38 +209,70 @@ theorem away_isolate (hL : LocalReads ψ n zone sv) {v : Nat} :
 
 end Ops
 
+
 /-! ## Las líneas -/
 
 section Lines
 
-variable {n : Nat} {zone sv : Nat → Nat}
+variable {n : Nat} {zone sv : Nat → Nat} {prs : List (Nat × Clause)}
 
 open Driver Machine MachineOn
 
-/-- **Las líneas de la cláusula `j`**, en su prefijo. -/
-theorem phantomAt_ordLine (hb : Bounded φ) (C : ChainOrdN φ n zone sv) {j : Nat} (hj : j < n) {T : Int}
-    (hT0 : clauseStep φ j 0 ≤ T) (hT2 : T ≤ clauseStep φ j 2) (hT : 1 ≤ T) :
-    PhantomAt (prefixCnf φ (j + 1)) T := by
-  have hjl : j < φ.clauses.length := by rw [C.len]; exact hj
-  have hcj : φ.clauses[j]? = some (φ.clauses[j]'hjl) := List.getElem?_eq_getElem _
-  have hψj : (prefixCnf φ (j + 1)).clauses[j]? = some (φ.clauses[j]'hjl) := (prefix_getElem? (by omega)).trans hcj
-  refine phantomAt_of_lineLocal (bounded_prefix hb (j + 1)) hψj (by rw [clauseStep_prefix]; exact hT0)
+theorem ordM_get (C : ChainOrdM φ n zone sv prs) {i : Nat} {c : Clause} (h : φ.clauses[i]? = some c) :
+    ∃ x, prs[i]? = some x ∧ x.2 = c := by
+  rw [C.hprs, List.getElem?_map] at h
+  cases e : prs[i]? with
+  | none => rw [e] at h; cases h
+  | some x => rw [e] at h; exact ⟨x, rfl, Option.some.inj h⟩
+
+theorem ordM_le (C : ChainOrdM φ n zone sv prs) {i k : Nat} {x y : Nat × Clause} (hik : i ≤ k)
+    (hx : prs[i]? = some x) (hy : prs[k]? = some y) : x.1 ≤ y.1 := by
+  rcases Nat.lt_or_eq_of_le hik with h | rfl
+  · obtain ⟨hi, ex⟩ := List.getElem?_eq_some_iff.mp hx
+    obtain ⟨hk, ey⟩ := List.getElem?_eq_some_iff.mp hy
+    rw [← ex, ← ey]; exact List.pairwise_iff_getElem.mp C.srt i k hi hk h
+  · rw [hx] at hy; cases hy; exact Nat.le_refl _
+
+/-- Toda cláusula de `φ` está en un bloque. -/
+theorem ordM_cl (C : ChainOrdM φ n zone sv prs) {c : Clause} (hc : c ∈ φ.clauses) :
+    ∃ j, j < n ∧ ClIn (BlkN n zone j) c := by
+  rw [C.hprs] at hc
+  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hc
+  exact ⟨x.1, C.blk x hx⟩
+
+/-- **Las líneas de la cláusula `k`**, en su prefijo: el bloque `j` de la cláusula `k` es el último que toca el prefijo. -/
+theorem phantomAt_ordLineM (hb : Bounded φ) (C : ChainOrdM φ n zone sv prs) {k : Nat} (hk : k < φ.clauses.length)
+    {T : Int} (hT0 : clauseStep φ k 0 ≤ T) (hT2 : T ≤ clauseStep φ k 2) (hT : 1 ≤ T) :
+    PhantomAt (prefixCnf φ (k + 1)) T := by
+  have hcj : φ.clauses[k]? = some (φ.clauses[k]'hk) := List.getElem?_eq_getElem _
+  have hψj : (prefixCnf φ (k + 1)).clauses[k]? = some (φ.clauses[k]'hk) := (prefix_getElem? (by omega)).trans hcj
+  obtain ⟨y, hy, eyc⟩ := ordM_get C hcj
+  obtain ⟨hj, hBc⟩ := C.blk y (List.mem_of_getElem? hy)
+  rw [eyc] at hBc
+  -- el prefijo, en los bloques hasta el de `k`
+  have hpre : ∀ c ∈ (prefixCnf φ (k + 1)).clauses, ∃ i, i ≤ y.1 ∧ ClIn (BlkN n zone i) c := by
+    intro c hc
+    obtain ⟨i, hi, e⟩ := mem_prefix_clause hc
+    obtain ⟨x, hx, rfl⟩ := ordM_get C e
+    exact ⟨x.1, ordM_le C (by omega) hx hy, (C.blk x (List.mem_of_getElem? hx)).2⟩
+  generalize y.1 = j at hj hBc hpre
+  refine phantomAt_of_lineLocal (bounded_prefix hb (k + 1)) hψj (by rw [clauseStep_prefix]; exact hT0)
     (by rw [clauseStep_prefix]; exact hT2) hT (fun {P0 P σ N v} hl hv hcv hσ0 hσN hTN => ?_)
-  have hmid : midFusion (prefixCnf φ (j + 1)) < N := by
+  have hmid : midFusion (prefixCnf φ (k + 1)) < N := by
     have := hT0; simp only [clauseStep, midFusion, prefixCnf] at this ⊢; omega
-  have hBv : BlkN n zone j v := clIn_var (C.blk j _ hcj) hcv
-  have hvlt : v < (prefixCnf φ (j + 1)).nVars := by
+  have hBv : BlkN n zone j v := clIn_var hBc hcv
+  have hvlt : v < (prefixCnf φ (k + 1)).nVars := by
     have := hb _ (List.mem_of_getElem? hcj)
     rcases hcv with e | e | e
     · rw [e]; exact this.1
     · rw [e]; exact this.2.1
     · rw [e]; exact this.2.2
-  have LR : LocalReads (prefixCnf φ (j + 1)) n zone sv := localReads_of C.hsv C.num (litLocal_prefix C.lit _)
+  have LR : LocalReads (prefixCnf φ (k + 1)) n zone sv := localReads_of C.hsv C.num (litLocal_prefix C.lit _)
   by_cases hlast : j + 1 < n
   · -- truncar en el separador `j + 1`
-    have D' := chainN_truncS (ψ := prefixCnf φ (j + 1)) C.D (Nat.le_refl _) (k := j + 1) (by omega) hlast (fun c hc => by
-      obtain ⟨i, hi, e⟩ := mem_prefix_clause hc
-      exact Or.inl ⟨i, hi, C.blk i c e⟩)
+    have D' := chainN_truncS (ψ := prefixCnf φ (k + 1)) C.D (Nat.le_refl _) (k := j + 1) (by omega) hlast (fun c hc => by
+      obtain ⟨i, hi, hB⟩ := hpre c hc
+      exact Or.inl ⟨i, by omega, hB⟩)
     have hsv' : ∀ i, 1 ≤ i → i < j + 1 + 1 → truncZ n (j + 1) zone (sv i) = (j + 1 + 1) + i := fun i h1 h2 =>
       (truncZ_sep hlast h1 (by omega)).mpr (C.hsv i h1 (by omega))
     have LR' := localReads_trunc LR hlast
@@ -235,9 +305,9 @@ theorem phantomAt_ordLine (hb : Bounded φ) (C : ChainOrdN φ n zone sv) {j : Na
         ((truncZ_sep hlast (by omega) (Nat.le_refl _)).mpr (by omega)) (m := j + 1) (a := 0) (b := j + 1 + 1)
         (by omega) (by omega) (by omega) (Nat.le_refl _) (fun h => absurd h (by omega))
         (fun h => absurd h (by omega)) hσ0 hσN
-  · -- la última cláusula
+  · -- el último bloque
     have hjn : j = n - 1 := by omega
-    have D' := chainN_prefix C.D (j + 1)
+    have D' := chainN_prefix C.D (k + 1)
     rcases hBv with h | ⟨h1, h⟩ | ⟨h1, h⟩
     · -- de dentro del último bloque: se aísla
       have D'' := chainN_isolate D' (show zone v = n - 1 by omega) hvlt
@@ -261,13 +331,12 @@ theorem phantomAt_ordLine (hb : Bounded φ) (C : ChainOrdN φ n zone sv) {j : Na
         (by omega) (by omega) (Nat.le_refl _) (fun h => absurd h (by omega)) (fun h => absurd h (by omega)) hσ0 hσN
     · omega
 
-/-- **Toda cadena en orden cumple la condición fuerte en todas sus líneas.** -/
-theorem phantomAt_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) (T : Int) (hT : 1 ≤ T) :
+/-- **Toda cadena en orden, con varias cláusulas por bloque, cumple la condición fuerte en todas sus líneas.** -/
+theorem phantomAt_of_chainOrdM (hb : Bounded φ) (C : ChainOrdM φ n zone sv prs) (T : Int) (hT : 1 ≤ T) :
     PhantomAt φ T := by
   have cs : ∀ j p : Nat, clauseStep φ j p = 2 * (φ.nVars : Int) + 2 + 3 * (j : Int) + (p : Int) := fun _ _ => rfl
   have hm : midFusion φ = 2 * (φ.nVars : Int) + 1 := rfl
-  have hft : fusionTop φ = 2 * (φ.nVars : Int) + 3 * (n : Int) + 2 := by simp only [fusionTop, C.len]
-  have two := C.D.two
+  have hft : fusionTop φ = 2 * (φ.nVars : Int) + 3 * (φ.clauses.length : Int) + 2 := by simp only [fusionTop]
   by_cases hlow : T + 1 ≤ midFusion φ + 3
   · refine phantomAt_of_hellyAt hb hT (fun k d _ _ => ?_)
     refine ⟨fun r _ => helly4_of_maj (fun a1 a2 a3 h1 h2 h3 => ?_), helly4_of_maj (fun a1 a2 a3 h1 h2 h3 => ?_)⟩
@@ -276,19 +345,24 @@ theorem phantomAt_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) (T 
     · exact ⟨⟨validUpTo_pre _ hlow, by rw [sel_maj_ab (h1.1.2.trans h2.1.2.symm)]; exact h1.1.2⟩,
         by rw [sel_maj_ab (h1.2.trans h2.2.symm)]; exact h1.2⟩
   rw [hm] at hlow
-  by_cases hin : T ≤ clauseStep φ (n - 1) 2
+  by_cases hin : 0 < φ.clauses.length ∧ T ≤ clauseStep φ (φ.clauses.length - 1) 2
   · -- la cláusula de la línea, y su prefijo
+    obtain ⟨hpos, hin⟩ := hin
     rw [cs] at hin
-    have hj : ((T - (2 * (φ.nVars : Int) + 2)) / 3).toNat < n := by omega
+    have hj : ((T - (2 * (φ.nVars : Int) + 2)) / 3).toNat < φ.clauses.length := by omega
     have h0 : clauseStep φ ((T - (2 * (φ.nVars : Int) + 2)) / 3).toNat 0 ≤ T := by rw [cs]; omega
     have h2 : T ≤ clauseStep φ ((T - (2 * (φ.nVars : Int) + 2)) / 3).toNat 2 := by rw [cs]; omega
     refine phantomAt_of_prefix hb (j := ((T - (2 * (φ.nVars : Int) + 2)) / 3).toNat + 1) ?_
-      (phantomAt_ordLine hb C hj h0 h2 hT)
+      (phantomAt_ordLineM hb C hj h0 h2 hT)
     rw [cs] at h2
-    simp only [fusionTop, prefixCnf, List.length_take, C.len]
+    simp only [fusionTop, prefixCnf, List.length_take]
     omega
   · -- después de la última cláusula
-    rw [cs] at hin
+    have hin' : clauseStep φ (φ.clauses.length - 1) 2 < T ∨ φ.clauses.length = 0 := by
+      by_cases h : φ.clauses.length = 0
+      · exact Or.inr h
+      · exact Or.inl (by have := not_and.mp hin (by omega); omega)
+    rw [cs] at hin'
     intro k d hk hd
     have hds : d.step = T := by
       have := sonsOfMap_step φ k d hd
@@ -304,6 +378,11 @@ theorem phantomAt_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) (T 
       simp only [stepVar, if_neg h1, if_neg h2, if_neg h3, if_pos h4]
     exact phantomFree_none (locPair_up hb T k d) hsv (by omega) (show T < T + 1 by omega)
 
+/-- El caso de una cláusula por bloque. -/
+theorem phantomAt_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) (T : Int) (hT : 1 ≤ T) :
+    PhantomAt φ T :=
+  phantomAt_of_chainOrdM hb C.toM T hT
+
 end Lines
 
 end GPathB
@@ -312,16 +391,35 @@ namespace MachineOn
 
 open GPathB Driver Machine
 
-variable {n : Nat} {zone sv : Nat → Nat}
+variable {n : Nat} {zone sv : Nat → Nat} {prs : List (Nat × Clause)}
+
+/-- **La máquina `:on` es exacta en toda cadena en orden, de cualquier longitud y con varias cláusulas por bloque.** -/
+theorem machineExact_of_chainOrdM (hb : Bounded φ) (C : ChainOrdM φ n zone sv prs) : MachineExact φ :=
+  (machineExact_iff hb).2 (phantomAt_of_chainOrdM hb C)
+
+/-- **La espina `:on` decide toda cadena en orden, con varias cláusulas por bloque.** -/
+theorem spineVerdictOn_iff_of_chainOrdM (hb : Bounded φ) (C : ChainOrdM φ n zone sv prs) :
+    SpineVerdictOn φ ↔ Satisfiable φ :=
+  spineVerdictOn_iff_of_phantomFree hb (phantomAt_of_chainOrdM hb C)
+
+/-- **El lector por separadores no se atasca en ninguna cadena en orden, con varias cláusulas por bloque, en cualquier
+orden de los separadores.** Sin hipótesis. -/
+theorem reader_sep_of_chainOrdM (hb : Bounded φ) (C : ChainOrdM φ n zone sv prs) {ord : List Nat}
+    (hord : ∀ q ∈ ord, 1 ≤ q ∧ q < n) (hall : ∀ q, 1 ≤ q → q < n → q ∈ ord) {kv : NodeId × GPathB}
+    (hkv : kv ∈ runM .on φ) {R : List NodeId} {g' : GPathB} (hr : Reading kv.2 R g')
+    (hsf : SepFirst φ (ord.map sv) R) :
+    g'.isValid = true ∧ ∃ a, Sat a φ ∧ (∀ r ∈ R, selOfAssign φ a r.step = r) ∧ CT g' (pidOfAssign φ a) :=
+  reader_sep_local hb C.D C.hsv (localReads_of C.hsv C.num C.lit) (fun _ hc => ordM_cl C hc)
+    hord hall (fun T hT => phantomAtW_of_phantomAt (phantomAt_of_chainOrdM hb C T hT)) hkv hr hsf
 
 /-- **La máquina `:on` es exacta en toda cadena en orden, de cualquier longitud.** -/
 theorem machineExact_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) : MachineExact φ :=
-  (machineExact_iff hb).2 (phantomAt_of_chainOrd hb C)
+  machineExact_of_chainOrdM hb C.toM
 
 /-- **La espina `:on` decide toda cadena en orden.** -/
 theorem spineVerdictOn_iff_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) :
     SpineVerdictOn φ ↔ Satisfiable φ :=
-  spineVerdictOn_iff_of_phantomFree hb (phantomAt_of_chainOrd hb C)
+  spineVerdictOn_iff_of_chainOrdM hb C.toM
 
 /-- **El lector por separadores no se atasca en ninguna cadena en orden, de cualquier longitud y en cualquier orden de
 los separadores.** Sin hipótesis. -/
@@ -330,15 +428,7 @@ theorem reader_sep_of_chainOrd (hb : Bounded φ) (C : ChainOrdN φ n zone sv) {o
     (hkv : kv ∈ runM .on φ) {R : List NodeId} {g' : GPathB} (hr : Reading kv.2 R g')
     (hsf : SepFirst φ (ord.map sv) R) :
     g'.isValid = true ∧ ∃ a, Sat a φ ∧ (∀ r ∈ R, selOfAssign φ a r.step = r) ∧ CT g' (pidOfAssign φ a) :=
-  reader_sep_local hb C.D C.hsv (localReads_of C.hsv C.num C.lit) (fun c hc => by
-      obtain ⟨j, hj⟩ := List.mem_iff_getElem?.mp hc
-      have hjl : j < n := by
-        rw [← C.len]
-        by_cases h : j < φ.clauses.length
-        · exact h
-        · rw [List.getElem?_eq_none (by omega)] at hj; cases hj
-      exact ⟨j, hjl, C.blk j c hj⟩)
-    hord hall (fun T hT => phantomAtW_of_phantomAt (phantomAt_of_chainOrd hb C T hT)) hkv hr hsf
+  reader_sep_of_chainOrdM hb C.toM hord hall hkv hr hsf
 
 end MachineOn
 

@@ -30,6 +30,14 @@ open AbsSatBin.GraphMap.CnfSelBin
 
 variable {φ : Cnf}
 
+/-- **La numeración de una cadena**: sus zonas, separadores, variables de dentro y las de los extremos. -/
+structure ChainNum (φ : Cnf) (n : Nat) (zone sv zi : Nat → Nat) (e0a e0b eLa eLb : Nat) : Prop where
+  D    : ChainN φ n zone
+  hsv  : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k
+  hzi  : ∀ p, 1 ≤ p → p + 1 < n → zone (zi p) = p
+  u0   : ∀ z, zone z = 0 → z = e0a ∨ z = e0b
+  uL   : ∀ z, zone z = n - 1 → z = eLa ∨ z = eLb
+
 /-- **Una cadena de entrada.** -/
 structure ChainIn (φ : Cnf) (n : Nat) (zone sv zi : Nat → Nat) (e0a e0b eLa eLb : Nat) (cl : Nat → Clause) :
     Prop where
@@ -42,6 +50,10 @@ structure ChainIn (φ : Cnf) (n : Nat) (zone sv zi : Nat → Nat) (e0a e0b eLa e
   cov  : ∀ c ∈ φ.clauses, ∃ p, p < n ∧ c = cl p
   mid  : ∀ p, 1 ≤ p → p + 1 < n → ClVar (cl p) (sv p) ∧ ClVar (cl p) (zi p) ∧ ClVar (cl p) (sv (p + 1))
   dist : ∀ p, 1 ≤ p → p + 1 < n → (cl p).l1.v ≠ (cl p).l2.v ∧ (cl p).l1.v ≠ (cl p).l3.v ∧ (cl p).l2.v ≠ (cl p).l3.v
+
+theorem ChainIn.toNum {φ : Cnf} {n : Nat} {zone sv zi : Nat → Nat} {e0a e0b eLa eLb : Nat} {cl : Nat → Clause}
+    (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) : ChainNum φ n zone sv zi e0a e0b eLa eLb :=
+  ⟨C.D, C.hsv, C.hzi, C.u0, C.uL⟩
 
 /-! ## La construcción -/
 
@@ -126,7 +138,7 @@ theorem zoneO_odd {p : Nat} (h1 : 1 ≤ p) (h2 : p + 1 < n) : zoneO n (2 * p + 1
 theorem zoneO_even {i : Nat} (h1 : 1 ≤ i) (h2 : i < n) : zoneO n (2 * i) = n + i := by
   unfold zoneO; rw [if_neg (by omega), if_pos (by omega), if_pos (by omega)]; omega
 
-theorem fPre_zone (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) {z : Nat} (hz : InChainZ n zone z) :
+theorem fPre_zone (C : ChainNum φ n zone sv zi e0a e0b eLa eLb) {z : Nat} (hz : InChainZ n zone z) :
     zoneO n (fPre n zone e0a eLa z) = zone z := by
   have two := C.D.two
   unfold InChainZ at hz
@@ -141,7 +153,7 @@ theorem fPre_zone (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) {z : Nat} (hz
   · rw [if_pos hm]; exact zoneO_odd (by omega) (by omega)
   rw [if_neg hm, if_pos (by omega), zoneO_even (by omega) (by omega)]; omega
 
-theorem gfPre (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) {z : Nat} (hz : InChainZ n zone z) :
+theorem gfPre (C : ChainNum φ n zone sv zi e0a e0b eLa eLb) {z : Nat} (hz : InChainZ n zone z) :
     gPre n sv zi e0a e0b eLa eLb (fPre n zone e0a eLa z) = z := by
   have two := C.D.two
   unfold InChainZ at hz
@@ -175,7 +187,7 @@ theorem gfPre (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) {z : Nat} (hz : I
     show 2 * (zone z - n) / 2 = zone z - n by omega]
   exact (C.D.sep1 (zone z - n) (by omega) (by omega) z _ (by omega) (C.hsv _ (by omega) (by omega))).symm
 
-theorem fPre_lt (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) {z : Nat} (hz : InChainZ n zone z) :
+theorem fPre_lt (C : ChainNum φ n zone sv zi e0a e0b eLa eLb) {z : Nat} (hz : InChainZ n zone z) :
     fPre n zone e0a eLa z < 2 * n + 1 := by
   have two := C.D.two
   unfold InChainZ at hz
@@ -264,7 +276,7 @@ theorem renaming_pre (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) :
     inChainZ_of_blk hp (clIn_var (C.hcl _ hp).2 (clLits_var hl))
   refine ⟨fun c hc l hl => ?_, fun c hc => ?_, fun c' hc' => ?_⟩
   · obtain ⟨p, hp, rfl⟩ := C.cov c hc
-    exact gfPre C (inz hp hl)
+    exact gfPre C.toNum (inz hp hl)
   · obtain ⟨p, hp, rfl⟩ := C.cov c hc
     refine ⟨preCl n zone sv zi e0a eLa cl p, List.mem_map.mpr ⟨p, List.mem_range.mpr hp, rfl⟩, fun l' hl' => ?_⟩
     unfold preCl at hl'
@@ -313,7 +325,7 @@ theorem bounded_pre (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) :
   obtain ⟨p, hp, rfl⟩ := mem_preCnf hc'
   have bd : ∀ {w}, ClVar (preCl n zone sv zi e0a eLa cl p) w → w < 2 * n + 1 := fun hw => by
     obtain ⟨z, hz, rfl⟩ := preCl_vars C hw
-    exact fPre_lt C (inChainZ_of_blk hp (clIn_var (C.hcl p hp).2 hz))
+    exact fPre_lt C.toNum (inChainZ_of_blk hp (clIn_var (C.hcl p hp).2 hz))
   exact ⟨bd (Or.inl rfl), bd (Or.inr (Or.inl rfl)), bd (Or.inr (Or.inr rfl))⟩
 
 /-- **La preprocesada está en `ChainOrdN`.** -/
@@ -327,7 +339,7 @@ theorem chainOrd_pre (C : ChainIn φ n zone sv zi e0a e0b eLa eLb cl) :
       obtain ⟨z, hz, rfl⟩ := preCl_vars C hw
       have hB := clIn_var (C.hcl p hp).2 hz
       unfold BlkN at hB ⊢
-      rw [fPre_zone C (inChainZ_of_blk hp hB)]; exact hB
+      rw [fPre_zone C.toNum (inChainZ_of_blk hp hB)]; exact hB
     exact ⟨t (Or.inl rfl), t (Or.inr (Or.inl rfl)), t (Or.inr (Or.inr rfl))⟩
   have getp : ∀ j c, (preCnf n zone sv zi e0a eLa cl).clauses[j]? = some c → j < n ∧
       c = preCl n zone sv zi e0a eLa cl j := by

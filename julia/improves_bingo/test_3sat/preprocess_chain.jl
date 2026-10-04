@@ -2,12 +2,14 @@
 #
 #   julia test_3sat/preprocess_chain.jl entrada.cnf salida.cnf
 #
-# Si la fórmula es una cadena de cláusulas (cada variable compartida, un «separador», está en dos cláusulas vecinas, y
-# las cláusulas forman un camino), la reescribe en la clase Lean `ChainOrdN`:
-#   * las cláusulas en el orden de la cadena;
+# Si la fórmula es una cadena de bloques (cada variable compartida, un «separador», está en dos bloques vecinos, y los
+# bloques forman un camino), la reescribe en la clase Lean `ChainOrdN` (una cláusula por bloque) o `ChainOrdM` (varias):
+#   * un bloque son las cláusulas sobre las mismas variables (o sobre parte de ellas: van al bloque mayor que las tiene);
+#   * los bloques en el orden de la cadena, y las cláusulas de cada bloque seguidas;
 #   * las variables numeradas en ese orden: las de dentro del primer bloque, s1, la de dentro del bloque 1, s2, …;
 #   * en cada cláusula de en medio, (separador izquierdo, la de dentro, separador derecho), con los signos de entrada.
-# Las soluciones se corresponden por el renombrado (Lean `Renaming`, `satisfiable_iff_of_renaming`). En el fichero de
+# Las soluciones se corresponden por el renombrado (Lean `Renaming`, `satisfiable_iff_of_renaming`; con varias cláusulas
+# por bloque, `ForbidOnChainPreM.lean`). En el fichero de
 # salida, una línea `c map old new` por variable.
 
 function read_cnf(path)
@@ -51,29 +53,39 @@ function chain_of(cls)
     return order, sepseq
 end
 
+"""Los bloques de `cls`: los conjuntos de variables maximales, y para cada uno sus cláusulas (Lean `bk`)."""
+function blocks_of(cls)
+    vs = [sort(unique(abs.(c))) for c in cls]
+    keys = unique(vs)
+    maxk = [k for k in keys if !any(k2 -> k2 != k && issubset(k, k2), keys)]
+    blk = [findfirst(k -> issubset(v, k), maxk) for v in vs]
+    return maxk, [findall(==(b), blk) for b in eachindex(maxk)]
+end
+
 function preprocess(cls)
-    ch = chain_of(cls)
+    maxk, members = blocks_of(cls)
+    ch = chain_of([Int.(k) for k in maxk])
     ch === nothing && return nothing
     order, sepseq = ch
     nb = length(order)
     newid = Dict{Int, Int}(); next = Ref(0)
     num(v) = haskey(newid, v) || (newid[v] = (next[] += 1))
-    inner(j) = [v for v in unique(abs.(cls[order[j]])) if !(v in sepseq)]
+    inner(j) = [v for v in maxk[order[j]] if !(v in sepseq)]
     for j in 1:nb
         foreach(num, inner(j))
         j < nb && num(sepseq[j])
     end
     out = Vector{Vector{Int}}()
-    for j in 1:nb
-        c = cls[order[j]]
+    for j in 1:nb, i in members[order[j]]
+        c = cls[i]
         lit(v) = (l = c[findfirst(x -> abs(x) == v, c)]; sign(l) * newid[v])
-        if 1 < j < nb && length(inner(j)) == 1 && length(c) == 3
+        if 1 < j < nb && length(inner(j)) == 1 && length(unique(abs.(c))) == 3 == length(c)
             push!(out, [lit(sepseq[j - 1]), lit(inner(j)[1]), lit(sepseq[j])])
         else
             push!(out, [sign(l) * newid[abs(l)] for l in c])
         end
     end
-    return out, newid
+    return out, newid, nb
 end
 
 function main(inp, outp)
@@ -82,7 +94,7 @@ function main(inp, outp)
     if r === nothing
         println(basename(inp), "\tno es una cadena"); return
     end
-    out, newid = r
+    out, newid, nb = r
     open(outp, "w") do io
         println(io, "c ", basename(inp), " renumerada en el orden de la cadena (test_3sat/preprocess_chain.jl)")
         for v in sort(collect(keys(newid)))
@@ -93,7 +105,7 @@ function main(inp, outp)
             println(io, join(c, " "), " 0")
         end
     end
-    println(basename(inp), "\t→ ", basename(outp), "\tbloques=", length(out))
+    println(basename(inp), "\t→ ", basename(outp), "\tbloques=", nb, "\tcláusulas=", length(out))
 end
 
 main(ARGS[1], ARGS[2])

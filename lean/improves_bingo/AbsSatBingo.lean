@@ -172,3 +172,4 @@ import AbsSatBingo.Model.ForbidOnChainOrd
 import AbsSatBingo.Model.ForbidOnChainOrdI
 import AbsSatBingo.Model.ForbidOnChainPre
 import AbsSatBingo.Model.ForbidOnChainPreGen
+import AbsSatBingo.Model.ForbidOnChainPreM
