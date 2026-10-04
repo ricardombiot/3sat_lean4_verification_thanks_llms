@@ -20,6 +20,11 @@ si es fijo.
   conservado, y por tanto coincide con `a0` en su `t_1`.
 
 `glue_sides_tri` pega los dos lados en `v`. Resultado: **`phantomFree_bisect`**.
+
+**T2 en orden de bisección** (`BisectOrder`, `sepPinFree_of_bisect`): cada separador tiene a cada lado uno ya fijado
+(o el extremo) a la distancia que admite su lado; los fijados por el prefijo leído los leen igual todas las ramas
+(`fixed_of_prefix`). Con seis bloques, `[3, 1, 2, 4, 5]` (`bisectOrder_6`). **`reader_bisect`**: el lector en ese
+orden no se atasca en toda `ChainN` con las cláusulas en bloques, dadas las líneas (`HA`).
 -/
 
 namespace AbsSatBingo.Model
@@ -375,6 +380,124 @@ theorem phantomFree_bisect (hl : LocPair φ P0 P σ) (D : ChainN φ n zone) {sv 
 
 end Two
 
+/-! ## T2 en orden de bisección -/
+
+/-- **Un orden de bisección** de los separadores `1 … n-1`: cada uno tiene, a cada lado, un separador ya fijado (o el
+extremo de la cadena) a distancia a lo sumo tres (cuatro si es un separador fijado). -/
+def BisectOrder (n : Nat) (ord : List Nat) : Prop :=
+  ∀ (k q : Nat), ord[k]? = some q → 1 ≤ q ∧ q < n ∧ ∃ a b : Nat, a < q ∧ q < b ∧ b ≤ n ∧
+    (a = 0 ∨ ∃ i : Nat, i < k ∧ ord[i]? = some a) ∧ (b = n ∨ ∃ i : Nat, i < k ∧ ord[i]? = some b) ∧
+    (q - a ≤ 3 ∨ (1 ≤ a ∧ q - a ≤ 4)) ∧ (b - q ≤ 3 ∨ (b < n ∧ b - q ≤ 4))
+
+section T2
+
+variable {n : Nat} {zone : Nat → Nat}
+
+/-- Un separador fijado por el prefijo leído lo leen igual todas las ramas. -/
+theorem fixed_of_prefix {sv : Nat → Nat} {ord : List Nat} {R0 : List NodeId} {X : Assign → Prop}
+    (hpre : SepPrefix φ (ord.map sv) R0) {i a : Nat} (hi : i < R0.length) (ho : ord[i]? = some a) :
+    ∀ c c', Pinned φ X R0 c → Pinned φ X R0 c' → c (sv a) = c' (sv a) := by
+  refine agree_of_pins ⟨R0[i], List.getElem_mem hi, ?_⟩
+  rw [hpre i R0[i] (List.getElem?_eq_getElem hi), List.getElem?_map, ho]; rfl
+
+/-- **T2 en orden de bisección**, para toda cadena. -/
+theorem sepPinFree_of_bisect (D : ChainN φ n zone) {sv : Nat → Nat}
+    (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
+    (hw : ∀ p, 1 ≤ p → p + 1 < n → ∃ lam, 0 ≤ lam ∧ lam < stepCount φ ∧ ReadsAt φ lam (sv p) ∧
+      ReadsAt φ lam (sv (p + 1)))
+    {ord : List Nat} (hord : BisectOrder n ord) : SepPinFree φ (ord.map sv) (stepCount φ) := by
+  intro k R0 r s hpre hs hrs hr1 hrT
+  rw [List.getElem?_map] at hs
+  cases hq : ord[R0.length]? with
+  | none => rw [hq] at hs; cases hs
+  | some q =>
+    rw [hq] at hs
+    have hsq : sv q = s := Option.some.inj hs
+    obtain ⟨q1, qn, a, b, ha, hb, hbn, hA, hB, hLL, hLR⟩ := hord _ _ hq
+    have hl := locPair_read (φ := φ) (stepCount φ) k R0 r
+    have hv : stepVar φ r.step = some (sv q) := by rw [hsq]; exact hrs
+    -- los extremos fijados
+    have fixOf : ∀ c, (c = 0 ∨ ∃ i, i < R0.length ∧ ord[i]? = some c) → 1 ≤ c → c < n →
+        ∀ y y', Pinned φ (SolE φ (stepCount φ) k) R0 y → Pinned φ (SolE φ (stepCount φ) k) R0 y' →
+          ∀ z, zone z = n + c → y z = y' z := by
+      intro c hc h1 h2 y y' qy qy' z hz
+      rcases hc with h | ⟨i, hi, ho⟩
+      · omega
+      rw [D.sep1 c h1 h2 z (sv c) hz (hsv c h1 h2)]
+      exact fixed_of_prefix hpre hi ho y y' qy qy'
+    refine phantomFree_bisect hl D hsv hw hv (hsv q q1 qn) q1 ha hb hbn
+      (fun h1 => fixOf a hA h1 (by omega)) (fun h2 => fixOf b ?_ (by omega) h2) hLL hLR (by omega) hrT
+    rcases hB with h | h
+    · omega
+    · exact Or.inr h
+
+/-- La lista de separadores, si el orden los recorre todos. -/
+theorem mem_sep_iff (D : ChainN φ n zone) {sv : Nat → Nat} (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
+    {ord : List Nat} (hord : BisectOrder n ord) (hall : ∀ q, 1 ≤ q → q < n → q ∈ ord) :
+    ∀ z, z ∈ ord.map sv ↔ SepN n zone z := by
+  intro z
+  constructor
+  · intro h
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.mp h
+    obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp hq
+    obtain ⟨q1, qn, _⟩ := hord i q hi
+    unfold SepN; rw [hsv q q1 qn]; omega
+  · intro h
+    unfold SepN at h
+    have e := D.sep1 (zone z - n) (by omega) (by omega) z (sv (zone z - n)) (by omega)
+      (hsv _ (by omega) (by omega))
+    rw [e]
+    exact List.mem_map.mpr ⟨_, hall _ (by omega) (by omega), rfl⟩
+
+end T2
+
+/-! ## El orden para seis bloques -/
+
+theorem bisectOrder_6 : BisectOrder 6 [3, 1, 2, 4, 5] := by
+  intro k q h
+  rcases k with _ | _ | _ | _ | _ | k
+  · have : q = 3 := by simp at h; omega
+    subst this
+    exact ⟨by omega, by omega, 0, 6, by omega, by omega, by omega, Or.inl rfl, Or.inl rfl, Or.inl (by omega),
+      Or.inl (by omega)⟩
+  · have : q = 1 := by simp at h; omega
+    subst this
+    exact ⟨by omega, by omega, 0, 3, by omega, by omega, by omega, Or.inl rfl, Or.inr ⟨0, by omega, rfl⟩,
+      Or.inl (by omega), Or.inl (by omega)⟩
+  · have : q = 2 := by simp at h; omega
+    subst this
+    exact ⟨by omega, by omega, 1, 3, by omega, by omega, by omega, Or.inr ⟨1, by omega, rfl⟩,
+      Or.inr ⟨0, by omega, rfl⟩, Or.inl (by omega), Or.inl (by omega)⟩
+  · have : q = 4 := by simp at h; omega
+    subst this
+    exact ⟨by omega, by omega, 3, 6, by omega, by omega, by omega, Or.inr ⟨0, by omega, rfl⟩, Or.inl rfl,
+      Or.inl (by omega), Or.inl (by omega)⟩
+  · have : q = 5 := by simp at h; omega
+    subst this
+    exact ⟨by omega, by omega, 4, 6, by omega, by omega, by omega, Or.inr ⟨3, by omega, rfl⟩, Or.inl rfl,
+      Or.inl (by omega), Or.inl (by omega)⟩
+  · simp at h
+
 end GPathB
+
+namespace MachineOn
+
+open GPathB Driver Machine
+
+/-- **El lector en orden de bisección no se atasca** en una cadena de `n` bloques con un orden de bisección (hasta
+seis bloques: `bisectOrder_6`), con las líneas (`HA`) y toda cláusula en un bloque. -/
+theorem reader_bisect {n : Nat} {zone : Nat → Nat} (hbd : Bounded φ) (D : ChainN φ n zone) {sv : Nat → Nat}
+    (hsv : ∀ k, 1 ≤ k → k < n → zone (sv k) = n + k)
+    (hw : ∀ p, 1 ≤ p → p + 1 < n → ∃ lam, 0 ≤ lam ∧ lam < stepCount φ ∧ ReadsAt φ lam (sv p) ∧
+      ReadsAt φ lam (sv (p + 1)))
+    (hcl : ∀ c ∈ φ.clauses, ∃ j, j < n ∧ ClIn (BlkN n zone j) c)
+    {ord : List Nat} (hord : BisectOrder n ord) (hall : ∀ q, 1 ≤ q → q < n → q ∈ ord)
+    (HA : ∀ T : Int, 1 ≤ T → PhantomAtW φ T) {kv : NodeId × GPathB} (hkv : kv ∈ runM .on φ)
+    {R : List NodeId} {g' : GPathB} (hr : Reading kv.2 R g') (hsf : SepFirst φ (ord.map sv) R) :
+    g'.isValid = true ∧ ∃ a, Sat a φ ∧ (∀ r ∈ R, selOfAssign φ a r.step = r) ∧ CT g' (pidOfAssign φ a) :=
+  reader_sep_on hbd HA (sepCover_of_chainN D hcl (mem_sep_iff D hsv hord hall))
+    (sepPinFree_of_bisect D hsv hw hord) hkv hr hsf
+
+end MachineOn
 
 end AbsSatBingo.Model
