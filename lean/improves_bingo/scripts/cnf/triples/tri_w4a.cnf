@@ -1,0 +1,9 @@
+c tri_w4a.cnf: tríos consecutivos, saltos 1,1,1,2,1,1, semilla 14
+p cnf 10 7
+1 -2 -3 0
+2 3 -4 0
+-3 4 -5 0
+-4 5 6 0
+-6 -7 -8 0
+-7 -8 -9 0
+-8 -9 -10 0

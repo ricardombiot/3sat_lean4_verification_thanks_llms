@@ -1,0 +1,9 @@
+c tri_r9.cnf: tríos consecutivos, saltos 2,1,2,1,2,1, semilla 109
+p cnf 12 7
+1 -2 3 0
+-3 -4 -5 0
+-4 5 6 0
+6 -7 -8 0
+7 8 -9 0
+-9 -10 -11 0
+-10 -11 -12 0
