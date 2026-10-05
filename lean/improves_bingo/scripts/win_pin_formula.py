@@ -34,14 +34,14 @@ def ram_guard():
         sys.exit(f"corte por memoria: pico {rss >> 20} MB")
 
 
-def phantom(pids, P0, P, N, sigma, L=None):
+def phantom(pids, P0, P, N, sigma, L=None, ret=False):
     """Elementos de la mayor estructura cerrada (pasos 0..N-1, ramas de P0) que no son de ninguna rama de P. Con `L`,
     la regla solo pide testigos en los pasos de `L` (para medir cuántos hacen falta)."""
     ram_guard()
     Ls = range(N) if L is None else L
     inP = set(P)
     if len(inP) == len(P0):
-        return 0
+        return (set(), set(), set(), {}) if ret else 0
     thru = {}
     for a in P0:
         thru.setdefault(pids[a][sigma], []).append(a)
@@ -133,6 +133,9 @@ def phantom(pids, P0, P, N, sigma, L=None):
                         break
             if not ok:
                 Gs.discard((x, u, w)); changed = True
+    if ret:
+        key_of = {i: kw for kw, i in ids.items()}
+        return Vs, Rs, Gs, key_of
     return len(Vs) + len(Rs) + len(Gs)
 
 
