@@ -1,0 +1,4 @@
+c estrella de dos clausulas por x1
+p cnf 5 2
+1 2 3 0
+-1 4 5 0

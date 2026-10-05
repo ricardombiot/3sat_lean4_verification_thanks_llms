@@ -1,0 +1,5 @@
+c arbol: c1 - x1 - c2, c1 - x3 - c3 (c3 con un literal repetido)
+p cnf 6 3
+1 2 3 0
+-1 4 5 0
+-3 6 6 0

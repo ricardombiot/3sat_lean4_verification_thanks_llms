@@ -1,0 +1,4 @@
+c star2 renumerada para lectura local: x1..x5 = 4,5,1,2,3 originales; c1=(3 2 1), c2=(-1 4 5)
+p cnf 5 2
+5 4 3 0
+-3 1 2 0

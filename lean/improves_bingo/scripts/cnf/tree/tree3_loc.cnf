@@ -1,0 +1,5 @@
+c tree3 renumerada para lectura local: x1..x6 = 4,5,1,2,3,6 originales; c3=(6 6 -3), c1=(3 2 1), c2=(-1 4 5)
+p cnf 6 3
+6 6 -5 0
+5 4 3 0
+-3 1 2 0

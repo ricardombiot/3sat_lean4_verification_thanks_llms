@@ -1,0 +1,4 @@
+chain4_cross.cnf	vars=9	cláusulas=4	soluciones=280	familias=884	casos=5516	tríos=2448	peg=2048	peg_libre=2048	completo
+   primer trío sin λ (cláusula, ventana, nodos): (0, (1, 0, 1), ((6, (1, 0, 1)), (9, (0, 1, 0)), (19, (0, 1, 0))))
+chain4_cross_pre.cnf	vars=9	cláusulas=4	soluciones=280	familias=884	casos=5516	tríos=0	peg=0	peg_libre=0	completo
+tree9.cnf	vars=9	cláusulas=4	soluciones=279	familias=725	casos=4910	tríos=516	peg=516	peg_libre=516	completo
