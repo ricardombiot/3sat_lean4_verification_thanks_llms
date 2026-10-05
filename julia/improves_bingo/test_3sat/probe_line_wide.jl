@@ -78,7 +78,18 @@ function line_ok(nv, cls, k, v)
             e = something(findfirst(j -> issubset(S(j), W), cuts), 0)
             e = e == 0 ? 0 : cuts[e]
             bs = [e; [j for j in G if j > e]; k]
-            if any(bad3(reg(bs[t] + 1, bs[t + 1])) for t in 1:(length(bs) - 1))
+            if get(ENV, "LEFTCUT", "0") == "1" && length(bs) >= 2 && bs[2] > bs[1] && bs[2] <= (single ? k - 3 : k - 2)
+                # la región de la izquierda (la primera pieza) solo lee de su corte de cola, o de {0, 1}
+                M = reg(bs[1] + 1, bs[2])
+                xf = minimum(abs.(pre[e + 1])) - 1           # la primera variable de la unidad f = e + 1
+                allowed = Set([xf, xf + 1])
+                if !issubset(M, allowed)
+                    get(ENV, "DBG", "0") == "1" && println("  k=", k, " v=", v, " tri=", (i, jj, l), " R=", (R[i + 1], R[jj + 1], R[l + 1]), " e=", e, " bs=", bs, " M=", M, " S(e)=", e == 0 ? [] : S(e))
+                    ok = false; break
+                end
+            end
+            weak = get(ENV, "LE2", "0") == "1"
+            if any((weak ? length(reg(bs[t] + 1, bs[t + 1])) > 2 : bad3(reg(bs[t] + 1, bs[t + 1]))) for t in 1:(length(bs) - 1))
                 ok = false; break
             end
         end
