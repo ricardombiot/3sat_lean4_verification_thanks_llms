@@ -176,4 +176,6 @@ import AbsSatBingo.Model.ForbidOnChainPreM
 import AbsSatBingo.Model.ForbidOnPathN
 import AbsSatBingo.Model.ForbidOnPathSide
 import AbsSatBingo.Model.ForbidOnPathLine
+import AbsSatBingo.Model.ForbidOnTriChain
+import AbsSatBingo.Model.ForbidOnTriLine
 import AbsSatBingo.Model.ForbidOnWinRead
