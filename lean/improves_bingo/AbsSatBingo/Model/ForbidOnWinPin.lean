@@ -458,3 +458,165 @@ theorem reader_winNode_chain12O {kv : NodeId × GPathB} (hkv : kv ∈ runM .on c
 end MachineOn
 
 end AbsSatBingo.Model
+
+/-! ## Sin condiciones de forma: la hipótesis de la ventana -/
+
+namespace AbsSatBingo.Model
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.Cnf
+open AbsSatBin.GraphMap.CnfMapBin
+open AbsSatBin.GraphMap.CnfSelBin
+
+namespace GPathB
+
+variable {φ : Cnf}
+
+/-- Los tres ids de un nodo de ventana de la cláusula `j`, en los tres pasos de la cláusula. -/
+def WinTriple (φ : Cnf) (w : List NodeId) : Prop :=
+  ∃ j gp p x, j < φ.clauses.length ∧ w = [gp, p, x] ∧ gp.step = clauseStep φ j 0 ∧ p.step = clauseStep φ j 1 ∧
+    x.step = clauseStep φ j 2
+
+/-- **`WinPinFree φ T`**: con cualesquiera ventanas fijadas antes, los tres ids de una ventana más se fijan, en algún
+orden, sin familias fantasma. Es una propiedad de conjuntos de asignaciones: no menciona la máquina ni la forma de
+la fórmula. -/
+def WinPinFree (φ : Cnf) (T : Int) : Prop :=
+  ∀ (k : NodeId) (W0 : List (List NodeId)) (w : List NodeId), (∀ v ∈ W0, WinTriple φ v) → WinTriple φ w →
+    ∃ ord : List NodeId, (∀ r, r ∈ ord ↔ r ∈ w) ∧ ∀ i (hi : i < ord.length),
+      PhantomFree φ (Pinned φ (SolE φ T k) (W0.flatten ++ ord.take i))
+        (fun a => Pinned φ (SolE φ T k) (W0.flatten ++ ord.take i) a ∧ selOfAssign φ a ord[i].step = ord[i])
+        T ord[i].step
+
+end GPathB
+
+namespace MachineOn
+
+open GPathB Driver Machine
+
+variable {φ : Cnf}
+
+/-- **El lector por nodos de ventana no se atasca**, sin ninguna condición de forma sobre la fórmula: basta que la
+máquina cumpla sus líneas (`PhantomAtW`) y que fijar una ventana no deje familias fantasma (`WinPinFree`). -/
+theorem reader_winNode_of_winPinFree (hbd : Bounded φ) (HA : ∀ T : Int, 1 ≤ T → PhantomAtW φ T)
+    (hW : WinPinFree φ (stepCount φ)) {kv : NodeId × GPathB} (hkv : kv ∈ runM .on φ) {W : List (List NodeId)}
+    {g' : GPathB} (hr : WinReading φ kv.2 W g') :
+    g'.isValid = true ∧ ∃ a, Sat a φ ∧ (∀ r ∈ W.flatten, selOfAssign φ a r.step = r) ∧ CT g' (pidOfAssign φ a) := by
+  have hpos := stepCount_pos φ
+  have hn : (((stepCount φ - 1).toNat : Nat) : Int) + 1 = stepCount φ := by
+    rw [Int.toNat_of_nonneg (by omega)]; omega
+  have hl := lInvS3_stepsW hbd (stepCount φ - 1).toNat (fun T h1 _ => HA T h1)
+  have hcomp := compLine_steps hbd (lInvS_of_s3 hl)
+  rw [hn] at hl hcomp
+  have hkv' : kv ∈ stepsM .on φ (stepCount φ - 1).toNat (initM .on φ) := hkv
+  have hent := hl.on kv hkv'
+  let P := SolE φ (stepCount φ) kv.1
+  have h0 : RInv φ (stepCount φ) (Pinned φ P ([] : List (List NodeId)).flatten) kv.2 :=
+    rInv_congr (P := SolE φ (stepCount φ) kv.1)
+      ⟨hl.inv kv hkv', hent.2.1, hl.ndt kv hkv', hent.1.step, hent.1.valid, hl.snd kv hkv', hcomp kv hkv'⟩
+      (fun a => ⟨fun ha => ⟨ha, fun r hr => absurd hr List.not_mem_nil⟩, fun ha => ha.1⟩)
+  have main : ∀ {g g' : GPathB} {W : List (List NodeId)}, WinReading φ g W g' → ∀ W0 : List (List NodeId),
+      (∀ v ∈ W0, WinTriple φ v) → RInv φ (stepCount φ) (Pinned φ P W0.flatten) g →
+      RInv φ (stepCount φ) (Pinned φ P (W0 ++ W).flatten) g' := by
+    intro g g' W hw
+    induction hw with
+    | nil g => intro W0 _ h; rw [List.append_nil]; exact h
+    | @cons g g' q j p gp W hq hj hk hp hgp _ ih =>
+      intro W0 hW0 h
+      obtain ⟨hwit, s0, s1, hkT⟩ := win_sels h hq hk hp hgp
+      have htri : WinTriple φ [gp, p, q.id] := ⟨j, gp, p, q.id, hj, rfl, s0, s1, hk⟩
+      obtain ⟨ord, hperm, hH⟩ := hW kv.1 W0 [gp, p, q.id] hW0 htri
+      have hrange : ∀ r ∈ [gp, p, q.id], 1 ≤ r.step ∧ r.step < stepCount φ := by
+        intro r hr
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+        rw [hk] at hkT
+        rcases hr with rfl | rfl | rfl
+        · rw [s0]; simp only [clauseStep] at hkT ⊢; omega
+        · rw [s1]; simp only [clauseStep] at hkT ⊢; omega
+        · rw [hk]; simp only [clauseStep] at hkT ⊢; omega
+      have h1 := read_stepL h hwit hrange hperm (fun i hi => by
+        have e : PinPre φ (Pinned φ P W0.flatten) ord i = Pinned φ P (W0.flatten ++ ord.take i) := by
+          funext a
+          apply propext
+          constructor
+          · intro ha
+            exact ⟨ha.1.1, fun r hr => (List.mem_append.mp hr).elim (ha.1.2 r) (ha.2 r)⟩
+          · intro ha
+            exact ⟨⟨ha.1, fun r hr => ha.2 r (List.mem_append_left _ hr)⟩,
+              fun r hr => ha.2 r (List.mem_append_right _ hr)⟩
+        rw [e]
+        exact hH i hi)
+      have h1' : RInv φ (stepCount φ) (Pinned φ P (W0 ++ [[gp, p, q.id]]).flatten) (g.filterAllOn [gp, p, q.id]) := by
+        refine rInv_congr h1 (fun a => ⟨fun ha => ⟨ha.1.1, fun r hr => ?_⟩, fun ha => ⟨⟨ha.1, fun r hr => ?_⟩,
+          fun r hr => ?_⟩⟩)
+        · rw [List.flatten_append, List.flatten_singleton] at hr
+          exact (List.mem_append.mp hr).elim (ha.1.2 r) (ha.2 r)
+        · exact ha.2 r (by rw [List.flatten_append]; exact List.mem_append_left _ hr)
+        · exact ha.2 r (by rw [List.flatten_append, List.flatten_singleton]; exact List.mem_append_right _ hr)
+      have := ih (W0 ++ [[gp, p, q.id]]) (fun v hv => by
+        rcases List.mem_append.mp hv with hv | hv
+        · exact hW0 v hv
+        · rw [List.mem_singleton] at hv; subst hv; exact htri) h1'
+      rw [List.append_assoc, List.singleton_append] at this
+      exact this
+  have hfin := main hr [] (fun v hv => absurd hv List.not_mem_nil) h0
+  rw [List.nil_append] at hfin
+  refine ⟨hfin.valid, ?_⟩
+  obtain ⟨q, hq, _⟩ := exists_alive_at hfin.valid (k := 0) (Int.le_refl 0) (by rw [hfin.step]; exact hpos)
+  obtain ⟨a, ha, _, _⟩ := hfin.snd.1 q q (adj_refl _ _ hq)
+  exact ⟨a, sat_of_validUpTo ha.1.1, ha.2, hfin.comp a ha⟩
+
+end MachineOn
+
+end AbsSatBingo.Model
+
+/-! ## Las clases anteriores cumplen `WinPinFree` -/
+
+namespace AbsSatBingo.Model
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.Cnf
+open AbsSatBin.GraphMap.CnfMapBin
+open AbsSatBin.GraphMap.CnfSelBin
+
+namespace GPathB
+
+open Driver Machine MachineOn
+
+variable {φ : Cnf}
+
+/-- **Con una cobertura, `SepPinAny` y `OneWin`, vale `WinPinFree`.** -/
+theorem winPinFree_of_on {S : List Nat} {part : Nat → Nat} (hc : SepCover φ S part)
+    (h2 : SepPinAny φ S (stepCount φ)) (hone : OneWin φ S part) : WinPinFree φ (stepCount φ) := by
+  intro k W0 w _ ⟨j, gp, p, x, hj, hw, s0, s1, s2⟩
+  subst hw
+  have hcj : φ.clauses[j]? = some (φ.clauses[j]'hj) := List.getElem?_eq_getElem hj
+  refine ⟨[gp, p, x].filter (rdS φ S) ++ [gp, p, x].filter (fun r => !rdS φ S r), mem_split _, fun i hi => ?_⟩
+  have hgood := goodAlong_get _ _ (goodAlong_win hone (winOk_node (S := S) hcj s0 s1 s2) W0.flatten) i hi
+  have hmem := (mem_split (φ := φ) (S := S) [gp, p, x] _).mp (List.getElem_mem hi)
+  have hr : 1 ≤ (([gp, p, x].filter (rdS φ S) ++ [gp, p, x].filter (fun r => !rdS φ S r))[i]).step ∧
+      (([gp, p, x].filter (rdS φ S) ++ [gp, p, x].filter (fun r => !rdS φ S r))[i]).step < stepCount φ := by
+    have hjl : (j : Int) < φ.clauses.length := by exact_mod_cast hj
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with e | e | e <;> rw [e] <;> simp only [s0, s1, s2, clauseStep, stepCount] <;> omega
+  generalize ([gp, p, x].filter (rdS φ S) ++ [gp, p, x].filter (fun r => !rdS φ S r))[i] = r at hgood hr ⊢
+  obtain ⟨hr1, hrT⟩ := hr
+  cases hv : stepVar φ r.step with
+  | none => exact phantomFree_none (locPair_read _ k _ r) hv (by omega) hrT
+  | some v =>
+    by_cases hvS : v ∈ S
+    · exact h2 k _ r v hvS hv hr1 hrT
+    · exact phantomFree_pinnedNear (locPair_read _ k _ r) hc hv hvS
+        (fun a b ha hb s hs hn => agree_of_pins (hgood v hv hvS s hs hn) a b ha hb) (by omega) hrT
+
+variable {n : Nat} {zone sv : Nat → Nat}
+
+/-- **Toda cadena en orden cumple `WinPinFree`.** -/
+theorem winPinFree_of_chainOrd (C : ChainOrdN φ n zone sv) {ord : List Nat} (hord : ∀ q ∈ ord, 1 ≤ q ∧ q < n)
+    (hall : ∀ q, 1 ≤ q → q < n → q ∈ ord) : WinPinFree φ (stepCount φ) := by
+  have hS := mem_sep_iff' C.D C.hsv hord hall
+  exact winPinFree_of_on (sepCover_of_chainN C.D (fun _ hc => ordM_cl C.toM hc) hS)
+    (sepPinAny_of_local C.D C.hsv (localReads_of C.hsv C.num C.lit) hS) (oneWin_of_chainOrd C hS)
+
+end GPathB
+
+end AbsSatBingo.Model
