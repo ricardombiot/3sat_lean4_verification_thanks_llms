@@ -30,6 +30,7 @@ function read_cnf(path)
 end
 
 const WIT = Ref(-1)
+const ALLW = Int[]
 
 function line_ok(nv, cls, k, v)
     pre = cls[1:k]                                   # unidades 1 … k (la k es la de la línea)
@@ -53,7 +54,18 @@ function line_ok(nv, cls, k, v)
     vcuts = [j for j in lv:(k - 1) if S(j) == [v]]
     cuts = collect((lv - 1):-1:1)                     # de v hacia la izquierda
     # un testigo λ para toda la línea: X = lo que lee λ salvo v; se pega en los cortes con S_j \ {v} ⊆ X
-    for lam in 0:(N - 1)
+    C = 2nv + 2
+    named = Dict("cl_prev2" => C + 3(k - 2) + 2, "cl_prev1" => C + 3(k - 2) + 1, "cl_prev0" => C + 3(k - 2),
+        "cl_cur2" => C + 3(k - 1) + 2, "cl_cur1" => C + 3(k - 1) + 1, "cl_cur0" => C + 3(k - 1),
+        "var_vm1_pos" => 2(v - 1) + 1, "var_vm1_neg" => 2(v - 1) + 2, "var_v_pos" => 2v + 1, "var_v_neg" => 2v + 2)
+    # la regla: el último literal de la cláusula anterior; si el corte k-1 es solo {v}, el de dos atrás
+    single = k >= 2 && Set(S(k - 1)) == Set([v])
+    named["rule"] = single && k >= 3 ? C + 3(k - 3) + 2 : C + 3(k - 2) + 2
+    named["rule_s"] = single ? C + 3(k - 3) + 2 : C + 3(k - 2) + 2
+    fixed = get(ENV, "FIXED_LAM", "")
+    lams = isempty(fixed) ? collect(0:(N - 1)) : [named[fixed]]
+    for lam in lams
+        (0 <= lam < N) || continue
         X = setdiff(R[lam + 1], Set([v]))
         isempty(X) && continue
         G = [j for j in 1:(k - 1) if issubset(setdiff(Set(S(j)), Set([v])), X)]
@@ -70,9 +82,13 @@ function line_ok(nv, cls, k, v)
                 ok = false; break
             end
         end
-        ok && (WIT[] = lam; return true)
+        if ok
+            WIT[] = lam
+            get(ENV, "ALL_LAMS", "0") == "1" || return true
+            push!(ALLW, lam)
+        end
     end
-    return false
+    return !isempty(ALLW)
 end
 
 function main(path)
