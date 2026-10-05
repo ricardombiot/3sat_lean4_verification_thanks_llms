@@ -13,6 +13,8 @@ raíz, y toda incidencia es una arista padre-hijo.
 * **`Br m v`**: la rama de `v` respecto de `m`: el hijo de `m` que es antepasado de `v`, o «arriba» si `m` no lo es.
 * **`br_edge`**: una arista padre-hijo sin `m` no cambia de rama. Por eso ninguna cláusula cruza ramas al quitar `m`
   (`br_clause`).
+* **`sep_three`** (paso 3b): en un árbol con raíz, el antepasado común más profundo de alguna pareja de tres bloques
+  deja los bloques distintos de él en ramas distintas.
 -/
 
 namespace AbsSatBingo.Model
@@ -187,6 +189,77 @@ theorem br_clause {m : Vx} {j : Nat} {c : Clause} (hj : φ.clauses[j]? = some c)
   rcases F.edge j c z hj hz with h | h
   · exact F.br_edge h hzm hjm
   · exact (F.br_edge h hjm hzm).symm
+
+-- ============================================================
+-- El vértice que separa tres bloques (paso 3b)
+-- ============================================================
+
+/-- Entre los vértices que cumplen `Q`, con profundidad acotada, hay uno de profundidad máxima. -/
+theorem exists_deepest (Q : Vx → Prop) (B : Nat) (hB : ∀ a, Q a → F.dep a ≤ B) :
+    ∀ a, Q a → ∃ m, Q m ∧ ∀ a', Q a' → F.dep a' ≤ F.dep m := by
+  classical
+  suffices h : ∀ n a, Q a → B - F.dep a ≤ n → ∃ m, Q m ∧ ∀ a', Q a' → F.dep a' ≤ F.dep m from
+    fun a ha => h _ a ha (Nat.le_refl _)
+  intro n
+  induction n with
+  | zero =>
+    intro a ha hn
+    exact ⟨a, ha, fun a' ha' => Nat.le_trans (hB a' ha') (by omega)⟩
+  | succ n ih =>
+    intro a ha hn
+    by_cases hmax : ∀ a', Q a' → F.dep a' ≤ F.dep a
+    · exact ⟨a, ha, hmax⟩
+    · obtain ⟨a', ha', hlt⟩ : ∃ a', Q a' ∧ F.dep a < F.dep a' := by
+        refine Classical.byContradiction fun hno => hmax fun a' ha' => ?_
+        exact Nat.le_of_not_lt fun h => hno ⟨a', ha', h⟩
+      exact ih a' ha' (by have := hB a' ha'; omega)
+
+/-- `a` es antepasado común de dos de los tres bloques. -/
+def PairAnc (b : Fin 3 → Vx) (a : Vx) : Prop := ∃ i j, i ≠ j ∧ F.Anc a (b i) ∧ F.Anc a (b j)
+
+/-- **El separador de tres bloques**: en un árbol con raíz, el antepasado común más profundo de alguna pareja deja
+los bloques distintos de él en ramas distintas. -/
+theorem sep_three {r : Vx} (hroot : ∀ v, F.Anc r v) (b : Fin 3 → Vx) :
+    ∃ m, F.PairAnc b m ∧ ∀ i j, i ≠ j → b i = m ∨ b j = m ∨ F.br m (b i) ≠ F.br m (b j) := by
+  classical
+  have hQ : F.PairAnc b r := ⟨0, 1, by decide, hroot _, hroot _⟩
+  have hb : ∀ i, F.dep (b i) ≤ F.dep (b 0) + F.dep (b 1) + F.dep (b 2) := by
+    intro i
+    match i with
+    | ⟨0, _⟩ => show F.dep (b 0) ≤ _; omega
+    | ⟨1, _⟩ => show F.dep (b 1) ≤ _; omega
+    | ⟨2, _⟩ => show F.dep (b 2) ≤ _; omega
+  obtain ⟨m, hm, hmax⟩ := F.exists_deepest (F.PairAnc b) _
+    (fun a ⟨i, _, _, hi, _⟩ => Nat.le_trans (F.dep_le_of_anc hi) (hb i)) r hQ
+  refine ⟨m, hm, fun i j hij => ?_⟩
+  by_cases hi : b i = m
+  · exact Or.inl hi
+  by_cases hj : b j = m
+  · exact Or.inr (Or.inl hj)
+  refine Or.inr (Or.inr fun heq => ?_)
+  have si := F.br_spec hi
+  have sj := F.br_spec hj
+  rw [← heq] at sj
+  rcases si with ⟨e, h1⟩ | ⟨c', e, h1, h2⟩
+  · -- arriba: `m` no es antepasado de ninguno de los dos, pero lo es de una pareja, que corta a `{i, j}`
+    rw [e] at sj
+    rcases sj with ⟨_, h3⟩ | ⟨c'', e', _, _⟩
+    · obtain ⟨k, l, hkl, hk, hl⟩ := hm
+      have cut : ∀ i j k l : Fin 3, i ≠ j → k ≠ l → k = i ∨ k = j ∨ l = i ∨ l = j := by decide
+      rcases cut i j k l hij hkl with e1 | e1 | e1 | e1 <;> subst e1
+      · exact h1 hk
+      · exact h3 hk
+      · exact h1 hl
+      · exact h3 hl
+    · cases e'
+  · -- el mismo hijo `c'` de `m` es antepasado de los dos: una pareja con antepasado más profundo
+    rw [e] at sj
+    rcases sj with ⟨e', _⟩ | ⟨c'', e', _, h4⟩
+    · cases e'
+    · cases e'
+      have := hmax c' ⟨i, j, hij, h2, h4⟩
+      have := F.dep_lt c' m h1
+      omega
 
 end IncForest
 
