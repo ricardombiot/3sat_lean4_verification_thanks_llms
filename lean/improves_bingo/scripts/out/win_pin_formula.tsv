@@ -1,0 +1,10 @@
+clause_mix.cnf	vars=6	clausulas=4	soluciones=37	orden=cadena	ventanas=104	natural_ok=104	algun_orden_ok=104	fantasmas_max_natural=0
+parity4.cnf	vars=5	clausulas=8	soluciones=8	orden=cadena	ventanas=48	natural_ok=48	algun_orden_ok=48	fantasmas_max_natural=0
+clause_mix_sep.cnf	vars=9	clausulas=4	soluciones=296	orden=cadena	ventanas=104	natural_ok=104	algun_orden_ok=104	fantasmas_max_natural=0
+chain4_cross.cnf	vars=9	clausulas=4	soluciones=280	orden=cadena	ventanas=393	natural_ok=393	algun_orden_ok=393	fantasmas_max_natural=0
+parity_use.cnf	vars=9	clausulas=9	soluciones=112	orden=cadena	ventanas=76	natural_ok=76	algun_orden_ok=76	fantasmas_max_natural=0
+clause_mix.cnf	vars=6	clausulas=4	soluciones=37	orden=inversa	ventanas=105	natural_ok=105	algun_orden_ok=105	fantasmas_max_natural=0
+parity4.cnf	vars=5	clausulas=8	soluciones=8	orden=inversa	ventanas=48	natural_ok=48	algun_orden_ok=48	fantasmas_max_natural=0
+clause_mix_sep.cnf	vars=9	clausulas=4	soluciones=296	orden=inversa	ventanas=105	natural_ok=105	algun_orden_ok=105	fantasmas_max_natural=0
+chain4_cross.cnf	vars=9	clausulas=4	soluciones=280	orden=inversa	ventanas=393	natural_ok=393	algun_orden_ok=393	fantasmas_max_natural=0
+parity_use.cnf	vars=9	clausulas=9	soluciones=112	orden=inversa	ventanas=175	natural_ok=175	algun_orden_ok=175	fantasmas_max_natural=0
