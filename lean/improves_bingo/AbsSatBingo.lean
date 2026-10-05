@@ -179,3 +179,4 @@ import AbsSatBingo.Model.ForbidOnPathLine
 import AbsSatBingo.Model.ForbidOnTriChain
 import AbsSatBingo.Model.ForbidOnTriLine
 import AbsSatBingo.Model.ForbidOnWinRead
+import AbsSatBingo.Model.ForbidOnWinPin
