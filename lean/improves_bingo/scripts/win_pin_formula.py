@@ -34,9 +34,11 @@ def ram_guard():
         sys.exit(f"corte por memoria: pico {rss >> 20} MB")
 
 
-def phantom(pids, P0, P, N, sigma):
-    """Elementos de la mayor estructura cerrada (pasos 0..N-1, ramas de P0) que no son de ninguna rama de P."""
+def phantom(pids, P0, P, N, sigma, L=None):
+    """Elementos de la mayor estructura cerrada (pasos 0..N-1, ramas de P0) que no son de ninguna rama de P. Con `L`,
+    la regla solo pide testigos en los pasos de `L` (para medir cuántos hacen falta)."""
     ram_guard()
+    Ls = range(N) if L is None else L
     inP = set(P)
     if len(inP) == len(P0):
         return 0
@@ -100,7 +102,7 @@ def phantom(pids, P0, P, N, sigma):
     while changed:
         changed = False
         for y in list(Vs):
-            for l in range(N):
+            for l in Ls:
                 if l == step_of[y]:
                     continue
                 if not any(inV(s) and inR(y, s) for s in at.get(l, ())):
@@ -110,7 +112,7 @@ def phantom(pids, P0, P, N, sigma):
             ok = inV(y) and inV(w)
             if ok:
                 sy, sw = step_of[y], step_of[w]
-                for l in range(N):
+                for l in Ls:
                     if l == sy or l == sw:
                         continue
                     if not any(inV(s) and inR(y, s) and inR(w, s) and inG(y, w, s) for s in at.get(l, ())):
@@ -122,7 +124,7 @@ def phantom(pids, P0, P, N, sigma):
             ok = inR(x, u) and inR(x, w) and inR(u, w)
             if ok:
                 st = (step_of[x], step_of[u], step_of[w])
-                for l in range(N):
+                for l in Ls:
                     if l in st:
                         continue
                     if not any(inV(s) and inR(x, s) and inR(u, s) and inR(w, s) and inG(x, u, s)
