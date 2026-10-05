@@ -1,0 +1,5 @@
+clause_mix.cnf	familias=147	casos=972	tríos=0	h2ok=0	completo
+parity4.cnf	familias=17	casos=192	tríos=0	h2ok=0	completo
+clause_mix_sep.cnf	familias=147	casos=972	tríos=0	h2ok=0	completo
+chain4_cross.cnf	familias=884	casos=5516	tríos=2448	h2ok=2448	completo
+parity_use.cnf	familias=66	casos=878	tríos=2784	h2ok=2784	completo
