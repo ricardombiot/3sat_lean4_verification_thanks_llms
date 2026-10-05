@@ -5,8 +5,8 @@
 
 * Variables: d0, x1, d1, x2, …, xn, dn (una de relleno antes de cada variable real y otra al final). Las de relleno no
   están en ninguna cláusula real.
-* Cláusulas: T(d0), C1, T(d1), C2, …, Cm, T(dm), con T(d) = (d ∨ ¬d ∨ d) tautológica (si hay menos variables de
-  relleno que huecos, se reutiliza la última).
+* Cláusulas: T, C1, T, C2, …, Cm, T, con T = (d0 ∨ ¬d0 ∨ d0) tautológica (como `padCnf` en
+  `ForbidOnPad.lean`: basta una variable de relleno para todas las tautologías).
 
 Con esto la ventana de tres pasos de cualquier nodo lee, fuera de las variables de relleno, una sola variable real o
 variables de una sola cláusula real: el nodo de x_i lee {x_i, d_{i-1}}, el de la copia l1 de C_j lee {l1, d, d}, el de
@@ -25,11 +25,10 @@ def pad(n, clauses):
     xv = lambda i: 2 * i + 1
     N = 2 * n + 1
     out = []
-    for j, c in enumerate(clauses):
-        d = dv(min(j, n))
+    d = dv(0)
+    for c in clauses:
         out.append([(d, True), (d, False), (d, True)])
         out.append([(xv(v), pos) for v, pos in c])
-    d = dv(min(len(clauses), n))
     out.append([(d, True), (d, False), (d, True)])
     return N, out
 
