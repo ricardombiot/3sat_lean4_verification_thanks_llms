@@ -1,0 +1,10 @@
+clause_mix_sep.cnf	orden=cadena	tríos=0	nivel1=0	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+chain4_cross.cnf	orden=cadena	tríos=924	nivel1=924	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+parity_use.cnf	orden=cadena	tríos=64	nivel1=64	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+parity4.cnf	orden=cadena	tríos=0	nivel1=0	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+clause_mix.cnf	orden=cadena	tríos=0	nivel1=0	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+clause_mix_sep.cnf	orden=inversa	tríos=0	nivel1=0	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+chain4_cross.cnf	orden=inversa	tríos=812	nivel1=812	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+parity_use.cnf	orden=inversa	tríos=2528	nivel1=2528	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+parity4.cnf	orden=inversa	tríos=0	nivel1=0	nivel2=0	nivel3=0	nivel4=0	más_de_4=0
+clause_mix.cnf	orden=inversa	tríos=0	nivel1=0	nivel2=0	nivel3=0	nivel4=0	más_de_4=0

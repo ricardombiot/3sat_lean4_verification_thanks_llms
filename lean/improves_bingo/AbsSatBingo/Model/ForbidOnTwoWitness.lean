@@ -96,3 +96,65 @@ theorem phantomFree_of_twoWitness {P0 P : Assign → Prop} {N σ : Int} (hσ0 : 
   exact hl s ⟨proj hxs, proj hus, proj hws⟩
 
 end AbsSatBingo.Model
+
+/-! ## H2′: las caras del testigo
+
+El testigo `s` de la regla en `λ` no forma tríos prohibidos con las caras del triángulo, así que cada cara es un trío
+de la estructura y la estructura la hace de `P0`. Basta entonces que, para todo `s` alcanzable desde los tres nodos,
+alguna cara `(y, z, s)` no sea de ninguna rama de `P0`. Medido (`win_pin_descent.py`, nivel 1): cubre todos los tríos
+fantasma de `clause_mix`, `clause_mix_sep`, `parity4`, `parity_use` y `chain4_cross` en los dos órdenes (4 328). -/
+
+namespace AbsSatBingo.Model
+
+open AbsSatBin.Utils.Alias
+open AbsSatBin.Cnf
+open AbsSatBin.GraphMap.CnfMapBin
+open AbsSatBin.GraphMap.CnfSelBin
+
+variable {φ : Cnf}
+
+/-- Una rama de `P0` pasa por los tres nodos. -/
+def Tri0 (φ : Cnf) (P0 : Assign → Prop) (x u w : PathNodeId) : Prop :=
+  ∃ a, P0 a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a u.id.step = u ∧ pidOfAssign φ a w.id.step = w
+
+/-- **H2′**: todo trío Helly-fallido tiene un paso `λ` fuera de los suyos en el que, para todo nodo `s` alcanzable por
+ramas de `P` desde los tres, alguna cara `(y, z, s)` no es de ninguna rama de `P0`. -/
+def TwoWitnessF (φ : Cnf) (P0 P : Assign → Prop) (N : Int) : Prop :=
+  ∀ x u w : PathNodeId, x ≠ u → x ≠ w → u ≠ w →
+    Tri0 φ P0 x u w →
+    (∃ a, P a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a u.id.step = u) →
+    (∃ a, P a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a w.id.step = w) →
+    (∃ a, P a ∧ pidOfAssign φ a u.id.step = u ∧ pidOfAssign φ a w.id.step = w) →
+    ¬ (∃ a, P a ∧ pidOfAssign φ a x.id.step = x ∧ pidOfAssign φ a u.id.step = u ∧
+      pidOfAssign φ a w.id.step = w) →
+    ∃ lam, 0 ≤ lam ∧ lam < N ∧ lam ≠ x.id.step ∧ lam ≠ u.id.step ∧ lam ≠ w.id.step ∧
+      ∀ s, s.id.step = lam → NodeProj φ P x lam s → NodeProj φ P u lam s → NodeProj φ P w lam s →
+        ¬ Tri0 φ P0 x u s ∨ ¬ Tri0 φ P0 x w s ∨ ¬ Tri0 φ P0 u w s
+
+/-- **H2′ da `PhantomFree`.** -/
+theorem phantomFree_of_twoWitnessF {P0 P : Assign → Prop} {N σ : Int} (hσ0 : 0 ≤ σ) (hσN : σ < N)
+    (h : TwoWitnessF φ P0 P N) : PhantomFree φ P0 P N σ := by
+  intro R Tf hrefl _ _ _ _ hpair htrio hb2 hb3 hanch
+  have pairs := pairs_of_anchor hσ0 hσN hrefl hpair hb2 hb3 hanch
+  refine ⟨pairs, fun x u w hxu hxw huw nxu nxw nuw hn => Classical.byContradiction fun hno => ?_⟩
+  obtain ⟨lam, l0, l1, lx, lu, lw, hl⟩ := h x u w nxu nxw nuw (hb3 x u w hxu hxw huw nxu nxw nuw hn)
+    (pairs x u hxu) (pairs x w hxw) (pairs u w huw) hno
+  obtain ⟨s, hss, hxs, hus, hws, hor⟩ := htrio x u w hxu hxw huw nxu nxw nuw hn lam l0 l1
+  have nsx : s ≠ x := fun e => lx (by rw [← e, hss])
+  have nsu : s ≠ u := fun e => lu (by rw [← e, hss])
+  have nsw : s ≠ w := fun e => lw (by rw [← e, hss])
+  obtain ⟨t1, t2, t3⟩ : ¬ Tf x u s ∧ ¬ Tf x w s ∧ ¬ Tf u w s := by
+    rcases hor with e | e | e | e
+    · exact absurd e nsx
+    · exact absurd e nsu
+    · exact absurd e nsw
+    · exact e
+  have proj : ∀ {y}, R y s → NodeProj φ P y lam s := fun {y} hys => by
+    obtain ⟨a, ha, h1, h2⟩ := pairs y s hys
+    exact ⟨a, ha, h1, by rw [← hss]; exact h2⟩
+  rcases hl s hss (proj hxs) (proj hus) (proj hws) with f | f | f
+  · exact f (hb3 x u s hxu hxs hus nxu (Ne.symm nsx) (Ne.symm nsu) t1)
+  · exact f (hb3 x w s hxw hxs hws nxw (Ne.symm nsx) (Ne.symm nsw) t2)
+  · exact f (hb3 u w s huw hus hws nuw (Ne.symm nsu) (Ne.symm nsw) t3)
+
+end AbsSatBingo.Model
