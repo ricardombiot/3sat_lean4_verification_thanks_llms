@@ -134,6 +134,63 @@ def phantom(pids, P0, P, N, sigma):
     return len(Vs) + len(Rs) + len(Gs)
 
 
+def helly4_fails(pids, P0, P, T, sigma):
+    """Fallos de `Helly4 P0 P T σ`: una rama a0 de P0 \\ P por tres nodos (pasos i, j, l < T) y tres ramas de P por
+    cada dos de ellos y por un mismo nodo del paso σ, sin ninguna rama de P por los tres."""
+    inP = set(P)
+    by_s = {}
+    for a in P:
+        by_s.setdefault(pids[a][sigma], []).append(a)
+    fails = 0
+    example = None
+    for a0 in P0:
+        if a0 in inP:
+            continue
+        p0 = pids[a0]
+        mask = {}
+        for a in P:
+            m = 0
+            pa = pids[a]
+            for k in range(T):
+                if pa[k] == p0[k]:
+                    m |= 1 << k
+            mask[a] = m
+        allm = set(mask.values())
+        for s, group in by_s.items():
+            gm = {mask[a] for a in group}
+            nb = [0] * T
+            for m in gm:
+                k = 0
+                mm = m
+                while mm:
+                    if mm & 1:
+                        nb[k] |= m
+                    mm >>= 1
+                    k += 1
+            for i in range(T):
+                ni = nb[i] & ~(1 << i)
+                j = i + 1
+                rest = ni >> j
+                while rest:
+                    if rest & 1:
+                        cand = ni & nb[j] & ~(1 << i) & ~(1 << j)
+                        if cand:
+                            cover = 0
+                            bij = (1 << i) | (1 << j)
+                            for m in allm:
+                                if m & bij == bij:
+                                    cover |= m
+                            bad = cand & ~cover
+                            if bad:
+                                fails += 1
+                                if example is None:
+                                    l = (bad & -bad).bit_length() - 1
+                                    example = (sigma, s, (i, p0[i]), (j, p0[j]), (l, p0[l]))
+                    rest >>= 1
+                    j += 1
+    return fails, example
+
+
 def check(path, order, cap):
     n, clauses = parse(path)
     M = Map(n, clauses)
@@ -156,6 +213,24 @@ def check(path, order, cap):
     stats = {"ventanas": 0, "natural": 0, "alguno": 0, "peor": 0}
     first_fail = [None]
     cache = {}
+
+    h4 = {"pins": 0, "fallos": 0, "ej": None}
+    h4cache = {}
+    hw = {"casos": 0, "fallos": 0, "ej": None, "fantasmas": 0}
+
+    def pin_h4(F, fixed, r):
+        key = (F, fixed, r)
+        if key in h4cache:
+            return
+        P0 = [a for a in F if all(sols[a][st] == v for st, v in fixed)]
+        P = [a for a in P0 if sols[a][r[0]] == r[1]]
+        f, ex = helly4_fails(pids, P0, P, C, r[0])
+        h4cache[key] = f
+        h4["pins"] += 1
+        if f:
+            h4["fallos"] += 1
+            if h4["ej"] is None:
+                h4["ej"] = ex
 
     def pin_ok(F, fixed, r):
         """Fijar el id `r = (paso, nodo)` sobre las ramas de F que cumplen `fixed`."""
@@ -184,6 +259,18 @@ def check(path, order, cap):
                 for i, r in enumerate(perm):
                     worst = max(worst, pin_ok(F, frozenset(perm[:i]), r))
                 res[perm] = worst
+            if HELLY:
+                for i, r in enumerate(w):
+                    pin_h4(F, frozenset(w[:i]), r)
+                # la ventana entera de una vez, con el testigo en el paso del nodo de ventana
+                P0w = sorted(F)
+                Pw = [a for a in P0w if all(sols[a][st] == x for st, x in w)]
+                f, ex = helly4_fails(pids, P0w, Pw, C, k)
+                hw["casos"] += 1
+                hw["fallos"] += bool(f)
+                if f and hw["ej"] is None:
+                    hw["ej"] = ex
+                hw["fantasmas"] += phantom(pids, P0w, Pw, C, k)
             nat = res[w]
             best = min(res.values())
             stats["peor"] = max(stats["peor"], nat)
@@ -199,7 +286,13 @@ def check(path, order, cap):
     go(frozenset(range(len(sols))), 0)
     print(f"{name}\tvars={n}\tclausulas={len(clauses)}\tsoluciones={len(sols)}\torden={order}\t"
           f"ventanas={stats['ventanas']}\tnatural_ok={stats['natural']}\talgun_orden_ok={stats['alguno']}\t"
-          f"fantasmas_max_natural={stats['peor']}")
+          f"fantasmas_max_natural={stats['peor']}" +
+          (f"\thelly4_pins={h4['pins']}\thelly4_fallos={h4['fallos']}\tventana_helly4_fallos={hw['fallos']}"
+           f"\tventana_fantasmas={hw['fantasmas']}" if HELLY else ""))
+    if HELLY and hw["ej"] is not None:
+        print("   primer fallo de Helly4 con la ventana entera:", hw["ej"])
+    if HELLY and h4["ej"] is not None:
+        print("   primer fallo de Helly4 (σ, nodo de σ, tres nodos (paso, ventana)):", h4["ej"])
     if first_fail[0] is not None:
         print("   primer fallo (cláusula, ventana [(paso, nodo)], fantasmas en el mejor orden):", first_fail[0])
     return stats["ventanas"] - stats["alguno"]
@@ -207,6 +300,8 @@ def check(path, order, cap):
 
 # control del propio script: sin el ancla los sospechosos tienen que sobrevivir
 NO_ANCHOR = "--sin-ancla" in sys.argv
+# además la condición de un paso (`Helly4`) en cada pin del orden natural
+HELLY = "--helly" in sys.argv
 
 if __name__ == "__main__":
     order = "cadena"
@@ -217,7 +312,7 @@ if __name__ == "__main__":
             order = a.split("=", 1)[1]
         elif a.startswith("--tope="):
             cap = int(a.split("=", 1)[1])
-        elif a == "--sin-ancla":
+        elif a in ("--sin-ancla", "--helly"):
             pass
         else:
             files.append(a)
