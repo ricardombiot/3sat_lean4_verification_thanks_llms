@@ -8,6 +8,8 @@ nodo de ventana) se calcula la estructura cerrada con testigos solo en σ y sus 
 pareja o trío) se miran las variables **libres** que leen sus nodos (un nodo del paso `k` lee las variables de los
 pasos `k`, `k - 1`, `k - 2`; libre = no constante en P).
 
+Con `--grafo=P0` el grafo residual y las variables libres son las de P0 (antes de fijar la ventana).
+
 **La regla**: un paso λ separa el fantasma si, quitando las variables libres que lee el nodo de λ, las variables
 libres del fantasma que quedan no están todas en una misma componente del grafo residual (variables libres, unidas
 si comparten una cláusula que P no deja ya satisfecha por las variables fijadas).
@@ -107,7 +109,7 @@ def check(path, order):
             if objs:
                 st["con_fantasmas"] += 1
                 st["fantasmas"] += len(objs)
-                free, adj = residual(P)
+                free, adj = residual(P0 if GRAPH_P0 else P)
                 ovars = [set().union(*(node_vars(M, key_of[x][0]) for x in o)) & free for o in objs]
                 seps = []                         # por fantasma, los λ que lo separan
                 for ov in ovars:
@@ -153,10 +155,13 @@ def check(path, order):
             go(frozenset(P), idx + 1)
 
     go(frozenset(range(len(sols))), 0)
-    print(name + f"\torden={order}\t" + "\t".join(f"{a}={b}" for a, b in st.items()))
+    print(name + f"\torden={order}\tgrafo={'P0' if GRAPH_P0 else 'P'}\t" + "\t".join(f"{a}={b}" for a, b in st.items()))
     for e in ex:
         print("   cláusula, ventana, fantasmas, λ que separan todos, λ que funcionan:", e)
 
+
+# el grafo residual de antes de fijar la ventana (sus tres variables libres), en vez del de después
+GRAPH_P0 = "--grafo=P0" in sys.argv
 
 if __name__ == "__main__":
     order = "cadena"
@@ -164,6 +169,8 @@ if __name__ == "__main__":
     for a in sys.argv[1:]:
         if a.startswith("--orden="):
             order = a.split("=", 1)[1]
+        elif a.startswith("--grafo="):
+            pass
         else:
             files.append(a)
     for p in files:
