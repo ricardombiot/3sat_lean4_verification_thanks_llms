@@ -184,3 +184,4 @@ import AbsSatBingo.Model.ForbidOnTwoWitness
 import AbsSatBingo.Model.ForbidOnWinBridge
 import AbsSatBingo.Model.ForbidOnGluePeg
 import AbsSatBingo.Model.ForbidOnGluePegF
+import AbsSatBingo.Model.ForbidOnIncForest
