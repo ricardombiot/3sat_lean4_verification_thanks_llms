@@ -181,3 +181,4 @@ import AbsSatBingo.Model.ForbidOnTriLine
 import AbsSatBingo.Model.ForbidOnWinRead
 import AbsSatBingo.Model.ForbidOnWinPin
 import AbsSatBingo.Model.ForbidOnTwoWitness
+import AbsSatBingo.Model.ForbidOnWinBridge
