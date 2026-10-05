@@ -1,0 +1,68 @@
+
+chain4_cross.cnf	orden=cadena	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=10056	pred_mata_real_vive=9648	pred_vive_real_mata=0	pred_vive_real_vive=9864
+   por nodos:	pred_mata_real_mata=4320	pred_mata_real_vive=0	pred_vive_real_mata=5736	pred_vive_real_vive=19512
+   propagación:	pred_mata_real_mata=9900	pred_mata_real_vive=880	pred_vive_real_mata=156	pred_vive_real_vive=18632	tríos_sin_conflicto_por_UP=0
+   tríos fantasma=924	con algún λ que cumple la condición de nodos=864
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 11, 'x6', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 12, '¬x6', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 13, 'x7', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 14, '¬x7', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 17, 'x9', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 18, '¬x9', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 24, 'c1.1(x5)', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 25, 'c1.2(x7)', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 26, 'c2.0(¬x7)', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 30, 'c3.1(x4)', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 31, 'c3.2(x9)', 'vive', [1, 2, 3])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (19, 'fusión')], 32, 'final', 'vive', [1, 2, 3])
+
+parity_use.cnf	orden=cadena	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=1472	pred_mata_real_vive=384	pred_vive_real_mata=0	pred_vive_real_vive=1152
+   por nodos:	pred_mata_real_mata=320	pred_mata_real_vive=0	pred_vive_real_mata=1152	pred_vive_real_vive=1536
+   propagación:	pred_mata_real_mata=960	pred_mata_real_vive=0	pred_vive_real_mata=512	pred_vive_real_vive=1536	tríos_sin_conflicto_por_UP=0
+   tríos fantasma=64	con algún λ que cumple la condición de nodos=64
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 3, 'x2', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 4, '¬x2', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 9, 'x5', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 10, '¬x5', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 13, 'x7', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 14, '¬x7', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 15, 'x8', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 16, '¬x8', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (12, '¬x6')], 3, 'x2', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (12, '¬x6')], 4, '¬x2', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (12, '¬x6')], 9, 'x5', 'mata', [7, 8])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (12, '¬x6')], 10, '¬x5', 'mata', [7, 8])
+
+chain4_cross.cnf	orden=inversa	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=8524	pred_mata_real_vive=8360	pred_vive_real_mata=0	pred_vive_real_vive=9100
+   por nodos:	pred_mata_real_mata=3136	pred_mata_real_vive=0	pred_vive_real_mata=5388	pred_vive_real_vive=17460
+   propagación:	pred_mata_real_mata=8308	pred_mata_real_vive=960	pred_vive_real_mata=216	pred_vive_real_vive=16500	tríos_sin_conflicto_por_UP=0
+   tríos fantasma=812	con algún λ que cumple la condición de nodos=704
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 15, 'x8', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 16, '¬x8', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 20, 'c0.0(x1)', 'mata', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 21, 'c0.1(x3)', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 22, 'c0.2(x6)', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 23, 'c1.0(¬x6)', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 27, 'c2.1(x2)', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 28, 'c2.2(x8)', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 29, 'c3.0(¬x8)', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 15, 'x8', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 16, '¬x8', 'vive', [0, 1, 2])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (3, (1, 0, 0), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 20, 'c0.0(x1)', 'mata', [0, 1, 2])
+
+parity_use.cnf	orden=inversa	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=71424	pred_mata_real_vive=29696	pred_vive_real_mata=0	pred_vive_real_vive=17696
+   por nodos:	pred_mata_real_mata=32864	pred_mata_real_vive=0	pred_vive_real_mata=38560	pred_vive_real_vive=47392
+   propagación:	pred_mata_real_mata=63200	pred_mata_real_vive=0	pred_vive_real_mata=8224	pred_vive_real_vive=47392	tríos_sin_conflicto_por_UP=0
+   tríos fantasma=2528	con algún λ que cumple la condición de nodos=2528
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 17, 'x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 18, '¬x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 19, 'fusión', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 17, 'x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 18, '¬x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 19, 'fusión', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (11, 'x6')], 17, 'x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (11, 'x6')], 18, '¬x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (11, 'x6')], 19, 'fusión', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (12, '¬x6')], 17, 'x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (12, '¬x6')], 18, '¬x9', 'mata', [3, 6])
+   fallo de la regla de propagación (cláusula, ventana, nodos, λ, lee, real, cláusulas usadas): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (12, '¬x6')], 19, 'fusión', 'mata', [3, 6])

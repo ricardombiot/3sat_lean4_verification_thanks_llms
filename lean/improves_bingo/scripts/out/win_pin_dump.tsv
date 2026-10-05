@@ -1,0 +1,60 @@
+
+chain4_cross.cnf	orden=cadena	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=10056	pred_mata_real_vive=9648	pred_vive_real_mata=0	pred_vive_real_vive=9864
+   por nodos:	pred_mata_real_mata=4320	pred_mata_real_vive=0	pred_vive_real_mata=5736	pred_vive_real_vive=19512
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 11, 'x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 12, '¬x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 13, 'x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 14, '¬x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 24, 'c1.1(x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 25, 'c1.2(x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (17, 'x9')], 26, 'c2.0(¬x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (18, '¬x9')], 11, 'x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (18, '¬x9')], 12, '¬x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (18, '¬x9')], 13, 'x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (18, '¬x9')], 14, '¬x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(3, 'x2'), (9, 'x5'), (18, '¬x9')], 24, 'c1.1(x5)', 'mata')
+
+parity_use.cnf	orden=cadena	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=1472	pred_mata_real_vive=384	pred_vive_real_mata=0	pred_vive_real_vive=1152
+   por nodos:	pred_mata_real_mata=320	pred_mata_real_vive=0	pred_vive_real_mata=1152	pred_vive_real_vive=1536
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 3, 'x2', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 4, '¬x2', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 13, 'x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 14, '¬x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 15, 'x8', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 16, '¬x8', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 33, 'c4.1(¬x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 34, 'c4.2(¬x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 35, 'c5.0(¬x9)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 36, 'c5.1(x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 37, 'c5.2(x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (0, (0, 0, 1), [(5, 'x3'), (7, 'x4'), (11, 'x6')], 38, 'c6.0(x9)', 'mata')
+
+chain4_cross.cnf	orden=inversa	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=8524	pred_mata_real_vive=8360	pred_vive_real_mata=0	pred_vive_real_vive=9100
+   por nodos:	pred_mata_real_mata=3136	pred_mata_real_vive=0	pred_vive_real_mata=5388	pred_vive_real_vive=17460
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 11, 'x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 12, '¬x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 13, 'x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 14, '¬x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 24, 'c1.1(x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 25, 'c1.2(x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 26, 'c2.0(¬x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 11, 'x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 12, '¬x6', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 13, 'x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 14, '¬x7', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (2, (1, 0, 1), [(1, 'x1'), (5, 'x3'), (10, '¬x5')], 24, 'c1.1(x5)', 'mata')
+
+parity_use.cnf	orden=inversa	nodos_fantasma=0	parejas_fantasma=0	pred_mata_real_mata=71424	pred_mata_real_vive=29696	pred_vive_real_mata=0	pred_vive_real_vive=17696
+   por nodos:	pred_mata_real_mata=32864	pred_mata_real_vive=0	pred_vive_real_mata=38560	pred_vive_real_vive=47392
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 17, 'x9', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 18, '¬x9', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 19, 'fusión', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 33, 'c4.1(¬x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 34, 'c4.2(¬x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 35, 'c5.0(¬x9)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 36, 'c5.1(x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 37, 'c5.2(x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 38, 'c6.0(x9)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 39, 'c6.1(¬x5)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 40, 'c6.2(x7)', 'mata')
+   fallo de la predicción por nodos (cláusula, ventana, nodos del trío, λ, lee, real): (8, (0, 0, 1), [(1, 'x1'), (5, 'x3'), (9, 'x5')], 41, 'c7.0(x9)', 'mata')
