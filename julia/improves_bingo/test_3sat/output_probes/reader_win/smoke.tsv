@@ -1,0 +1,3 @@
+instance	truth	finals	det_n	det_ok	det_stuck	det_bad	rnd_n	rnd_ok	rnd_stuck	rnd_bad	secs
+star2_pad.cnf	true	1	3	3	0	0	15	15	0	0	131.5
+unsat3_pad.cnf	false	0	0	0	0	0	0	0	0	0	0.3
