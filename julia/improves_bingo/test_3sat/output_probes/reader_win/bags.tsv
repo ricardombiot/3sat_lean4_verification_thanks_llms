@@ -1,0 +1,3 @@
+instance	truth	finals	det_n	det_ok	det_stuck	det_bad	rnd_n	rnd_ok	rnd_stuck	rnd_bad	secs
+tri.cnf	true	1	3	3	0	0	30	30	0	0	5.2
+tri_td.cnf	true	1	3	3	0	0	30	30	0	0	8018.7
