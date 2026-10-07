@@ -189,3 +189,4 @@ import AbsSatBingo.Model.ForbidOnForestPeg
 import AbsSatBingo.Model.ForbidOnPad
 import AbsSatBingo.Model.ForbidOnPadLines
 import AbsSatBingo.Model.ForbidOnBagTree
+import AbsSatBingo.Model.ForbidOnBagPad
