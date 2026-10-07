@@ -1,0 +1,5 @@
+c triangulo con orejas (triCnf en ForbidOnBagPad.lean): ciclo x1 - C1 - x2 - C2 - x3 - C3 - x1
+p cnf 6 3
+1 -4 -2 0
+2 -5 -3 0
+3 -6 -1 0
