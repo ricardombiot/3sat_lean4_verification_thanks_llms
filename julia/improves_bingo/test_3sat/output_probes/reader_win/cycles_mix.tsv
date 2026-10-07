@@ -1,0 +1,5 @@
+instance	truth	finals	det_n	det_ok	det_stuck	det_bad	rnd_n	rnd_ok	rnd_stuck	rnd_bad	secs
+clause_mix.cnf	true	1	3	3	0	0	30	30	0	0	9.9
+clause_mix_sep.cnf	true	1	3	3	0	0	30	30	0	0	54.3
+clause_mix.cnf	true	1	3	3	0	0	30	30	0	0	10.1
+clause_mix_sep.cnf	true	1	3	3	0	0	30	30	0	0	56.0
