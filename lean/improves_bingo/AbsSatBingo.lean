@@ -187,3 +187,4 @@ import AbsSatBingo.Model.ForbidOnGluePegF
 import AbsSatBingo.Model.ForbidOnIncForest
 import AbsSatBingo.Model.ForbidOnForestPeg
 import AbsSatBingo.Model.ForbidOnPad
+import AbsSatBingo.Model.ForbidOnPadLines
