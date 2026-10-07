@@ -1,0 +1,9 @@
+instance	truth	finals	det_n	det_ok	det_stuck	det_bad	rnd_n	rnd_ok	rnd_stuck	rnd_bad	secs
+deep4.cnf	true	1	3	3	0	0	30	30	0	0	108.0
+deep4_pad.cnf	true	1	3	3	0	0	30	30	0	0	6213.0
+star2.cnf	true	1	3	3	0	0	30	30	0	0	1.2
+tree3.cnf	true	1	3	3	0	0	30	30	0	0	5.2
+tree3_pad.cnf	true	1	3	3	0	0	30	30	0	0	549.9
+tree9.cnf	true	1	3	3	0	0	30	30	0	0	57.7
+tree9_pad.cnf	true	1	3	3	0	0	30	30	0	0	3450.3
+unsat3.cnf	false	0	0	0	0	0	0	0	0	0	0.0
